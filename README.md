@@ -18,10 +18,10 @@ Supported Models and Functions
 | **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   |                       |
 | **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   |                       |
 | **JAX**   | Activation Function| `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu |
-| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ❌ Pending   |                       |
-| **JAX**   | Activation Function| `jax.nn.tanh`              | ❌ Pending   |  |
-| **JAX**   | Activation Function| `jax.nn.softmax`           | ❌ Pending   |  |
-| **JAX**   | Activation Function| `jax.nn.gelu`              | ❌ Pending   | |
+| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ✅ Supported   |                       |
+| **JAX**   | Activation Function| `jax.nn.tanh`              | ✅ Supported  |  |
+| **JAX**   | Activation Function| `jax.nn.softmax`           | ✅ Supported   |  |
+| **JAX**   | Activation Function| `jax.nn.gelu`              | ✅ Supported   | |
 | **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   |  |
 | **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   |  |
 
