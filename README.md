@@ -26,7 +26,7 @@ Current Versions
 * JAX: 0.4.38
 * Flax: 0.10.2
 * ONNX: 1.17.0
-  (Note: for more details look into the `pyproject.toml` file)
+(Note: for more details look into the `pyproject.toml` file)
 
 Examples
 
