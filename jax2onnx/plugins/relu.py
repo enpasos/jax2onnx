@@ -17,3 +17,11 @@ def build_onnx_node(example_input, input_name, nodes, parameters, counter):
     return f'{node1_name}_output'
 
 jax.nn.relu.build_onnx_node = build_onnx_node
+
+def get_test_params():
+    return {
+        "model_name": "relu",
+        "model": lambda: lambda x: jax.nn.relu(x),
+        "input_shape": (1, 10),
+        "build_onnx_node": lambda example_input, input_name, nodes, parameters, counter: jax.nn.relu.build_onnx_node(example_input, input_name, nodes, parameters, counter),
+    }
