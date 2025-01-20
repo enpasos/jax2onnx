@@ -39,10 +39,12 @@ def build_onnx_node(self, example_input, input_name, nodes, parameters, counter)
 nnx.Linear.build_onnx_node = build_onnx_node
 
 def get_test_params():
-    return {
-        "model_name": "linear",
-        "model": lambda: nnx.Linear(5, 3, rngs=nnx.Rngs(0)),
-        "input_shape": (1, 5),
-        "build_onnx_node": None
-    }
-
+    # Return a list of dictionaries
+    return [
+        {
+            "model_name": "linear",
+            "model": lambda: nnx.Linear(5, 3, rngs=nnx.Rngs(0)),
+            "input_shape": (1, 5),
+            "build_onnx_node": nnx.Linear.build_onnx_node
+        }
+    ]

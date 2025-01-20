@@ -19,9 +19,12 @@ class MLP(nnx.Module):
 
 
 def get_test_params():
-    return {
+    # Return a list of dictionaries
+    return [
+        {
         "model_name": "mlp",
         "model": lambda: MLP(30, 10),
         "input_shape": (1, 30),
         "build_onnx_node": None,
-    }
+         }
+    ]
