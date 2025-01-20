@@ -41,13 +41,14 @@ def build_leaky_relu_onnx_node(example_input, input_name, nodes, parameters, cou
     # Extract alpha from parameters or use default
     alpha = next((param['alpha'] for param in parameters if 'alpha' in param), 0.01)
 
+
     nodes.append(
         oh.make_node(
             'LeakyRelu',
             inputs=[input_name],
             outputs=[f'{node_name}_output'],
             name=node_name,
-            alpha=alpha,
+            alpha=alpha
         )
     )
     return f'{node_name}_output'
@@ -108,33 +109,33 @@ def build_elu_onnx_node(example_input, input_name, nodes, parameters, counter):
 
 jax.nn.elu.build_onnx_node = build_elu_onnx_node
 
-def build_hard_sigmoid_onnx_node(example_input, input_name, nodes, parameters, counter):
-    node_name = f"node{counter[0]}"
-    counter[0] += 1
-
-    alpha = 0.2  # Slope
-    beta = 0.5   # Intercept
-
-    nodes.append(
-        oh.make_node(
-            'HardSigmoid',
-            inputs=[input_name],
-            outputs=[f'{node_name}_output'],
-            name=node_name,
-            alpha=alpha,
-            beta=beta,
-        )
-    )
-    return f'{node_name}_output'
-
-jax.nn.hard_sigmoid.build_onnx_node = build_hard_sigmoid_onnx_node
+# def build_hard_sigmoid_onnx_node(example_input, input_name, nodes, parameters, counter):
+#     node_name = f"node{counter[0]}"
+#     counter[0] += 1
+#
+#     alpha = 0.2  # Slope
+#     beta = 0.5   # Intercept
+#
+#     nodes.append(
+#         oh.make_node(
+#             'HardSigmoid',
+#             inputs=[input_name],
+#             outputs=[f'{node_name}_output'],
+#             name=node_name,
+#             alpha=alpha,
+#             beta=beta,
+#         )
+#     )
+#     return f'{node_name}_output'
+#
+# jax.nn.hard_sigmoid.build_onnx_node = build_hard_sigmoid_onnx_node
 
 
 
 
 # Hard Swish (alias for Hard Sigmoid)
-jax.nn.hard_silu.build_onnx_node = jax.nn.hard_sigmoid.build_onnx_node
-jax.nn.hard_swish.build_onnx_node = jax.nn.hard_sigmoid.build_onnx_node
+# jax.nn.hard_silu.build_onnx_node = jax.nn.hard_sigmoid.build_onnx_node
+# jax.nn.hard_swish.build_onnx_node = jax.nn.hard_sigmoid.build_onnx_node
 
 # Softplus
 jax.nn.softplus.build_onnx_node = lambda example_input, input_name, nodes, parameters, counter: \
@@ -197,13 +198,13 @@ def get_test_params():
             "input_shape": (1, 10),
             "build_onnx_node": jax.nn.elu.build_onnx_node,
         },
-        {
-            "model_name": "hard_sigmoid",
-            "model": lambda: lambda x: jax.nn.hard_sigmoid(x),
-            "input_shape": (1, 10),
-            "build_onnx_node": jax.nn.hard_sigmoid.build_onnx_node,
-        }
-        ,
+        # {
+        #     "model_name": "hard_sigmoid",
+        #     "model": lambda: lambda x: jax.nn.hard_sigmoid(x),
+        #     "input_shape": (1, 10),
+        #     "build_onnx_node": jax.nn.hard_sigmoid.build_onnx_node,
+        # }
+        # ,
         {
             "model_name": "softplus",
             "model": lambda: lambda x: jax.nn.softplus(x),
