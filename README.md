@@ -1,8 +1,45 @@
 # jax2onnx
-export JAX to ONNX - focus on flax nnx models
 
-## Platform tested
-Python: 3.12.5
-Poetry: 2.0.1  
+## Overview
+`jax2onnx` is a library designed to facilitate the conversion of models and functions implemented in JAX/Flax into the ONNX format. This allows seamless integration of JAX/Flax models with other machine learning tools and frameworks that support ONNX.
 
+Supported Models and Functions
+
+| Framework | Component Type     | Component Name             | Status      | Notes                               |
+|-----------|--------------------|----------------------------|-------------|-------------------------------------|
+| **Flax**  | Module             | `flax.nnx.Linear`          | ✅ Supported | Converts to ONNX Gemm               |
+| **Flax**  | Module             | `flax.nnx.Conv`            | ❌ Pending   | Support planned in future versions  |
+| **Flax**  | Module             | `flax.nnx.ConvTranspose`   | ❌ Pending   | Support planned in future versions  |
+| **Flax**  | Module             | `flax.nnx.MultiHeadAttention` | ❌ Pending | Complex structure requires custom handling |
+| **Flax**  | Module             | `flax.nnx.LayerNorm`       | ❌ Pending   | Support planned in future versions  |
+| **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   | Support planned in future versions  |
+| **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   | Requires custom ONNX handling       |
+| **JAX**   | Activation Function| `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu               |
+| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ❌ Pending   | Currently unsupported               |
+| **JAX**   | Activation Function| `jax.nn.tanh`              | ❌ Pending   | Currently unsupported               |
+| **JAX**   | Activation Function| `jax.nn.softmax`           | ❌ Pending   | Currently unsupported               |
+| **JAX**   | Activation Function| `jax.nn.gelu`              | ❌ Pending   | Currently unsupported               |
+| **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   | Currently unsupported               |
+| **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   | Currently unsupported               |
+
+
+## How to Contribute
+
+If you'd like to see a model or function supported, consider contributing by adding a plugin under the `jax2onnx/plugins` directory. Refer to the [contributing guide](#) for details.
+
+## Installation
+
+To install `jax2onnx`, use the following command (t.b.d.):
+
+```bash
+pip install jax2onnx  
+```
+
+## Usage
+t.b.d.
  
+
+## License
+
+This project is licensed under the terms of the MIT license. See the `LICENSE` file for details.
+
