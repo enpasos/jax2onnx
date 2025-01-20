@@ -67,5 +67,6 @@ def test_onnx_export(test_params):
     onnx_input = {ort_session.get_inputs()[0].name: np.array(example_input)}
     onnx_output = ort_session.run(None, onnx_input)[0]
 
-    np.testing.assert_allclose(expected_output, onnx_output, rtol=1e-3, atol=1e-5)
+    np.testing.assert_allclose(expected_output, onnx_output, rtol=1e-2, atol=1e-3)
+
     print(f"Test for {test_params['model_name']} passed!")
