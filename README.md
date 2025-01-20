@@ -5,22 +5,22 @@
 
 Supported Models and Functions
 
-| Framework | Component Type     | Component Name             | Status      | Notes                               |
-|-----------|--------------------|----------------------------|-------------|-------------------------------------|
-| **Flax**  | Module             | `flax.nnx.Linear`          | ✅ Supported | Converts to ONNX Gemm               |
-| **Flax**  | Module             | `flax.nnx.Conv`            | ❌ Pending   | Support planned in future versions  |
-| **Flax**  | Module             | `flax.nnx.ConvTranspose`   | ❌ Pending   | Support planned in future versions  |
-| **Flax**  | Module             | `flax.nnx.MultiHeadAttention` | ❌ Pending | Complex structure requires custom handling |
-| **Flax**  | Module             | `flax.nnx.LayerNorm`       | ❌ Pending   | Support planned in future versions  |
-| **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   | Support planned in future versions  |
-| **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   | Requires custom ONNX handling       |
-| **JAX**   | Activation Function| `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu               |
-| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ❌ Pending   | Currently unsupported               |
-| **JAX**   | Activation Function| `jax.nn.tanh`              | ❌ Pending   | Currently unsupported               |
-| **JAX**   | Activation Function| `jax.nn.softmax`           | ❌ Pending   | Currently unsupported               |
-| **JAX**   | Activation Function| `jax.nn.gelu`              | ❌ Pending   | Currently unsupported               |
-| **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   | Currently unsupported               |
-| **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   | Currently unsupported               |
+| Framework | Component Type     | Component Name             | Status      | Notes                 |
+|-----------|--------------------|----------------------------|-------------|-----------------------|
+| **Flax**  | Module             | `flax.nnx.Linear`          | ✅ Supported | Converts to ONNX Gemm |
+| **Flax**  | Module             | `flax.nnx.Conv`            | ❌ Pending   |                       |
+| **Flax**  | Module             | `flax.nnx.ConvTranspose`   | ❌ Pending   |                       |
+| **Flax**  | Module             | `flax.nnx.MultiHeadAttention` | ❌ Pending |                       |
+| **Flax**  | Module             | `flax.nnx.LayerNorm`       | ❌ Pending   |                       |
+| **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   |                       |
+| **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   |                       |
+| **JAX**   | Activation Function| `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu |
+| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ❌ Pending   |                       |
+| **JAX**   | Activation Function| `jax.nn.tanh`              | ❌ Pending   |  |
+| **JAX**   | Activation Function| `jax.nn.softmax`           | ❌ Pending   |  |
+| **JAX**   | Activation Function| `jax.nn.gelu`              | ❌ Pending   | |
+| **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   |  |
+| **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   |  |
 
 
 ## How to Contribute
