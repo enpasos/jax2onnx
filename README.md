@@ -1,40 +1,40 @@
 # jax2onnx
 
 ## Overview
-"Jax2onnx" is a tool that converts models and functions used in JAX/Flax directly into the ONNX format. 
+"jax2onnx" is a tool that converts models and functions used in JAX/Flax directly into the ONNX format. 
 It does this without using other AI libraries first. This gives you more control to convert JAX/Flax to ONNX. 
 You can then use them with other machine learning tools and frameworks that support ONNX. If something is missing, 
 you can easily add it yourself — provided it is supported yet by ONNX.
 
 Supported Models and Functions
 
-| Framework | Component Type     | Component Name             | Status      | Notes                 |
-|-----------|--------------------|----------------------------|-------------|-----------------------|
-| **Flax**  | Module             | `flax.nnx.Linear`          | ✅ Supported | Converts to ONNX Gemm |
-| **Flax**  | Module             | `flax.nnx.Conv`            | ❌ Pending   |                       |
-| **Flax**  | Module             | `flax.nnx.ConvTranspose`   | ❌ Pending   |                       |
-| **Flax**  | Module             | `flax.nnx.MultiHeadAttention` | ❌ Pending |                       |
-| **Flax**  | Module             | `flax.nnx.LayerNorm`       | ❌ Pending   |                       |
-| **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   |                       |
-| **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   |                       |
-| **JAX**   | Activation Function | `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu |
-| **JAX**   | Activation Function | `jax.nn.sigmoid`           | ✅ Supported | Converts to ONNX Sigmoid |
-| **JAX**   | Activation Function | `jax.nn.tanh`              | ✅ Supported | Converts to ONNX Tanh |
-| **JAX**   | Activation Function | `jax.nn.softmax`           | ✅ Supported | Converts to ONNX Softmax |
-| **JAX**   | Activation Function | `jax.nn.gelu`              | ✅ Supported | Converts to ONNX Gelu |
-| **JAX**   | Activation Function | `jax.nn.silu`              | ❌ Pending   | Also known as Swish |
-| **JAX**   | Activation Function | `jax.nn.leaky_relu`        | ✅ Supported | Converts to ONNX LeakyRelu |
-| **JAX**   | Activation Function | `jax.nn.celu`              | ❌ Pending   | Continuously-differentiable ELU |
-| **JAX**   | Activation Function | `jax.nn.elu`               | ❌ Pending   | Exponential Linear Unit |
-| **JAX**   | Activation Function | `jax.nn.glu`               | ❌ Pending   | Gated Linear Unit |
-| **JAX**   | Activation Function | `jax.nn.hard_sigmoid`      | ❌ Pending   | Hard Sigmoid Function |
-| **JAX**   | Activation Function | `jax.nn.hard_silu`         | ❌ Pending   | Hard SiLU (Swish) |
-| **JAX**   | Activation Function | `jax.nn.hard_swish`        | ❌ Pending   | Alias for Hard SiLU |
-| **JAX**   | Activation Function | `jax.nn.hard_tanh`         | ❌ Pending   | Hard Tanh Function |
-| **JAX**   | Activation Function | `jax.nn.log_sigmoid`       | ❌ Pending   | Log-Sigmoid Function |
-| **JAX**   | Activation Function | `jax.nn.log_softmax`       | ❌ Pending   | Log-Softmax Function |
-| **JAX**   | Activation Function | `jax.nn.soft_sign`         | ❌ Pending   | Soft Sign Function |
-| **JAX**   | Activation Function | `jax.nn.softplus`          | ❌ Pending   | Softplus Function |
+| Framework | Component Type      | Component Name             | Status                          | Notes                              |
+|-----------|---------------------|----------------------------|----------------------------------|------------------------------------|
+| **Flax**  | Module              | `flax.nnx.Linear`          | ✅ Supported                     | Converts to ONNX Gemm              |
+| **Flax**  | Module              | `flax.nnx.Conv`            | ❌ Pending                       |                                    |
+| **Flax**  | Module              | `flax.nnx.ConvTranspose`   | ❌ Pending                       |                                    |
+| **Flax**  | Module              | `flax.nnx.MultiHeadAttention` | ❌ Pending                    |                                    |
+| **Flax**  | Module              | `flax.nnx.LayerNorm`       | ❌ Pending                       |                                    |
+| **Flax**  | Module              | `flax.nnx.BatchNorm`       | ❌ Pending                       |                                    |
+| **Flax**  | Module              | `flax.nnx.Dropout`         | ❌ Pending                       |                                    |
+| **JAX**   | Activation Function | `jax.nn.relu`              | ✅ Supported                     | Converts to ONNX Relu              |
+| **JAX**   | Activation Function | `jax.nn.sigmoid`           | ✅ Supported                     | Converts to ONNX Sigmoid           |
+| **JAX**   | Activation Function | `jax.nn.tanh`              | ✅ Supported                     | Converts to ONNX Tanh              |
+| **JAX**   | Activation Function | `jax.nn.softmax`           | ✅ Supported                     | Converts to ONNX Softmax           |
+| **JAX**   | Activation Function | `jax.nn.gelu`              | ✅ Supported                     | Converts to ONNX Gelu              |
+| **JAX**   | Activation Function | `jax.nn.silu`              | ❌ Pending                       | Also known as Swish                |
+| **JAX**   | Activation Function | `jax.nn.leaky_relu`        | ✅ Supported                     | Converts to ONNX LeakyRelu         |
+| **JAX**   | Activation Function | `jax.nn.celu`              | ✅ Supported                     | Converts to ONNX Celu              |
+| **JAX**   | Activation Function | `jax.nn.elu`               | ✅ Supported                     | Converts to ONNX Elu               |
+| **JAX**   | Activation Function | `jax.nn.glu`               | ❌ Pending                       | Gated Linear Unit                  |
+| **JAX**   | Activation Function | `jax.nn.hard_sigmoid`      | ⚠️ Implemented, runs but fails | Fails error tolerance during testing |
+| **JAX**   | Activation Function | `jax.nn.hard_silu`         | ❌ Pending                       | Hard SiLU (Swish)                  |
+| **JAX**   | Activation Function | `jax.nn.hard_swish`        | ❌ Pending                       | Alias for Hard SiLU                |
+| **JAX**   | Activation Function | `jax.nn.hard_tanh`         | ❌ Pending                       | Hard Tanh Function                 |
+| **JAX**   | Activation Function | `jax.nn.log_sigmoid`       | ❌ Pending                       | Log-Sigmoid Function               |
+| **JAX**   | Activation Function | `jax.nn.log_softmax`       | ❌ Pending                       | Log-Softmax Function               |
+| **JAX**   | Activation Function | `jax.nn.soft_sign`         | ✅ Supported                     | Converts to ONNX Softsign          |
+| **JAX**   | Activation Function | `jax.nn.softplus`          | ✅ Supported                     | Converts to ONNX Softplus          |
 
 
 Current Versions
