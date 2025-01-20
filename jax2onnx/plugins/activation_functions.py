@@ -38,7 +38,9 @@ def build_leaky_relu_onnx_node(example_input, input_name, nodes, parameters, cou
     node_name = f"node{counter[0]}"
     counter[0] += 1
 
-    alpha = parameters.get('alpha', 0.01)  # Default alpha value for LeakyRelu
+    # Extract alpha from parameters or use default
+    alpha = next((param['alpha'] for param in parameters if 'alpha' in param), 0.01)
+
     nodes.append(
         oh.make_node(
             'LeakyRelu',
@@ -49,6 +51,7 @@ def build_leaky_relu_onnx_node(example_input, input_name, nodes, parameters, cou
         )
     )
     return f'{node_name}_output'
+
 
 jax.nn.leaky_relu.build_onnx_node = build_leaky_relu_onnx_node
 
@@ -101,6 +104,7 @@ def get_test_params():
             "model": lambda: lambda x: jax.nn.leaky_relu(x),
             "input_shape": (1, 10),
             "build_onnx_node": jax.nn.leaky_relu.build_onnx_node,
+            "parameters": [{"alpha": 0.1}],  # Example alpha value
         },
         {
             "model_name": "gelu",

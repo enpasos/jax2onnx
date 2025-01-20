@@ -17,13 +17,25 @@ Supported Models and Functions
 | **Flax**  | Module             | `flax.nnx.LayerNorm`       | ❌ Pending   |                       |
 | **Flax**  | Module             | `flax.nnx.BatchNorm`       | ❌ Pending   |                       |
 | **Flax**  | Module             | `flax.nnx.Dropout`         | ❌ Pending   |                       |
-| **JAX**   | Activation Function| `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu |
-| **JAX**   | Activation Function| `jax.nn.sigmoid`           | ✅ Supported   |                       |
-| **JAX**   | Activation Function| `jax.nn.tanh`              | ✅ Supported  |  |
-| **JAX**   | Activation Function| `jax.nn.softmax`           | ✅ Supported   |  |
-| **JAX**   | Activation Function| `jax.nn.gelu`              | ✅ Supported   | |
-| **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   |  |
-| **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   |  |
+| **JAX**   | Activation Function | `jax.nn.relu`              | ✅ Supported | Converts to ONNX Relu |
+| **JAX**   | Activation Function | `jax.nn.sigmoid`           | ✅ Supported | Converts to ONNX Sigmoid |
+| **JAX**   | Activation Function | `jax.nn.tanh`              | ✅ Supported | Converts to ONNX Tanh |
+| **JAX**   | Activation Function | `jax.nn.softmax`           | ✅ Supported | Converts to ONNX Softmax |
+| **JAX**   | Activation Function | `jax.nn.gelu`              | ✅ Supported | Converts to ONNX Gelu |
+| **JAX**   | Activation Function | `jax.nn.silu`              | ❌ Pending   | Also known as Swish |
+| **JAX**   | Activation Function | `jax.nn.leaky_relu`        | ✅ Supported | Converts to ONNX LeakyRelu |
+| **JAX**   | Activation Function | `jax.nn.celu`              | ❌ Pending   | Continuously-differentiable ELU |
+| **JAX**   | Activation Function | `jax.nn.elu`               | ❌ Pending   | Exponential Linear Unit |
+| **JAX**   | Activation Function | `jax.nn.glu`               | ❌ Pending   | Gated Linear Unit |
+| **JAX**   | Activation Function | `jax.nn.hard_sigmoid`      | ❌ Pending   | Hard Sigmoid Function |
+| **JAX**   | Activation Function | `jax.nn.hard_silu`         | ❌ Pending   | Hard SiLU (Swish) |
+| **JAX**   | Activation Function | `jax.nn.hard_swish`        | ❌ Pending   | Alias for Hard SiLU |
+| **JAX**   | Activation Function | `jax.nn.hard_tanh`         | ❌ Pending   | Hard Tanh Function |
+| **JAX**   | Activation Function | `jax.nn.log_sigmoid`       | ❌ Pending   | Log-Sigmoid Function |
+| **JAX**   | Activation Function | `jax.nn.log_softmax`       | ❌ Pending   | Log-Softmax Function |
+| **JAX**   | Activation Function | `jax.nn.soft_sign`         | ❌ Pending   | Soft Sign Function |
+| **JAX**   | Activation Function | `jax.nn.softplus`          | ❌ Pending   | Softplus Function |
+
 
 Current Versions
 * JAX: 0.4.38
