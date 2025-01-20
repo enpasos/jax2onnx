@@ -23,9 +23,15 @@ Supported Models and Functions
 | **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   |  |
 
 
+Examples
+
+ | Component Name | Status      | Notes           |
+ |----------------|-------------|-----------------|
+ | `MLP`          | ✅ Supported | Linear and Relu |
+
 ## How to Contribute
 
-If you'd like to see a model or function supported, consider contributing by adding a plugin under the `jax2onnx/plugins` directory. Refer to the [contributing guide](#) for details.
+If you'd like to see a model or function supported, consider contributing by adding a plugin under the `jax2onnx/plugins` directory.  
 
 ## Installation
 
