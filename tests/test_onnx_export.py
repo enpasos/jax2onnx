@@ -1,4 +1,3 @@
-import os
 import jax
 import numpy as np
 import pytest
@@ -6,11 +5,7 @@ import onnxruntime as ort
 from flax import nnx
 from jax2onnx.onnx_export import export_to_onnx
 
-# Fixture to ensure output directory exists
-@pytest.fixture(scope="session", autouse=True)
-def setup_output_dir():
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
+
 
 def test_linear():
     seed = 0
