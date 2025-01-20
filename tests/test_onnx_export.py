@@ -4,8 +4,9 @@ import numpy as np
 import onnxruntime as ort
 import importlib
 import pkgutil
-from jax2onnx.onnx_export import export_to_onnx
 import os
+
+from jax2onnx.onnx_export import export_to_onnx, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
 
 def load_test_params():
     params = []
@@ -44,6 +45,8 @@ def load_test_params():
     return [
         pytest.param(param, id=param["test_name"])
         for param in params
+        # filter only conv
+        # if param["model_name"] in ["conv"]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -55,6 +58,9 @@ def test_onnx_export(test_params):
     rng = jax.random.PRNGKey(seed)
     example_input = jax.random.normal(rng, input_shape)
 
+
+    onnx_input =    transpose_to_onnx(example_input)
+
     model_instance = model()
     expected_output = np.array(model_instance(example_input))
 
@@ -64,9 +70,11 @@ def test_onnx_export(test_params):
     export_to_onnx(model_instance, example_input, output_path=model_path, build_onnx_node=test_params["build_onnx_node"])
 
     ort_session = ort.InferenceSession(model_path)
-    onnx_input = {ort_session.get_inputs()[0].name: np.array(example_input)}
+
+    onnx_input = {ort_session.get_inputs()[0].name: np.array(onnx_input)}
     onnx_output = ort_session.run(None, onnx_input)[0]
 
-    np.testing.assert_allclose(expected_output, onnx_output, rtol=1e-2, atol=1e-3)
-
+    np.testing.assert_allclose(expected_output, transpose_to_jax(onnx_output ), rtol=1e-3, atol=1e-5)
     print(f"Test for {test_params['model_name']} passed!")
+
+
