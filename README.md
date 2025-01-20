@@ -1,5 +1,6 @@
 # jax2onnx
 
+## Overview
 `jax2onnx` is a library designed to facilitate the conversion of models and functions implemented in JAX/Flax into the ONNX format. This allows seamless integration of JAX/Flax models with other machine learning tools and frameworks that support ONNX.
 
 Supported Models and Functions
@@ -21,6 +22,11 @@ Supported Models and Functions
 | **JAX**   | Activation Function| `jax.nn.silu`              | ❌ Pending   |  |
 | **JAX**   | Activation Function| `jax.nn.leaky_relu`        | ❌ Pending   |  |
 
+Current Versions
+* JAX: 0.4.38
+* Flax: 0.10.2
+* ONNX: 1.17.0
+  (Note: for more details look into the `pyproject.toml` file)
 
 Examples
 
