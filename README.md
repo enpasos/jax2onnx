@@ -1,7 +1,10 @@
 # jax2onnx
 
 ## Overview
-`jax2onnx` is a library designed to facilitate the conversion of models and functions implemented in JAX/Flax into the ONNX format. This allows seamless integration of JAX/Flax models with other machine learning tools and frameworks that support ONNX.
+"Jax2onnx" is a tool that converts models and functions used in JAX/Flax directly into the ONNX format. 
+It does this without using other AI libraries first. This gives you more control to convert JAX/Flax to ONNX. 
+You can then use them with other machine learning tools and frameworks that support ONNX. If something is missing, 
+you can easily add it yourself — provided it is supported yet by ONNX.
 
 Supported Models and Functions
 
