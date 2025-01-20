@@ -36,7 +36,9 @@ Examples
 
 ## How to Contribute
 
-If you'd like to see a model or function supported, consider contributing by adding a plugin under the `jax2onnx/plugins` directory.  
+If you'd like to see a model or function supported, consider contributing by adding a plugin for an existing   
+module or function under the `jax2onnx/plugins` directory. Or you can add an example to the `examples` directory. 
+Certainly any other improvements are welcome as well.
 
 ## Installation
 
