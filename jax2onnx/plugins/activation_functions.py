@@ -131,6 +131,52 @@ def build_elu_onnx_node(example_input, input_name, nodes, parameters, counter):
 
 jax.nn.elu.build_onnx_node = build_elu_onnx_node
 
+# Numerically stable LogSigmoid using -Softplus(-x)
+def build_log_sigmoid_onnx_node(example_input, input_name, nodes, parameters, counter):
+    negate_node_name = f"node{counter[0]}"
+    counter[0] += 1
+
+    softplus_node_name = f"node{counter[0]}"
+    counter[0] += 1
+
+    negate_output = f"{negate_node_name}_output"
+    nodes.append(
+        oh.make_node(
+            'Neg',
+            inputs=[input_name],
+            outputs=[negate_output],
+            name=negate_node_name,
+        )
+    )
+
+    softplus_output = f"{softplus_node_name}_output"
+    nodes.append(
+        oh.make_node(
+            'Softplus',
+            inputs=[negate_output],
+            outputs=[softplus_output],
+            name=softplus_node_name,
+        )
+    )
+
+    final_negate_node_name = f"node{counter[0]}"
+    counter[0] += 1
+
+    final_output = f"{final_negate_node_name}_output"
+    nodes.append(
+        oh.make_node(
+            'Neg',
+            inputs=[softplus_output],
+            outputs=[final_output],
+            name=final_negate_node_name,
+        )
+    )
+
+    return final_output
+
+jax.nn.log_sigmoid.build_onnx_node = build_log_sigmoid_onnx_node
+
+
 # def build_hard_sigmoid_onnx_node(example_input, input_name, nodes, parameters, counter):
 #     node_name = f"node{counter[0]}"
 #     counter[0] += 1
@@ -245,6 +291,12 @@ def get_test_params():
             "input_shape": (1, 10),
             "build_onnx_node": jax.nn.log_softmax.build_onnx_node,
             "parameters": [{"axis": -1}],
+        },
+        {
+            "model_name": "log_sigmoid",
+            "model": lambda: lambda x: jax.nn.log_sigmoid(x),
+            "input_shape": (1, 10),
+            "build_onnx_node": jax.nn.log_sigmoid.build_onnx_node,
         },
 
     ]
