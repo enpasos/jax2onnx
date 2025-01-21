@@ -35,6 +35,8 @@ Supported Models and Functions
 | [`jax.nn.log_softmax`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.log_softmax)                       | [ONNX LogSoftmax](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html)                        | ✅ Supported  |
 | [`jax.nn.soft_sign`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.soft_sign)                           | [ONNX SoftSign](https://onnx.ai/onnx/operators/onnx__Softsign.html)                            | ✅ Supported  |
 | [`jax.nn.softplus`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.softplus)                             | [ONNX Softplus](https://onnx.ai/onnx/operators/onnx__Softplus.html)                            | ✅ Supported  |
+| [`jax.numpy.add`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html)                           | [ONNX Add](https://onnx.ai/onnx/operators/onnx__Add.html)                                      | ❌ Pending  |
+| [`jax.numpy.identity`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.identity.html)                 | [ONNX Identity](https://onnx.ai/onnx/operators/onnx__Identity.html)                           | ❌ Pending  |
 
 Current Versions
 * JAX: 0.4.38
