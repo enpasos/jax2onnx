@@ -50,7 +50,7 @@ def get_test_params():
         {
             "model_name": "layernorm",
             "model": lambda: nnx.LayerNorm(num_features=64, epsilon=1e-5, rngs=nnx.Rngs(0)),
-            "input_shape": (1, 10, 64),
+            "input_shapes": [(1, 10, 64)],
             "build_onnx_node": nnx.LayerNorm.build_onnx_node,
         }
     ]

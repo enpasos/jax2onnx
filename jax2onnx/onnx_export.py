@@ -1,4 +1,4 @@
-# jax2onnx/onnx_export.py
+# file: jax2onnx/onnx_export.py
 import onnx
 import onnx.helper as oh
 import importlib
@@ -18,14 +18,19 @@ def load_plugins():
     return plugins
 
 
-def export_to_onnx(model, jax_input, output_path="model.onnx", build_onnx_node=False):
+def export_to_onnx(model, jax_inputs, output_path="model.onnx", build_onnx_node=False):
     nnx.Module.build_onnx_node = lambda self, jax_input, nodes, parameters, counter: None
     plugins = load_plugins()
 
-    jax_output = model(jax_input)
 
-    input_shape = jax_shape_to_onnx_shape(jax_input.shape)
-    output_shape = jax_shape_to_onnx_shape(jax_output.shape)
+
+    # wenn jax_input array, dann den ersten Eintrag
+    # jax_input = jax_inputs[0] if isinstance(jax_inputs, list) else jax_inputs
+
+    jax_output = model(*jax_inputs)
+
+    input_shape = jax_shape_to_onnx_shape(jax_inputs[0].shape)
+    output_shape = jax_shape_to_onnx_shape(jax_output[0].shape)
 
     input_tensor = oh.make_tensor_value_info("input", onnx.TensorProto.FLOAT, input_shape)
     nodes = []
@@ -33,8 +38,8 @@ def export_to_onnx(model, jax_input, output_path="model.onnx", build_onnx_node=F
 
     counter = [0]
     # in case model.build_onnx_node is not implemented, build_onnx_node must be present and is used to build the ONNX graph
-    output_name = model.build_onnx_node(jax_input, "input", nodes, initializers, counter) if hasattr(model, "build_onnx_node") \
-        else build_onnx_node(jax_input, "input", nodes, initializers, counter)
+    output_name = model.build_onnx_node(jax_inputs[0], "input", nodes, initializers, counter) if hasattr(model, "build_onnx_node") \
+        else build_onnx_node(jax_inputs[0], "input", nodes, initializers, counter)
     output_tensor = oh.make_tensor_value_info(output_name, onnx.TensorProto.FLOAT, output_shape)
 
     graph_def = oh.make_graph(

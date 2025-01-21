@@ -70,7 +70,7 @@ def get_test_params():
         {
             "model_name": "batchnorm",
             "model": lambda: nnx.BatchNorm(num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)),
-            "input_shape": (11, 2, 2, 64),
+            "input_shapes": [(11, 2, 2, 64)],
             "build_onnx_node": nnx.BatchNorm.build_onnx_node,
         }
     ]

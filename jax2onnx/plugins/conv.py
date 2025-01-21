@@ -81,7 +81,7 @@ def get_test_params():
                 use_bias=True,
                 rngs=nnx.Rngs(0)
             ),
-            "input_shape": (1, 64, 64, 3),  # JAX shape: (B, H, W, C)
+            "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "build_onnx_node": nnx.Conv.build_onnx_node
         }
     ]
