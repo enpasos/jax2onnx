@@ -4,15 +4,15 @@ import onnx
 import numpy as np
 from flax import nnx
 
-def build_onnx_node(self, example_input, input_name, nodes, parameters, counter):
-    example_output = self(example_input)
+def build_onnx_node(self, jax_inputs, input_names, nodes, parameters, counter):
+    example_output = self(jax_inputs[0])
     output_shape = example_output.shape
     node1_name = f"node{counter[0]}"
     counter[0] += 1
 
     node = oh.make_node(
         'Gemm',
-        inputs=[input_name, f'{node1_name}_weight', f'{node1_name}_bias'],
+        inputs=[input_names[0], f'{node1_name}_weight', f'{node1_name}_bias'],
         outputs=[f'{node1_name}_output'],
         name=node1_name,
     )
@@ -34,7 +34,7 @@ def build_onnx_node(self, example_input, input_name, nodes, parameters, counter)
             self.bias.value.astype(np.float32)
         )
     )
-    return node.output[0]
+    return node.output
 
 nnx.Linear.build_onnx_node = build_onnx_node
 

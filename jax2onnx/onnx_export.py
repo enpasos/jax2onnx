@@ -27,26 +27,41 @@ def export_to_onnx(model, jax_inputs, output_path="model.onnx", build_onnx_node=
     # wenn jax_input array, dann den ersten Eintrag
     # jax_input = jax_inputs[0] if isinstance(jax_inputs, list) else jax_inputs
 
-    jax_output = model(*jax_inputs)
+    jax_outputs = model(*jax_inputs)
 
-    input_shape = jax_shape_to_onnx_shape(jax_inputs[0].shape)
-    output_shape = jax_shape_to_onnx_shape(jax_output[0].shape)
 
-    input_tensor = oh.make_tensor_value_info("input", onnx.TensorProto.FLOAT, input_shape)
+    # iterate over all jax_inputs and convert them to a list of inputTensors called inputs
+    inputs = []
+    input_names = []
+    for i, jax_input in enumerate(jax_inputs):
+        input_shape = jax_shape_to_onnx_shape(jax_input.shape)
+        intput_name = f"input_{i}"
+        input_names.append(intput_name)
+        inputs.append(oh.make_tensor_value_info(intput_name, onnx.TensorProto.FLOAT, input_shape))
+
     nodes = []
     initializers = []
 
     counter = [0]
     # in case model.build_onnx_node is not implemented, build_onnx_node must be present and is used to build the ONNX graph
-    output_name = model.build_onnx_node(jax_inputs[0], "input", nodes, initializers, counter) if hasattr(model, "build_onnx_node") \
-        else build_onnx_node(jax_inputs[0], "input", nodes, initializers, counter)
-    output_tensor = oh.make_tensor_value_info(output_name, onnx.TensorProto.FLOAT, output_shape)
+    # until now we have n : 1 mapping of jax_inputs to jax_outputs
+
+    output_names = model.build_onnx_node(jax_inputs, input_names, nodes, initializers, counter) if hasattr(model, "build_onnx_node") \
+        else build_onnx_node(jax_inputs, input_names, nodes, initializers, counter)
+
+    # iterate over all jax_outputs and convert them to a list of outputTensors called outputs
+    outputs = []
+    if len(output_names) == 1:
+        output_shape = jax_shape_to_onnx_shape(jax_outputs.shape)
+        outputs.append(oh.make_tensor_value_info(output_names[0], onnx.TensorProto.FLOAT, output_shape))
+    else:
+         raise ValueError("Multiple outputs not yet implemented")
 
     graph_def = oh.make_graph(
         nodes,
         "NNXExportGraph",
-        [input_tensor],
-        [output_tensor],
+        inputs,
+        outputs,
         initializers
     )
 
