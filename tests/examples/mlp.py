@@ -12,9 +12,9 @@ class MLP(nnx.Module):
         x = jax.nn.relu(x)
         return x
 
-    def build_onnx_node(self, example_input, input_name, nodes, parameters, counter):
-        output_name = self.layer.build_onnx_node(example_input, input_name, nodes, parameters, counter)
-        return jax.nn.relu.build_onnx_node(self.layer(example_input), output_name, nodes, parameters, counter)
+    def build_onnx_node(self, jax_inputs, input_names, nodes, parameters, counter):
+        output_name = self.layer.build_onnx_node(jax_inputs, input_names, nodes, parameters, counter)
+        return jax.nn.relu.build_onnx_node(self.layer(jax_inputs), output_name, nodes, parameters, counter)
 
 
 

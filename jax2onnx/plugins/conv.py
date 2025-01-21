@@ -5,10 +5,10 @@ import numpy as np
 from flax import nnx
 from jax2onnx.onnx_export import export_to_onnx, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
 
-def build_onnx_node(self, example_jax_input, input_name, nodes, parameters, counter):
+def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
     # Convert JAX input to ONNX format
-    example_onnx_input = transpose_to_onnx(example_jax_input)
-    example_output = self(example_jax_input)  # Keep this as JAX output for consistency
+    example_onnx_input = transpose_to_onnx(jax_inputs[0])
+    example_output = self(jax_inputs[0])  # Keep this as JAX output for consistency
 
     # Transpose the JAX output shape to ONNX format
     input_shape = example_onnx_input.shape
@@ -30,7 +30,7 @@ def build_onnx_node(self, example_jax_input, input_name, nodes, parameters, coun
     # Define Conv node with proper parameters
     conv_node = oh.make_node(
         'Conv',
-        inputs=[input_name, f'{node_name}_weight'] + ([f'{node_name}_bias'] if self.use_bias else []),
+        inputs=[input_names[0], f'{node_name}_weight'] + ([f'{node_name}_bias'] if self.use_bias else []),
         outputs=[f'{node_name}_output'],
         name=node_name,
         dilations=list(self.kernel_dilation),
@@ -61,7 +61,7 @@ def build_onnx_node(self, example_jax_input, input_name, nodes, parameters, coun
             )
         )
 
-    return conv_node.output[0]
+    return conv_node.output
 
 
 # Attach the build_onnx_node method to nnx.Conv

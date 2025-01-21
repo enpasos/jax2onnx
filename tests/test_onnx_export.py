@@ -57,7 +57,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in ["linear"]
+        # if param["model_name"] in ["batchnorm"]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -67,18 +67,16 @@ def test_onnx_export(test_params):
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
-    # Beispiel-Eingaben generieren
     jax_inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
 
-    # ONNX-Eingaben erstellen
     onnx_inputs = [transpose_to_onnx(input) for input in jax_inputs]
 
     model_instance = model()
     if hasattr(model_instance, "eval"):
         model_instance.eval()
 
-    # Modell mit mehreren Eingaben aufrufen
-    expected_output = model_instance(*jax_inputs)  # Beachten Sie den Stern!
+
+    expected_output = model_instance(*jax_inputs)
 
     model_path = f"output/{test_params['model_name']}_model.onnx"
     os.makedirs("output", exist_ok=True)
@@ -93,8 +91,13 @@ def test_onnx_export(test_params):
     #onnx_input = {ort_session.get_inputs()[0].name: jnp.array(onnx_inputs[0])}
     # onnx_output = ort_session.run(None, onnx_input)[0]
 
-    onnx_input = {ort_session.get_inputs()[0].name: np.array(onnx_inputs[0])}
-    onnx_output = ort_session.run(None, onnx_input)[0]
+    # onnx_input like this for multiple inputs
+    # onnx_input = {ort_session.get_inputs()[0].name: np.array(onnx_inputs[0])}
+
+    onnx_inputs = {ort_session.get_inputs()[i].name: np.array(onnx_input) for i, onnx_input in enumerate(onnx_inputs)}
+
+
+    onnx_output = ort_session.run(None, onnx_inputs)[0]
 
     np.testing.assert_allclose(expected_output, transpose_to_jax(onnx_output), rtol=1e-3, atol=1e-5)
     print(f"Test for {test_params['model_name']} passed!")

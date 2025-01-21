@@ -5,20 +5,21 @@ import jax.numpy as jnp
 
 # Generic function to create ONNX nodes for numpy functions
 def build_generic_onnx_node(op_type, input_names, nodes, parameters, counter):
-    node_name = f"node{counter}"
-    counter += 1
+    node_name = f"node{counter[0]}"
+    output_names=[f'{node_name}_output']
+    counter[0] += 1
     nodes.append(
         oh.make_node(
             op_type,
             inputs=input_names,  # Now accepts a list of input names
-            outputs=[f'{node_name}_output'],
+            outputs=output_names,
             name=node_name,
         )
     )
-    return f'{node_name}_output'
+    return output_names
 
 # Add (element-wise addition)
-def build_add_onnx_node(example_input, input_names, nodes, parameters, counter):
+def build_add_onnx_node(jax_inputs, input_names, nodes, parameters, counter):
     return build_generic_onnx_node('Add', input_names, nodes, parameters, counter)
 
 # Assign ONNX node builder to jax.numpy.add

@@ -6,7 +6,7 @@ import numpy as np
 import onnx
 from flax import nnx
 
-def build_onnx_node(self, example_input, input_name, nodes, initializers, counter):
+def build_onnx_node(self,  jax_inputs, input_names , nodes, initializers, counter):
     node_name = f"node{counter[0]}"
     counter[0] += 1
 
@@ -46,12 +46,14 @@ def build_onnx_node(self, example_input, input_name, nodes, initializers, counte
         oh.make_tensor(var_name, onnx.TensorProto.FLOAT, var_tensor.shape, var_tensor.flatten())
     )
 
+    outputs = [f"{node_name}_output"]
+
     # Add BatchNormalization node
     nodes.append(
         oh.make_node(
             "BatchNormalization",
-            inputs=[input_name, scale_name, bias_name, mean_name, var_name],
-            outputs=[f"{node_name}_output"],
+            inputs=[input_names[0], scale_name, bias_name, mean_name, var_name],
+            outputs=outputs,
             name=node_name,
             epsilon=epsilon,
             momentum=momentum,
@@ -60,7 +62,7 @@ def build_onnx_node(self, example_input, input_name, nodes, initializers, counte
 
 
 
-    return f"{node_name}_output"
+    return outputs
 
 nnx.BatchNorm.build_onnx_node = build_onnx_node
 
