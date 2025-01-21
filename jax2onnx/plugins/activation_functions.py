@@ -33,6 +33,28 @@ jax.nn.tanh.build_onnx_node = lambda example_input, input_name, nodes, parameter
 jax.nn.softmax.build_onnx_node = lambda example_input, input_name, nodes, parameters, counter: \
     build_generic_onnx_node('Softmax', example_input, input_name, nodes, parameters, counter)
 
+# LogSoftmax
+def build_log_softmax_onnx_node(example_input, input_name, nodes, parameters, counter):
+    node_name = f"node{counter[0]}"
+    counter[0] += 1
+
+    # Extract axis from parameters or use default (last axis)
+    axis = next((param['axis'] for param in parameters if 'axis' in param), -1)
+
+    nodes.append(
+        oh.make_node(
+            'LogSoftmax',
+            inputs=[input_name],
+            outputs=[f'{node_name}_output'],
+            name=node_name,
+            axis=axis,
+        )
+    )
+    return f'{node_name}_output'
+
+jax.nn.log_softmax.build_onnx_node = build_log_softmax_onnx_node
+
+
 # LeakyRelu (requires alpha parameter)
 def build_leaky_relu_onnx_node(example_input, input_name, nodes, parameters, counter):
     node_name = f"node{counter[0]}"
@@ -217,4 +239,12 @@ def get_test_params():
             "input_shape": (1, 10),
             "build_onnx_node": jax.nn.soft_sign.build_onnx_node,
         },
+        {
+            "model_name": "log_softmax",
+            "model": lambda: lambda x: jax.nn.log_softmax(x),
+            "input_shape": (1, 10),
+            "build_onnx_node": jax.nn.log_softmax.build_onnx_node,
+            "parameters": [{"axis": -1}],
+        },
+
     ]
