@@ -1,4 +1,6 @@
-# jax2onnx/plugins/layernorm.py
+# file: jax2onnx/plugins/layernorm.py
+# JAX API reference: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm
+# ONNX Operator: https://onnx.ai/onnx/operators/onnx__LayerNormalization.html
 import onnx.helper as oh
 import numpy as np
 import onnx
@@ -44,7 +46,6 @@ def build_onnx_node(self, example_input, input_name, nodes, initializers, counte
 nnx.LayerNorm.build_onnx_node = build_onnx_node
 
 def get_test_params():
-    # Return a list of dictionaries
     return [
         {
             "model_name": "layernorm",

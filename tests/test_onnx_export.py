@@ -46,7 +46,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in ["conv"]
+        # if param["model_name"] in ["batchnorm"]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -62,6 +62,11 @@ def test_onnx_export(test_params):
     onnx_input =    transpose_to_onnx(example_input)
 
     model_instance = model()
+
+    # if model_instance has function eval, call it
+    if hasattr (model_instance, "eval"):
+        model_instance.eval()
+
     expected_output = np.array(model_instance(example_input))
 
     model_path = f"output/{test_params['model_name']}_model.onnx"
