@@ -1,4 +1,4 @@
-# jax2onnx/plugins/activation_functions.py
+# file: jax2onnx/plugins/activation_functions.py
 import onnx.helper as oh
 import jax
 
@@ -219,83 +219,83 @@ def get_test_params():
         {
             "model_name": "relu",
             "model": lambda: lambda x: jax.nn.relu(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.relu.build_onnx_node,
         },
         {
             "model_name": "sigmoid",
             "model": lambda: lambda x: jax.nn.sigmoid(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.sigmoid.build_onnx_node,
         },
         {
             "model_name": "tanh",
             "model": lambda: lambda x: jax.nn.tanh(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.tanh.build_onnx_node,
         },
         {
             "model_name": "softmax",
             "model": lambda: lambda x: jax.nn.softmax(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.softmax.build_onnx_node,
         },
         {
             "model_name": "leaky_relu",
             "model": lambda: lambda x: jax.nn.leaky_relu(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.leaky_relu.build_onnx_node,
             "parameters": [{"alpha": 0.1}],
         },
         {
             "model_name": "gelu",
             "model": lambda: lambda x: jax.nn.gelu(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.gelu.build_onnx_node,
         },
         {
             "model_name": "celu",
             "model": lambda: lambda x: jax.nn.celu(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.celu.build_onnx_node,
             "parameters": [{"alpha": 1.0}],
         },
         {
             "model_name": "elu",
             "model": lambda: lambda x: jax.nn.elu(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.elu.build_onnx_node,
         },
         # {
         #     "model_name": "hard_sigmoid",
         #     "model": lambda: lambda x: jax.nn.hard_sigmoid(x),
-        #     "input_shape": (1, 10),
+        #     "input_shapes": (1, 10),
         #     "build_onnx_node": jax.nn.hard_sigmoid.build_onnx_node,
         # }
         # ,
         {
             "model_name": "softplus",
             "model": lambda: lambda x: jax.nn.softplus(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.softplus.build_onnx_node,
         },
         {
             "model_name": "soft_sign",
             "model": lambda: lambda x: jax.nn.soft_sign(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.soft_sign.build_onnx_node,
         },
         {
             "model_name": "log_softmax",
             "model": lambda: lambda x: jax.nn.log_softmax(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.log_softmax.build_onnx_node,
             "parameters": [{"axis": -1}],
         },
         {
             "model_name": "log_sigmoid",
             "model": lambda: lambda x: jax.nn.log_sigmoid(x),
-            "input_shape": (1, 10),
+            "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.log_sigmoid.build_onnx_node,
         },
 

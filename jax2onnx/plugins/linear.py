@@ -44,7 +44,7 @@ def get_test_params():
         {
             "model_name": "linear",
             "model": lambda: nnx.Linear(5, 3, rngs=nnx.Rngs(0)),
-            "input_shape": (1, 5),
+            "input_shapes": [(1, 5)],
             "build_onnx_node": nnx.Linear.build_onnx_node
         }
     ]

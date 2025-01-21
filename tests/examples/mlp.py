@@ -24,7 +24,7 @@ def get_test_params():
         {
         "model_name": "mlp",
         "model": lambda: MLP(30, 10),
-        "input_shape": (1, 30),
+        "input_shapes": [(1, 30)],
         "build_onnx_node": None,
          }
     ]
