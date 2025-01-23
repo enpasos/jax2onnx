@@ -59,45 +59,60 @@ def load_test_params():
         # filter only conv
         # if param["model_name"] in ["batchnorm"]
     ]
-
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
     model = test_params["model"]
-    input_shapes = test_params["input_shapes"]  # Beachten Sie den Plural!
+    input_shapes = test_params["input_shapes"]  # Note the plural!
+    parameters = test_params.get("parameters", {})  # Get parameters from the test case
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
+    # Generate JAX inputs
     jax_inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
 
+    # Transpose inputs to ONNX format
     onnx_inputs = [transpose_to_onnx(input) for input in jax_inputs]
 
+    # Initialize model
     model_instance = model()
     if hasattr(model_instance, "eval"):
         model_instance.eval()
 
-
+    # Compute expected JAX output
     expected_output = model_instance(*jax_inputs)
 
+
+    # Export the model to ONNX
     model_path = f"output/{test_params['model_name']}_model.onnx"
     os.makedirs("output", exist_ok=True)
-    export_to_onnx(model_instance, jax_inputs, output_path=model_path, build_onnx_node=test_params["build_onnx_node"])  # Übergeben Sie nur den ersten Eingang für die Form
+    export_to_onnx(
+        model_instance,
+        jax_inputs,
+        output_path=model_path,
+        build_onnx_node=test_params["build_onnx_node"],
+        parameters=parameters,  # Pass parameters here
+    )
+
+    # Load the ONNX model
     ort_session = ort.InferenceSession(model_path)
 
-    # ONNX-Eingabe-Dictionary erstellen
-    # onnx_input = {ort_session.get_inputs()[i].name: jnp.array(onnx_input) for i, onnx_input in enumerate(onnx_inputs)}
+    # Create ONNX input dictionary
+    onnx_inputs_dict = {
+        ort_session.get_inputs()[i].name: np.array(onnx_input)
+        for i, onnx_input in enumerate(onnx_inputs)
+    }
 
-    # onnx_output = ort_session.run(None, onnx_input)
+    # Compute ONNX output
+    onnx_output = ort_session.run(None, onnx_inputs_dict)[0]
 
-    #onnx_input = {ort_session.get_inputs()[0].name: jnp.array(onnx_inputs[0])}
-    # onnx_output = ort_session.run(None, onnx_input)[0]
+    # Transpose ONNX output back to JAX format
+    onnx_output_jax = transpose_to_jax(onnx_output)
 
-    # onnx_input like this for multiple inputs
-    # onnx_input = {ort_session.get_inputs()[0].name: np.array(onnx_inputs[0])}
-
-    onnx_inputs = {ort_session.get_inputs()[i].name: np.array(onnx_input) for i, onnx_input in enumerate(onnx_inputs)}
-
-
-    onnx_output = ort_session.run(None, onnx_inputs)[0]
-
-    np.testing.assert_allclose(expected_output, transpose_to_jax(onnx_output), rtol=1e-3, atol=1e-5)
+    # Assert the results
+    np.testing.assert_allclose(
+        expected_output,
+        transpose_to_jax(onnx_output),
+        rtol=1e-3,
+        atol=1e-5
+    )
     print(f"Test for {test_params['model_name']} passed!")
