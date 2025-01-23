@@ -2,6 +2,8 @@
 import onnx.helper as oh
 import jax
 
+import onnx
+
 # Generic function to create ONNX nodes for activation functions
 def build_generic_onnx_node(op_type, jax_inputs, input_names, nodes, parameters, counter):
     node_name = f"node{counter[0]}"
@@ -60,7 +62,6 @@ def build_log_softmax_onnx_node(jax_inputs, input_names, nodes, parameters, coun
 jax.nn.log_softmax.build_onnx_node = build_log_softmax_onnx_node
 
 
-# LeakyRelu (requires alpha parameter)
 def build_leaky_relu_onnx_node(jax_inputs, input_names, nodes, parameters, counter):
     node_name = f"node{counter[0]}"
     counter[0] += 1
@@ -68,19 +69,37 @@ def build_leaky_relu_onnx_node(jax_inputs, input_names, nodes, parameters, count
     # Extract alpha from parameters or use default
     alpha = next((param['alpha'] for param in parameters if 'alpha' in param), 0.01)
 
+    # Create a constant node for alpha
+    alpha_node_name = f"node{counter[0]}"
+    counter[0] += 1
+    alpha_output = f"{alpha_node_name}_output"
+    nodes.append(
+        oh.make_node(
+            'Constant',
+            inputs=[],
+            outputs=[alpha_output],
+            name=alpha_node_name,
+            value=oh.make_tensor(
+                name=alpha_node_name,
+                data_type=onnx.TensorProto.FLOAT,
+                dims=[],
+                vals=[alpha]
+            )
+        )
+    )
 
-    outputs=[f'{node_name}_output']
-
+    # LeakyRelu node
+    outputs = [f'{node_name}_output']
     nodes.append(
         oh.make_node(
             'LeakyRelu',
             inputs=[input_names[0]],
             outputs=outputs,
             name=node_name,
-            alpha=alpha
         )
     )
     return outputs
+
 
 jax.nn.leaky_relu.build_onnx_node = build_leaky_relu_onnx_node
 
