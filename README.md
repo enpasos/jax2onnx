@@ -37,21 +37,29 @@ Supported and Planned Models and Functions
 ❌ = planned but not implemented, yet\
 ➖ = not planned for the current planned version
 
-
-Current Versions
-* JAX: 0.4.38
-* Flax: 0.10.2
-* ONNX: 1.17.0
-
-Note: for more details look into the `pyproject.toml` file
-
 Examples
 
- | Component Name | Description                                   | From   | v0.1.0 |
+| Component Name | Description                                   | From   | v0.1.0 |
  |----------------|-----------------------------------------------|--------|--------|
- | `MLP`          | Linear and Relu                               | v0.1.0 |    ✅    |
- | `MNIST - CNN`  | CNN based MNIST classification                | v0.1.0 |     ❌   |
- | `MNIST - ViT`  | Vision Transformer based MNIST classification | v0.1.0 |     ❌   |
+| `MLP`          | Linear and Relu                               | v0.1.0 |    ✅    |
+| `MNIST - CNN`  | CNN based MNIST classification                | v0.1.0 |     ❌   |
+| `MNIST - ViT`  | Vision Transformer based MNIST classification | v0.1.0 |     ❌   |
+
+
+
+
+Versions of Major Dependencies
+
+| Library       | jax2onnx v0.1.0 | 
+|---------------|-----------------| 
+| `JAX`         | v0.4.38         | 
+| `Flax`        | v0.10.2         | 
+| `onnx`        | v1.17.0         |  
+| `onnxruntime` | v1.20.1         |  
+
+onnxruntime
+
+Note: for more details look into the `pyproject.toml` file
 
 
 ## How to Contribute
