@@ -40,7 +40,7 @@ Supported and Planned Models and Functions
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>
-➖ = not planned for the current planned version
+➖ = not planned for the upcoming version
 
 Examples
 
