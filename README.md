@@ -57,8 +57,6 @@ Versions of Major Dependencies
 | `onnx`        | v1.17.0         |  
 | `onnxruntime` | v1.20.1         |  
 
-onnxruntime
-
 Note: for more details look into the `pyproject.toml` file
 
 
