@@ -3,7 +3,7 @@
 
 ![img.png](img.png)
 
- "jax2onnx" your JAX/Flax model directly into the ONNX format.  
+`jax2onnx` converts your JAX/Flax model directly into the ONNX format.  
 
 
 Supported and Planned Models and Functions
