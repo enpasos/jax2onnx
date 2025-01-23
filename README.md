@@ -51,8 +51,6 @@ Examples
 | `MNIST - ViT`   | Vision Transformer based MNIST classification | v0.1.0 |   ❌  |
 
 
-
-
 Versions of Major Dependencies
 
 | Library       | jax2onnx v0.1.0 | 
@@ -64,6 +62,13 @@ Versions of Major Dependencies
 
 Note: for more details look into the `pyproject.toml` file
 
+
+
+## Usage
+Import the `jax2onnx` module, implement the `build_onnx_node` function to your Module class and use the `export_to_onnx` 
+function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
+
+ 
 
 ## How to Contribute
 
@@ -79,8 +84,7 @@ To install `jax2onnx`, use the following command (t.b.d.):
 pip install jax2onnx  
 ```
 
-## Usage
-t.b.d.
+
  
 
 ## License
