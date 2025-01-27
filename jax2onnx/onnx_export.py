@@ -1,13 +1,28 @@
-# file: jax2onnx/onnx_export.py
 import onnx
 import onnx.helper as oh
 import importlib
 import pkgutil
 import os
 from flax import nnx
-import jax.numpy as jnp
 from .transpose_utils import transpose_to_onnx, transpose_to_jax, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
+class OnnxGraph:
+    def __init__(self):
+        self.nodes = []
+        self.initializers = []
+        self.counter = [0]
+
+    def add_node(self, node):
+        self.nodes.append(node)
+
+    def add_initializer(self, initializer):
+        self.initializers.append(initializer)
+
+    def increment_counter(self):
+        self.counter[0] += 1
+
+    def get_counter(self):
+        return self.counter[0]
 
 def load_plugins():
     plugins = {}
@@ -19,8 +34,7 @@ def load_plugins():
         plugins[name] = module
     return plugins
 
-
-def export_to_onnx(model, jax_inputs, output_path="model.onnx", build_onnx_node=None, parameters=None):
+def export_to_onnx(model_file_name, model, jax_inputs, output_path="model.onnx", build_onnx_node=None, parameters=None):
     if parameters is None:
         parameters = {}
 
@@ -28,38 +42,34 @@ def export_to_onnx(model, jax_inputs, output_path="model.onnx", build_onnx_node=
     plugins = load_plugins()
     jax_output = model(*jax_inputs)
 
-
     input_shapes = [jax_shape_to_onnx_shape(jax_input.shape) for jax_input in jax_inputs]
 
     # for now only one output implemented
-    output_shapes = [jax_shape_to_onnx_shape(jax_output.shape) ]
-
+    output_shapes = [jax_shape_to_onnx_shape(jax_output.shape)]
 
     input_names = [f"input_{i}" for i in range(len(jax_inputs))]
-    nodes = []
-    initializers = []
-    counter = [0]
+
+    # Initialize the OnnxGraph
+    onnx_graph = OnnxGraph()
 
     # Use the provided build_onnx_node or model-specific node
     output_names = (
-        model.build_onnx_node(jax_inputs, input_names, nodes, initializers, counter)
+        model.build_onnx_node(jax_inputs, input_names, onnx_graph)
         if hasattr(model, "build_onnx_node")
-        else build_onnx_node(jax_inputs, input_names, nodes, parameters, counter)
+        else build_onnx_node(jax_inputs, input_names, onnx_graph, parameters)
     )
-
 
     inputs = [
         oh.make_tensor_value_info(input_names[i], onnx.TensorProto.FLOAT, input_shapes[i])
         for i in range(len(jax_inputs))
     ]
 
-
     outputs = [
         oh.make_tensor_value_info(output_names[i], onnx.TensorProto.FLOAT, output_shapes[i]) for i in range(len(output_names))
     ]
 
     # Create the ONNX graph
-    graph_def = oh.make_graph(nodes, "NNXExportGraph", inputs, outputs, initializers)
+    graph_def = oh.make_graph(onnx_graph.nodes, model_file_name, inputs, outputs, onnx_graph.initializers)
     model_def = oh.make_model(
         graph_def,
         producer_name="jax2onnx",
@@ -67,4 +77,3 @@ def export_to_onnx(model, jax_inputs, output_path="model.onnx", build_onnx_node=
     )
     onnx.save(model_def, output_path)
     print(f"ONNX model saved to {output_path}")
-
