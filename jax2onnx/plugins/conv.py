@@ -3,9 +3,9 @@ import onnx.helper as oh
 import onnx
 import numpy as np
 from flax import nnx
-from jax2onnx.onnx_export import export_to_onnx, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
+from jax2onnx.onnx_export import OnnxGraph, jax_shape_to_onnx_shape, transpose_to_onnx
 
-def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
+def build_onnx_node(self, jax_inputs, input_names, onnx_graph, parameters=None):
     # Convert JAX input to ONNX format
     example_onnx_input = transpose_to_onnx(jax_inputs[0])
     example_output = self(jax_inputs[0])  # Keep this as JAX output for consistency
@@ -14,8 +14,8 @@ def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
     input_shape = example_onnx_input.shape
     output_shape = jax_shape_to_onnx_shape(example_output.shape)
 
-    node_name = f"node{counter[0]}"
-    counter[0] += 1
+    node_name = f"node{onnx_graph.get_counter()}"
+    onnx_graph.increment_counter()
 
     # Handle padding calculation
     if self.padding == 'SAME':
@@ -38,10 +38,10 @@ def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
         pads=pads,
         group=self.feature_group_count,
     )
-    nodes.append(conv_node)
+    onnx_graph.add_node(conv_node)
 
     # Add kernel tensor (transpose weights to ONNX format)
-    parameters.append(
+    onnx_graph.add_initializer(
         oh.make_tensor(
             f"{node_name}_weight",
             onnx.TensorProto.FLOAT,
@@ -52,7 +52,7 @@ def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
 
     # Add bias tensor if applicable
     if self.use_bias:
-        parameters.append(
+        onnx_graph.add_initializer(
             oh.make_tensor(
                 f"{node_name}_bias",
                 onnx.TensorProto.FLOAT,
@@ -61,8 +61,7 @@ def build_onnx_node(self,  jax_inputs, input_names, nodes, parameters, counter):
             )
         )
 
-    return conv_node.output
-
+    return [f"{node_name}_output"]
 
 # Attach the build_onnx_node method to nnx.Conv
 nnx.Conv.build_onnx_node = build_onnx_node

@@ -8,7 +8,7 @@ import pkgutil
 import os
 import numpy as np
 
-from jax2onnx.onnx_export import export_to_onnx,   transpose_to_onnx, transpose_to_jax
+from jax2onnx.onnx_export import export_to_onnx, transpose_to_onnx, transpose_to_jax, OnnxGraph
 
 def load_test_params():
     params = []
@@ -23,7 +23,6 @@ def load_test_params():
             print(f"Loading test params from plugin: {name}")
             plugin_params = module.get_test_params()
 
-            # Überprüfen, ob plugin_params eine Liste oder ein Dictionary ist
             if isinstance(plugin_params, list):
                 if all(isinstance(p, dict) for p in plugin_params):
                     for param in plugin_params:
@@ -33,7 +32,7 @@ def load_test_params():
                     raise ValueError(f"Plugin {name} must return a list of dictionaries.")
             elif isinstance(plugin_params, dict):
                 plugin_params.setdefault("test_name", plugin_params.get("model_name", "Unnamed"))
-                params.append(plugin_params)  # Anhängen des Dictionaries an die Liste
+                params.append(plugin_params)
             else:
                 raise ValueError(f"Plugin {name} must return a list or a dictionary.")
 
@@ -56,9 +55,8 @@ def load_test_params():
     return [
         pytest.param(param, id=param["test_name"])
         for param in params
-        # filter only conv
-        # if param["model_name"] in ["batchnorm"]
     ]
+
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
     model = test_params["model"]
@@ -81,16 +79,17 @@ def test_onnx_export(test_params):
     # Compute expected JAX output
     expected_output = model_instance(*jax_inputs)
 
-
     # Export the model to ONNX
-    model_path = f"output/{test_params['model_name']}_model.onnx"
+    model_file_name = f"{test_params['model_name']}_model.onnx"
+    model_path = f"output/{model_file_name}"
     os.makedirs("output", exist_ok=True)
     export_to_onnx(
+        model_file_name,
         model_instance,
         jax_inputs,
         output_path=model_path,
         build_onnx_node=test_params["build_onnx_node"],
-        parameters=parameters,  # Pass parameters here
+        parameters=parameters,
     )
 
     # Load the ONNX model
