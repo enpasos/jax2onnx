@@ -8,7 +8,7 @@ import pkgutil
 import os
 import numpy as np
 
-from jax2onnx.onnx_export import export_to_onnx, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
+from jax2onnx.onnx_export import export_to_onnx,   transpose_to_onnx, transpose_to_jax
 
 def load_test_params():
     params = []
