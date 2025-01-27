@@ -2,7 +2,6 @@ from flax import nnx
 import jax
 
 class MLP(nnx.Module):
-    features: list
 
     def __init__(self, in_features, out_features, *, rngs=nnx.Rngs(0)):
         self.layer = nnx.Linear(in_features, out_features, rngs=rngs)

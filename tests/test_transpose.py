@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import jax.numpy as jnp
-from jax2onnx.onnx_export import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
+from jax2onnx.transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape, transpose_to_onnx, transpose_to_jax
 
 
 @pytest.mark.parametrize("jax_shape,expected_onnx_shape", [
