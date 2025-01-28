@@ -1,4 +1,4 @@
-# jax2onnx/plugins/linear.py
+# file: jax2onnx/plugins/linear.py
 import onnx.helper as oh
 import onnx
 import numpy as np
