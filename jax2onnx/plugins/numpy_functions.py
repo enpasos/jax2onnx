@@ -3,25 +3,32 @@ import onnx.helper as oh
 import jax
 import jax.numpy as jnp
 import flax
+import onnx
 
-# Generic function to create ONNX nodes for numpy functions
-def build_generic_onnx_node(op_type, input_names, onnx_graph, parameters=None):
+
+
+# Add (element-wise addition)
+def build_add_onnx_node(jax_inputs, input_names, onnx_graph, parameters=None):
+    # Perform element-wise addition in JAX
+    jax_outputs = [jax_inputs[0] + jax_inputs[1]]
+
+    # jax_outputs = [jax_inputs[0]]  # Use the first input as an example for simplicity
+
     node_name = f"node{onnx_graph.get_counter()}"
     onnx_graph.increment_counter()
     output_names = [f'{node_name}_output']
+
     onnx_graph.add_node(
         oh.make_node(
-            op_type,
-            inputs=input_names,  # Now accepts a list of input names
+            'Add',
+            inputs=input_names,
             outputs=output_names,
             name=node_name,
         )
     )
-    return output_names
 
-# Add (element-wise addition)
-def build_add_onnx_node(jax_inputs, input_names, onnx_graph, parameters=None):
-    return build_generic_onnx_node('Add', input_names, onnx_graph, parameters)
+    onnx_graph.add_local_outputs(jax_outputs, output_names)
+    return jax_outputs, output_names
 
 # Assign ONNX node builder to jax.numpy.add
 jax.numpy.add.build_onnx_node = build_add_onnx_node
@@ -31,6 +38,9 @@ def build_concat_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
     if not isinstance(parameters, dict):
         raise TypeError("Expected parameters to be a dictionary.")
     axis = parameters.get("axis", 0)  # Default axis is 0
+
+    # Perform concatenation in JAX
+    jax_outputs = [jnp.concatenate(jax_inputs, axis=axis)]
 
     # Create a unique node name and output
     node_name = f"node{onnx_graph.get_counter()}"
@@ -47,7 +57,9 @@ def build_concat_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
             axis=axis,  # Set the axis correctly
         )
     )
-    return output_names
+
+    onnx_graph.add_local_outputs(jax_outputs, output_names)
+    return jax_outputs, output_names
 
 # Assign ONNX node builder to jax.numpy.concatenate
 jax.numpy.concatenate.build_onnx_node = build_concat_onnx_node
@@ -69,6 +81,9 @@ def build_avg_pool_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
     else:
         pads = padding
 
+    # Perform average pooling in JAX
+    jax_outputs = [flax.nnx.avg_pool(jax_inputs[0], window_shape=kernel_shape, strides=strides, padding=padding)]
+
     node_name = f"node{onnx_graph.get_counter()}"
     output_names = [f"{node_name}_output"]
     onnx_graph.increment_counter()
@@ -85,7 +100,9 @@ def build_avg_pool_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
             pads=pads,
         )
     )
-    return output_names
+
+    onnx_graph.add_local_outputs(jax_outputs, output_names)
+    return jax_outputs, output_names
 
 # Assign ONNX node builder to avg_pool function
 flax.nnx.avg_pool.build_onnx_node = build_avg_pool_onnx_node
@@ -103,7 +120,7 @@ def get_test_params():
             "model_name": "concat",
             "model": lambda: lambda x, y: jnp.concatenate([x, y], axis=1),
             "input_shapes": [(1, 10), (1, 10)],  # Compatible shapes for axis=1
-            "build_onnx_node": jax.numpy.concatenate.build_onnx_node,
+            "build_onnx_node": jnp.concatenate.build_onnx_node,
             "parameters": {"axis": 1},  # Correct axis for concatenation
         },
         {
@@ -112,5 +129,8 @@ def get_test_params():
             "input_shapes": [(1, 32, 32, 3)],
             "build_onnx_node": flax.nnx.avg_pool.build_onnx_node,
             "parameters": {"kernel_shape": (2, 2), "strides": (2, 2), "padding": "VALID"},
-        }
+        },
+
+
+
     ]

@@ -56,7 +56,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in ["avg_pool"]
+        # if param["model_name"] in ["reshape2"]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -79,13 +79,13 @@ def test_onnx_export(test_params):
         model_instance.eval()
 
     # Compute expected JAX output
-    expected_output = model_instance(*jax_inputs)
+    #expected_output = model_instance(*jax_inputs)
 
     # Export the model to ONNX
     model_file_name = f"{test_params['model_name']}_model.onnx"
     model_path = f"output/{model_file_name}"
     os.makedirs("output", exist_ok=True)
-    export_to_onnx(
+    expected_outputs =  export_to_onnx(
         model_file_name,
         model_instance,
         jax_inputs,
@@ -111,8 +111,8 @@ def test_onnx_export(test_params):
 
     # Assert the results
     np.testing.assert_allclose(
-        expected_output,
-        transpose_to_jax(onnx_output),
+        expected_outputs[0],
+        onnx_output_jax,
         rtol=1e-3,
         atol=1e-5
     )

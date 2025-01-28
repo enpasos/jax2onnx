@@ -3,13 +3,16 @@ import onnx.helper as oh
 import onnx
 import numpy as np
 from flax import nnx
-
-def build_onnx_node(self, jax_inputs, input_names, onnx_graph):
+def build_onnx_node(self, jax_inputs, input_names, onnx_graph, parameters=None):
+    # Compute the JAX output
     example_output = self(jax_inputs[0])
     output_shape = example_output.shape
+
+    # Generate a unique node name
     node1_name = f"node{onnx_graph.get_counter()}"
     onnx_graph.increment_counter()
 
+    # Define the ONNX node for the linear layer
     node = oh.make_node(
         'Gemm',
         inputs=[input_names[0], f'{node1_name}_weight', f'{node1_name}_bias'],
@@ -18,12 +21,13 @@ def build_onnx_node(self, jax_inputs, input_names, onnx_graph):
     )
     onnx_graph.add_node(node)
 
+    # Add initializers for weights and biases
     onnx_graph.add_initializer(
         oh.make_tensor(
             f"{node1_name}_weight",
             onnx.TensorProto.FLOAT,
             self.kernel.shape,
-            self.kernel.value.reshape(-1).astype(np.float32)
+            self.kernel.value.reshape(-1).astype(np.float32),
         )
     )
     onnx_graph.add_initializer(
@@ -31,10 +35,17 @@ def build_onnx_node(self, jax_inputs, input_names, onnx_graph):
             f"{node1_name}_bias",
             onnx.TensorProto.FLOAT,
             [output_shape[-1]],
-            self.bias.value.astype(np.float32)
+            self.bias.value.astype(np.float32),
         )
     )
-    return node.output
+
+    onnx_output_names = [f'{node1_name}_output']
+    jax_outputs = [example_output]
+    onnx_graph.add_local_outputs(jax_outputs, onnx_output_names)
+
+    # Return both JAX outputs and ONNX output names
+    return jax_outputs, onnx_output_names
+
 
 nnx.Linear.build_onnx_node = build_onnx_node
 

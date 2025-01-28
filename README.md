@@ -48,7 +48,7 @@ Examples
 | Component Name  | Description                                   | From   | v0.1.0 |
 |:----------------|:----------------------------------------------|:-------|:------:|
 | `MLP`           | Linear and Relu                               | v0.1.0 |    ✅ |
-| `MNIST - CNN`   | CNN based MNIST classification                | v0.1.0 |   ❌  |
+| `MNIST - CNN`   | CNN based MNIST classification                | v0.1.0 |     ✅   |
 | `MNIST - ViT`   | Vision Transformer based MNIST classification | v0.1.0 |   ❌  |
 
 
