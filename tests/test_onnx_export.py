@@ -55,6 +55,8 @@ def load_test_params():
     return [
         pytest.param(param, id=param["test_name"])
         for param in params
+        # filter only conv
+        # if param["model_name"] in ["avg_pool"]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
