@@ -6,14 +6,14 @@ BASE_VERSION = "0.1.0"
 
 def generate_version():
     date = datetime.datetime.now().strftime("%Y%m%d")
-    try:
-        git_hash = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode("utf-8").strip()
-    except Exception:
-        git_hash = "nogit"
-    return f"{BASE_VERSION}.dev{date}+{git_hash}"
+    # try:
+    #     git_hash = subprocess.check_output(
+    #         ["git", "rev-parse", "--short", "HEAD"],
+    #         stderr=subprocess.DEVNULL
+    #     ).decode("utf-8").strip()
+    # except Exception:
+    #     git_hash = "nogit"
+    return f"{BASE_VERSION}.dev{date}" #+{git_hash}"
 
 def update_pyproject_toml(version):
     pyproject_path = Path("pyproject.toml")
