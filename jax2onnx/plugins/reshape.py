@@ -38,8 +38,8 @@ def build_reshape_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
             )
         )
         pre_transposed_tensor = jnp.transpose(transpose_to_onnx(jax_inputs[0] ), pre_transpose_perm)
-        onnx_graph.add_local_outputs([pre_transposed_tensor], [transposed_input_name])  # Track intermediate output
-        onnx_graph.value_info.append(oh.make_tensor_value_info(transposed_input_name, onnx.TensorProto.FLOAT, jax_shape_to_onnx_shape(jax_inputs[0].shape)))
+        #onnx_graph.add_local_outputs([pre_transposed_tensor], [transposed_input_name])  # Track intermediate output
+        onnx_graph.value_info.append(oh.make_tensor_value_info(transposed_input_name, onnx.TensorProto.FLOAT,  jax_inputs[0].shape))
 
     # Step 2: Reshape using JAX-like shape
     shape_tensor_name = f"{node_name}_shape"
@@ -61,7 +61,8 @@ def build_reshape_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
             name=f"{node_name}_reshape"
         )
     )
-    reshaped_tensor = pre_transposed_tensor.reshape(new_shape)
+
+    reshaped_tensor = jax_inputs[0].reshape(new_shape)
     onnx_graph.add_local_outputs([reshaped_tensor], [reshaped_output_name])  # Track reshape output
 
     final_output_name = reshaped_output_name
