@@ -38,6 +38,8 @@ Supported and Planned Models and Functions
 | [`jax.nn.log_softmax`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.log_softmax)                                                 | [`LogSoftmax`](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html)                 | v0.1.0 | ✅      |
 | [`jax.numpy.concat`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.concat.html)                                               | [`Concat`](https://onnx.ai/onnx/operators/onnx__Concat.html)                         | v0.1.0 | ✅      |
 | [`jax.numpy.add`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html)                                                     | [`Add`](https://onnx.ai/onnx/operators/onnx__Add.html)                               | v0.1.0 | ✅      |
+| [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 | ✅      |
+
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>
