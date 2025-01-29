@@ -18,7 +18,7 @@ Supported and Planned Models and Functions
 | [`flax.nnx.BatchNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm)               | [`BatchNormalization`](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 | ✅      |
 | [`flax.nnx.AvgPool`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/pooling.html#flax.nnx.AvgPool)                         | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)               | v0.1.0 | ✅      |
 | [`flax.nnx.AvgPool`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/pooling.html#flax.nnx.MaxPool)                         | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                       | v0.1.0 | ✅      |
-| [`flax.nnx.Dropout`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/dropout.html#flax.nnx.Dropout)                         | [`Dropout`](https://onnx.ai/onnx/operators/onnx__Dropout.html)                       | v0.1.0 | ❌      |
+| [`flax.nnx.Dropout`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/dropout.html#flax.nnx.Dropout)                         | [`Dropout`](https://onnx.ai/onnx/operators/onnx__Dropout.html)                       | v0.1.0 | ✅      |
 | [`jax.nn.relu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.relu)                                                               | [`Relu`](https://onnx.ai/onnx/operators/onnx__Relu.html)                             | v0.1.0 | ✅      |
 | [`jax.nn.sigmoid`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.sigmoid)                                                         | [`Sigmoid`](https://onnx.ai/onnx/operators/onnx__Sigmoid.html)                       | v0.1.0 | ✅      |
 | [`jax.nn.tanh`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.tanh)                                                               | [`Tanh`](https://onnx.ai/onnx/operators/onnx__Tanh.html)                             | v0.1.0 | ✅      |
@@ -52,7 +52,7 @@ Examples
 |:----------------|:----------------------------------------------|:-------|:------:|
 | `MLP`           | Linear and Relu                               | v0.1.0 |    ✅ |
 | `MNIST - CNN`   | CNN based MNIST classification                | v0.1.0 |     ✅   |
-| `MNIST - ViT`   | Vision Transformer based MNIST classification | v0.1.0 |   ❌  |
+| `MNIST - ViT`   | Vision Transformer based MNIST classification | v0.1.0 |   ✅  |
 
 
 Versions of Major Dependencies

@@ -77,10 +77,15 @@ class CNN(nnx.Module):
         xs, names = nnx.max_pool.build_onnx_node(xs, names, onnx_graph, parameters)
         xs, names = self.dropout2.build_onnx_node(xs, names, onnx_graph, parameters)
 
-        # Compute flatten size dynamically
+        # # Compute flatten size dynamically
         flatten_size = xs[0].shape[1] * xs[0].shape[2] * xs[0].shape[3]
-        reshape_params = {"shape": (xs[0].shape[0], flatten_size)}
-        xs, names = jax.numpy.reshape.build_onnx_node(xs, names, onnx_graph, reshape_params)
+
+        reshape_params = {"shape": (xs[0].shape[0], flatten_size),
+                          "apply_pre_transpose": True,  # Enable pre-transposition
+                          "pre_transpose_perm": [0, 2, 3, 1],  # Custom NCHW → NHWC transposition
+                          }
+        xs, names = jax.numpy.reshape.build_onnx_node(xs,  names, onnx_graph, reshape_params)
+
 
         # Linear + LN + ReLU + Dropout + Linear + LN + ReLU + Dropout + Linear
         xs, names = self.linear1.build_onnx_node(xs, names, onnx_graph)
