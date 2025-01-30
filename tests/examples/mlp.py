@@ -37,6 +37,6 @@ def get_test_params():
             "input_shapes": [(1, 30)],
             "build_onnx_node": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
                 MLP(30, 10, rngs=nnx.Rngs(0)).build_onnx_node(jax_inputs, input_names, onnx_graph, parameters)
-            ),
+            )
         }
     ]

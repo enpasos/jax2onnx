@@ -1,52 +1,65 @@
 # file: jax2onnx/plugins/conv.py
+
 import onnx.helper as oh
 import onnx
-import numpy as np
+import jax.numpy as jnp
 from flax import nnx
 from jax2onnx.onnx_export import OnnxGraph, jax_shape_to_onnx_shape
+from transpose_utils import onnx_shape_to_jax_shape
 
-def build_onnx_node(self, jax_inputs, input_names, onnx_graph, parameters=None):
+
+def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
-    Build the ONNX node for a Conv operation.
+    Constructs an ONNX node for a convolutional layer.
+
+    This function converts an `nnx.Conv` layer into an ONNX `Conv` node,
+    adding the kernel and bias initializers to the ONNX graph.
 
     Args:
-        self: The nnx.Conv instance.
-        jax_inputs: List of input tensors in JAX format (e.g., `(B, H, W, C)`).
-        input_names: List of corresponding input names in ONNX format.
-        onnx_graph: The ONNX graph being constructed.
-        parameters: Additional parameters (not used here).
+        self: The `nnx.Conv` instance.
+        input_shapes (list of tuples): List containing input tensor shapes.
+        input_names (list of str): Names of input tensors.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (optional): Additional parameters, currently unused.
 
     Returns:
-        jax_outputs: The output tensors in JAX format.
-        output_names: The corresponding output names in ONNX format.
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
     """
-    # Compute the JAX output for reference
-    jax_output = self(jax_inputs[0])
 
-    # Convert the JAX output to ONNX format to extract the shape
-    onnx_output_shape = jax_shape_to_onnx_shape(jax_output.shape)
-    jax_input_shape = jax_inputs[0].shape
+    input_shape = input_shapes[0]
 
-    # Generate a unique node name for the ONNX graph
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
+    # assume that the input shape is (B, C, H, W) in the ONNX format
+
+    # transform shape to JAX format (B, H, W, C)
+    input_shape_jax = onnx_shape_to_jax_shape(input_shape)
+    # construct jax_example_input
+    jax_example_input = jnp.zeros(input_shape_jax)
+    jax_example_output = self(jax_example_input)
+    jax_example_output_shape = jax_example_output.shape
+    output_shapes = [jax_shape_to_onnx_shape(jax_example_output_shape)]
+
+    # Generate a unique node name
+    node_name = f"node{onnx_graph.counter_plusplus()}"
+
 
     # Handle padding for 'SAME' mode
     if self.padding == 'SAME':
-        input_height, input_width = jax_input_shape[1], jax_input_shape[2]
+        input_height, input_width = input_shape[1], input_shape[2]
         kernel_height, kernel_width = self.kernel_size
         stride_height, stride_width = self.strides if isinstance(self.strides, tuple) else (self.strides, self.strides)
         dilation_height, dilation_width = self.kernel_dilation if isinstance(self.kernel_dilation, tuple) else (self.kernel_dilation, self.kernel_dilation)
 
-        pad_h = max((onnx_output_shape[2] - 1) * stride_height +
+        pad_h = max((input_shape[1] - 1) * stride_height +
                     (kernel_height - 1) * dilation_height + 1 - input_height, 0)
-        pad_w = max((onnx_output_shape[3] - 1) * stride_width +
+        pad_w = max((input_shape[2] - 1) * stride_width +
                     (kernel_width - 1) * dilation_width + 1 - input_width, 0)
         pads = [pad_h // 2, pad_w // 2, pad_h - pad_h // 2, pad_w - pad_w // 2]
     else:
         pads = [0, 0, 0, 0]
 
-    # Create the ONNX Conv node
+    # Define ONNX node for convolution
     conv_node = oh.make_node(
         'Conv',
         inputs=[input_names[0], f'{node_name}_weight'] + ([f'{node_name}_bias'] if self.use_bias else []),
@@ -65,7 +78,7 @@ def build_onnx_node(self, jax_inputs, input_names, onnx_graph, parameters=None):
             f"{node_name}_weight",
             onnx.TensorProto.FLOAT,
             (self.out_features, self.in_features // self.feature_group_count, *self.kernel_size),
-            self.kernel.value.transpose(3, 2, 0, 1).flatten().astype(np.float32)
+            self.kernel.value.transpose(3, 2, 0, 1).flatten().astype(jnp.float32),
         )
     )
 
@@ -76,23 +89,30 @@ def build_onnx_node(self, jax_inputs, input_names, onnx_graph, parameters=None):
                 f"{node_name}_bias",
                 onnx.TensorProto.FLOAT,
                 [self.out_features],
-                self.bias.value.astype(np.float32)
+                self.bias.value.astype(jnp.float32),
             )
         )
 
-    # Define ONNX output names and return both JAX outputs and ONNX output names
-    output_names = [f"{node_name}_output"]
-    jax_outputs = [jax_output]
-    onnx_graph.add_local_outputs(jax_outputs, output_names)
 
-    return jax_outputs, output_names
+    onnx_output_names = [f"{node_name}_output"]
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+
+    return output_shapes, onnx_output_names
 
 # Attach the `build_onnx_node` method to nnx.Conv
 nnx.Conv.build_onnx_node = build_onnx_node
 
 def get_test_params():
     """
-    Define test parameters for Conv.
+    Returns test parameters for verifying the ONNX conversion of `nnx.Conv`.
+
+    The test parameters define:
+    - A simple `nnx.Conv` model with input and output dimensions.
+    - The corresponding input tensor shape.
+    - The ONNX conversion function to be used in unit tests.
+
+    Returns:
+        list: A list of dictionaries, each defining a test case.
     """
     return [
         {
@@ -105,9 +125,13 @@ def get_test_params():
                 padding='SAME',
                 kernel_dilation=(1, 1),
                 use_bias=True,
-                rngs=nnx.Rngs(0)
+                rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "build_onnx_node": nnx.Conv.build_onnx_node
+            "build_onnx_node": nnx.Conv.build_onnx_node,
+            "export": {
+                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
+            }
         }
     ]

@@ -35,7 +35,7 @@ class CNN(nnx.Module):
         self.dropout4 = nnx.Dropout(rate=0.5, rngs=rngs)
         self.linear3 = nnx.Linear(1024, 10, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         """Defines the forward pass of the model."""
         x = nnx.relu(self.ln1(self.conv1(x)))
         x = nnx.relu(self.ln2(self.conv2(x)))
@@ -78,12 +78,11 @@ class CNN(nnx.Module):
         xs, names = self.dropout2.build_onnx_node(xs, names, onnx_graph, parameters)
 
         # # Compute flatten size dynamically
-        flatten_size = xs[0].shape[1] * xs[0].shape[2] * xs[0].shape[3]
+        flatten_size = xs[0][1] * xs[0][2] * xs[0][3]
 
-        reshape_params = {"shape": (xs[0].shape[0], flatten_size),
-                          "apply_pre_transpose": True,  # Enable pre-transposition
-                          "pre_transpose_perm": [0, 2, 3, 1],  # Custom NCHW → NHWC transposition
-                          }
+        # Reshape
+        reshape_params = {"shape": (xs[0][0], flatten_size),
+                          "pre_transpose": [(0, 2, 3, 1)]}
         xs, names = jax.numpy.reshape.build_onnx_node(xs,  names, onnx_graph, reshape_params)
 
 
@@ -97,6 +96,7 @@ class CNN(nnx.Module):
         xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
         xs, names = self.dropout4.build_onnx_node(xs, names, onnx_graph, parameters)
         xs, names = self.linear3.build_onnx_node(xs, names, onnx_graph)
+        xs, names = jax.nn.log_softmax.build_onnx_node(xs, names, onnx_graph)
 
         return xs, names
 
@@ -108,8 +108,10 @@ def get_test_params():
             "model_name": "mnist_cnn_2",
             "model": lambda: CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],
-            "build_onnx_node": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
-                CNN(rngs=nnx.Rngs(0)).build_onnx_node(jax_inputs, input_names, onnx_graph, parameters)
-            ),
+            "build_onnx_node": CNN.build_onnx_node,
+            "export": {
+                "pre_transpose": [(0, 3, 1, 2)],
+
+            }
         }
     ]
