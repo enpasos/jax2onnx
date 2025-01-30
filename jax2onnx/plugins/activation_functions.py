@@ -1,147 +1,153 @@
 # file: jax2onnx/plugins/activation_functions.py
+
 import onnx.helper as oh
 import jax
 import onnx
+from transpose_utils import jax_shape_to_onnx_shape
 
-# Generic function to create ONNX nodes for activation functions
-def build_generic_onnx_node(op_type, jax_inputs, input_names, onnx_graph, parameters=None):
+
+def build_generic_onnx_node(op_type, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Create a generic ONNX node for activation functions.
 
     Args:
-        op_type: The type of ONNX operation (e.g., 'Relu', 'Sigmoid').
-        jax_inputs: The input tensors in JAX format.
-        input_names: The corresponding input names in ONNX format.
-        onnx_graph: The ONNX graph being constructed.
-        parameters: Additional parameters for the ONNX node (if any).
+        op_type (str): The type of ONNX operation (e.g., 'Relu', 'Sigmoid').
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Corresponding input names in ONNX format.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (optional): Additional parameters for the ONNX node (if any).
+
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
     """
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
+    node_name = f"node{onnx_graph.counter_plusplus()}"
 
-    # Compute the JAX output for the operation
-    jax_outputs = [getattr(jax.nn, op_type.lower())(jax_inputs[0])]
 
-    # Flatten input_names in case it's nested
-    flat_input_names = [name for sublist in input_names for name in (sublist if isinstance(sublist, list) else [sublist])]
+    # Define ONNX output names
+    onnx_output_names = [f'{node_name}_output']
 
-    outputs = [f'{node_name}_output']
-
+    # Create ONNX node
     onnx_graph.add_node(
         oh.make_node(
             op_type,
-            inputs=flat_input_names,  # Use flattened input names
-            outputs=outputs,
+            inputs=input_names,
+            outputs=onnx_output_names,
             name=node_name,
         )
     )
 
+    # Activation functions do not change the shape
+    output_shapes = input_shapes
 
-    onnx_graph.add_local_outputs(jax_outputs, outputs)
-    return jax_outputs, outputs
+    # Register outputs in ONNX graph
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
 
-# Relu
-jax.nn.relu.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Relu', jax_inputs, input_names, onnx_graph, parameters)
+    return output_shapes, onnx_output_names
 
-# Sigmoid
-jax.nn.sigmoid.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Sigmoid', jax_inputs, input_names, onnx_graph, parameters)
 
-# Tanh
-jax.nn.tanh.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Tanh', jax_inputs, input_names, onnx_graph, parameters)
+# Attach ONNX conversion methods to JAX activation functions
+jax.nn.relu.build_onnx_node = lambda *args: build_generic_onnx_node('Relu', *args)
+jax.nn.sigmoid.build_onnx_node = lambda *args: build_generic_onnx_node('Sigmoid', *args)
+jax.nn.tanh.build_onnx_node = lambda *args: build_generic_onnx_node('Tanh', *args)
+jax.nn.softmax.build_onnx_node = lambda *args: build_generic_onnx_node('Softmax', *args)
+jax.nn.elu.build_onnx_node = lambda *args: build_generic_onnx_node('Elu', *args)
+jax.nn.softplus.build_onnx_node = lambda *args: build_generic_onnx_node('Softplus', *args)
 
-# Softmax
-jax.nn.softmax.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Softmax', jax_inputs, input_names, onnx_graph, parameters)
 
-# LogSoftmax
-def build_log_softmax_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
+# LogSoftmax (requires axis parameter)
+def build_log_softmax_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
+    """
+    Create an ONNX node for LogSoftmax with axis handling.
 
-    axis = next((param.get('axis', -1) for param in parameters if isinstance(param, dict)), -1)
+    Args:
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Corresponding input names in ONNX format.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (optional): Dictionary containing axis information.
 
-    outputs = [f'{node_name}_output']
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    """
+    node_name = f"node{onnx_graph.counter_plusplus()}"
 
-    jax_outputs = [jax.nn.log_softmax(jax_inputs[0], axis=axis)]
+
+    axis = parameters[0].get('axis', -1) if parameters else -1
+
+    onnx_output_names = [f'{node_name}_output']
 
     onnx_graph.add_node(
         oh.make_node(
             'LogSoftmax',
-            inputs=[input_names[0]],
-            outputs=outputs,
+            inputs=input_names,
+            outputs=onnx_output_names,
             name=node_name,
             axis=axis,
         )
     )
 
-    onnx_graph.add_local_outputs(jax_outputs, outputs)
-    return jax_outputs, outputs
+    output_shapes = input_shapes
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+
+    return output_shapes, onnx_output_names
+
 
 jax.nn.log_softmax.build_onnx_node = build_log_softmax_onnx_node
 
-# Leaky ReLU
-def build_leaky_relu_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
 
-    alpha = next((param.get('alpha', 0.01) for param in parameters if isinstance(param, dict)), 0.01)
+# LeakyReLU (requires alpha parameter)
+def build_leaky_relu_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
+    """
+    Create an ONNX node for LeakyReLU with alpha handling.
 
-    jax_outputs = [jax.nn.leaky_relu(jax_inputs[0], alpha=alpha)]
+    Args:
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Corresponding input names in ONNX format.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (optional): Dictionary containing alpha value.
 
-    outputs = [f'{node_name}_output']
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    """
+    node_name = f"node{onnx_graph.counter_plusplus()}"
+
+
+    alpha = parameters[0].get('alpha', 0.01) if parameters else 0.01
+
+    onnx_output_names = [f'{node_name}_output']
+
     onnx_graph.add_node(
         oh.make_node(
             'LeakyRelu',
-            inputs=[input_names[0]],
-            outputs=outputs,
+            inputs=input_names,
+            outputs=onnx_output_names,
             name=node_name,
             alpha=alpha,
         )
     )
 
-    onnx_graph.add_local_outputs(jax_outputs, outputs)
-    return jax_outputs, outputs
+    output_shapes = input_shapes
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+
+    return output_shapes, onnx_output_names
+
 
 jax.nn.leaky_relu.build_onnx_node = build_leaky_relu_onnx_node
 
-# CELU
-def build_celu_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
 
-    alpha = next((param.get('alpha', 1.0) for param in parameters if isinstance(param, dict)), 1.0)
-
-    jax_outputs = [jax.nn.celu(jax_inputs[0], alpha=alpha)]
-
-    outputs = [f'{node_name}_output']
-
-    onnx_graph.add_node(
-        oh.make_node(
-            'Celu',
-            inputs=[input_names[0]],
-            outputs=outputs,
-            name=node_name,
-            alpha=alpha,
-        )
-    )
-
-    onnx_graph.add_local_outputs(jax_outputs, outputs)
-    return jax_outputs, outputs
-
-jax.nn.celu.build_onnx_node = build_celu_onnx_node
-
-# ELU
-jax.nn.elu.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Elu', jax_inputs, input_names, onnx_graph, parameters)
-
-# Softplus
-jax.nn.softplus.build_onnx_node = lambda jax_inputs, input_names, onnx_graph, parameters: \
-    build_generic_onnx_node('Softplus', jax_inputs, input_names, onnx_graph, parameters)
-
-# Define test parameters for each activation function
+# Define test parameters for activation functions
 def get_test_params():
+    """
+    Returns test parameters for verifying the ONNX conversion of activation functions.
+
+    Returns:
+        list: A list of dictionaries, each defining a test case.
+    """
     return [
         {
             "model_name": "relu",
@@ -173,5 +179,24 @@ def get_test_params():
             "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.log_softmax.build_onnx_node,
             "parameters": [{"axis": -1}],
+        },
+        {
+            "model_name": "leaky_relu",
+            "model": lambda: lambda x: jax.nn.leaky_relu(x),
+            "input_shapes": [(1, 10)],
+            "build_onnx_node": jax.nn.leaky_relu.build_onnx_node,
+            "parameters": [{"alpha": 0.02}],
+        },
+        {
+            "model_name": "elu",
+            "model": lambda: lambda x: jax.nn.elu(x),
+            "input_shapes": [(1, 10)],
+            "build_onnx_node": jax.nn.elu.build_onnx_node,
+        },
+        {
+            "model_name": "softplus",
+            "model": lambda: lambda x: jax.nn.softplus(x),
+            "input_shapes": [(1, 10)],
+            "build_onnx_node": jax.nn.softplus.build_onnx_node,
         },
     ]

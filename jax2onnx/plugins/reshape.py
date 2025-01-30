@@ -3,45 +3,49 @@ import onnx.helper as oh
 import jax
 import jax.numpy as jnp
 import onnx
-from jax2onnx.transpose_utils import transpose_to_onnx, transpose_to_jax, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
+from jax2onnx.onnx_export import pre_transpose, post_transpose
 
-def build_reshape_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    if not isinstance(parameters, dict) or "shape" not in parameters:
+
+def build_reshape_onnx_node(input_shapes, input_names, onnx_graph, parameters):
+    """
+    Constructs an ONNX node for a reshape operation.
+
+    Args:
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Names of input tensors.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (dict or list of dict): Dictionary containing the target shape.
+
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - output_names (list of str): Names of the generated ONNX output tensors.
+    """
+    # Ensure parameters is always a dictionary
+    if isinstance(parameters, list):
+        if not parameters or not isinstance(parameters[0], dict):
+            raise ValueError("Parameters for reshape must be a dictionary containing 'shape'.")
+        params = parameters[0]  # Extract dictionary from list
+    elif isinstance(parameters, dict):
+        params = parameters  # Use as-is
+    else:
+        raise ValueError("Parameters for reshape must be a dictionary or a list containing a dictionary with 'shape'.")
+
+    if "shape" not in params:
         raise ValueError("Parameters for reshape must include 'shape'.")
 
-    new_shape = tuple(parameters["shape"])
-    input_name = input_names[0]
+    new_shape = tuple(params["shape"])
 
-    node_name = f"node{onnx_graph.get_counter()}"
-    onnx_graph.increment_counter()
+    # Apply pre-transpose if necessary
+
+    input_shapes, transposed_input_names = pre_transpose(input_shapes, input_names,  onnx_graph, parameters)
+    input_name = transposed_input_names[0]
+
+    node_name = f"node{onnx_graph.counter_plusplus()}"
+
     output_names = [f"{node_name}_output"]
 
-    # Determine if transpositions are needed
-    apply_pre_transpose = parameters.get("apply_pre_transpose", False)
-    apply_post_transpose = parameters.get("apply_post_transpose", False)
-    pre_transpose_perm = parameters.get("pre_transpose_perm", [0, 2, 3, 1])  # Default NCHW → NHWC
-    post_transpose_perm = parameters.get("post_transpose_perm", [0, 3, 1, 2])  # Default NHWC → NCHW
-
-    transposed_input_name = input_name
-    pre_transposed_tensor = jax_inputs[0]  # Track modified tensor
-
-    # Step 1: Optional Transpose from ONNX (NCHW) to JAX (NHWC)
-    if apply_pre_transpose:
-        transposed_input_name = f"{node_name}_transposed"
-        onnx_graph.add_node(
-            oh.make_node(
-                "Transpose",
-                inputs=[input_name],
-                outputs=[transposed_input_name],
-                perm=pre_transpose_perm,
-                name=f"{node_name}_transpose1"
-            )
-        )
-        pre_transposed_tensor = jnp.transpose(transpose_to_onnx(jax_inputs[0] ), pre_transpose_perm)
-        #onnx_graph.add_local_outputs([pre_transposed_tensor], [transposed_input_name])  # Track intermediate output
-        onnx_graph.value_info.append(oh.make_tensor_value_info(transposed_input_name, onnx.TensorProto.FLOAT,  jax_inputs[0].shape))
-
-    # Step 2: Reshape using JAX-like shape
+    # Create a shape tensor
     shape_tensor_name = f"{node_name}_shape"
     onnx_graph.add_initializer(
         oh.make_tensor(
@@ -52,40 +56,26 @@ def build_reshape_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
         )
     )
 
-    reshaped_output_name = f"{node_name}_reshaped"
+    # Add Reshape node
     onnx_graph.add_node(
         oh.make_node(
             "Reshape",
-            inputs=[transposed_input_name, shape_tensor_name],
-            outputs=[reshaped_output_name],
-            name=f"{node_name}_reshape"
+            inputs=[input_name, shape_tensor_name],  # Ensure input_name is a string
+            outputs=output_names,
+            name=node_name,
         )
     )
 
-    reshaped_tensor = jax_inputs[0].reshape(new_shape)
-    onnx_graph.add_local_outputs([reshaped_tensor], [reshaped_output_name])  # Track reshape output
-
-    final_output_name = reshaped_output_name
-    final_output_tensor = reshaped_tensor  # Track modified tensor
-
-    # Step 3: Optional Transpose back from NHWC to ONNX format (NCHW)
-    if apply_post_transpose:
-        final_output_name = f"{node_name}_final_output"
-        onnx_graph.add_node(
-            oh.make_node(
-                "Transpose",
-                inputs=[reshaped_output_name],
-                outputs=[final_output_name],
-                perm=post_transpose_perm,
-                name=f"{node_name}_transpose2"
-            )
-        )
-        final_output_tensor = jnp.transpose(reshaped_tensor, post_transpose_perm)
-        onnx_graph.add_local_outputs([final_output_tensor], [final_output_name])  # Track final output
+    # Compute output shapes
+    output_shapes = [new_shape]
 
     # Register final output in ONNX graph
-    onnx_graph.add_local_outputs([final_output_tensor], [final_output_name])
-    return [jax_inputs[0].reshape(new_shape)], [final_output_name]
+    onnx_graph.add_local_outputs(output_shapes, output_names)
+
+    # Apply post-transpose if necessary
+    final_output_shapes, final_output_names = post_transpose(output_shapes, output_names, onnx_graph, parameters)
+
+    return final_output_shapes, final_output_names
 
 
 # Assign the reshape node builder
@@ -100,7 +90,9 @@ def get_test_params():
             "model": lambda: lambda x: jnp.reshape(x, shape=(10, 3)),
             "input_shapes": [(30,)],
             "build_onnx_node": jnp.reshape.build_onnx_node,
-            "parameters": {"shape": (10, 3)},  # Simple reshape with no transpositions
+            "export": {
+                "shape": (10, 3)
+            },  # Simple reshape with no transpositions
         },
 
         {
@@ -108,11 +100,8 @@ def get_test_params():
             "model": lambda: lambda x: jnp.reshape(x, (3, 3136)),
             "input_shapes": [(3, 7, 7, 64)],
             "build_onnx_node": jnp.reshape.build_onnx_node,
-            "parameters": {
+            "export": {
                 "shape": (3, 3136),
-                "apply_pre_transpose": True,  # Enable pre-transposition
-                "pre_transpose_perm": [0, 2, 3, 1],  # Custom NCHW → NHWC transposition
-                "apply_post_transpose": False,  # Disable post-transposition
             },
         },
     ]

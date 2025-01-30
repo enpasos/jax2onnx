@@ -1,116 +1,118 @@
 # file: jax2onnx/plugins/pool.py
+
 import onnx.helper as oh
-import jax
-import jax.numpy as jnp
-import flax
 import onnx
+import flax.nnx as nnx
+import jax.numpy as jnp
+from transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
 
-# Average Pooling
-def build_avg_pool_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    kernel_shape = parameters.get("kernel_shape", (2, 2))
+def build_pool_onnx_node(pool_type, input_shapes, input_names, onnx_graph, parameters):
+    """
+    Constructs an ONNX node for pooling operations (AveragePool, MaxPool).
+
+    Args:
+        pool_type (str): The type of ONNX pooling operation ('AveragePool' or 'MaxPool').
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Names of input tensors.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (dict): Dictionary containing kernel shape, strides, and padding.
+
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    """
+
+
+    window_shape = parameters.get("window_shape", (2, 2))
     strides = parameters.get("strides", (2, 2))
     padding = parameters.get("padding", "VALID")
 
     # Convert padding string to ONNX-compatible pads
     if isinstance(padding, str):
         if padding == "VALID":
-            pads = [0] * len(kernel_shape) * 2
+            pads = [0] * len(window_shape) * 2
         elif padding == "SAME":
-            pads = [k // 2 for k in kernel_shape] * 2
+            pads = [k // 2 for k in window_shape] * 2
         else:
             raise ValueError(f"Unsupported padding type: {padding}")
     else:
         pads = padding
 
-    # Perform average pooling in JAX
-    jax_outputs = [flax.nnx.avg_pool(jax_inputs[0], window_shape=kernel_shape, strides=strides, padding=padding)]
+    node_name = f"node{onnx_graph.counter_plusplus()}"
 
-    node_name = f"node{onnx_graph.get_counter()}"
-    output_names = [f"{node_name}_output"]
-    onnx_graph.increment_counter()
 
-    # Add the AveragePool node with the necessary attributes
+    onnx_output_names = [f"{node_name}_output"]
+
     onnx_graph.add_node(
         oh.make_node(
-            "AveragePool",
+            pool_type,
             inputs=input_names,
-            outputs=output_names,
+            outputs=onnx_output_names,
             name=node_name,
-            kernel_shape=kernel_shape,
+            kernel_shape=window_shape,
             strides=strides,
             pads=pads,
         )
     )
 
-    onnx_graph.add_local_outputs(jax_outputs, output_names)
-    return jax_outputs, output_names
+    input_shape = input_shapes[0]
 
-# Assign ONNX node builder to avg_pool function
-flax.nnx.avg_pool.build_onnx_node = build_avg_pool_onnx_node
+    # assume that the input shape is (B, C, H, W) in the ONNX format
 
+    # transform shape to JAX format (B, H, W, C)
+    input_shape_jax = onnx_shape_to_jax_shape(input_shape)
+    # construct jax_example_input
+    jax_example_input = jnp.zeros(input_shape_jax)
 
-# Max Pooling
-def build_max_pool_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
-    kernel_shape = parameters.get("kernel_shape", (2, 2))
-    strides = parameters.get("strides", (2, 2))
-    padding = parameters.get("padding", "VALID")
-
-    # Convert padding string to ONNX-compatible pads
-    if isinstance(padding, str):
-        if padding == "VALID":
-            pads = [0] * len(kernel_shape) * 2
-        elif padding == "SAME":
-            pads = [k // 2 for k in kernel_shape] * 2
-        else:
-            raise ValueError(f"Unsupported padding type: {padding}")
+    if pool_type == 'AveragePool':
+        jax_example_output = nnx.avg_pool(jax_example_input, window_shape=window_shape, strides=strides, padding=padding)
     else:
-        pads = padding
+        jax_example_output =  nnx.max_pool(jax_example_input, window_shape=window_shape, strides=strides, padding=padding)
 
-    # Perform max pooling in JAX
-    jax_outputs = [flax.nnx.max_pool(jax_inputs[0], window_shape=kernel_shape, strides=strides, padding=padding)]
-
-    node_name = f"node{onnx_graph.get_counter()}"
-    output_names = [f"{node_name}_output"]
-    onnx_graph.increment_counter()
-
-    # Add the MaxPool node with the necessary attributes
-    onnx_graph.add_node(
-        oh.make_node(
-            "MaxPool",
-            inputs=input_names,
-            outputs=output_names,
-            name=node_name,
-            kernel_shape=kernel_shape,
-            strides=strides,
-            pads=pads,
-        )
-    )
-
-    onnx_graph.add_local_outputs(jax_outputs, output_names)
-    return jax_outputs, output_names
-
-# Assign ONNX node builder to max_pool function
-flax.nnx.max_pool.build_onnx_node = build_max_pool_onnx_node
+    jax_example_output_shape = jax_example_output.shape
+    output_shapes = [jax_shape_to_onnx_shape(jax_example_output_shape)]
 
 
-# Example test parameters
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+
+    return output_shapes, onnx_output_names
+
+
+# Assign ONNX node builders to Flax pooling functions
+nnx.avg_pool.build_onnx_node = lambda *args: build_pool_onnx_node('AveragePool', *args)
+nnx.max_pool.build_onnx_node = lambda *args: build_pool_onnx_node('MaxPool', *args)
+
+
 def get_test_params():
-    return [
+    """
+    Returns test parameters for verifying the ONNX conversion of pooling operations.
 
+    Returns:
+        list: A list of dictionaries, each defining a test case.
+    """
+    return [
         {
             "model_name": "avg_pool",
-            "model": lambda: lambda x: flax.nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
-            "input_shapes": [(1, 32, 32, 3)],
-            "build_onnx_node": flax.nnx.avg_pool.build_onnx_node,
-            "parameters": {"kernel_shape": (2, 2), "strides": (2, 2), "padding": "VALID"},
+            "model": lambda: lambda x: nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
+            "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
+            "build_onnx_node": nnx.avg_pool.build_onnx_node,
+            "export": {
+                "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
+                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
+            }
         },
-
         {
             "model_name": "max_pool",
-            "model": lambda: lambda x: flax.nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
-            "input_shapes": [(1, 32, 32, 3)],
-            "build_onnx_node": flax.nnx.max_pool.build_onnx_node,
-            "parameters": {"kernel_shape": (2, 2), "strides": (2, 2), "padding": "VALID"},
+            "model": lambda: lambda x: nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
+            "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
+            "build_onnx_node": nnx.max_pool.build_onnx_node,
+            "export": {
+                "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
+                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
+            }
         },
     ]

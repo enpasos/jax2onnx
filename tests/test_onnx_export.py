@@ -56,64 +56,61 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in ["layernorm_multiaxis"]
+        # if param["model_name"] in [ "mnist_cnn_2" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
     model = test_params["model"]
     input_shapes = test_params["input_shapes"]  # Note the plural!
-    parameters = test_params.get("parameters", {})  # Get parameters from the test case
+    export_params = test_params.get("export", {})  # Get export_params from the test case
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
     # Generate JAX inputs
-    jax_inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
-
-    # Transpose inputs to ONNX format
-    onnx_inputs = [transpose_to_onnx(input) for input in jax_inputs]
+    inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
 
     # Initialize model
     model_instance = model()
     if hasattr(model_instance, "eval"):
         model_instance.eval()
 
-    # Compute expected JAX output
-    #expected_output = model_instance(*jax_inputs)
-
     # Export the model to ONNX
     model_file_name = f"{test_params['model_name']}_model.onnx"
     model_path = f"output/{model_file_name}"
     os.makedirs("output", exist_ok=True)
-    expected_outputs =  export_to_onnx(
+    export_to_onnx(
         model_file_name,
         model_instance,
-        jax_inputs,
+        input_shapes,
         output_path=model_path,
         build_onnx_node=test_params["build_onnx_node"],
-        parameters=parameters,
+        parameters=export_params,
     )
 
     # Load the ONNX model
     ort_session = ort.InferenceSession(model_path)
 
+
     # Create ONNX input dictionary
     onnx_inputs_dict = {
         ort_session.get_inputs()[i].name: np.array(onnx_input)
-        for i, onnx_input in enumerate(onnx_inputs)
+        for i, onnx_input in enumerate(inputs)
     }
 
     # Compute ONNX output
-    onnx_output = ort_session.run(None, onnx_inputs_dict)[0]
+    onnx_outputs = ort_session.run(None, onnx_inputs_dict)
 
-    # Transpose ONNX output back to JAX format
-    onnx_output_jax = transpose_to_jax(onnx_output)
+    # Compute JAX output
+    # for now one input, one output
+    expected_outputs = [model_instance(*inputs)]
 
     # Assert the results
-    np.testing.assert_allclose(
-        expected_outputs[0],
-        onnx_output_jax,
-        rtol=1e-3,
-        atol=1e-5
-    )
+    for i in range(len(expected_outputs)):
+        np.testing.assert_allclose(
+            expected_outputs[i],
+            onnx_outputs[i],
+            rtol=1e-3,
+            atol=1e-5
+        )
     print(f"Test for {test_params['model_name']} passed!")
