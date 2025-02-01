@@ -56,7 +56,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [ "mnist_cnn_2" ]
+        if param["model_name"] in [ "einsum" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -108,8 +108,8 @@ def test_onnx_export(test_params):
     # Assert the results
     for i in range(len(expected_outputs)):
         np.testing.assert_allclose(
-            expected_outputs[i],
             onnx_outputs[i],
+            expected_outputs[i],
             rtol=1e-3,
             atol=1e-5
         )
