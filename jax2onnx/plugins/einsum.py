@@ -1,19 +1,32 @@
 # file: jax2onnx/plugins/einsum.py
 import onnx.helper as oh
 import jax.numpy as jnp
-import flax
+import flax.nnx as nnx
 
+def build_einsum_onnx_node(input_shapes, input_names, onnx_graph, parameters):
+    """
+    Constructs an ONNX node for an Einsum operation.
 
-# Einsum
-def build_einsum_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
+    Args:
+        input_shapes (list of tuples): List of input tensor shapes.
+        input_names (list of str): Names of input tensors.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (dict): Dictionary containing 'equation' information.
+
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    """
     equation = parameters.get("equation", "BNHE,BMHE->BNHM")
 
-    # Perform einsum operation in JAX
-    jax_outputs = [jnp.einsum(equation, *jax_inputs)]
-
+    # Generate a unique node name
     node_name = f"node{onnx_graph.counter_plusplus()}"
+
+    # ONNX Einsum output shape is derived from the equation
+    jax_outputs = [jnp.einsum(equation, *[jnp.zeros(shape) for shape in input_shapes])]
+    output_shapes = [jax_outputs[0].shape]
     output_names = [f"{node_name}_output"]
-    onnx_graph.increment_counter()
 
     # Add the Einsum node to the ONNX graph
     onnx_graph.add_node(
@@ -26,23 +39,31 @@ def build_einsum_onnx_node(jax_inputs, input_names, onnx_graph, parameters):
         )
     )
 
-    onnx_graph.add_local_outputs(jax_outputs, output_names)
-    return jax_outputs, output_names
+    onnx_graph.add_local_outputs(output_shapes, output_names)
+    return output_shapes, output_names
 
+# Properly define JAX einsum function
+def einsum_jax(q, k, equation="BNHE,BMHE->BNHM"):
+    return jnp.einsum(equation, q, k)
 
 # Assign ONNX node builder to einsum function
-flax.nnx.einsum = lambda *args, **kwargs: None  # Placeholder for JAX implementation
-flax.nnx.einsum.build_onnx_node = build_einsum_onnx_node
-
+nnx.einsum = einsum_jax
+nnx.einsum.build_onnx_node = build_einsum_onnx_node
 
 # Example test parameters
 def get_test_params():
+    """
+    Returns test parameters for verifying the ONNX conversion of einsum.
+
+    Returns:
+        list: A list of dictionaries, each defining a test case.
+    """
     return [
         {
-            "model_name": "einsum_attention",
-            "model": lambda: lambda q, k: flax.nnx.einsum(q, k),
+            "model_name": "einsum",
+            "model": lambda: lambda q, k: nnx.einsum(q, k, "BNHE,BMHE->BNHM"),
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
-            "build_onnx_node": flax.nnx.einsum.build_onnx_node,
+            "build_onnx_node": nnx.einsum.build_onnx_node,
             "export": {"equation": "BNHE,BMHE->BNHM"},
         },
     ]
