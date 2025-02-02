@@ -1,96 +1,129 @@
 # file: jax2onnx/plugins/linear_general.py
 
-import onnx
 import onnx.helper as oh
+import onnx
 import numpy as np
 from flax import nnx
 
 def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
-    Constructs an ONNX node for `LinearGeneral`, which generalizes the linear layer
-    to transformations over multiple axes.
-
-    Args:
-        self: The `nnx.LinearGeneral` instance.
-        input_shapes (list of tuples): List containing input tensor shapes, e.g., [(batch_size, input_dim)].
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
-        parameters (optional): Additional parameters.
-
-    Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    Constructs an ONNX node for `LinearGeneral`, ensuring proper handling of input reshaping
+    and transformation, especially for cases like multi-head attention.
     """
-
     if parameters is None:
         parameters = {}
 
-    # Ensure a valid input shape
     if len(input_shapes) < 1:
         raise ValueError("Expected at least one input for LinearGeneral.")
 
     input_shape = input_shapes[0]
     input_name = input_names[0]
 
-    # Extract relevant attributes from `LinearGeneral`
-    in_features = self.in_features  # Tuple or int
-    out_features = self.out_features  # Tuple or int
-    axis = self.axis if isinstance(self.axis, tuple) else (self.axis,)  # Ensure tuple
+    in_features = tuple(self.in_features)  # Ensure tuple format
+    out_features = tuple(self.out_features)  # Ensure tuple format
+    axis = tuple(self.axis)  # Ensure tuple format
     use_bias = self.use_bias
 
-    # Compute output shape
-    batch_dims = input_shape[:-len(axis)]
-    # Convert batch_dims to tuple before concatenation
-    output_shape = tuple(batch_dims) + tuple(out_features)
+    # Compute batch dimensions
+    batch_dims = list(input_shape[:-len(axis)])
+    output_shape = batch_dims + list(out_features)
 
-    node_prefix = f"node{onnx_graph.counter_plusplus()}"
+    node_name = f"node{onnx_graph.counter_plusplus()}"
 
-    # Register kernel as an ONNX initializer
-    kernel_name = f"{node_prefix}_kernel"
+    # Flatten input if necessary for ONNX compatibility
+    reshaped_input_name = input_name
+    reshaped_input_shape = input_shape
+    if len(axis) > 1:
+        reshaped_input_name = f"{node_name}_reshaped_input"
+        feature_dim_prod = np.prod(in_features)
+        reshaped_input_shape = batch_dims + [feature_dim_prod]
+
+        shape_name = f"{node_name}_reshape_shape"
+        shape_tensor = oh.make_tensor(
+            name=shape_name,
+            data_type=onnx.TensorProto.INT64,
+            dims=[len(reshaped_input_shape)],
+            vals=np.array(reshaped_input_shape, dtype=np.int64).tolist(),
+        )
+        onnx_graph.add_initializer(shape_tensor)
+        onnx_graph.add_node(
+            oh.make_node(
+                "Reshape",
+                inputs=[input_name, shape_name],
+                outputs=[reshaped_input_name],
+                name=f"{node_name}_reshape_input"
+            )
+        )
+
+    # Define weight matrix for MatMul
+    weight_name = f"{node_name}_weight"
+    transposed_kernel = self.kernel.value.reshape((np.prod(in_features), np.prod(out_features)))
     onnx_graph.add_initializer(
         oh.make_tensor(
-            kernel_name,
+            weight_name,
             onnx.TensorProto.FLOAT,
-            self.kernel.shape,
-            self.kernel.value.reshape(-1).astype(np.float32),
+            list(transposed_kernel.shape),
+            transposed_kernel.flatten().astype(np.float32).tolist(),
         )
     )
 
-    # Register bias if used
-    bias_name = None
+    # MatMul operation
+    matmul_out_name = f"{node_name}_matmul"
+    onnx_graph.add_node(
+        oh.make_node(
+            "MatMul",
+            inputs=[reshaped_input_name, weight_name],
+            outputs=[matmul_out_name],
+            name=f"{node_name}_matmul",
+        )
+    )
+
+    # Bias addition if enabled
+    final_out_name = matmul_out_name
     if use_bias:
-        bias_name = f"{node_prefix}_bias"
+        bias_name = f"{node_name}_bias"
         onnx_graph.add_initializer(
             oh.make_tensor(
                 bias_name,
                 onnx.TensorProto.FLOAT,
-                self.bias.shape,
-                self.bias.value.reshape(-1).astype(np.float32),
+                list(self.bias.shape),
+                self.bias.value.flatten().astype(np.float32).tolist(),
+            )
+        )
+        final_out_name = f"{node_name}_output"
+        onnx_graph.add_node(
+            oh.make_node(
+                "Add",
+                inputs=[matmul_out_name, bias_name],
+                outputs=[final_out_name],
+                name=f"{node_name}_add_bias",
             )
         )
 
-    # ONNX `Gemm` operation (general matrix multiplication)
-    onnx_output_name = f"{node_prefix}_output"
-    onnx_inputs = [input_name, kernel_name] + ([bias_name] if use_bias else [])
+    # Reshape output to match expected dimensions
+    final_output_name = final_out_name
+    if len(axis) > 1:
+        final_output_name = f"{node_name}_reshaped_output"
+        shape_out_name = f"{node_name}_reshape_output_shape"
 
-    onnx_graph.add_node(
-        oh.make_node(
-            "Gemm",
-            inputs=onnx_inputs,
-            outputs=[onnx_output_name],
-            name=node_prefix,
-            alpha=1.0,
-            beta=1.0,
-            transA=0,
-            transB=0
+        shape_out_tensor = oh.make_tensor(
+            name=shape_out_name,
+            data_type=onnx.TensorProto.INT64,
+            dims=[len(output_shape)],
+            vals=np.array(output_shape, dtype=np.int64).tolist(),
         )
-    )
+        onnx_graph.add_initializer(shape_out_tensor)
+        onnx_graph.add_node(
+            oh.make_node(
+                "Reshape",
+                inputs=[final_out_name, shape_out_name],
+                outputs=[final_output_name],
+                name=f"{node_name}_reshape_output"
+            )
+        )
 
-    # Register the output tensor in the ONNX graph
-    onnx_graph.add_local_outputs([output_shape], [onnx_output_name])
-
-    return [output_shape], [onnx_output_name]
+    onnx_graph.add_local_outputs([output_shape], [final_output_name])
+    return [output_shape], [final_output_name]
 
 
 # Attach the ONNX conversion function to the nnx.LinearGeneral class
@@ -100,26 +133,17 @@ nnx.LinearGeneral.build_onnx_node = build_onnx_node
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of `nnx.LinearGeneral`.
-
-    The test parameters define:
-    - A simple `nnx.LinearGeneral` model with input and output dimensions.
-    - The corresponding input tensor shape.
-    - The ONNX conversion function to be used in unit tests.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
     """
     return [
         {
             "model_name": "linear_general",
             "model": lambda: nnx.LinearGeneral(
-                in_features=(64,),
-                out_features=(128,),
-                axis=(-1,),
-                use_bias=True,
+                in_features=(8, 32),
+                out_features=(256,),
+                axis=(-2, -1),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(4, 64)],  # Example input shape (batch_size=4, input_dim=64)
+            "input_shapes": [(2, 4, 8, 32)],
             "build_onnx_node": nnx.LinearGeneral.build_onnx_node
         }
     ]
