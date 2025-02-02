@@ -19,8 +19,9 @@ def build_dot_product_attention_onnx_node(input_shapes, input_names, onnx_graph,
     node_prefix = f"node{onnx_graph.counter_plusplus()}"
 
     # Compute scaling factor d = sqrt(E)
-    depth = k_shape[-1]
+    depth = int(k_shape[-1])  # Ensure depth is an integer scalar
     scale_value = 1.0 / jnp.sqrt(depth)
+
 
     # Create ONNX constant for the scaling factor
     scale_const_name = f"{node_prefix}_scale_const"
@@ -114,6 +115,6 @@ def get_test_params():
             "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
             "build_onnx_node": nnx.dot_product_attention.build_onnx_node,
-            "parameters": {"softmax_axis": -1},
+
         },
     ]

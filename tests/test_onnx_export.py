@@ -56,7 +56,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [ "dot_product_attention" ]
+        if param["model_name"] in [  "dot_product_attention", "linear_general", "multihead_attention" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
