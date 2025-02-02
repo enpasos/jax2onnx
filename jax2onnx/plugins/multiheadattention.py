@@ -6,22 +6,20 @@ import jax.numpy as jnp
 import flax.nnx as nnx
 
 def build_multihead_attention_onnx_node(
-        self,  # <-- The instance of nnx.MultiHeadAttention
+        self,  # The instance of nnx.MultiHeadAttention
         input_shapes,
         input_names,
         onnx_graph,
         parameters=None
 ):
     """
-    Because `export_to_onnx` calls `model.build_onnx_node(...)` with exactly
-    these four extra arguments, the plugin's signature must have `model` as the
-    first parameter, matching the actual instance.
+    Converts MultiHeadAttention to ONNX format.
 
     Steps:
       1) Use `LinearGeneral` for query, key, value projections.
-      2) Reshape Q/K/V -> (B,L,heads,head_dim)
+      2) Reshape Q/K/V -> (B, L, heads, head_dim)
       3) Use dot_product_attention
-      4) Flatten heads back to (B,L,num_heads*head_dim)
+      4) Flatten heads back to (B, L, num_heads * head_dim)
       5) Use `LinearGeneral` for final projection.
       6) Return [output_shape], [output_name]
     """
@@ -37,7 +35,7 @@ def build_multihead_attention_onnx_node(
     input_name  = input_names[0]
     B, L, in_features = input_shape
 
-    # 2) Retrieve MHA config from `model`
+    # 2) Retrieve MHA config from `self`
     num_heads     = self.num_heads
     qkv_features  = self.qkv_features or in_features
     out_features  = self.out_features
@@ -86,12 +84,11 @@ def build_multihead_attention_onnx_node(
 
     # 3) Reuse dot_product_attention
     dpa_params = {"softmax_axis": -1}
-    # Extract the first element from the returned shapes
-    [attn_out_shape], [attn_out_name] = nnx.dot_product_attention.build_onnx_node(
+    attn_out_shape, [attn_out_name] = nnx.dot_product_attention.build_onnx_node(
         [q_out_shape[0], k_out_shape[0], v_out_shape[0]], [q_4d, k_4d, v_4d], onnx_graph, dpa_params
     )
 
-    # 4) Merge heads -> (B,L,num_heads*head_dim)
+    # 4) Merge heads -> (B, L, num_heads * head_dim)
     merged_name = f"{attn_out_name}_merged"
     merged_shape_val = [B, L, num_heads * head_dim]
     shape_name = f"{merged_name}_shape_const"
@@ -123,13 +120,19 @@ def build_multihead_attention_onnx_node(
     # 5) Final projection using LinearGeneral
     final_out_shape, [final_name] = self.out.build_onnx_node([merged_shape], [merged_name], onnx_graph)
 
-    return [final_out_shape], [final_name]
+    return final_out_shape, [final_name]
 
 
 # Attach as instance method
 nnx.MultiHeadAttention.build_onnx_node = build_multihead_attention_onnx_node
 
 def get_test_params():
+    """
+    Returns test parameters for verifying the ONNX conversion of MultiHeadAttention.
+
+    Returns:
+        list: A list of dictionaries, each defining a test case.
+    """
     return [
         {
             "model_name": "multihead_attention",
