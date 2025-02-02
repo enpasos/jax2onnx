@@ -78,6 +78,8 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
         )
     )
 
+
+
     # Bias addition if enabled
     final_out_name = matmul_out_name
     if use_bias:
