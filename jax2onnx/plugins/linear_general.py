@@ -154,10 +154,10 @@ def get_test_params():
             "model": lambda: nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
-                axis=(-2, -1),
+                axis=(-2, -1),  # ✅ This tests the same projection as MultiHeadAttention
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 4, 8, 32)],
+            "input_shapes": [(2, 4, 8, 32)],  # ✅ Mimics shape after attention in MHA
             "build_onnx_node": nnx.LinearGeneral.build_onnx_node
         },
         {
@@ -168,7 +168,21 @@ def get_test_params():
                 axis=(-1,),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 256)],
+            "input_shapes": [(2, 4, 256)],
+            "build_onnx_node": nnx.LinearGeneral.build_onnx_node
+        },
+
+        {
+            "model_name": "linear_general_mha_projection",
+            "model": lambda: nnx.LinearGeneral(
+                in_features=(8, 32),  # Matches MHA’s post-attention shape (num_heads, head_dim)
+                out_features=(256,),  # Matches MHA’s final output
+                axis=(-2, -1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 4, 8, 32)],  # Mimics MHA’s final reshape input
             "build_onnx_node": nnx.LinearGeneral.build_onnx_node
         }
+
     ]
+

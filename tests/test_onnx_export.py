@@ -56,7 +56,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [ "linear_general_2" ]
+        # if param["model_name"] in [   "multihead_attention" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -84,7 +84,8 @@ def test_onnx_export(test_params):
         model_instance,
         input_shapes,
         output_path=model_path,
-        build_onnx_node=test_params["build_onnx_node"],
+        # Provide a default function or None if no conversion is needed
+        build_onnx_node=test_params.get("build_onnx_node", None),
         parameters=export_params,
     )
 

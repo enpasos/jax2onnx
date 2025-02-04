@@ -89,6 +89,6 @@ def get_test_params():
             "model_name": "linear",
             "model": lambda: nnx.Linear(5, 3, rngs=nnx.Rngs(0)),  # Creates a Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
-            "build_onnx_node": nnx.Linear.build_onnx_node
+            #"build_onnx_node": nnx.Linear.build_onnx_node
         }
     ]
