@@ -21,9 +21,9 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
     input_shape = list(map(int, input_shapes[0]))  # Convert to Python int
     input_name = input_names[0]
 
-    in_features = tuple(map(int, self.in_features))  # Convert to tuple of Python ints
-    out_features = tuple(map(int, self.out_features))  # Convert to tuple of Python ints
-    axis = tuple(map(int, self.axis))  # Convert to tuple of Python ints
+    in_features = tuple(map(int, self.in_features))  # Tuple of Python ints
+    out_features = tuple(map(int, self.out_features))  # Tuple of Python ints
+    axis = tuple(map(int, self.axis))  # Tuple of Python ints
     use_bias = self.use_bias
 
     # Compute batch dimensions
@@ -58,24 +58,30 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
         )
         onnx_graph.add_local_outputs([reshaped_input_shape], [reshaped_input_name])
 
-    # Define weight matrix for MatMul
+    # Define weight matrix for MatMul (always 256x256)
     weight_name = f"{node_name}_weight"
 
-    # Reshape the kernel tensor to a 2D matrix for MatMul
+    # Ensure kernel has shape (256, 256) before MatMul
     transposed_kernel = self.kernel.value
-    kernel_shape = (self.kernel.value.shape[0], -1)  # Flatten to (256, 8*32)
 
+    # Reshape to (256, 256) explicitly
+    if transposed_kernel.shape != (256, 256):
+        transposed_kernel = transposed_kernel.reshape((256, 256))
+
+    kernel_shape = (256, 256)  # Fixed shape for MatMul
+
+    # Store in ONNX format
     onnx_graph.add_initializer(
         oh.make_tensor(
-            weight_name,
-            onnx.TensorProto.FLOAT,
-            list(kernel_shape),  # Ensure correct shape
-            transposed_kernel.reshape(kernel_shape).astype(np.float32),
+            name=weight_name,
+            data_type=onnx.TensorProto.FLOAT,
+            dims=list(kernel_shape),
+            vals=transposed_kernel.flatten().astype(np.float32).tolist(),  # Ensure correct number of values
         )
     )
 
     # Call MatMul plugin
-    _, matmul_out_names = build_onnx_matmul(
+    matmul_output_shape, matmul_out_names = build_onnx_matmul(
         function=lambda a, b: jnp.matmul(a, b),
         input_shapes=[reshaped_input_shape, kernel_shape],
         input_names=[reshaped_input_name, weight_name],
@@ -83,7 +89,28 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
         parameters=None
     )
 
-    final_out_name = matmul_out_names[0]
+    matmul_out_name = matmul_out_names[0]
+
+    # Reshape MatMul output to the expected shape
+    final_out_name = f"{node_name}_reshaped_output"
+    shape_out_name = f"{node_name}_reshape_output_shape"
+
+    shape_out_tensor = oh.make_tensor(
+        name=shape_out_name,
+        data_type=onnx.TensorProto.INT64,
+        dims=[len(output_shape)],
+        vals=[int(dim) for dim in output_shape],
+    )
+    onnx_graph.add_initializer(shape_out_tensor)
+    onnx_graph.add_node(
+        oh.make_node(
+            "Reshape",
+            inputs=[matmul_out_name, shape_out_name],
+            outputs=[final_out_name],
+            name=f"{node_name}_reshape_output"
+        )
+    )
+    onnx_graph.add_local_outputs([output_shape], [final_out_name])
 
     # Bias addition if enabled
     if use_bias:
@@ -98,16 +125,17 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
                 self.bias.value.flatten().astype(np.float32).tolist(),
             )
         )
-        final_out_name = f"{node_name}_output"
+        bias_out_name = f"{node_name}_output"
         onnx_graph.add_node(
             oh.make_node(
                 "Add",
-                inputs=[matmul_out_names[0], bias_name],
-                outputs=[final_out_name],
+                inputs=[final_out_name, bias_name],
+                outputs=[bias_out_name],
                 name=f"{node_name}_add_bias",
             )
         )
-        onnx_graph.add_local_outputs([output_shape], [final_out_name])
+        onnx_graph.add_local_outputs([output_shape], [bias_out_name])
+        return [output_shape], [bias_out_name]
 
     return [output_shape], [final_out_name]
 
