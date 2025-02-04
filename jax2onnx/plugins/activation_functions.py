@@ -140,6 +140,44 @@ def build_leaky_relu_onnx_node(function, input_shapes, input_names, onnx_graph, 
 jax.nn.leaky_relu.build_onnx_node = build_leaky_relu_onnx_node
 
 
+# GELU activation (without approximation_mode for compatibility)
+def build_gelu_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
+    """
+    Create an ONNX node for GELU activation function.
+
+    Args:
+        input_shapes (list of tuples): Input tensor shapes.
+        input_names (list of str): Corresponding input names in ONNX format.
+        onnx_graph: The ONNX graph object where the node will be added.
+        parameters (optional): Dictionary containing GELU approximation mode (not used due to ONNX limitations).
+
+    Returns:
+        tuple:
+            - output_shapes (list of tuples): Shape of the output tensor.
+            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+    """
+    node_name = f"node{onnx_graph.counter_plusplus()}"
+
+    onnx_output_names = [f'{node_name}_output']
+
+    onnx_graph.add_node(
+        oh.make_node(
+            'Gelu',
+            inputs=input_names,
+            outputs=onnx_output_names,
+            name=node_name,
+        )
+    )
+
+    output_shapes = input_shapes
+    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+
+    return output_shapes, onnx_output_names
+
+# Attach ONNX conversion method for GELU
+jax.nn.gelu.build_onnx_node = build_gelu_onnx_node
+
+
 # Define test parameters for activation functions
 def get_test_params():
     """
@@ -198,5 +236,13 @@ def get_test_params():
             "model": lambda: lambda x: jax.nn.softplus(x),
             "input_shapes": [(1, 10)],
             "build_onnx_node": jax.nn.softplus.build_onnx_node,
+        },
+
+        {
+            "model_name": "gelu",
+            "model": lambda: lambda x: jax.nn.gelu(x),
+            "input_shapes": [(1, 10)],
+            "build_onnx_node": jax.nn.gelu.build_onnx_node,
+            "parameters": [{"approximation_mode": "Tanh"}],
         },
     ]
