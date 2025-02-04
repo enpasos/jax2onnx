@@ -34,6 +34,8 @@ class CNN(nnx.Module):
         self.ln6 = nnx.LayerNorm(num_features=1024 ,    rngs=rngs)
         self.dropout4 = nnx.Dropout(rate=0.5, rngs=rngs)
         self.linear3 = nnx.Linear(1024, 10, rngs=rngs)
+        self.reshape = lambda x: x.reshape(x.shape[0], -1)
+        self.relu = nnx.relu
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         """Defines the forward pass of the model."""
@@ -47,7 +49,7 @@ class CNN(nnx.Module):
         x = self.pool2(x)
         x = self.dropout2(x, deterministic=deterministic)
 
-        x = x.reshape(x.shape[0], -1)  # Flatten
+        x = self.reshape(x)
         x = nnx.relu(self.ln5(self.linear1(x)))
         x = self.dropout3(x, deterministic=deterministic)
         x = nnx.relu(self.ln6(self.linear2(x)))
@@ -60,21 +62,21 @@ class CNN(nnx.Module):
         # Conv1 + LN + ReLU + Conv2 + LN + ReLU + Pool + Dropout
         xs, names = self.conv1.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln1.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
         xs, names = self.conv2.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln2.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
-        xs, names = nnx.max_pool.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
+        xs, names = nnx.max_pool.build_onnx_node(self.pool1, xs, names, onnx_graph, parameters)
         xs, names = self.dropout1.build_onnx_node(xs, names, onnx_graph, parameters)
 
         # Conv3 + LN + ReLU + Conv4 + LN + ReLU + Pool + Dropout
         xs, names = self.conv3.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln3.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
         xs, names = self.conv4.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln4.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
-        xs, names = nnx.max_pool.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
+        xs, names = nnx.max_pool.build_onnx_node(self.pool2, xs, names, onnx_graph, parameters)
         xs, names = self.dropout2.build_onnx_node(xs, names, onnx_graph, parameters)
 
         # # Compute flatten size dynamically
@@ -83,20 +85,20 @@ class CNN(nnx.Module):
         # Reshape
         reshape_params = {"shape": (xs[0][0], flatten_size),
                           "pre_transpose": [(0, 2, 3, 1)]}
-        xs, names = jax.numpy.reshape.build_onnx_node(xs,  names, onnx_graph, reshape_params)
+        xs, names = jax.numpy.reshape.build_onnx_node(self.reshape, xs,  names, onnx_graph, reshape_params)
 
 
         # Linear + LN + ReLU + Dropout + Linear + LN + ReLU + Dropout + Linear
         xs, names = self.linear1.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln5.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
         xs, names = self.dropout3.build_onnx_node(xs, names, onnx_graph, parameters)
         xs, names = self.linear2.build_onnx_node(xs, names, onnx_graph)
         xs, names = self.ln6.build_onnx_node(xs, names, onnx_graph )
-        xs, names = jax.nn.relu.build_onnx_node(xs, names, onnx_graph, parameters)
+        xs, names = jax.nn.relu.build_onnx_node(self.relu, xs, names, onnx_graph, parameters)
         xs, names = self.dropout4.build_onnx_node(xs, names, onnx_graph, parameters)
         xs, names = self.linear3.build_onnx_node(xs, names, onnx_graph)
-        xs, names = jax.nn.log_softmax.build_onnx_node(xs, names, onnx_graph)
+        xs, names = jax.nn.log_softmax.build_onnx_node(nnx.log_softmax, xs, names, onnx_graph)
 
         return xs, names
 
