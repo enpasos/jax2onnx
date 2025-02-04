@@ -6,7 +6,7 @@ import onnx
 from jax2onnx.onnx_export import pre_transpose, post_transpose
 
 
-def build_reshape_onnx_node(input_shapes, input_names, onnx_graph, parameters):
+def build_reshape_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
     """
     Constructs an ONNX node for a reshape operation.
 

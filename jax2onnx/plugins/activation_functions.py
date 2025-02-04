@@ -6,7 +6,7 @@ import onnx
 from transpose_utils import jax_shape_to_onnx_shape
 
 
-def build_generic_onnx_node(op_type, input_shapes, input_names, onnx_graph, parameters=None):
+def build_generic_onnx_node(function, op_type, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Create a generic ONNX node for activation functions.
 
@@ -48,16 +48,16 @@ def build_generic_onnx_node(op_type, input_shapes, input_names, onnx_graph, para
 
 
 # Attach ONNX conversion methods to JAX activation functions
-jax.nn.relu.build_onnx_node = lambda *args: build_generic_onnx_node('Relu', *args)
-jax.nn.sigmoid.build_onnx_node = lambda *args: build_generic_onnx_node('Sigmoid', *args)
-jax.nn.tanh.build_onnx_node = lambda *args: build_generic_onnx_node('Tanh', *args)
-jax.nn.softmax.build_onnx_node = lambda *args: build_generic_onnx_node('Softmax', *args)
-jax.nn.elu.build_onnx_node = lambda *args: build_generic_onnx_node('Elu', *args)
-jax.nn.softplus.build_onnx_node = lambda *args: build_generic_onnx_node('Softplus', *args)
+jax.nn.relu.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Relu', *args)
+jax.nn.sigmoid.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Sigmoid', *args)
+jax.nn.tanh.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Tanh', *args)
+jax.nn.softmax.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Softmax', *args)
+jax.nn.elu.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Elu', *args)
+jax.nn.softplus.build_onnx_node = lambda function, *args: build_generic_onnx_node(function, 'Softplus', *args)
 
 
 # LogSoftmax (requires axis parameter)
-def build_log_softmax_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
+def build_log_softmax_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Create an ONNX node for LogSoftmax with axis handling.
 
@@ -99,7 +99,7 @@ jax.nn.log_softmax.build_onnx_node = build_log_softmax_onnx_node
 
 
 # LeakyReLU (requires alpha parameter)
-def build_leaky_relu_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
+def build_leaky_relu_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Create an ONNX node for LeakyReLU with alpha handling.
 

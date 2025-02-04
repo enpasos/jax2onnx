@@ -76,6 +76,8 @@ def build_multihead_attention_onnx_node(
                 name=f"{prefix}_reshape"
             )
         )
+        onnx_graph.add_local_outputs([shape_4d], [out_name])
+
         return out_name
 
     q_4d = reshape_blnh(q_name, f"{node_prefix}_q")
