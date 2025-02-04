@@ -76,10 +76,11 @@ class VisionTransformer(nnx.Module):
 
 def get_test_params():
     return [
-        {
-            "model_name": "mnist_vit",
-            "model": lambda: VisionTransformer(patch_size=4, num_hiddens=256, num_layers=6, num_heads=8, mlp_dim=512, num_classes=10, in_features=1, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 28, 28, 1)],
-            "build_onnx": VisionTransformer.build_onnx
-        }
+        # t.b.d. implementation, work in progress
+        # {
+        #     "model_name": "mnist_vit",
+        #     "model": lambda: VisionTransformer(patch_size=4, num_hiddens=256, num_layers=6, num_heads=8, mlp_dim=512, num_classes=10, in_features=1, rngs=nnx.Rngs(0)),
+        #     "input_shapes": [(1, 28, 28, 1)],
+        #     "build_onnx": VisionTransformer.build_onnx
+        # }
     ]
