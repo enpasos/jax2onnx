@@ -62,7 +62,7 @@ def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx
     output_shapes, output_names = (
         model.build_onnx_node(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
         if hasattr(model, "build_onnx_node")
-        else build_onnx_node(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
+        else build_onnx_node(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
     )
 
     # extract into intermediate_output_tensors and remove outputs according to output_names from onnx value_info

@@ -5,7 +5,7 @@ import onnx.helper as oh
 import jax.numpy as jnp
 import flax.nnx as nnx
 
-def build_dot_product_attention_onnx_node(input_shapes, input_names, onnx_graph, parameters):
+def build_dot_product_attention_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
     if not isinstance(parameters, dict):
         raise ValueError("dot_product_attention parameters must be a dict.")
 

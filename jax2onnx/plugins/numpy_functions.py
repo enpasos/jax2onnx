@@ -4,7 +4,7 @@ import onnx.helper as oh
 import jax.numpy as jnp
 
 
-def build_add_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
+def build_add_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for element-wise addition.
 
@@ -44,7 +44,7 @@ def build_add_onnx_node(input_shapes, input_names, onnx_graph, parameters=None):
 jnp.add.build_onnx_node = build_add_onnx_node
 
 
-def build_concat_onnx_node(input_shapes, input_names, onnx_graph, parameters):
+def build_concat_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
     """
     Constructs an ONNX node for concatenation along a specified axis.
 

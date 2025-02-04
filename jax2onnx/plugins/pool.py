@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
 
-def build_pool_onnx_node(pool_type, input_shapes, input_names, onnx_graph, parameters):
+def build_pool_onnx_node(function, pool_type, input_shapes, input_names, onnx_graph, parameters):
     """
     Constructs an ONNX node for pooling operations (AveragePool, MaxPool).
 
@@ -81,8 +81,8 @@ def build_pool_onnx_node(pool_type, input_shapes, input_names, onnx_graph, param
 
 
 # Assign ONNX node builders to Flax pooling functions
-nnx.avg_pool.build_onnx_node = lambda *args: build_pool_onnx_node('AveragePool', *args)
-nnx.max_pool.build_onnx_node = lambda *args: build_pool_onnx_node('MaxPool', *args)
+nnx.avg_pool.build_onnx_node = lambda function, *args: build_pool_onnx_node(function, 'AveragePool', *args)
+nnx.max_pool.build_onnx_node = lambda function, *args: build_pool_onnx_node(function, 'MaxPool', *args)
 
 
 def get_test_params():
