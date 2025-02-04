@@ -3,16 +3,12 @@
 # JAX API reference: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__LayerNormalization.html
 
-import onnx.helper as oh
-import numpy as np
 import onnx
+import onnx.helper as oh
 from flax import nnx
-import jax.numpy as jnp
-
-from transpose_utils import jax_shape_to_onnx_shape
 
 
-def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
+def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for a LayerNorm operation.
 
@@ -89,8 +85,8 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
     return output_shapes, onnx_output_names
 
 
-# Attach the `build_onnx_node` method to nnx.LayerNorm
-nnx.LayerNorm.build_onnx_node = build_onnx_node
+# Attach the `build_onnx` method to nnx.LayerNorm
+nnx.LayerNorm.build_onnx = build_onnx
 
 
 def get_test_params():
@@ -110,13 +106,13 @@ def get_test_params():
             "model_name": "layernorm_default",
             "model": lambda: nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 64)],
-            "build_onnx_node": nnx.LayerNorm.build_onnx_node,
+            "build_onnx": nnx.LayerNorm.build_onnx,
         },
         {
             "model_name": "layernorm_multiaxis",
             "model": lambda: nnx.LayerNorm(3 * 3 * 64, reduction_axes=(1, 2, 3), feature_axes=(1, 2, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 3, 3, 64)],
-            "build_onnx_node": nnx.LayerNorm.build_onnx_node,
+            "build_onnx": nnx.LayerNorm.build_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
                 "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format

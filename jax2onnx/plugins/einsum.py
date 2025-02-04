@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins/einsum.py
-import onnx.helper as oh
 import jax.numpy as jnp
-import flax.nnx as nnx
+import onnx.helper as oh
+
 
 def build_einsum_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
     """
@@ -44,7 +44,7 @@ def build_einsum_onnx_node(function, input_shapes, input_names, onnx_graph, para
     return output_shapes, output_names
 
 # Register the ONNX node builder for einsum
-jnp.einsum.build_onnx_node = build_einsum_onnx_node
+jnp.einsum.build_onnx = build_einsum_onnx_node
 
 # Example test parameters
 def get_test_params():
@@ -61,7 +61,7 @@ def get_test_params():
             "model_name": "einsum",
             "model": lambda: lambda a, b: jnp.einsum(equation, a, b),
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
-            "build_onnx_node": jnp.einsum.build_onnx_node,
+            "build_onnx": jnp.einsum.build_onnx,
             "export": {"equation": equation},
         },
     ]

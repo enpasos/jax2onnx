@@ -1,4 +1,4 @@
-# file: tests/test_onnx_export.py
+# file: tests/test_build_onnx.py
 import pytest
 import jax
 import jax.numpy as jnp
@@ -8,7 +8,7 @@ import pkgutil
 import os
 import numpy as np
 
-from jax2onnx.onnx_export import export_to_onnx, transpose_to_onnx, transpose_to_jax, OnnxGraph
+from jax2onnx.build_onnx import export_to_onnx,  OnnxGraph
 
 def load_test_params():
     params = []
@@ -56,7 +56,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        if param["model_name"] in [  "gelu",  "mnist_vit" ]
+        # if param["model_name"] in [  "gelu",  "mnist_vit" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -85,7 +85,7 @@ def test_onnx_export(test_params):
         input_shapes,
         output_path=model_path,
         # Provide a default function or None if no conversion is needed
-        build_onnx_node=test_params.get("build_onnx_node", None),
+        build_onnx=test_params.get("build_onnx", None),
         parameters=export_params,
     )
 

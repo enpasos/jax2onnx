@@ -1,13 +1,12 @@
-# file: jax2onnx/onnx_export.py
+# file: jax2onnx/build_onnx.py
+import importlib
+import os
+import pkgutil
+
+import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
-import importlib
-import pkgutil
-import os
-import numpy as np
-import jax.numpy as jnp
-from flax import nnx
-from .transpose_utils import transpose_to_onnx, transpose_to_jax, jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
+
 
 class OnnxGraph:
     def __init__(self):
@@ -42,9 +41,8 @@ def load_plugins():
         plugins[name] = module
     return plugins
 
-import jax
 
-def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", build_onnx_node=None, parameters=None):
+def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", build_onnx=None, parameters=None):
     if parameters is None:
         parameters = {}
 
@@ -60,9 +58,9 @@ def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx
 
     # Build ONNX node
     output_shapes, output_names = (
-        model.build_onnx_node(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
-        if hasattr(model, "build_onnx_node")
-        else build_onnx_node(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
+        model.build_onnx(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
+        if hasattr(model, "build_onnx")
+        else build_onnx(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
     )
 
     # extract into intermediate_output_tensors and remove outputs according to output_names from onnx value_info

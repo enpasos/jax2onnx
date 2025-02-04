@@ -15,12 +15,12 @@ class MLP(nnx.Module):
         x = self.activation(x)
         return x
 
-    def build_onnx_node(self, xs, input_names, onnx_graph, parameters=None):
+    def build_onnx(self, xs, input_names, onnx_graph, parameters=None):
         # Generate the ONNX node for the Linear layer
-        xs, linear_output_names = self.layer.build_onnx_node(xs, input_names, onnx_graph)
+        xs, linear_output_names = self.layer.build_onnx(xs, input_names, onnx_graph)
 
         # Add ReLU activation node
-        xs, relu_output_names = jax.nn.relu.build_onnx_node(self.activation, xs, linear_output_names, onnx_graph, parameters)
+        xs, relu_output_names = jax.nn.relu.build_onnx(self.activation, xs, linear_output_names, onnx_graph, parameters)
 
 
         return xs, relu_output_names
@@ -36,8 +36,8 @@ def get_test_params():
             "model_name": "mlp",
             "model": lambda: MLP(30, 10, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 30)],
-            "build_onnx_node": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
-                MLP(30, 10, rngs=nnx.Rngs(0)).build_onnx_node(jax_inputs, input_names, onnx_graph, parameters)
+            "build_onnx": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
+                MLP(30, 10, rngs=nnx.Rngs(0)).build_onnx(jax_inputs, input_names, onnx_graph, parameters)
             )
         }
     ]

@@ -1,11 +1,12 @@
 # file: jax2onnx/plugins/linear.py
 
-import onnx.helper as oh
-import onnx
 import numpy as np
+import onnx
+import onnx.helper as oh
 from flax import nnx
 
-def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
+
+def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for a linear (fully connected) layer.
 
@@ -69,7 +70,7 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
 
 
 # Attach the ONNX conversion function to the nnx.Linear class
-nnx.Linear.build_onnx_node = build_onnx_node
+nnx.Linear.build_onnx = build_onnx
 
 
 def get_test_params():
@@ -89,6 +90,6 @@ def get_test_params():
             "model_name": "linear",
             "model": lambda: nnx.Linear(5, 3, rngs=nnx.Rngs(0)),  # Creates a Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
-            #"build_onnx_node": nnx.Linear.build_onnx_node
+            #"build_onnx": nnx.Linear.build_onnx
         }
     ]

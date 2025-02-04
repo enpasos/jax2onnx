@@ -1,14 +1,14 @@
 # file: jax2onnx/plugins/conv.py
 
-import onnx.helper as oh
-import onnx
 import jax.numpy as jnp
+import onnx
+import onnx.helper as oh
 from flax import nnx
-from jax2onnx.onnx_export import OnnxGraph, jax_shape_to_onnx_shape
-from transpose_utils import onnx_shape_to_jax_shape
+
+from transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
 
 
-def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
+def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for a convolutional layer.
 
@@ -99,8 +99,8 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
 
     return output_shapes, onnx_output_names
 
-# Attach the `build_onnx_node` method to nnx.Conv
-nnx.Conv.build_onnx_node = build_onnx_node
+# Attach the `build_onnx` method to nnx.Conv
+nnx.Conv.build_onnx = build_onnx
 
 def get_test_params():
     """
@@ -128,7 +128,7 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "build_onnx_node": nnx.Conv.build_onnx_node,
+            "build_onnx": nnx.Conv.build_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
                 "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
