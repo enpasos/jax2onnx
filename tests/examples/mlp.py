@@ -8,10 +8,11 @@ import onnx.helper as oh
 class MLP(nnx.Module):
     def __init__(self, in_features, out_features, *, rngs=nnx.Rngs(0)):
         self.layer = nnx.Linear(in_features, out_features, rngs=rngs)
+        self.activation = lambda x: jax.nn.relu(x)
 
     def __call__(self, x):
         x = self.layer(x)
-        x = jax.nn.relu(x)
+        x = self.activation(x)
         return x
 
     def build_onnx_node(self, xs, input_names, onnx_graph, parameters=None):
@@ -19,7 +20,7 @@ class MLP(nnx.Module):
         xs, linear_output_names = self.layer.build_onnx_node(xs, input_names, onnx_graph)
 
         # Add ReLU activation node
-        xs, relu_output_names = jax.nn.relu.build_onnx_node(xs, linear_output_names, onnx_graph, parameters)
+        xs, relu_output_names = jax.nn.relu.build_onnx_node(self.activation, xs, linear_output_names, onnx_graph, parameters)
 
 
         return xs, relu_output_names
