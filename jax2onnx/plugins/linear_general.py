@@ -1,13 +1,15 @@
 # file: jax2onnx/plugins/linear_general.py
 
-import onnx.helper as oh
-import onnx
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
+import onnx
+import onnx.helper as oh
 from flax import nnx
+
 from jax2onnx.plugins.matmul import build_onnx_matmul  # Import MatMul plugin
 
-def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
+
+def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for `LinearGeneral`, ensuring proper handling of input reshaping,
     transformation, and weight application using the existing MatMul ONNX builder.
@@ -141,7 +143,7 @@ def build_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None
 
 
 # Attach the ONNX conversion function to the nnx.LinearGeneral class
-nnx.LinearGeneral.build_onnx_node = build_onnx_node
+nnx.LinearGeneral.build_onnx = build_onnx
 
 
 def get_test_params():
@@ -158,7 +160,7 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],  # ✅ Mimics shape after attention in MHA
-            "build_onnx_node": nnx.LinearGeneral.build_onnx_node
+            "build_onnx": nnx.LinearGeneral.build_onnx
         },
         {
             "model_name": "linear_general_2",
@@ -169,7 +171,7 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 256)],
-            "build_onnx_node": nnx.LinearGeneral.build_onnx_node
+            "build_onnx": nnx.LinearGeneral.build_onnx
         },
 
         {
@@ -181,7 +183,7 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],  # Mimics MHA’s final reshape input
-            "build_onnx_node": nnx.LinearGeneral.build_onnx_node
+            "build_onnx": nnx.LinearGeneral.build_onnx
         }
 
     ]

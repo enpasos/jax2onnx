@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins/numpy_functions.py
 
-import onnx.helper as oh
 import jax.numpy as jnp
+import onnx.helper as oh
 
 
 def build_add_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
@@ -41,7 +41,7 @@ def build_add_onnx_node(function, input_shapes, input_names, onnx_graph, paramet
 
 
 # Assign ONNX node builder to jax.numpy.add
-jnp.add.build_onnx_node = build_add_onnx_node
+jnp.add.build_onnx = build_add_onnx_node
 
 
 def build_concat_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
@@ -89,7 +89,7 @@ def build_concat_onnx_node(function, input_shapes, input_names, onnx_graph, para
 
 
 # Assign ONNX node builder to jax.numpy.concatenate
-jnp.concatenate.build_onnx_node = build_concat_onnx_node
+jnp.concatenate.build_onnx = build_concat_onnx_node
 
 
 def get_test_params():
@@ -104,13 +104,13 @@ def get_test_params():
             "model_name": "add",
             "model": lambda: lambda x, y: jnp.add(x, y),
             "input_shapes": [(1, 10), (1, 10)],  # Two input shapes for element-wise addition
-            "build_onnx_node": jnp.add.build_onnx_node,
+            "build_onnx": jnp.add.build_onnx,
         },
         {
             "model_name": "concat",
             "model": lambda: lambda x, y: jnp.concatenate([x, y], axis=1),
             "input_shapes": [(1, 10), (1, 10)],  # Compatible shapes for axis=1
-            "build_onnx_node": jnp.concatenate.build_onnx_node,
+            "build_onnx": jnp.concatenate.build_onnx,
             "export": [{"axis": 1}],  # Correct axis for concatenation
         },
     ]

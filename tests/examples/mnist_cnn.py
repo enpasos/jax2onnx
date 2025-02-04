@@ -30,30 +30,30 @@ class MNIST_CNN(nnx.Module):
 
         return x
 
-    def build_onnx_node(self, xs, names, onnx_graph, parameters=None):
+    def build_onnx(self, xs, names, onnx_graph, parameters=None):
         """Defines the ONNX export logic for the CNN model."""
         # Conv1 + ReLU + AvgPool
-        xs,  names = self.conv1.build_onnx_node(xs,  names, onnx_graph)
-        xs,  names = jax.nn.relu.build_onnx_node(self.act, xs,  names, onnx_graph, parameters)
-        xs,  names = nnx.avg_pool.build_onnx_node(self.avg_pool, xs,  names, onnx_graph, parameters)
+        xs,  names = self.conv1.build_onnx(xs,  names, onnx_graph)
+        xs,  names = jax.nn.relu.build_onnx(self.act, xs,  names, onnx_graph, parameters)
+        xs,  names = nnx.avg_pool.build_onnx(self.avg_pool, xs,  names, onnx_graph, parameters)
 
         # Conv2 + ReLU + AvgPool
-        xs,  names = self.conv2.build_onnx_node(xs,  names, onnx_graph)
-        xs, names = jax.nn.relu.build_onnx_node(self.act, xs,  names, onnx_graph, parameters)
-        xs,  names = nnx.avg_pool.build_onnx_node(self.avg_pool, xs,  names, onnx_graph, parameters)
+        xs,  names = self.conv2.build_onnx(xs,  names, onnx_graph)
+        xs, names = jax.nn.relu.build_onnx(self.act, xs,  names, onnx_graph, parameters)
+        xs,  names = nnx.avg_pool.build_onnx(self.avg_pool, xs,  names, onnx_graph, parameters)
 
         # Reshape
         reshape_params = {"shape": (xs[0][0], 3136),
                           "pre_transpose": [(0, 2, 3, 1)]
                           }
-        xs, names = jax.numpy.reshape.build_onnx_node(self.reshape, xs,  names, onnx_graph, reshape_params)
+        xs, names = jax.numpy.reshape.build_onnx(self.reshape, xs,  names, onnx_graph, reshape_params)
         #
         # Linear1 + ReLU
-        xs,  names = self.linear1.build_onnx_node(xs, names, onnx_graph)
-        xs,  names = jax.nn.relu.build_onnx_node(self.act, xs,  names, onnx_graph, parameters)
+        xs,  names = self.linear1.build_onnx(xs, names, onnx_graph)
+        xs,  names = jax.nn.relu.build_onnx(self.act, xs,  names, onnx_graph, parameters)
         #
         # Linear2
-        xs, names = self.linear2.build_onnx_node(xs,  names, onnx_graph)
+        xs, names = self.linear2.build_onnx(xs,  names, onnx_graph)
 
         return xs,  names
 
@@ -67,7 +67,7 @@ def get_test_params():
             "model_name": "mnist_cnn",
             "model": lambda: MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
-            "build_onnx_node": MNIST_CNN.build_onnx_node,
+            "build_onnx": MNIST_CNN.build_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)]
             }

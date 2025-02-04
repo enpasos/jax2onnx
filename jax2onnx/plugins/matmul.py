@@ -1,7 +1,8 @@
 # file: jax2onnx/plugins/matmul.py
 
-import onnx.helper as oh
 import jax.numpy as jnp
+import onnx.helper as oh
+
 
 def build_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameters=None):
     """
@@ -50,7 +51,7 @@ def build_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameter
     return [output_shape], [matmul_out_name]
 
 
-jnp.matmul.build_onnx_node = build_onnx_matmul
+jnp.matmul.build_onnx = build_onnx_matmul
 
 
 def get_test_params():
@@ -65,21 +66,21 @@ def get_test_params():
             "model_name": "matmul_2d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4, 3)],
-            "build_onnx_node": jnp.matmul.build_onnx_node,
+            "build_onnx": jnp.matmul.build_onnx,
             "export": {},
         },
         {
             "model_name": "matmul_3d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(2, 3, 4), (2, 4, 3)],
-            "build_onnx_node": jnp.matmul.build_onnx_node,
+            "build_onnx": jnp.matmul.build_onnx,
             "export": {},
         },
         {
             "model_name": "matmul_4d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
-            "build_onnx_node": jnp.matmul.build_onnx_node,
+            "build_onnx": jnp.matmul.build_onnx,
             "export": {},
         },
     ]
