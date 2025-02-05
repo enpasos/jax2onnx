@@ -81,8 +81,8 @@ def build_pool_onnx_node(function, pool_type, input_shapes, input_names, onnx_gr
 
 
 # Assign ONNX node builders to Flax pooling functions
-nnx.avg_pool.build_onnx = lambda function, *args: build_pool_onnx_node(function, 'AveragePool', *args)
-nnx.max_pool.build_onnx = lambda function, *args: build_pool_onnx_node(function, 'MaxPool', *args)
+nnx.avg_pool.to_onnx = lambda function, *args: build_pool_onnx_node(function, 'AveragePool', *args)
+nnx.max_pool.to_onnx = lambda function, *args: build_pool_onnx_node(function, 'MaxPool', *args)
 
 
 def get_test_params():
@@ -97,7 +97,7 @@ def get_test_params():
             "model_name": "avg_pool",
             "model": lambda: lambda x: nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "build_onnx": nnx.avg_pool.build_onnx,
+            "to_onnx": nnx.avg_pool.to_onnx,
             "export": {
                 "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
                 "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
@@ -108,7 +108,7 @@ def get_test_params():
             "model_name": "max_pool",
             "model": lambda: lambda x: nnx.max_pool(x, window_shape=(2, 2), strides=(2, 2), padding='VALID'),
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "build_onnx": nnx.max_pool.build_onnx,
+            "to_onnx": nnx.max_pool.to_onnx,
             "export": {
                 "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
                 "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)

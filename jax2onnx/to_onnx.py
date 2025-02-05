@@ -1,4 +1,4 @@
-# file: jax2onnx/build_onnx.py
+# file: jax2onnx/to_onnx.py
 import importlib
 import os
 import pkgutil
@@ -13,7 +13,7 @@ class OnnxGraph:
         self.nodes = []
         self.initializers = []
         self.value_info = []
-        self.counter = [0]
+        self.counter = 0
 
     def add_node(self, node):
         self.nodes.append(node)
@@ -23,8 +23,8 @@ class OnnxGraph:
 
 
     def counter_plusplus(self):
-        self.counter[0] += 1
-        return self.counter[0]
+        self.counter += 1
+        return self.counter
 
     def add_local_outputs(self, output_shapes, output_names):
         for i in range(len(output_names)):
@@ -42,11 +42,11 @@ def load_plugins():
     return plugins
 
 
-def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", build_onnx=None, parameters=None):
+def to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", to_onnx=None, parameters=None):
     if parameters is None:
         parameters = {}
 
-     # Initialize the ONNX graph
+    # Initialize the ONNX graph
     onnx_graph = OnnxGraph()
 
     input_names = [f"input_{onnx_graph.counter_plusplus()}" for i in range(len(input_shapes))]
@@ -58,15 +58,10 @@ def export_to_onnx(model_file_name, model, input_shapes, output_path="model.onnx
 
     # Build ONNX node
     output_shapes, output_names = (
-        model.build_onnx(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
-        if hasattr(model, "build_onnx")
-        else build_onnx(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
+        model.to_onnx(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
+        if hasattr(model, "to_onnx")
+        else to_onnx(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
     )
-
-    # extract into intermediate_output_tensors and remove outputs according to output_names from onnx value_info
-    # intermediate_output_tensors = [value_info for value_info in onnx_graph.value_info if value_info.name in output_names]
-    # onnx_graph.value_info = [value_info for value_info in onnx_graph.value_info if value_info.name not in output_names]
-
 
     # Optional post-transpose
     final_output_shapes, final_output_names = post_transpose(output_shapes, output_names, onnx_graph, parameters)

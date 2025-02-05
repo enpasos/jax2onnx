@@ -74,7 +74,7 @@ Note: for more details look into the `pyproject.toml` file
 
 
 ## Usage
-Import the `jax2onnx` module, implement the `build_onnx` function to your Module class and use the `export_to_onnx` 
+Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `export_to_onnx` 
 function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
  

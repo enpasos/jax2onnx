@@ -1,4 +1,4 @@
-# file: tests/test_build_onnx.py
+# file: tests/test_to_onnx.py
 import pytest
 import jax
 import jax.numpy as jnp
@@ -8,7 +8,7 @@ import pkgutil
 import os
 import numpy as np
 
-from jax2onnx.build_onnx import export_to_onnx,  OnnxGraph
+from jax2onnx.to_onnx import to_onnx,  OnnxGraph
 
 def load_test_params():
     params = []
@@ -79,13 +79,13 @@ def test_onnx_export(test_params):
     model_file_name = f"{test_params['model_name']}_model.onnx"
     model_path = f"output/{model_file_name}"
     os.makedirs("output", exist_ok=True)
-    export_to_onnx(
+    to_onnx(
         model_file_name,
         model_instance,
         input_shapes,
         output_path=model_path,
         # Provide a default function or None if no conversion is needed
-        build_onnx=test_params.get("build_onnx", None),
+        to_onnx=test_params.get("to_onnx", None),
         parameters=export_params,
     )
 

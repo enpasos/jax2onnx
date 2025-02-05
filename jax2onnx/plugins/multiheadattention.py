@@ -31,13 +31,13 @@ def build_multihead_attention_onnx_node(
     input_name = input_names[0]
 
     # Retrieve MHA configuration
-    q_out_shape, [q_name] = self.query.build_onnx([input_shape], [input_name], onnx_graph)
-    k_out_shape, [k_name] = self.key.build_onnx([input_shape], [input_name], onnx_graph)
-    v_out_shape, [v_name] = self.value.build_onnx([input_shape], [input_name], onnx_graph)
+    q_out_shape, [q_name] = self.query.to_onnx([input_shape], [input_name], onnx_graph)
+    k_out_shape, [k_name] = self.key.to_onnx([input_shape], [input_name], onnx_graph)
+    v_out_shape, [v_name] = self.value.to_onnx([input_shape], [input_name], onnx_graph)
 
     # Apply dot-product attention
     dpa_params = {"softmax_axis": -1}
-    attn_out_shape, [attn_out_name] = nnx.dot_product_attention.build_onnx(
+    attn_out_shape, [attn_out_name] = nnx.dot_product_attention.to_onnx(
         function=lambda q, k, v: nnx.dot_product_attention(q, k, v),
         input_shapes=[q_out_shape[0], k_out_shape[0], v_out_shape[0]],
         input_names=[q_name, k_name, v_name],
@@ -46,7 +46,7 @@ def build_multihead_attention_onnx_node(
     )
 
     # Apply final projection
-    final_out_shape, [final_name] = self.out.build_onnx(
+    final_out_shape, [final_name] = self.out.to_onnx(
         attn_out_shape, [attn_out_name], onnx_graph
     )
 
@@ -54,7 +54,7 @@ def build_multihead_attention_onnx_node(
 
 
 # Attach ONNX conversion function to nnx.MultiHeadAttention
-nnx.MultiHeadAttention.build_onnx = build_multihead_attention_onnx_node
+nnx.MultiHeadAttention.to_onnx = build_multihead_attention_onnx_node
 
 def get_test_params():
     """

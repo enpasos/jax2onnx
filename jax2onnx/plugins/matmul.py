@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import onnx.helper as oh
 
 
-def build_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for `jax.numpy.matmul`, ensuring proper handling of batch dimensions
     and transpositions to match ONNX's `MatMul` behavior.
@@ -51,7 +51,7 @@ def build_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameter
     return [output_shape], [matmul_out_name]
 
 
-jnp.matmul.build_onnx = build_onnx_matmul
+jnp.matmul.to_onnx = to_onnx_matmul
 
 
 def get_test_params():
@@ -66,21 +66,21 @@ def get_test_params():
             "model_name": "matmul_2d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4, 3)],
-            "build_onnx": jnp.matmul.build_onnx,
+            "to_onnx": jnp.matmul.to_onnx,
             "export": {},
         },
         {
             "model_name": "matmul_3d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(2, 3, 4), (2, 4, 3)],
-            "build_onnx": jnp.matmul.build_onnx,
+            "to_onnx": jnp.matmul.to_onnx,
             "export": {},
         },
         {
             "model_name": "matmul_4d",
             "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
-            "build_onnx": jnp.matmul.build_onnx,
+            "to_onnx": jnp.matmul.to_onnx,
             "export": {},
         },
     ]
