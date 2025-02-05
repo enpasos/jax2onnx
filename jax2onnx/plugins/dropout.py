@@ -65,7 +65,7 @@ def build_dropout_onnx_node(self, input_shapes, input_names, onnx_graph, paramet
 
 
 # Attach the `build_dropout_onnx_node` method to nnx.Dropout
-nnx.Dropout.build_onnx = build_dropout_onnx_node
+nnx.Dropout.to_onnx = build_dropout_onnx_node
 
 
 def get_test_params():
@@ -78,7 +78,7 @@ def get_test_params():
             "model_name": "dropout",
             "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)],
                 "post_transpose": [(0, 2, 3, 1)]
@@ -89,35 +89,35 @@ def get_test_params():
             "model_name": "dropout_low",
             "model": lambda: nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 32, 32, 3)],
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
         },
         # Dropout with a higher rate (0.9)
         {
             "model_name": "dropout_high",
             "model": lambda: nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 32, 32, 3)],
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
         },
         # Dropout on a 1D input tensor
         {
             "model_name": "dropout_1d",
             "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10,)],
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
         },
         # Dropout on a 2D input tensor
         {
             "model_name": "dropout_2d",
             "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20)],
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
         },
         # Dropout on a 4D input tensor
         {
             "model_name": "dropout_4d",
             "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20, 30, 40)],
-            "build_onnx": nnx.Dropout.build_onnx,
+            "to_onnx": nnx.Dropout.to_onnx,
         },
     ]
 

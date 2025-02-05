@@ -46,12 +46,12 @@ def build_generic_onnx_node(function, op_type, input_shapes, input_names, onnx_g
 
 
 # Attach ONNX conversion methods to JAX activation functions
-jax.nn.relu.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Relu', *args)
-jax.nn.sigmoid.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Sigmoid', *args)
-jax.nn.tanh.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Tanh', *args)
-jax.nn.softmax.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Softmax', *args)
-jax.nn.elu.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Elu', *args)
-jax.nn.softplus.build_onnx = lambda function, *args: build_generic_onnx_node(function, 'Softplus', *args)
+jax.nn.relu.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Relu', *args)
+jax.nn.sigmoid.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Sigmoid', *args)
+jax.nn.tanh.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Tanh', *args)
+jax.nn.softmax.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Softmax', *args)
+jax.nn.elu.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Elu', *args)
+jax.nn.softplus.to_onnx = lambda function, *args: build_generic_onnx_node(function, 'Softplus', *args)
 
 
 # LogSoftmax (requires axis parameter)
@@ -93,7 +93,7 @@ def build_log_softmax_onnx_node(function, input_shapes, input_names, onnx_graph,
     return output_shapes, onnx_output_names
 
 
-jax.nn.log_softmax.build_onnx = build_log_softmax_onnx_node
+jax.nn.log_softmax.to_onnx = build_log_softmax_onnx_node
 
 
 # LeakyReLU (requires alpha parameter)
@@ -135,7 +135,7 @@ def build_leaky_relu_onnx_node(function, input_shapes, input_names, onnx_graph, 
     return output_shapes, onnx_output_names
 
 
-jax.nn.leaky_relu.build_onnx = build_leaky_relu_onnx_node
+jax.nn.leaky_relu.to_onnx = build_leaky_relu_onnx_node
 
 
 # GELU activation (without approximation_mode for compatibility)
@@ -173,7 +173,7 @@ def build_gelu_onnx_node(function, input_shapes, input_names, onnx_graph, parame
     return output_shapes, onnx_output_names
 
 # Attach ONNX conversion method for GELU
-jax.nn.gelu.build_onnx = build_gelu_onnx_node
+jax.nn.gelu.to_onnx = build_gelu_onnx_node
 
 
 # Define test parameters for activation functions
@@ -189,58 +189,58 @@ def get_test_params():
             "model_name": "relu",
             "model": lambda: lambda x: jax.nn.relu(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.relu.build_onnx,
+            "to_onnx": jax.nn.relu.to_onnx,
         },
         {
             "model_name": "sigmoid",
             "model": lambda: lambda x: jax.nn.sigmoid(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.sigmoid.build_onnx,
+            "to_onnx": jax.nn.sigmoid.to_onnx,
         },
         {
             "model_name": "tanh",
             "model": lambda: lambda x: jax.nn.tanh(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.tanh.build_onnx,
+            "to_onnx": jax.nn.tanh.to_onnx,
         },
         {
             "model_name": "softmax",
             "model": lambda: lambda x: jax.nn.softmax(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.softmax.build_onnx,
+            "to_onnx": jax.nn.softmax.to_onnx,
         },
         {
             "model_name": "log_softmax",
             "model": lambda: lambda x: jax.nn.log_softmax(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.log_softmax.build_onnx,
+            "to_onnx": jax.nn.log_softmax.to_onnx,
             "parameters": [{"axis": -1}],
         },
         {
             "model_name": "leaky_relu",
             "model": lambda: lambda x: jax.nn.leaky_relu(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.leaky_relu.build_onnx,
+            "to_onnx": jax.nn.leaky_relu.to_onnx,
             "parameters": [{"alpha": 0.02}],
         },
         {
             "model_name": "elu",
             "model": lambda: lambda x: jax.nn.elu(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.elu.build_onnx,
+            "to_onnx": jax.nn.elu.to_onnx,
         },
         {
             "model_name": "softplus",
             "model": lambda: lambda x: jax.nn.softplus(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.softplus.build_onnx,
+            "to_onnx": jax.nn.softplus.to_onnx,
         },
 
         {
             "model_name": "gelu",
             "model": lambda: lambda x: jax.nn.gelu(x),
             "input_shapes": [(1, 10)],
-            "build_onnx": jax.nn.gelu.build_onnx,
+            "to_onnx": jax.nn.gelu.to_onnx,
             "parameters": [{"approximation_mode": "Tanh"}],
         },
     ]

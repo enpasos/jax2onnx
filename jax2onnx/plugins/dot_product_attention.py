@@ -100,7 +100,7 @@ def build_dot_product_attention_onnx_node(function, input_shapes, input_names, o
 
 
 # Assign ONNX node builder to dot_product_attention function
-nnx.dot_product_attention.build_onnx = build_dot_product_attention_onnx_node
+nnx.dot_product_attention.to_onnx = build_dot_product_attention_onnx_node
 
 # Example test parameters
 def get_test_params():
@@ -115,19 +115,19 @@ def get_test_params():
             "model_name": "dot_product_attention",
             "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
-            "build_onnx": nnx.dot_product_attention.build_onnx,
+            "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {
             "model_name": "dot_product_attention_shape_check",
             "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 16), (2, 6, 8, 16), (2, 6, 8, 16)],  # K has different sequence length
-            "build_onnx": nnx.dot_product_attention.build_onnx,
+            "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {
             "model_name": "dot_product_attention_softmax_axis",
             "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
-            "build_onnx": nnx.dot_product_attention.build_onnx,
+            "to_onnx": nnx.dot_product_attention.to_onnx,
             "export": {"softmax_axis": -1},  # Explicit test for softmax axis
         },
     ]

@@ -44,7 +44,7 @@ def build_einsum_onnx_node(function, input_shapes, input_names, onnx_graph, para
     return output_shapes, output_names
 
 # Register the ONNX node builder for einsum
-jnp.einsum.build_onnx = build_einsum_onnx_node
+jnp.einsum.to_onnx = build_einsum_onnx_node
 
 # Example test parameters
 def get_test_params():
@@ -61,7 +61,7 @@ def get_test_params():
             "model_name": "einsum",
             "model": lambda: lambda a, b: jnp.einsum(equation, a, b),
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
-            "build_onnx": jnp.einsum.build_onnx,
+            "to_onnx": jnp.einsum.to_onnx,
             "export": {"equation": equation},
         },
     ]

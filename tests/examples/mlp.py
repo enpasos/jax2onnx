@@ -15,10 +15,9 @@ class MLP(nnx.Module):
         x = self.activation(x)
         return x
 
-    def build_onnx(self, xs,  names, onnx_graph, parameters=None):
-        # Generate the ONNX node for the Linear layer
-        xs, names = self.layer.build_onnx(xs, names, onnx_graph)
-        xs, names = jax.nn.relu.build_onnx(self.activation, xs, names, onnx_graph, parameters)
+    def to_onnx(self, xs,  names, onnx_graph, parameters=None):
+        xs, names = self.layer.to_onnx(xs, names, onnx_graph)
+        xs, names = jax.nn.relu.to_onnx(self.activation, xs, names, onnx_graph, parameters)
 
 
         return xs, names
@@ -34,8 +33,8 @@ def get_test_params():
             "model_name": "mlp",
             "model": lambda: MLP(30, 10, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 30)],
-            "build_onnx": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
-                MLP(30, 10, rngs=nnx.Rngs(0)).build_onnx(jax_inputs, input_names, onnx_graph, parameters)
+            "to_onnx": lambda jax_inputs, input_names, onnx_graph, parameters=None: (
+                MLP(30, 10, rngs=nnx.Rngs(0)).to_onnx(jax_inputs, input_names, onnx_graph, parameters)
             )
         }
     ]

@@ -9,7 +9,7 @@ import onnx.helper as oh
 from flax import nnx
 
 
-def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     """
     Constructs an ONNX node for a BatchNorm operation.
 
@@ -90,8 +90,8 @@ def build_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     return output_shapes, onnx_output_names
 
 
-# Attach the `build_onnx` method to nnx.BatchNorm
-nnx.BatchNorm.build_onnx = build_onnx
+# Attach the `to_onnx` method to nnx.BatchNorm
+nnx.BatchNorm.to_onnx = to_onnx
 
 
 def get_test_params():
@@ -111,7 +111,7 @@ def get_test_params():
             "model_name": "batchnorm",
             "model": lambda: nnx.BatchNorm(num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)
-            "build_onnx": nnx.BatchNorm.build_onnx,
+            "to_onnx": nnx.BatchNorm.to_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (N, H, W, C) to ONNX (N, C, H, W)
                 "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format

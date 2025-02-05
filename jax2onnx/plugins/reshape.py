@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 
-from jax2onnx.build_onnx import pre_transpose, post_transpose
+from jax2onnx.to_onnx import pre_transpose, post_transpose
 
 
 def build_reshape_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
@@ -80,7 +80,7 @@ def build_reshape_onnx_node(function, input_shapes, input_names, onnx_graph, par
 
 
 # Assign the reshape node builder
-jax.numpy.reshape.build_onnx = build_reshape_onnx_node
+jax.numpy.reshape.to_onnx = build_reshape_onnx_node
 
 
 # Example test parameters
@@ -90,7 +90,7 @@ def get_test_params():
             "model_name": "reshape",
             "model": lambda: lambda x: jnp.reshape(x, shape=(10, 3)),
             "input_shapes": [(30,)],
-            "build_onnx": jnp.reshape.build_onnx,
+            "to_onnx": jnp.reshape.to_onnx,
             "export": {
                 "shape": (10, 3)
             },  # Simple reshape with no transpositions
@@ -100,7 +100,7 @@ def get_test_params():
             "model_name": "reshape2",
             "model": lambda: lambda x: jnp.reshape(x, (3, 3136)),
             "input_shapes": [(3, 7, 7, 64)],
-            "build_onnx": jnp.reshape.build_onnx,
+            "to_onnx": jnp.reshape.to_onnx,
             "export": {
                 "shape": (3, 3136),
             },
