@@ -1,7 +1,10 @@
+# file: tests/examples/mnist_vit.py
+
 import jax.numpy as jnp
 from flax import nnx
 import jax
-# from jax2onnx.plugins.reshape import build_reshape_onnx_node
+from jax2onnx.to_onnx import Z
+from functools import partial
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
     position = jnp.arange(num_patches)[:, jnp.newaxis]
@@ -10,6 +13,7 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
     pos_embedding = pos_embedding.at[:, 0::2].set(jnp.sin(position * div_term))
     pos_embedding = pos_embedding.at[:, 1::2].set(jnp.cos(position * div_term))
     return pos_embedding[jnp.newaxis, :, :]
+
 
 class PatchEmbedding(nnx.Module):
     def __init__(self, patch_size: int, num_hiddens: int, in_features: int, *, rngs: nnx.Rngs):
@@ -20,21 +24,26 @@ class PatchEmbedding(nnx.Module):
         x = x.reshape(batch_size, -1, self.linear.in_features)
         return self.linear(x)
 
-    def to_onnx(self, xs, names, onnx_graph, parameters=None):
-        return self.linear.to_onnx(xs, names, onnx_graph)
+    def to_onnx(self, z, parameters=None):
+        return self.linear.to_onnx(z)
+
 
 class MLPBlock(nnx.Module):
     def __init__(self, num_hiddens: int, mlp_dim: int, *, rngs: nnx.Rngs):
         self.linear1 = nnx.Linear(in_features=num_hiddens, out_features=mlp_dim, rngs=rngs)
         self.linear2 = nnx.Linear(in_features=mlp_dim, out_features=num_hiddens, rngs=rngs)
+        self.activation = partial(jax.nn.gelu, approximate=False)
+        self.activation.to_onnx = jax.nn.gelu.to_onnx
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        return self.linear2(jax.nn.gelu(self.linear1(x)))
+        return self.linear2(self.activation(self.linear1(x)))
 
-    def to_onnx(self, xs, names, onnx_graph, parameters=None):
-        xs, names = self.linear1.to_onnx(xs, names, onnx_graph)
-        xs, names = jax.nn.gelu.to_onnx(jax.nn.gelu, xs, names, onnx_graph)
-        return self.linear2.to_onnx(xs, names, onnx_graph)
+    def to_onnx(self, z, parameters=None):
+        z = self.linear1.to_onnx(z)
+        z = self.activation.to_onnx(z)
+        z = self.linear2.to_onnx(z)
+        return z
+
 
 class TransformerBlock(nnx.Module):
     def __init__(self, num_hiddens: int, num_heads: int, mlp_dim: int, *, rngs: nnx.Rngs):
@@ -47,11 +56,12 @@ class TransformerBlock(nnx.Module):
         x = x + self.attention(self.layer_norm1(x))
         return x + self.mlp_block(self.layer_norm2(x))
 
-    def to_onnx(self, xs, names, onnx_graph, parameters=None):
-        xs, names = self.layer_norm1.to_onnx(xs, names, onnx_graph)
-        xs, names = self.attention.to_onnx(xs, names, onnx_graph)
-        xs, names = self.layer_norm2.to_onnx(xs, names, onnx_graph)
-        return self.mlp_block.to_onnx(xs, names, onnx_graph)
+    def to_onnx(self, z, parameters=None):
+        z = self.layer_norm1.to_onnx(z)
+        z = self.attention.to_onnx(z)
+        z = self.layer_norm2.to_onnx(z)
+        return self.mlp_block.to_onnx(z)
+
 
 class VisionTransformer(nnx.Module):
     def __init__(self, patch_size: int, num_hiddens: int, num_layers: int, num_heads: int, mlp_dim: int, num_classes: int, in_features: int, *, rngs: nnx.Rngs):
@@ -66,21 +76,35 @@ class VisionTransformer(nnx.Module):
             x = block(x)
         return nnx.log_softmax(self.dense(self.layer_norm(x)[:, 0, :]))
 
-    def to_onnx(self, xs, names, onnx_graph, parameters=None):
-        xs, names = self.patch_embedding.to_onnx(xs, names, onnx_graph)
+    def to_onnx(self, z, parameters=None):
+        z = self.patch_embedding.to_onnx(z)
         for block in self.transformer_blocks:
-            xs, names = block.to_onnx(xs, names, onnx_graph)
-        xs, names = self.layer_norm.to_onnx(xs, names, onnx_graph)
-        xs, names = self.dense.to_onnx(xs, names, onnx_graph)
-        return jnp.log_softmax.to_onnx(nnx.log_softmax, xs, names, onnx_graph)
+            z = block.to_onnx(z)
+        z = self.layer_norm.to_onnx(z)
+        z = self.dense.to_onnx(z)
+        return jnp.log_softmax.to_onnx(z)
+
 
 def get_test_params():
     return [
-        # t.b.d. implementation, work in progress
-        # {
-        #     "model_name": "mnist_vit",
-        #     "model": lambda: VisionTransformer(patch_size=4, num_hiddens=256, num_layers=6, num_heads=8, mlp_dim=512, num_classes=10, in_features=1, rngs=nnx.Rngs(0)),
-        #     "input_shapes": [(1, 28, 28, 1)],
-        #     "to_onnx": VisionTransformer.to_onnx
-        # }
+        {
+            "model_name": "mnist_vit",
+            "model":  VisionTransformer(patch_size=4, num_hiddens=256, num_layers=6, num_heads=8, mlp_dim=512, num_classes=10, in_features=1, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 28, 28, 1)]
+        },
+        {
+            "model_name": "patch_embedding",
+            "model":  PatchEmbedding(patch_size=4, num_hiddens=256, in_features=1, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 28, 28, 1)]
+        },
+        {
+            "model_name": "mlp_block",
+            "model":  MLPBlock(num_hiddens=256, mlp_dim=512, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 256)]
+        },
+        {
+            "model_name": "transformer_block",
+            "model":  TransformerBlock(num_hiddens=256, num_heads=8, mlp_dim=512, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 10, 256)]
+        }
     ]
