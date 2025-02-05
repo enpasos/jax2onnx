@@ -4,6 +4,7 @@ import jax
 import onnx.helper as oh
 from jax2onnx.to_onnx import Z
 
+from functools import partial
 
 def build_generic_onnx_node(op_type, jax_function, z, parameters=None):
     """
@@ -162,8 +163,7 @@ def build_gelu_onnx_node(z, parameters=None):
 
     output_shapes = [input_shape]
     onnx_graph.add_local_outputs(output_shapes, output_names)
-
-    return Z(output_shapes, output_names, onnx_graph, jax_function = jax.nn.gelu)
+    return Z(output_shapes, output_names, onnx_graph, jax_function = partial(jax.nn.gelu, approximate=False))
 
 
 jax.nn.gelu.to_onnx = build_gelu_onnx_node
@@ -222,6 +222,11 @@ def get_test_params():
         {
             "model_name": "gelu",
             "input_shapes": [(1, 10)],
+            "to_onnx": jax.nn.gelu.to_onnx,
+        },
+        {
+            "model_name": "gelu2",
+            "input_shapes": [(1, 512)],
             "to_onnx": jax.nn.gelu.to_onnx,
         },
     ]
