@@ -5,23 +5,29 @@ import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
-
+from jax2onnx.to_onnx import Z
 from jax2onnx.plugins.matmul import to_onnx_matmul  # Import MatMul plugin
 
 
-def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx(self, z, parameters=None):
     """
-    Constructs an ONNX node for `LinearGeneral`, ensuring proper handling of input reshaping,
-    transformation, and weight application using the existing MatMul ONNX builder.
+    Converts an `nnx.LinearGeneral` layer into an ONNX `MatMul` node with optional reshaping.
+
+    Args:
+        self: The `nnx.LinearGeneral` instance.
+        z (Z): A container with input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional parameters (currently unused).
+
+    Returns:
+        Z: Updated instance with new shapes and names.
     """
+
     if parameters is None:
         parameters = {}
 
-    if len(input_shapes) < 1:
-        raise ValueError("Expected at least one input for LinearGeneral.")
-
-    input_shape = list(map(int, input_shapes[0]))  # Convert to Python int
-    input_name = input_names[0]
+    onnx_graph = z.onnx_graph
+    input_shape = list(map(int, z.shapes[0]))  # Convert to Python int
+    input_name = z.names[0]
 
     in_features = tuple(map(int, self.in_features))  # Tuple of Python ints
     out_features = tuple(map(int, self.out_features))  # Tuple of Python ints
@@ -32,7 +38,7 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     batch_dims = list(input_shape[:-len(axis)])
     output_shape = batch_dims + list(out_features)
 
-    node_name = f"node{onnx_graph.counter_plusplus()}"
+    node_name = f"node{onnx_graph.next_id()}"
 
     # Reshape input if necessary
     reshaped_input_name = input_name
@@ -60,17 +66,10 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
         )
         onnx_graph.add_local_outputs([reshaped_input_shape], [reshaped_input_name])
 
-    # Define weight matrix for MatMul (always 256x256)
+    # Define weight matrix for MatMul
     weight_name = f"{node_name}_weight"
-
-    # Ensure kernel has shape (256, 256) before MatMul
-    transposed_kernel = self.kernel.value
-
-    # Reshape to (256, 256) explicitly
-    if transposed_kernel.shape != (256, 256):
-        transposed_kernel = transposed_kernel.reshape((256, 256))
-
-    kernel_shape = (256, 256)  # Fixed shape for MatMul
+    kernel_shape = (np.prod(in_features).item(), np.prod(out_features).item())  # Compute kernel shape dynamically
+    transposed_kernel = self.kernel.value.reshape(kernel_shape)
 
     # Store in ONNX format
     onnx_graph.add_initializer(
@@ -78,20 +77,14 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
             name=weight_name,
             data_type=onnx.TensorProto.FLOAT,
             dims=list(kernel_shape),
-            vals=transposed_kernel.flatten().astype(np.float32).tolist(),  # Ensure correct number of values
+            vals=transposed_kernel.flatten().astype(np.float32).tolist(),
         )
     )
 
     # Call MatMul plugin
-    matmul_output_shape, matmul_out_names = to_onnx_matmul(
-        function=lambda a, b: jnp.matmul(a, b),
-        input_shapes=[reshaped_input_shape, kernel_shape],
-        input_names=[reshaped_input_name, weight_name],
-        onnx_graph=onnx_graph,
-        parameters=None
+    z = to_onnx_matmul(
+        Z([reshaped_input_shape, kernel_shape], [reshaped_input_name, weight_name], onnx_graph)
     )
-
-    matmul_out_name = matmul_out_names[0]
 
     # Reshape MatMul output to the expected shape
     final_out_name = f"{node_name}_reshaped_output"
@@ -107,7 +100,7 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     onnx_graph.add_node(
         oh.make_node(
             "Reshape",
-            inputs=[matmul_out_name, shape_out_name],
+            inputs=[z.names[0], shape_out_name],
             outputs=[final_out_name],
             name=f"{node_name}_reshape_output"
         )
@@ -137,12 +130,12 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
             )
         )
         onnx_graph.add_local_outputs([output_shape], [bias_out_name])
-        return [output_shape], [bias_out_name]
+        return Z([output_shape], [bias_out_name], onnx_graph)
 
-    return [output_shape], [final_out_name]
+    return Z([output_shape], [final_out_name], onnx_graph)
 
 
-# Attach the ONNX conversion function to the nnx.LinearGeneral class
+# Attach the ONNX conversion function to `nnx.LinearGeneral`
 nnx.LinearGeneral.to_onnx = to_onnx
 
 
@@ -153,18 +146,18 @@ def get_test_params():
     return [
         {
             "model_name": "linear_general",
-            "model": lambda: nnx.LinearGeneral(
+            "model":  nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
-                axis=(-2, -1),  # ✅ This tests the same projection as MultiHeadAttention
+                axis=(-2, -1),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 4, 8, 32)],  # ✅ Mimics shape after attention in MHA
+            "input_shapes": [(2, 4, 8, 32)],
             "to_onnx": nnx.LinearGeneral.to_onnx
         },
         {
             "model_name": "linear_general_2",
-            "model": lambda: nnx.LinearGeneral(
+            "model":  nnx.LinearGeneral(
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
@@ -173,18 +166,15 @@ def get_test_params():
             "input_shapes": [(2, 4, 256)],
             "to_onnx": nnx.LinearGeneral.to_onnx
         },
-
         {
             "model_name": "linear_general_mha_projection",
-            "model": lambda: nnx.LinearGeneral(
-                in_features=(8, 32),  # Matches MHA’s post-attention shape (num_heads, head_dim)
-                out_features=(256,),  # Matches MHA’s final output
+            "model":  nnx.LinearGeneral(
+                in_features=(8, 32),
+                out_features=(256,),
                 axis=(-2, -1),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 4, 8, 32)],  # Mimics MHA’s final reshape input
+            "input_shapes": [(2, 4, 8, 32)],
             "to_onnx": nnx.LinearGeneral.to_onnx
         }
-
     ]
-

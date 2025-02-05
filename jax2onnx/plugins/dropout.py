@@ -3,24 +3,32 @@
 import onnx
 import onnx.helper as oh
 from flax import nnx
+from jax2onnx.to_onnx import Z
 
 
-def build_dropout_onnx_node(self, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx_dropout(self, z, parameters=None):
     """
-    Constructs an ONNX node for a Dropout operation.
+    Converts an `nnx.Dropout` layer into an ONNX `Dropout` node.
 
     Ensures that Dropout is correctly disabled in inference mode.
+
+    Args:
+        self: The `nnx.Dropout` instance.
+        z (Z): Contains input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional conversion parameters.
+
+    Returns:
+        Z: Updated instance with new shapes and names.
     """
-    print("\n[DEBUG] --- Dropout ONNX Export ---")
-    print(f"Input Shapes: {input_shapes}")
-    print(f"Input Names: {input_names}")
-    print(f"Dropout Rate: {self.rate}")
 
-    node_name = f"node{onnx_graph.counter_plusplus()}"
+    onnx_graph = z.onnx_graph
+    input_shape = z.shapes[0]
+    input_name = z.names[0]
+
+    node_name = f"node{onnx_graph.next_id()}"
     dropout_ratio_name = f"{node_name}_ratio"
-    training_mode_name = f"{node_name}_training_mode"
 
-    # Ensure dropout ratio is properly initialized
+    # Create an initializer for dropout ratio
     onnx_graph.add_initializer(
         oh.make_tensor(
             dropout_ratio_name,
@@ -30,94 +38,78 @@ def build_dropout_onnx_node(self, input_shapes, input_names, onnx_graph, paramet
         )
     )
 
-    # Ensure training_mode is explicitly set to False (0) for inference
-    # onnx_graph.add_initializer(
-    #     oh.make_tensor(
-    #         training_mode_name,
-    #         onnx.TensorProto.BOOL,
-    #         [],  # Scalar value
-    #         [False],  # Explicitly disable Dropout
-    #     )
-    # )
+    output_names = [f"{node_name}_output"]
 
-
-    onnx_output_names = [f"{node_name}_output"]
-
-    # Dropout takes three inputs: (data, ratio, training_mode)
+    # Dropout takes (data, ratio) as inputs in inference mode
     onnx_graph.add_node(
         oh.make_node(
             "Dropout",
-            inputs=[input_names[0], dropout_ratio_name], #, training_mode_name],  # Explicit training_mode input
-            outputs=onnx_output_names,
+            inputs=[input_name, dropout_ratio_name],
+            outputs=output_names,
             name=node_name,
         )
     )
 
-    print(f"[DEBUG] Added Dropout Node: {node_name} (Inference Mode)")
-    print(f"[DEBUG] ONNX Graph Nodes: {len(onnx_graph.nodes)}")
+    output_shapes = [input_shape]
+    onnx_graph.add_local_outputs(output_shapes, output_names)
 
-    output_shapes = [input_shapes[0]]
-    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+    # Update and return Z
+    z.shapes = output_shapes
+    z.names = output_names
+    z.jax_function = self
+    return z
 
 
-
-    return output_shapes, onnx_output_names
-
-
-# Attach the `build_dropout_onnx_node` method to nnx.Dropout
-nnx.Dropout.to_onnx = build_dropout_onnx_node
+# Attach the `to_onnx_dropout` method to `nnx.Dropout`
+nnx.Dropout.to_onnx = to_onnx_dropout
 
 
 def get_test_params():
     """
     Define test parameters for Dropout.
+
+    Returns:
+        list: A list of dictionaries, each defining a test case.
     """
     return [
-        # Standard case (last working test)
         {
             "model_name": "dropout",
-            "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.Dropout.to_onnx,
             "export": {
                 "pre_transpose": [(0, 3, 1, 2)],
-                "post_transpose": [(0, 2, 3, 1)]
-            }
+                "post_transpose": [(0, 2, 3, 1)],
+            },
         },
-        # Dropout with a lower rate (0.1)
         {
             "model_name": "dropout_low",
-            "model": lambda: nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 32, 32, 3)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
-        # Dropout with a higher rate (0.9)
         {
             "model_name": "dropout_high",
-            "model": lambda: nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 32, 32, 3)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
-        # Dropout on a 1D input tensor
         {
             "model_name": "dropout_1d",
-            "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10,)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
-        # Dropout on a 2D input tensor
         {
             "model_name": "dropout_2d",
-            "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
-        # Dropout on a 4D input tensor
         {
             "model_name": "dropout_4d",
-            "model": lambda: nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20, 30, 40)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
     ]
-

@@ -4,92 +4,99 @@ import jax.numpy as jnp
 import onnx.helper as oh
 
 
-def build_add_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
+def build_add_onnx_node( z, parameters=None):
     """
     Constructs an ONNX node for element-wise addition.
 
     Args:
-        input_shapes (list of tuples): List of input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
-        parameters (optional): Additional parameters, currently unused.
+        z (Z): A container with input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional parameters (unused for Add).
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
-    node_name = f"node{onnx_graph.counter_plusplus()}"
+    onnx_graph = z.onnx_graph
+    input_shapes = z.shapes
+    input_names = z.names
 
+    node_name = f"node{onnx_graph.next_id()}"
+    output_shapes = [input_shapes[0]]  # Element-wise addition does not change shape
+    output_names = [f"{node_name}_output"]
 
-    # Element-wise addition does not change shape, assuming broadcasting is valid
-    output_shapes = [input_shapes[0]]
-
-    onnx_output_names = [f'{node_name}_output']
-
+    # Add ONNX Add node
     onnx_graph.add_node(
         oh.make_node(
-            'Add',
+            "Add",
             inputs=input_names,
-            outputs=onnx_output_names,
+            outputs=output_names,
             name=node_name,
         )
     )
 
-    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
-    return output_shapes, onnx_output_names
+    onnx_graph.add_local_outputs(output_shapes, output_names)
+
+    z.shapes = output_shapes
+    z.names = output_names
+    z.jax_function =  jnp.add
+    return z
 
 
 # Assign ONNX node builder to jax.numpy.add
-jnp.add.to_onnx = build_add_onnx_node
+jnp.add.to_onnx = lambda *args: build_add_onnx_node(*args)
 
 
-def build_concat_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
+def build_concat_onnx_node( z, parameters):
     """
     Constructs an ONNX node for concatenation along a specified axis.
 
     Args:
-        input_shapes (list of tuples): List of input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
+        jax_function: The JAX function (for reference and testing, unused in ONNX).
+        z (Z): A container with input shapes, names, and the ONNX graph.
         parameters (dict): Dictionary containing 'axis' information.
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
-    if not isinstance(parameters, list) or not isinstance(parameters[0], dict):
-        raise TypeError("Expected parameters to be a list with a dictionary containing 'axis'.")
+    if not isinstance(parameters, dict) or "axis" not in parameters:
+        raise TypeError("Expected parameters to be a dictionary containing 'axis'.")
 
-    axis = parameters[0].get("axis", 0)  # Default axis is 0
+    axis = parameters["axis"]  # Extract the axis parameter
 
-    node_name = f"node{onnx_graph.counter_plusplus()}"
 
+    onnx_graph = z.onnx_graph
+    input_shapes = z.shapes
+    input_names = z.names
+
+    node_name = f"node{onnx_graph.next_id()}"
 
     # Compute the output shape by summing the sizes along the concatenation axis
     output_shape = list(input_shapes[0])
     output_shape[axis] = sum(shape[axis] for shape in input_shapes)
 
     output_shapes = [tuple(output_shape)]
-    onnx_output_names = [f"{node_name}_output"]
+    output_names = [f"{node_name}_output"]
 
+    # Add ONNX Concat node
     onnx_graph.add_node(
         oh.make_node(
             "Concat",
             inputs=input_names,
-            outputs=onnx_output_names,
+            outputs=output_names,
             name=node_name,
             axis=axis,
         )
     )
 
-    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
-    return output_shapes, onnx_output_names
+    onnx_graph.add_local_outputs(output_shapes, output_names)
+
+    z.shapes = output_shapes
+    z.names = output_names
+    z.jax_function =   lambda *args: jnp.concatenate(args, axis=axis)  # Define the JAX function
+    return z
 
 
 # Assign ONNX node builder to jax.numpy.concatenate
-jnp.concatenate.to_onnx = build_concat_onnx_node
+jnp.concatenate.to_onnx = lambda *args: build_concat_onnx_node(*args)
 
 
 def get_test_params():
@@ -102,15 +109,13 @@ def get_test_params():
     return [
         {
             "model_name": "add",
-            "model": lambda: lambda x, y: jnp.add(x, y),
             "input_shapes": [(1, 10), (1, 10)],  # Two input shapes for element-wise addition
             "to_onnx": jnp.add.to_onnx,
         },
         {
             "model_name": "concat",
-            "model": lambda: lambda x, y: jnp.concatenate([x, y], axis=1),
             "input_shapes": [(1, 10), (1, 10)],  # Compatible shapes for axis=1
             "to_onnx": jnp.concatenate.to_onnx,
-            "export": [{"axis": 1}],  # Correct axis for concatenation
+            "export": {"axis": 1},  # Correct axis for concatenation
         },
     ]

@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from flax import nnx
 import jax
-from jax2onnx.plugins.reshape import build_reshape_onnx_node
+# from jax2onnx.plugins.reshape import build_reshape_onnx_node
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
     position = jnp.arange(num_patches)[:, jnp.newaxis]

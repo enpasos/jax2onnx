@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import onnx.helper as oh
 from flax import nnx
+from jax2onnx.to_onnx import Z
 
 
 class MNIST_CNN(nnx.Module):
@@ -16,7 +17,7 @@ class MNIST_CNN(nnx.Module):
         self.avg_pool = partial(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2))
         self.linear1 = nnx.Linear(3136, 256, rngs=rngs)
         self.linear2 = nnx.Linear(256, 10, rngs=rngs)
-        self.act = nnx.relu
+        self.act = jax.nn.relu
         self.reshape = lambda x: x.reshape(x.shape[0], -1)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -24,40 +25,29 @@ class MNIST_CNN(nnx.Module):
         x = self.avg_pool(self.act(self.conv1(x)))
         x = self.avg_pool(self.act(self.conv2(x)))
         x = self.reshape(x)
-        x =  self.linear1(x)
+        x = self.linear1(x)
         x = self.act(x)
         x = self.linear2(x)
-
         return x
 
-    def to_onnx(self, xs, names, onnx_graph, parameters=None):
+    def to_onnx(self, z, parameters=None):
         """Defines the ONNX export logic for the CNN model."""
-        # Conv1 + ReLU + AvgPool
-        xs,  names = self.conv1.to_onnx(xs,  names, onnx_graph)
-        xs,  names = jax.nn.relu.to_onnx(self.act, xs,  names, onnx_graph, parameters)
-        xs,  names = nnx.avg_pool.to_onnx(self.avg_pool, xs,  names, onnx_graph, parameters)
+        z = self.conv1.to_onnx(z)
+        z = self.act.to_onnx(z)
+        z = nnx.avg_pool.to_onnx(z, {"window_shape": (2, 2), "strides": (2, 2)})
 
-        # Conv2 + ReLU + AvgPool
-        xs,  names = self.conv2.to_onnx(xs,  names, onnx_graph)
-        xs, names = jax.nn.relu.to_onnx(self.act, xs,  names, onnx_graph, parameters)
-        xs,  names = nnx.avg_pool.to_onnx(self.avg_pool, xs,  names, onnx_graph, parameters)
+        z = self.conv2.to_onnx(z)
+        z = self.act.to_onnx(z)
+        z = nnx.avg_pool.to_onnx(z, {"window_shape": (2, 2), "strides": (2, 2)})
 
-        # Reshape
-        reshape_params = {"shape": (xs[0][0], 3136),
-                          "pre_transpose": [(0, 2, 3, 1)]
-                          }
-        xs, names = jax.numpy.reshape.to_onnx(self.reshape, xs,  names, onnx_graph, reshape_params)
-        #
-        # Linear1 + ReLU
-        xs,  names = self.linear1.to_onnx(xs, names, onnx_graph)
-        xs,  names = jax.nn.relu.to_onnx(self.act, xs,  names, onnx_graph, parameters)
-        #
-        # Linear2
-        xs, names = self.linear2.to_onnx(xs,  names, onnx_graph)
+        reshape_params = {"shape": (z.shapes[0][0], 3136), "pre_transpose": [(0, 2, 3, 1)]}
+        z = jax.numpy.reshape.to_onnx(z, reshape_params)
 
-        return xs,  names
+        z = self.linear1.to_onnx(z)
+        z = self.act.to_onnx(z)
+        z = self.linear2.to_onnx(z)
 
-
+        return z
 
 
 def get_test_params():
@@ -65,12 +55,8 @@ def get_test_params():
     return [
         {
             "model_name": "mnist_cnn",
-            "model": lambda: MNIST_CNN(rngs=nnx.Rngs(0)),
+            "model":  MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
-            "to_onnx": MNIST_CNN.to_onnx,
-            "export": {
-                "pre_transpose": [(0, 3, 1, 2)]
-            }
-
+            "export": {"pre_transpose": [(0, 3, 1, 2)]},
         }
     ]

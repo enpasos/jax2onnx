@@ -6,7 +6,12 @@ import onnx
 import onnx.helper as oh
 
 
-def build_dot_product_attention_onnx_node(function, input_shapes, input_names, onnx_graph, parameters=None):
+def build_dot_product_attention_onnx_node(z, parameters=None):
+
+    input_shapes = z.shapes
+    input_names = z.names
+    onnx_graph = z.onnx_graph
+
     if not isinstance(parameters, dict):
         raise ValueError("dot_product_attention parameters must be a dict.")
 
@@ -17,7 +22,7 @@ def build_dot_product_attention_onnx_node(function, input_shapes, input_names, o
     q_shape, k_shape, v_shape = input_shapes[:3]
     q_onnx_name, k_onnx_name, v_onnx_name = input_names[:3]
 
-    node_prefix = f"node{onnx_graph.counter_plusplus()}"
+    node_prefix = f"node{onnx_graph.next_id()}"
 
     # Compute scaling factor d = sqrt(E)
     depth = int(k_shape[-1])  # Ensure depth is an integer scalar
@@ -96,7 +101,10 @@ def build_dot_product_attention_onnx_node(function, input_shapes, input_names, o
     )
     onnx_graph.add_local_outputs([attn_output_shape], [attn_output_name])
 
-    return [attn_output_shape], [attn_output_name]
+    z.shapes = [attn_output_shape]
+    z.names = [attn_output_name]
+    z.jax_function = nnx.dot_product_attention
+    return z
 
 
 # Assign ONNX node builder to dot_product_attention function
@@ -113,19 +121,16 @@ def get_test_params():
     return [
         {
             "model_name": "dot_product_attention",
-            "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {
             "model_name": "dot_product_attention_shape_check",
-            "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 16), (2, 6, 8, 16), (2, 6, 8, 16)],  # K has different sequence length
             "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {
             "model_name": "dot_product_attention_softmax_axis",
-            "model": lambda: lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
             "to_onnx": nnx.dot_product_attention.to_onnx,
             "export": {"softmax_axis": -1},  # Explicit test for softmax axis
