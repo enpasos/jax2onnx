@@ -1,32 +1,38 @@
 # file: jax2onnx/plugins/einsum.py
+
 import jax.numpy as jnp
 import onnx.helper as oh
+from jax2onnx.to_onnx import Z
 
 
-def build_einsum_onnx_node(function, input_shapes, input_names, onnx_graph, parameters):
+def to_onnx_einsum(z, parameters):
     """
-    Constructs an ONNX node for an Einsum operation.
+    Converts `jax.numpy.einsum` into an ONNX Einsum node.
 
     Args:
-        input_shapes (list of tuples): List of input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
+        z (Z): A container with input shapes, names, and the ONNX graph.
         parameters (dict): Dictionary containing 'equation' information.
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
-    equation = parameters.get("equation", "BNHE,BMHE->BNHM")
+
+    if not isinstance(parameters, dict) or "equation" not in parameters:
+        raise ValueError("Einsum requires a dictionary with an 'equation' parameter.")
+
+    equation = parameters["equation"]
+
+    onnx_graph = z.onnx_graph
+    input_shapes = z.shapes
+    input_names = z.names
 
     # Generate a unique node name
-    node_name = f"node{onnx_graph.counter_plusplus()}"
+    node_name = f"node{onnx_graph.next_id()}"
 
-    # ONNX Einsum output shape is derived from the equation
+    # Compute output shape using JAX einsum for shape inference
     jnp_inputs = [jnp.zeros(shape) for shape in input_shapes]
-    jax_outputs = [function(*jnp_inputs)]
-    output_shapes = [jax_outputs[0].shape]
+    jax_output = jnp.einsum(equation, *jnp_inputs)
+    output_shape = jax_output.shape
     output_names = [f"{node_name}_output"]
 
     # Add the Einsum node to the ONNX graph
@@ -36,17 +42,23 @@ def build_einsum_onnx_node(function, input_shapes, input_names, onnx_graph, para
             inputs=input_names,
             outputs=output_names,
             name=node_name,
-            equation=equation
+            equation=equation,
         )
     )
 
-    onnx_graph.add_local_outputs(output_shapes, output_names)
-    return output_shapes, output_names
+    onnx_graph.add_local_outputs([output_shape], output_names)
+
+    # Update and return Z
+    z.shapes = [output_shape]
+    z.names = output_names
+    z.jax_function = lambda a, b: jnp.einsum(equation, a, b)
+    return z
+
 
 # Register the ONNX node builder for einsum
-jnp.einsum.to_onnx = build_einsum_onnx_node
+jnp.einsum.to_onnx = to_onnx_einsum
 
-# Example test parameters
+
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of einsum.
@@ -59,7 +71,6 @@ def get_test_params():
     return [
         {
             "model_name": "einsum",
-            "model": lambda: lambda a, b: jnp.einsum(equation, a, b),
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
             "to_onnx": jnp.einsum.to_onnx,
             "export": {"equation": equation},

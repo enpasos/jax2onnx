@@ -3,44 +3,39 @@
 # JAX API reference: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__BatchNormalization.html
 
+
 import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
+from jax2onnx.to_onnx import Z
 
 
-def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx(self, z, parameters=None):
     """
-    Constructs an ONNX node for a BatchNorm operation.
-
-    This function converts an `nnx.BatchNorm` layer into an ONNX `BatchNormalization` node,
-    adding the scale, bias, mean, and variance initializers to the ONNX graph.
+    Converts an `nnx.BatchNorm` layer into an ONNX `BatchNormalization` node.
 
     Args:
         self: The `nnx.BatchNorm` instance.
-        input_shapes (list of tuples): List containing input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
-        parameters (optional): Additional parameters, currently unused.
+        z (Z): Contains input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional conversion parameters.
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
 
-    # Extract input shape
-    input_shape = input_shapes[0]
+    onnx_graph = z.onnx_graph
+    input_shape = z.shapes[0]
+    input_name = z.names[0]
 
-    # Generate a unique node name
-    node_name = f"node{onnx_graph.counter_plusplus()}"
-
+    # Generate unique node name
+    node_name = f"node{onnx_graph.next_id()}"
 
     # Extract epsilon and momentum or use defaults
     epsilon = getattr(self, "epsilon", 1e-5)
     momentum = 1 - getattr(self, "momentum", 0.9)
 
-    # Extract learned parameters from the BatchNorm instance
+    # Extract learned parameters
     scale = self.scale.value
     bias = self.bias.value
     mean = self.mean.value
@@ -53,18 +48,10 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     var_name = f"{node_name}_variance"
 
     # Add parameters to the initializers
-    onnx_graph.add_initializer(
-        oh.make_tensor(scale_name, onnx.TensorProto.FLOAT, scale.shape, scale.flatten().astype(np.float32))
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(bias_name, onnx.TensorProto.FLOAT, bias.shape, bias.flatten().astype(np.float32))
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(mean_name, onnx.TensorProto.FLOAT, mean.shape, mean.flatten().astype(np.float32))
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(var_name, onnx.TensorProto.FLOAT, var.shape, var.flatten().astype(np.float32))
-    )
+    onnx_graph.add_initializer(oh.make_tensor(scale_name, onnx.TensorProto.FLOAT, scale.shape, scale.flatten().astype(np.float32)))
+    onnx_graph.add_initializer(oh.make_tensor(bias_name, onnx.TensorProto.FLOAT, bias.shape, bias.flatten().astype(np.float32)))
+    onnx_graph.add_initializer(oh.make_tensor(mean_name, onnx.TensorProto.FLOAT, mean.shape, mean.flatten().astype(np.float32)))
+    onnx_graph.add_initializer(oh.make_tensor(var_name, onnx.TensorProto.FLOAT, var.shape, var.flatten().astype(np.float32)))
 
     # Define ONNX output names
     onnx_output_names = [f"{node_name}_output"]
@@ -73,7 +60,7 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     onnx_graph.add_node(
         oh.make_node(
             "BatchNormalization",
-            inputs=[input_names[0], scale_name, bias_name, mean_name, var_name],
+            inputs=[input_name, scale_name, bias_name, mean_name, var_name],
             outputs=onnx_output_names,
             name=node_name,
             epsilon=epsilon,
@@ -87,10 +74,10 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     # Register the output tensor in the ONNX graph
     onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
 
-    return output_shapes, onnx_output_names
+    return Z(output_shapes, onnx_output_names, onnx_graph)
 
 
-# Attach the `to_onnx` method to nnx.BatchNorm
+# Attach the `to_onnx` method to `nnx.BatchNorm`
 nnx.BatchNorm.to_onnx = to_onnx
 
 
@@ -109,7 +96,7 @@ def get_test_params():
     return [
         {
             "model_name": "batchnorm",
-            "model": lambda: nnx.BatchNorm(num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)),
+            "model":  nnx.BatchNorm(num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)
             "to_onnx": nnx.BatchNorm.to_onnx,
             "export": {

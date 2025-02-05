@@ -21,14 +21,20 @@ class OnnxGraph:
     def add_initializer(self, initializer):
         self.initializers.append(initializer)
 
-
-    def counter_plusplus(self):
+    def next_id(self):
         self.counter += 1
         return self.counter
 
     def add_local_outputs(self, output_shapes, output_names):
         for i in range(len(output_names)):
             self.value_info.append(oh.make_tensor_value_info(output_names[i], onnx.TensorProto.FLOAT, output_shapes[i]))
+
+class Z:
+    def __init__(self, shapes, names, onnx_graph, jax_function=None):
+        self.shapes = shapes
+        self.names = names
+        self.onnx_graph = onnx_graph
+        self.jax_function = jax_function
 
 
 def load_plugins():
@@ -49,22 +55,25 @@ def to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", to_o
     # Initialize the ONNX graph
     onnx_graph = OnnxGraph()
 
-    input_names = [f"input_{onnx_graph.counter_plusplus()}" for i in range(len(input_shapes))]
+    input_names = [f"input_{onnx_graph.next_id()}" for i in range(len(input_shapes))]
 
-
+    z = Z(input_shapes, input_names, onnx_graph)
 
     # Optional pre-transpose
-    transposed_input_shapes, transposed_input_names = pre_transpose( input_shapes, input_names, onnx_graph, parameters)
+    z =  pre_transpose( z, parameters)
 
-    # Build ONNX node
-    output_shapes, output_names = (
-        model.to_onnx(transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
-        if hasattr(model, "to_onnx")
-        else to_onnx(model, transposed_input_shapes, transposed_input_names, onnx_graph, parameters)
-    )
+    if hasattr(model, "to_onnx"):
+        z = model.to_onnx(z, parameters)
+    elif to_onnx:
+        z = to_onnx(z, parameters)
+    else:
+        raise ValueError("Model does not have a `to_onnx` method and no conversion function was provided.")
+
 
     # Optional post-transpose
-    final_output_shapes, final_output_names = post_transpose(output_shapes, output_names, onnx_graph, parameters)
+    z = post_transpose(z, parameters)
+    final_output_shapes = z.shapes
+    final_output_names = z.names
 
 
     # Remove outputs from onnx_graph.value_info
@@ -87,16 +96,19 @@ def to_onnx(model_file_name, model, input_shapes, output_path="model.onnx", to_o
     onnx.save(model_def, output_path)
     print(f"ONNX model saved to {output_path}")
 
-    return output_shapes
+    return z
 
 
-def pre_transpose( shapes, names, onnx_graph, parameters):
+def pre_transpose( z, parameters):
+    shapes = z.shapes
+    names = z.names
+    onnx_graph = z.onnx_graph
     transposed_input_names = names[:]
     shapes_out = shapes[:]
     if "pre_transpose" in parameters:
         pre_transpose_perm = parameters.get("pre_transpose", [(0, 3, 1, 2)])  # Default NHWC → NCHW
         parameters.pop("pre_transpose")
-        transposed_input_names = [f"{name}_transposed_{onnx_graph.counter_plusplus()}" for name in names]
+        transposed_input_names = [f"{name}_transposed_{onnx_graph.next_id()}" for name in names]
         for i in range(len(names)):
             onnx_graph.add_node(
                 oh.make_node(
@@ -104,22 +116,27 @@ def pre_transpose( shapes, names, onnx_graph, parameters):
                     inputs=[names[i]],
                     outputs=[transposed_input_names[i]],
                     perm=pre_transpose_perm[i],
-                    name=f"transpose_input_{onnx_graph.counter_plusplus()}"
+                    name=f"transpose_input_{onnx_graph.next_id()}"
                 )
             )
             x = jnp.zeros(shapes[i])
             shape = jnp.transpose(x, pre_transpose_perm[i]).shape
             shapes_out[i] = shape
         onnx_graph.add_local_outputs(shapes_out, transposed_input_names)
-    return shapes_out, transposed_input_names
+        z.shapes = shapes_out
+        z.names = transposed_input_names
+    return z
 
-def post_transpose( output_shapes, output_names, onnx_graph, parameters):
+def post_transpose( z, parameters):
+    output_shapes = z.shapes
+    output_names = z.names
+    onnx_graph = z.onnx_graph
     final_output_names = output_names[:]
     shapes = output_shapes[:]
     if "post_transpose" in parameters:
         post_transpose_perm = parameters.get("post_transpose", [(0, 2, 3, 1)])  # Default NCHW → NHWC
         parameters.pop("post_transpose")
-        final_output_names = [f"{name}_transposed_{onnx_graph.counter_plusplus()}" for name in output_names]
+        final_output_names = [f"{name}_transposed_{onnx_graph.next_id()}" for name in output_names]
         for i in range(len(output_names)):
             x = jnp.zeros(output_shapes[i])
             shape = jnp.transpose(x, post_transpose_perm[i]).shape
@@ -130,8 +147,10 @@ def post_transpose( output_shapes, output_names, onnx_graph, parameters):
                     inputs=[output_names[i]],
                     outputs=[final_output_names[i]],
                     perm=post_transpose_perm[i],
-                    name=f"transpose_output_{onnx_graph.counter_plusplus()}"
+                    name=f"transpose_output_{onnx_graph.next_id()}"
                 )
             )
         onnx_graph.add_local_outputs(shapes, final_output_names)
-    return shapes, final_output_names
+        z.shapes = shapes
+        z.names = final_output_names
+    return z

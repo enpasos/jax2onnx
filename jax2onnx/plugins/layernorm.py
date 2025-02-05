@@ -1,39 +1,32 @@
 # file: jax2onnx/plugins/layernorm.py
 
-# JAX API reference: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm
-# ONNX Operator: https://onnx.ai/onnx/operators/onnx__LayerNormalization.html
-
 import onnx
 import onnx.helper as oh
 from flax import nnx
+from jax2onnx.to_onnx import Z
 
 
-def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx(self, z, parameters=None):
     """
-    Constructs an ONNX node for a LayerNorm operation.
+    Converts an `nnx.LayerNorm` layer into an ONNX `LayerNormalization` node.
 
-    This function converts an `nnx.LayerNorm` layer into an ONNX `LayerNormalization` node,
-    adding the scale and bias initializers if applicable.
+    This function adds scale and bias initializers to the ONNX graph if applicable.
 
     Args:
         self: The `nnx.LayerNorm` instance.
-        input_shapes (list of tuples): List containing input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
-        parameters (optional): Additional parameters, currently unused.
+        z (Z): Contains input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional conversion parameters.
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
 
-    # Extract input shape
-    input_shape = input_shapes[0]
+    onnx_graph = z.onnx_graph
+    input_shape = z.shapes[0]
+    input_name = z.names[0]
 
     # Generate a unique node name
-    node_name = f"node{onnx_graph.counter_plusplus()}"
-
+    node_name = f"node{onnx_graph.next_id()}"
 
     # Extract parameters
     feature_axes = self.feature_axes
@@ -42,7 +35,7 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     use_scale = self.scale is not None
 
     # Define ONNX input names
-    inputs = [input_names[0]]
+    inputs = [input_name]
 
     if use_scale:
         scale_name = f"{node_name}_scale"
@@ -61,8 +54,8 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     # Define ONNX output names
     onnx_output_names = [f"{node_name}_output"]
 
-    # Compute output shapes
-    output_shapes = [input_shape]  # LayerNorm does not alter the shape
+    # Compute output shapes (LayerNorm does not alter shape)
+    output_shapes = [input_shape]
 
     # Determine ONNX axis (feature_axes)
     axis = feature_axes if isinstance(feature_axes, int) else feature_axes[0]
@@ -82,10 +75,10 @@ def to_onnx(self, input_shapes, input_names, onnx_graph, parameters=None):
     # Register the output tensor in the ONNX graph
     onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
 
-    return output_shapes, onnx_output_names
+    return Z(output_shapes, onnx_output_names, onnx_graph)
 
 
-# Attach the `to_onnx` method to nnx.LayerNorm
+# Attach the `to_onnx` method to `nnx.LayerNorm`
 nnx.LayerNorm.to_onnx = to_onnx
 
 
@@ -104,13 +97,13 @@ def get_test_params():
     return [
         {
             "model_name": "layernorm_default",
-            "model": lambda: nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
+            "model":  nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 64)],
             "to_onnx": nnx.LayerNorm.to_onnx,
         },
         {
             "model_name": "layernorm_multiaxis",
-            "model": lambda: nnx.LayerNorm(3 * 3 * 64, reduction_axes=(1, 2, 3), feature_axes=(1, 2, 3), rngs=nnx.Rngs(0)),
+            "model":  nnx.LayerNorm(3 * 3 * 64, reduction_axes=(1, 2, 3), feature_axes=(1, 2, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 3, 3, 64)],
             "to_onnx": nnx.LayerNorm.to_onnx,
             "export": {

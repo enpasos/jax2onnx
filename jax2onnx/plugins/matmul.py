@@ -2,25 +2,37 @@
 
 import jax.numpy as jnp
 import onnx.helper as oh
+from jax2onnx.to_onnx import Z
 
 
-def to_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameters=None):
+def to_onnx_matmul(z, parameters=None):
     """
-    Constructs an ONNX node for `jax.numpy.matmul`, ensuring proper handling of batch dimensions
-    and transpositions to match ONNX's `MatMul` behavior.
+    Constructs an ONNX node for jax.numpy.matmul, ensuring proper handling of batch dimensions
+    and transpositions to match ONNX's MatMul behavior.
+
+    Args:
+        z (Z): A container with input shapes, names, and the ONNX graph.
+        parameters (dict, optional): Additional parameters (currently unused).
+
+    Returns:
+        Z: Updated instance with new shapes and names.
     """
     if parameters is None:
         parameters = {}
 
-    if len(input_shapes) != 2:
+    if len(z.shapes) != 2:
         raise ValueError("MatMul requires exactly two inputs.")
 
-    input_shape_A = [int(dim) for dim in input_shapes[0]]
-    input_shape_B = [int(dim) for dim in input_shapes[1]]
+    input_shapes = z.shapes
+    input_names = z.names
+    onnx_graph = z.onnx_graph
+
+    input_shape_A = list(map(int, input_shapes[0]))
+    input_shape_B = list(map(int, input_shapes[1]))
     input_name_A = input_names[0]
     input_name_B = input_names[1]
 
-    node_name = f"node{onnx_graph.counter_plusplus()}"
+    node_name = f"node{onnx_graph.next_id()}"
 
     # Compute output shape
     batch_dims = input_shape_A[:-2]  # Assume broadcasting rules for batch dims
@@ -42,15 +54,17 @@ def to_onnx_matmul(function, input_shapes, input_names, onnx_graph, parameters=N
             name=f"{node_name}_matmul",
         )
     )
+
     onnx_graph.add_local_outputs([output_shape], [matmul_out_name])
 
-    print(f"DEBUG: MatMul Input A Shape: {input_shape_A}")
-    print(f"DEBUG: MatMul Input B Shape: {input_shape_B}")
-    print(f"DEBUG: MatMul Output Shape: {output_shape}")
+    # Update and return Z
+    z.shapes = [output_shape]
+    z.names = [matmul_out_name]
+    z.jax_function = jnp.matmul
+    return z
 
-    return [output_shape], [matmul_out_name]
 
-
+# Attach the ONNX conversion function to `jax.numpy.matmul`
 jnp.matmul.to_onnx = to_onnx_matmul
 
 
@@ -64,23 +78,17 @@ def get_test_params():
     return [
         {
             "model_name": "matmul_2d",
-            "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
-            "export": {},
         },
         {
             "model_name": "matmul_3d",
-            "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(2, 3, 4), (2, 4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
-            "export": {},
         },
         {
             "model_name": "matmul_4d",
-            "model": lambda: lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
-            "export": {},
         },
     ]

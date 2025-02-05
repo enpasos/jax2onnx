@@ -9,6 +9,8 @@ import os
 import numpy as np
 
 from jax2onnx.to_onnx import to_onnx,  OnnxGraph
+from transpose_utils import onnx_to_jax_axes
+
 
 def load_test_params():
     params = []
@@ -56,12 +58,16 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [  "gelu",  "mnist_vit" ]
+        # if param["model_name"] in [  "mnist_cnn" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
-    model = test_params["model"]
+
+    jax_model = test_params.get("model", None)
+    if hasattr(jax_model, "eval"):
+        jax_model.eval()
+
     input_shapes = test_params["input_shapes"]  # Note the plural!
     export_params = test_params.get("export", {})  # Get export_params from the test case
     seed = 0
@@ -70,26 +76,24 @@ def test_onnx_export(test_params):
     # Generate JAX inputs
     inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
 
-    # Initialize model
-    model_instance = model()
-    if hasattr(model_instance, "eval"):
-        model_instance.eval()
 
-    # Export the model to ONNX
-    model_file_name = f"{test_params['model_name']}_model.onnx"
-    model_path = f"output/{model_file_name}"
+    # Export the jax_model to ONNX
+    onnx_model_file_name = f"{test_params['model_name']}_model.onnx"
+    model_path = f"output/{onnx_model_file_name}"
     os.makedirs("output", exist_ok=True)
-    to_onnx(
-        model_file_name,
-        model_instance,
+
+    to_onnx_function = test_params.get("to_onnx", None)
+    z = to_onnx(
+        onnx_model_file_name,
+        jax_model,
         input_shapes,
         output_path=model_path,
         # Provide a default function or None if no conversion is needed
-        to_onnx=test_params.get("to_onnx", None),
+        to_onnx=to_onnx_function,
         parameters=export_params,
     )
 
-    # Load the ONNX model
+    # Load the ONNX jax_model
     ort_session = ort.InferenceSession(model_path)
 
 
@@ -104,7 +108,14 @@ def test_onnx_export(test_params):
 
     # Compute JAX output
     # for now one input, one output
-    expected_outputs = [model_instance(*inputs)]
+    # call model or function
+    if (jax_model is not None) and callable(jax_model):
+        expected_outputs = [jax_model(*inputs)]
+    # else if to_onnx_function is not None and is a function
+    elif (to_onnx_function is not None and callable(to_onnx_function)):
+        expected_outputs = [z.jax_function(*inputs)]
+    else:
+        raise ValueError("No model or to_onnx function provided")
 
     # Assert the results
     for i in range(len(expected_outputs)):
