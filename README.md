@@ -8,9 +8,9 @@
 
 Supported and Planned Models and Functions
 
-JAX-Komponente                                                                                                                              | ONNX-Komponente                                                                       | Seit   | v0.1.0 |
+ JAX-Komponente                                                                                                                              | ONNX-Komponente                                                                       | Seit   | v0.1.0 |
 |:--------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------|:-------|:------:|
-| [`flax.nnx.AvgPool`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/pooling.html#flax.nnx.AvgPool)                         | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)                | v0.1.0 |   ✅    |
+| [`flax.nnx.AvgPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool)                  | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)                | v0.1.0 |   ✅    |
 | [`flax.nnx.BatchNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm)               | [`BatchNormalization`](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html)  | v0.1.0 |   ✅    |
 | [`flax.nnx.Conv`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/conv.html#flax.nnx.Conv)                                  | [`Conv`](https://onnx.ai/onnx/operators/onnx__Conv.html)                              | v0.1.0 |   ✅    |
 | [`flax.nnx.ConvTranspose`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/conv.html#flax.nnx.ConvTranspose)                | [`ConvTranspose`](https://onnx.ai/onnx/operators/onnx__ConvTranspose.html)            |        |   ➖    |
@@ -18,7 +18,7 @@ JAX-Komponente                                                                  
 | [`flax.nnx.LayerNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm)               | [`LayerNormalization`](https://onnx.ai/onnx/operators/onnx__LayerNormalization.html)  | v0.1.0 |   ✅    |
 | [`flax.nnx.Linear`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Linear)                            | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                              | v0.1.0 |   ✅    |
 | [`flax.nnx.LinearGeneral`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral)              | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                              | v0.1.0 |   ✅    |
-| [`flax.nnx.MaxPool`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/pooling.html#flax.nnx.MaxPool)                         | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                        | v0.1.0 |   ✅    |
+| [`flax.nnx.MaxPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool)                  | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                        | v0.1.0 |   ✅    |
 | [`flax.nnx.MultiHeadAttention`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention) | [`Attention`](https://onnx.ai/onnx/operators/onnx__Attention.html)                    | v0.1.0 |   ✅    |
 | [`jax.nn.celu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.celu)                                                               | [`Celu`](https://onnx.ai/onnx/operators/onnx__Celu.html)                              | v0.1.0 |   ✅    |
 | [`jax.nn.dot_product_attention`](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html)                       | N/A                                                                                   | v0.1.0 |   ✅    |
