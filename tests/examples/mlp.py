@@ -1,40 +1,47 @@
-# file: tests/examples/mnist_cnn.py
-
+# file: tests/examples/mlp.py
 from flax import nnx
 import jax
 import jax.numpy as jnp
-import onnx.helper as oh
 from functools import partial
-from jax2onnx.to_onnx import Z
 
 
 class MLP(nnx.Module):
-    def __init__(self, in_features, out_features, *, rngs=nnx.Rngs(0)):
-        self.layer = nnx.Linear(in_features, out_features, rngs=rngs)
-        self.activation = jax.nn.relu
+    """A Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation."""
 
-    def __call__(self, x):
-        x = self.layer(x)
+    def __init__(self, din: int, dmid: int, dout: int, *, rngs=nnx.Rngs(0)):
+        """Initializes the MLP model with linear layers, batch normalization, dropout, and activation."""
+        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
+        self.batch_norm = nnx.BatchNorm(dmid, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
+        self.activation = jax.nn.gelu
+        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        """Defines the forward pass of the MLP."""
+        x = self.linear1(x)
+        x = self.batch_norm(x)
+        x = self.dropout(x, deterministic=deterministic)
         x = self.activation(x)
-        return x
+        return self.linear2(x)
 
     def to_onnx(self, z, parameters=None):
-        z = self.layer.to_onnx(z)
-        z = self.activation.to_onnx(z)
+        """Defines the ONNX export logic for the MLP model."""
+        for layer in [self.linear1, self.batch_norm, self.dropout, self.activation, self.linear2]:
+            z = layer.to_onnx(z, parameters)
         return z
 
 
 def get_test_params():
     """
-    Test parameters for the MLP model.
+    Defines test parameters for verifying the ONNX conversion of the MLP model.
 
     Returns:
-        list: A list of dictionaries, each defining a test case.
+        list: A list of test cases for the MLP model.
     """
     return [
         {
             "model_name": "mlp",
-            "model":  MLP(30, 10, rngs=nnx.Rngs(0)),
+            "model": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
             "input_shapes": [(1, 30)]
         }
     ]
