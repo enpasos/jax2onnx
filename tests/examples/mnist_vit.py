@@ -104,6 +104,7 @@ class TransformerBlock(nnx.Module):
 
         return z
 
+
 class VisionTransformer(nnx.Module):
     def __init__(self, patch_size: int, num_hiddens: int, num_layers: int, num_heads: int, mlp_dim: int, num_classes: int, in_features: int, *, rngs: nnx.Rngs):
         self.patch_embedding = PatchEmbedding(patch_size, num_hiddens, in_features, rngs=rngs)
@@ -126,11 +127,12 @@ class VisionTransformer(nnx.Module):
             z = block.to_onnx(z)
 
         z = self.layer_norm.to_onnx(z)
-        z = jax.lax.slice.to_onnx(z, parameters={"start": [0, 0, 0], "end": [1, 1, -1]})
+        z = jax.lax.slice.to_onnx(z, parameters={"start": [0, 0, 0], "end": [1, 1, 256]})
+        z = jax.numpy.squeeze.to_onnx(z, parameters={"axes": [1]})  # Remove singleton dimension
+ 
         z = self.dense.to_onnx(z)
 
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
-
 
 def get_test_params():
     return [

@@ -21,7 +21,7 @@ Supported and Planned Models and Functions
 | [`flax.nnx.LinearGeneral`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral)              | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                             | v0.1.0 |   ✅    |
 | [`flax.nnx.MaxPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool)                  | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                       | v0.1.0 |   ✅    |
 | [`flax.nnx.MultiHeadAttention`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention) | [`Attention`](https://onnx.ai/onnx/operators/onnx__Attention.html)                   | v0.1.0 |   ✅    |
-| [`jax.lax.slice`](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html)                                                             | [`Slice`](https://onnx.ai/onnx/operators/onnx__Slice.html)                            | v0.1.0 |   ✅    |
+| [`jax.lax.slice`](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html)                                                     | [`Slice`](https://onnx.ai/onnx/operators/onnx__Slice.html)                            | v0.1.0 |   ✅    |
 | [`jax.nn.celu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.celu)                                                               | [`Celu`](https://onnx.ai/onnx/operators/onnx__Celu.html)                             | v0.1.0 |   ✅    |
 | [`jax.nn.dot_product_attention`](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html)                       | N/A                                                                                  | v0.1.0 |   ✅    |
 | [`jax.nn.elu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.elu)                                                                 | [`Elu`](https://onnx.ai/onnx/operators/onnx__Elu.html)                               | v0.1.0 |   ✅    |
@@ -46,6 +46,7 @@ Supported and Planned Models and Functions
 | [`jax.numpy.einsum`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html)                                               | [`Einsum`](https://onnx.ai/onnx/operators/onnx__Einsum.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.matmul`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html)                                               | [`MatMul`](https://onnx.ai/onnx/operators/onnx__MatMul.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 |   ✅    |
+| [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>

@@ -58,7 +58,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        #if param["model_name"] in [  "slice_basic", "slice_with_stride" ]
+        # if param["model_name"] in [  "squeeze_single_dim" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())
