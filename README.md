@@ -59,7 +59,7 @@ Examples
 | `MLP`          | Linear and Relu                                           | v0.1.0 |    ✅ |
 | `MNIST - CNN`  | CNN based MNIST classification                            | v0.1.0 |     ✅   |
 | `MNIST - CNN2` | CNN based MNIST classification with Dropout and LayerNorm | v0.1.0 |     ✅   |
-| `MNIST - ViT`  | Vision Transformer based MNIST classification             | v0.1.0 |   ❌  |
+| `MNIST - ViT`  | Vision Transformer based MNIST classification             | v0.1.0 |   ✅  |
 
 
 Versions of Major Dependencies
