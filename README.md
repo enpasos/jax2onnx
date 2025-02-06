@@ -127,8 +127,13 @@ Certainly any other improvements are welcome as well.
 
 ## Installation
 
-To install `jax2onnx`, use the following command (t.b.d.):
+To install `jax2onnx`:
 
+```bash
+pip install -i https://test.pypi.org/simple/ jax2onnx
+```
+
+t.b.d.:
 ```bash
 pip install jax2onnx  
 ```
