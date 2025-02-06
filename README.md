@@ -5,12 +5,12 @@
 
 `jax2onnx` converts your JAX/Flax model directly into the ONNX format.  
 
-**Approach**
+### **Approach**
 Components can be easily added as plugins, including their test cases, which are automatically picked up by **pytest**. Each test case sends random input tensors through the JAX/Flax model and compares the output with the ONNX model to ensure correctness.
 
 This library follows a **test-driven and demand-driven** approach, giving you **full control** over how JAX/Flax components are mapped to ONNX—**no hidden magic, no black-box abstraction**. While it may not cover every use case out of the box, you can **extend it by adding your own plugins** and contribute them back to the project. 🚀
 
-**Supported and Planned JAX/ONNX Components**
+### **Supported and Planned JAX/ONNX Components**
 
  JAX Component                                                                                                                              | ONNX Component                                                                       | since  | v0.1.0 |
 |:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:-------|:------:|
@@ -80,7 +80,7 @@ Note: for more details look into the `pyproject.toml` file
 
 
 
-## Usage
+### **Usage**
 Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `jax2onnx.to_onnx.to_onnx` 
 function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
@@ -119,13 +119,13 @@ to_onnx(
 )
 ```
 
-## How to Contribute
+### **How to Contribute**
 
 If you'd like to see a model or function supported, consider contributing by adding a plugin for an existing   
 module or function under the `jax2onnx/plugins` directory. Or you can add an example to the `examples` directory. 
 Certainly any other improvements are welcome as well.
 
-## Installation
+### **Installation**
 
 To install `jax2onnx`:
 
@@ -141,7 +141,6 @@ pip install jax2onnx
 
  
 
-## License
-
+### **License**
 This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
 
