@@ -115,7 +115,9 @@ class VisionTransformer(nnx.Module):
         x = self.patch_embedding(x)
         for block in self.transformer_blocks:
             x = block(x)
-        return nnx.log_softmax(self.dense(self.layer_norm(x)[:, 0, :]))
+        x = self.layer_norm(x)
+        x = x[:, 0, :]
+        return nnx.log_softmax(self.dense(x))
 
     def to_onnx(self, z, parameters=None):
         z = self.patch_embedding.to_onnx(z)
@@ -124,9 +126,11 @@ class VisionTransformer(nnx.Module):
             z = block.to_onnx(z)
 
         z = self.layer_norm.to_onnx(z)
+        z = jax.lax.slice.to_onnx(z, parameters={"start": [0, 0, 0], "end": [1, 1, -1]})
         z = self.dense.to_onnx(z)
 
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
+
 
 def get_test_params():
     return [
