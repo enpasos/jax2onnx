@@ -36,6 +36,19 @@ class Z:
         self.onnx_graph = onnx_graph
         self.jax_function = jax_function
 
+    def clone(self):
+        return Z(self.shapes[:], self.names[:], self.onnx_graph, self.jax_function)
+
+    def __add__(self, other):
+        if not isinstance(other, Z):
+            return NotImplemented  # Ensures correct behavior if `other` is not a `Z` instance
+
+        return Z(
+            self.shapes + other.shapes,
+            self.names + other.names,
+            self.onnx_graph,  # Keeps `onnx_graph` from `self`
+            self.jax_function  # Keeps the function from `self`
+        )
 
 def load_plugins():
     plugins = {}
