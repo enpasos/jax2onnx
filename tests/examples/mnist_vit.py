@@ -57,10 +57,17 @@ class TransformerBlock(nnx.Module):
         return x + self.mlp_block(self.layer_norm2(x))
 
     def to_onnx(self, z, parameters=None):
+        z_orig = z.clone()
         z = self.layer_norm1.to_onnx(z)
         z = self.attention.to_onnx(z)
+        z = jnp.add.to_onnx(z_orig + z)
+
+        z_orig = z.clone()
         z = self.layer_norm2.to_onnx(z)
-        return self.mlp_block.to_onnx(z)
+        z = self.mlp_block.to_onnx(z)
+        z = jnp.add.to_onnx(z_orig + z)
+
+        return z
 
 
 class VisionTransformer(nnx.Module):
@@ -100,7 +107,7 @@ def get_test_params():
         {
             "model_name": "mlp_block",
             "model":  MLPBlock(num_hiddens=256, mlp_dim=512, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 256)]
+            "input_shapes": [(1, 10, 256)]
         },
         {
             "model_name": "transformer_block",

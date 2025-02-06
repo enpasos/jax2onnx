@@ -6,7 +6,6 @@ import onnx.helper as oh
 from flax import nnx
 from jax2onnx.to_onnx import Z
 
-
 def to_onnx(self, z, parameters=None):
     """
     Converts an `nnx.Linear` layer into an ONNX `Gemm` (General Matrix Multiplication) node.
@@ -21,23 +20,50 @@ def to_onnx(self, z, parameters=None):
     Returns:
         Z: Updated instance with new shapes and names.
     """
-
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
-    # Compute output shape from the input shape and kernel dimensions
-    output_shape = (input_shape[0], self.kernel.shape[1])
+    in_features = self.kernel.shape[0]
+    out_features = self.kernel.shape[1]
 
-    # Generate a unique node name
+    # Determine if reshaping is necessary
+    if len(input_shape) > 2:
+        flattened_shape = (-1, in_features)  # Flatten only last dimensions to (M, K)
+        reshape_input_name = f"{input_name}_reshaped"
+
+        onnx_graph.add_node(
+            oh.make_node(
+                "Reshape",
+                inputs=[input_name, f"{reshape_input_name}_shape"],
+                outputs=[reshape_input_name],
+                name=f"reshape_before_{input_name}",
+            )
+        )
+
+        # Store reshape shape as an initializer
+        onnx_graph.add_initializer(
+            oh.make_tensor(
+                f"{reshape_input_name}_shape",
+                onnx.TensorProto.INT64,
+                [2],
+                np.array(flattened_shape, dtype=np.int64),
+            )
+        )
+    else:
+        reshape_input_name = input_name
+
+    # Output shape derivation
+    output_shape = list(input_shape[:-1]) + [out_features]
     node_name = f"node{onnx_graph.next_id()}"
 
     # Define ONNX node using the Gemm operator
+    gemm_output_name = f"{node_name}_output"
     onnx_graph.add_node(
         oh.make_node(
             "Gemm",
-            inputs=[input_name, f"{node_name}_weight", f"{node_name}_bias"],
-            outputs=[f"{node_name}_output"],
+            inputs=[reshape_input_name, f"{node_name}_weight", f"{node_name}_bias"],
+            outputs=[gemm_output_name],
             name=node_name,
         )
     )
@@ -57,20 +83,41 @@ def to_onnx(self, z, parameters=None):
         oh.make_tensor(
             f"{node_name}_bias",
             onnx.TensorProto.FLOAT,
-            [output_shape[-1]],
+            [out_features],
             self.bias.value.astype(np.float32),
         )
     )
 
+    # Reshape back to the original input shape with last dimension changed to out_features
+    if len(input_shape) > 2:
+        final_output_name = f"{gemm_output_name}_reshaped"
+        onnx_graph.add_node(
+            oh.make_node(
+                "Reshape",
+                inputs=[gemm_output_name, f"{final_output_name}_shape"],
+                outputs=[final_output_name],
+                name=f"reshape_after_{gemm_output_name}",
+            )
+        )
+        onnx_graph.add_initializer(
+            oh.make_tensor(
+                f"{final_output_name}_shape",
+                onnx.TensorProto.INT64,
+                [len(output_shape)],
+                np.array(output_shape, dtype=np.int64),
+            )
+        )
+    else:
+        final_output_name = gemm_output_name
+
     # Register the output tensor in the ONNX graph
-    output_names = [f"{node_name}_output"]
-    onnx_graph.add_local_outputs([output_shape], output_names)
+    onnx_graph.add_local_outputs([output_shape], [final_output_name])
 
-    return Z([output_shape], output_names, onnx_graph)
-
+    return Z([output_shape], [final_output_name], onnx_graph)
 
 # Attach the `to_onnx` method to `nnx.Linear`
 nnx.Linear.to_onnx = to_onnx
+
 
 
 def get_test_params():
@@ -91,5 +138,14 @@ def get_test_params():
             "model":  nnx.Linear(5, 3, rngs=nnx.Rngs(0)),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
             "to_onnx": nnx.Linear.to_onnx,
+        },
+
+
+        {
+            "model_name": "linear_2",
+            "model":  nnx.Linear(256, 512, rngs=nnx.Rngs(0)),  # Linear layer with input dim 5, output dim 3
+            "input_shapes": [(1, 10, 256)],
+            "to_onnx": nnx.Linear.to_onnx,
         }
+
     ]
