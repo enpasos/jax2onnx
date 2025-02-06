@@ -5,12 +5,12 @@
 
 `jax2onnx` converts your JAX/Flax model directly into the ONNX format.  
 
-Approach: Component are easy to add as a plugin including testcases which are automatically picked up by pytest. 
-They simply send random input tensors through the JAX/Flax model and compare the output with the ONNX model. 
-The library is test and demand driven with full control to you on how to map JAX/Flax components to ONNX components, no magic involved, 
-no black box abstraction, but also likely not complete for every use case. You may fill the gaps by adding your own plugins and contribute them back.
+**Approach**
+Components can be easily added as plugins, including their test cases, which are automatically picked up by **pytest**. Each test case sends random input tensors through the JAX/Flax model and compares the output with the ONNX model to ensure correctness.
 
-Supported and Planned JAX/ONNX Components
+This library follows a **test-driven and demand-driven** approach, giving you **full control** over how JAX/Flax components are mapped to ONNX—**no hidden magic, no black-box abstraction**. While it may not cover every use case out of the box, you can **extend it by adding your own plugins** and contribute them back to the project. 🚀
+
+**Supported and Planned JAX/ONNX Components**
 
  JAX Component                                                                                                                              | ONNX Component                                                                       | since  | v0.1.0 |
 |:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:-------|:------:|
