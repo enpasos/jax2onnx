@@ -1,10 +1,12 @@
 # file: tests/examples/mnist_vit.py
-
 import jax.numpy as jnp
 from flax import nnx
 import jax
 from jax2onnx.to_onnx import Z
 from functools import partial
+import numpy as np
+import onnx
+import onnx.helper as oh
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
     position = jnp.arange(num_patches)[:, jnp.newaxis]
@@ -14,9 +16,9 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
     pos_embedding = pos_embedding.at[:, 1::2].set(jnp.cos(position * div_term))
     return pos_embedding[jnp.newaxis, :, :]
 
-
 class PatchEmbedding(nnx.Module):
     def __init__(self, patch_size: int, num_hiddens: int, in_features: int, *, rngs: nnx.Rngs):
+        self.patch_size = patch_size
         self.linear = nnx.Linear(in_features=patch_size * patch_size * in_features, out_features=num_hiddens, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -25,8 +27,42 @@ class PatchEmbedding(nnx.Module):
         return self.linear(x)
 
     def to_onnx(self, z, parameters=None):
-        return self.linear.to_onnx(z)
+        onnx_graph = z.onnx_graph
+        input_shape = z.shapes[0]
+        input_name = z.names[0]
 
+        batch_size, height, width, channels = input_shape
+        num_patches = (height // self.patch_size) * (width // self.patch_size)
+        in_features = self.patch_size * self.patch_size * channels
+        out_features = self.linear.out_features
+
+        flattened_shape = (batch_size, num_patches, in_features)
+        reshape_input_name = f"{input_name}_reshaped"
+
+        onnx_graph.add_node(
+            oh.make_node(
+                "Reshape",
+                inputs=[input_name, f"{reshape_input_name}_shape"],
+                outputs=[reshape_input_name],
+                name=f"reshape_before_{input_name}",
+            )
+        )
+
+        onnx_graph.add_initializer(
+            oh.make_tensor(
+                f"{reshape_input_name}_shape",
+                onnx.TensorProto.INT64,
+                [3],
+                np.array(flattened_shape, dtype=np.int64),
+            )
+        )
+        onnx_graph.add_local_outputs([list(flattened_shape)], [reshape_input_name])
+
+        z.shapes = [list(flattened_shape)]
+        z.names = [reshape_input_name]
+        z = self.linear.to_onnx(z)
+
+        return z
 
 class MLPBlock(nnx.Module):
     def __init__(self, num_hiddens: int, mlp_dim: int, *, rngs: nnx.Rngs):
@@ -43,7 +79,6 @@ class MLPBlock(nnx.Module):
         z = self.activation.to_onnx(z)
         z = self.linear2.to_onnx(z)
         return z
-
 
 class TransformerBlock(nnx.Module):
     def __init__(self, num_hiddens: int, num_heads: int, mlp_dim: int, *, rngs: nnx.Rngs):
@@ -69,7 +104,6 @@ class TransformerBlock(nnx.Module):
 
         return z
 
-
 class VisionTransformer(nnx.Module):
     def __init__(self, patch_size: int, num_hiddens: int, num_layers: int, num_heads: int, mlp_dim: int, num_classes: int, in_features: int, *, rngs: nnx.Rngs):
         self.patch_embedding = PatchEmbedding(patch_size, num_hiddens, in_features, rngs=rngs)
@@ -85,12 +119,14 @@ class VisionTransformer(nnx.Module):
 
     def to_onnx(self, z, parameters=None):
         z = self.patch_embedding.to_onnx(z)
+
         for block in self.transformer_blocks:
             z = block.to_onnx(z)
+
         z = self.layer_norm.to_onnx(z)
         z = self.dense.to_onnx(z)
-        return jnp.log_softmax.to_onnx(z)
 
+        return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
 
 def get_test_params():
     return [
