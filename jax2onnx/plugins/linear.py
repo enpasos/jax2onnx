@@ -29,7 +29,8 @@ def to_onnx(self, z, parameters=None):
 
     # Determine if reshaping is necessary
     if len(input_shape) > 2:
-        flattened_shape = (-1, in_features)  # Flatten only last dimensions to (M, K)
+        new_first_dim = int(np.prod(input_shape[:-1]))
+        flattened_shape = (new_first_dim, input_shape[-1])
         reshape_input_name = f"{input_name}_reshaped"
 
         onnx_graph.add_node(
@@ -50,8 +51,10 @@ def to_onnx(self, z, parameters=None):
                 np.array(flattened_shape, dtype=np.int64),
             )
         )
+        onnx_graph.add_local_outputs([list(flattened_shape)], [reshape_input_name])
     else:
         reshape_input_name = input_name
+        flattened_shape = input_shape  # Ensure it's defined for later use
 
     # Output shape derivation
     output_shape = list(input_shape[:-1]) + [out_features]
@@ -67,6 +70,7 @@ def to_onnx(self, z, parameters=None):
             name=node_name,
         )
     )
+    onnx_graph.add_local_outputs([[flattened_shape[0], out_features]], [gemm_output_name])
 
     # Add weight matrix as an ONNX initializer
     onnx_graph.add_initializer(
@@ -107,6 +111,7 @@ def to_onnx(self, z, parameters=None):
                 np.array(output_shape, dtype=np.int64),
             )
         )
+        onnx_graph.add_local_outputs([output_shape], [final_output_name])
     else:
         final_output_name = gemm_output_name
 
