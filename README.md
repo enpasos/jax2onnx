@@ -5,10 +5,14 @@
 
 `jax2onnx` converts your JAX/Flax model directly into the ONNX format.  
 
+Approach: Component are easy to add as a plugin including testcases which are automatically picked up by pytest. 
+They simply send random input tensors through the JAX/Flax model and compare the output with the ONNX model. 
+The library is test and demand driven with full control to you on how to map JAX/Flax components to ONNX components, no magic involved, 
+no black box abstraction, but also likely not complete for every use case. You may fill the gaps by adding your own plugins and contribute them back.
 
-Supported and Planned Models and Functions
+Supported and Planned JAX/ONNX Components
 
- JAX-Komponente                                                                                                                              | ONNX-Komponente                                                                      | Seit   | v0.1.0 |
+ JAX Component                                                                                                                              | ONNX Component                                                                       | since  | v0.1.0 |
 |:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:-------|:------:|
 | [`flax.nnx.AvgPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool)                  | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)               | v0.1.0 |   ✅    |
 | [`flax.nnx.BatchNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm)               | [`BatchNormalization`](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 |   ✅    |
@@ -47,7 +51,7 @@ Supported and Planned Models and Functions
 | [`jax.numpy.matmul`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html)                                               | [`MatMul`](https://onnx.ai/onnx/operators/onnx__MatMul.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 |   ✅    |
 | [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                 | [`Squeeze`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
-| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                               | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                     | v0.1.0 |   ✅    |
+| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                               | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                   | v0.1.0 |   ✅    |
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>
