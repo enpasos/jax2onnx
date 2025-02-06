@@ -58,7 +58,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [  "squeeze_single_dim" ]
+        # if param["model_name"] in [ "transpose_basic" ]
     ]
 
 @pytest.mark.parametrize("test_params", load_test_params())

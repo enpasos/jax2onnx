@@ -21,7 +21,7 @@ Supported and Planned Models and Functions
 | [`flax.nnx.LinearGeneral`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral)              | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                             | v0.1.0 |   ✅    |
 | [`flax.nnx.MaxPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool)                  | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                       | v0.1.0 |   ✅    |
 | [`flax.nnx.MultiHeadAttention`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention) | [`Attention`](https://onnx.ai/onnx/operators/onnx__Attention.html)                   | v0.1.0 |   ✅    |
-| [`jax.lax.slice`](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html)                                                     | [`Slice`](https://onnx.ai/onnx/operators/onnx__Slice.html)                            | v0.1.0 |   ✅    |
+| [`jax.lax.slice`](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html)                                                     | [`Slice`](https://onnx.ai/onnx/operators/onnx__Slice.html)                           | v0.1.0 |   ✅    |
 | [`jax.nn.celu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.celu)                                                               | [`Celu`](https://onnx.ai/onnx/operators/onnx__Celu.html)                             | v0.1.0 |   ✅    |
 | [`jax.nn.dot_product_attention`](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html)                       | N/A                                                                                  | v0.1.0 |   ✅    |
 | [`jax.nn.elu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.elu)                                                                 | [`Elu`](https://onnx.ai/onnx/operators/onnx__Elu.html)                               | v0.1.0 |   ✅    |
@@ -46,7 +46,8 @@ Supported and Planned Models and Functions
 | [`jax.numpy.einsum`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html)                                               | [`Einsum`](https://onnx.ai/onnx/operators/onnx__Einsum.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.matmul`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html)                                               | [`MatMul`](https://onnx.ai/onnx/operators/onnx__MatMul.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 |   ✅    |
-| [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
+| [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                 | [`Squeeze`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
+| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                               | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                     | v0.1.0 |   ✅    |
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>
@@ -79,7 +80,40 @@ Note: for more details look into the `pyproject.toml` file
 Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `jax2onnx.to_onnx.to_onnx` 
 function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
- 
+
+Example of an MLP with the `to_onnx` function implemented:
+
+```py
+class MLP(nnx.Module):
+    def __init__(self, din: int, dmid: int, dout: int, *, rngs=nnx.Rngs(0)): 
+        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
+        self.batch_norm = nnx.BatchNorm(dmid, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
+        self.activation = jax.nn.gelu
+        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray: 
+        x = self.linear1(x)
+        x = self.batch_norm(x)
+        x = self.dropout(x, deterministic=deterministic)
+        x = self.activation(x)
+        return self.linear2(x)
+
+    def to_onnx(self, z, parameters=None): 
+        for layer in [self.linear1, self.batch_norm, self.dropout, self.activation, self.linear2]:
+            z = layer.to_onnx(z, parameters)
+        return z
+```
+
+To export the model to ONNX format, use the `to_onnx` function:
+```py
+from jax2onnx.to_onnx import to_onnx
+to_onnx(
+    file_name="mlp.onnx",
+    jax_model=MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+    input_shapes=[(1, 30)]
+)
+```
 
 ## How to Contribute
 
