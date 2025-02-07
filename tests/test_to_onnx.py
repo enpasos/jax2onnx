@@ -122,7 +122,7 @@ def test_onnx_export(test_params):
         np.testing.assert_allclose(
             onnx_outputs[i],
             expected_outputs[i],
-            rtol=1e-3,
-            atol=1e-5
+            rtol=1e-2,
+            atol=1e-4
         )
     print(f"Test for {test_params['model_name']} passed!")

@@ -1,11 +1,10 @@
 # file: tests/examples/mnist_vit.py
+
 import jax.numpy as jnp
 from flax import nnx
 import jax
 from functools import partial
-import numpy as np
-import onnx
-import onnx.helper as oh
+
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
     position = jnp.arange(num_patches)[:, jnp.newaxis]
@@ -70,27 +69,44 @@ class PatchEmbedding(nnx.Module):
 
 
 class MLPBlock(nnx.Module):
-    def __init__(self, num_hiddens: int, mlp_dim: int, *, rngs: nnx.Rngs):
+    """MLP Block for Vision Transformer with Dropout."""
+
+    def __init__(self, num_hiddens: int, mlp_dim: int, dropout_rate: float = 0.1, *, rngs: nnx.Rngs):
+        self.num_hiddens = num_hiddens
+        self.mlp_dim = mlp_dim
+        self.dropout_rate = dropout_rate
+        self.rng_collection = rngs
+
         self.linear1 = nnx.Linear(in_features=num_hiddens, out_features=mlp_dim, rngs=rngs)
         self.linear2 = nnx.Linear(in_features=mlp_dim, out_features=num_hiddens, rngs=rngs)
+
         self.activation = partial(jax.nn.gelu, approximate=False)
         self.activation.to_onnx = jax.nn.gelu.to_onnx
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        return self.linear2(self.activation(self.linear1(x)))
+        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        x = self.activation(self.linear1(x))
+        x = self.dropout(x, deterministic=deterministic)
+        x = self.linear2(x)
+        x = self.dropout(x, deterministic=deterministic)
+        return x
 
     def to_onnx(self, z, parameters=None):
         z = self.linear1.to_onnx(z)
         z = self.activation.to_onnx(z)
+        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
         z = self.linear2.to_onnx(z)
+        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
         return z
 
+
 class TransformerBlock(nnx.Module):
-    def __init__(self, num_hiddens: int, num_heads: int, mlp_dim: int, *, rngs: nnx.Rngs):
+    def __init__(self, num_hiddens: int, num_heads: int, mlp_dim: int, dropout_rate: float = 0.1, *, rngs: nnx.Rngs):
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.attention = nnx.MultiHeadAttention(num_heads=num_heads, qkv_features=num_hiddens, out_features=num_hiddens, in_features=num_hiddens, rngs=rngs, decode=False)
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock(num_hiddens, mlp_dim, rngs=rngs)
+        self.mlp_block = MLPBlock(num_hiddens, mlp_dim, dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = x + self.attention(self.layer_norm1(x))
@@ -112,15 +128,14 @@ class TransformerBlock(nnx.Module):
 
 class VisionTransformer(nnx.Module):
     def __init__(self, height: int, width: int, patch_size: int, num_hiddens: int, num_layers: int,
-                 num_heads: int, mlp_dim: int, num_classes: int, in_features: int, *, rngs: nnx.Rngs):
+                 num_heads: int, mlp_dim: int, num_classes: int, in_features: int, dropout_rate: float = 0.1, *, rngs: nnx.Rngs):
 
         self.patch_embedding = PatchEmbedding(
-            height=height, width=width, patch_size=patch_size,
-            num_hiddens=num_hiddens, in_features=in_features, rngs=rngs
+            height, width, patch_size, num_hiddens, in_features, rngs=rngs
         )
 
         self.transformer_blocks = [
-            TransformerBlock(num_hiddens, num_heads, mlp_dim, rngs=rngs) for _ in range(num_layers)
+            TransformerBlock(num_hiddens, num_heads, mlp_dim, dropout_rate, rngs=rngs) for _ in range(num_layers)
         ]
         self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
@@ -135,16 +150,13 @@ class VisionTransformer(nnx.Module):
 
     def to_onnx(self, z, parameters=None):
         z = self.patch_embedding.to_onnx(z)
-
         for block in self.transformer_blocks:
             z = block.to_onnx(z)
-
         z = self.layer_norm.to_onnx(z)
         z = jax.lax.slice.to_onnx(z, parameters={"start": [0, 0, 0], "end": [1, 1, 256]})
         z = jax.numpy.squeeze.to_onnx(z, parameters={"axes": [1]})  # Remove singleton dimension
 
         z = self.dense.to_onnx(z)
-
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
 
 def get_test_params():
@@ -158,18 +170,18 @@ def get_test_params():
             "model_name": "mnist_vit",
             "model": VisionTransformer(
                 height=28, width=28, patch_size=4, num_hiddens=256, num_layers=6, num_heads=8,
-                mlp_dim=512, num_classes=10, in_features=1, rngs=nnx.Rngs(0)
+                mlp_dim=512, num_classes=10, in_features=1, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 28, 28, 1)]
         },
         {
             "model_name": "mlp_block",
-            "model": MLPBlock(num_hiddens=256, mlp_dim=512, rngs=nnx.Rngs(0)),
+            "model": MLPBlock(num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 256)]
         },
         {
             "model_name": "transformer_block",
-            "model": TransformerBlock(num_hiddens=256, num_heads=8, mlp_dim=512, rngs=nnx.Rngs(0)),
+            "model": TransformerBlock(num_hiddens=256, num_heads=8, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 256)]
         }
     ]
