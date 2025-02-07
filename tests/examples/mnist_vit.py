@@ -5,7 +5,6 @@ from flax import nnx
 import jax
 from functools import partial
 
-
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
     position = jnp.arange(num_patches)[:, jnp.newaxis]
     div_term = jnp.exp(jnp.arange(0, num_hiddens, 2) * -(jnp.log(10000.0) / num_hiddens))
@@ -81,7 +80,6 @@ class MLPBlock(nnx.Module):
         self.linear2 = nnx.Linear(in_features=mlp_dim, out_features=num_hiddens, rngs=rngs)
 
         self.activation = partial(jax.nn.gelu, approximate=False)
-        self.activation.to_onnx = jax.nn.gelu.to_onnx
 
         self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
@@ -93,6 +91,7 @@ class MLPBlock(nnx.Module):
         return x
 
     def to_onnx(self, z, parameters=None):
+        self.activation.to_onnx = jax.nn.gelu.to_onnx
         z = self.linear1.to_onnx(z)
         z = self.activation.to_onnx(z)
         z = self.dropout.to_onnx(z, parameters={"deterministic": True})
@@ -103,19 +102,34 @@ class MLPBlock(nnx.Module):
 
 class TransformerBlock(nnx.Module):
     def __init__(self, num_hiddens: int, num_heads: int, mlp_dim: int, dropout_rate: float = 0.1, *, rngs: nnx.Rngs):
+        self.rng_collection = rngs  # <- Add this line
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.attention = nnx.MultiHeadAttention(num_heads=num_heads, qkv_features=num_hiddens, out_features=num_hiddens, in_features=num_hiddens, rngs=rngs, decode=False)
+        self.dropout_rate = dropout_rate
+        self.attention = nnx.MultiHeadAttention(
+            num_heads=num_heads,
+            qkv_features=num_hiddens,
+            out_features=num_hiddens,
+            in_features=num_hiddens,
+            rngs=rngs,
+            decode=False
+        )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp_block = MLPBlock(num_hiddens, mlp_dim, dropout_rate, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = x + self.attention(self.layer_norm1(x))
-        return x + self.mlp_block(self.layer_norm2(x))
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        y = self.attention(self.layer_norm1(x))
+        y = self.dropout(y, deterministic=deterministic)
+        x = x + y
+        return x + self.mlp_block(self.layer_norm2(x), deterministic)
 
     def to_onnx(self, z, parameters=None):
         z_orig = z.clone()
         z = self.layer_norm1.to_onnx(z)
         z = self.attention.to_onnx(z)
+
+        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
+
         z = jnp.add.to_onnx(z_orig + z)
 
         z_orig = z.clone()
@@ -140,10 +154,10 @@ class VisionTransformer(nnx.Module):
         self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.patch_embedding(x)
         for block in self.transformer_blocks:
-            x = block(x)
+            x = block(x, deterministic)
         x = self.layer_norm(x)
         x = x[:, 0, :]
         return nnx.log_softmax(self.dense(x))
@@ -158,6 +172,8 @@ class VisionTransformer(nnx.Module):
 
         z = self.dense.to_onnx(z)
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
+
+
 
 def get_test_params():
     return [
