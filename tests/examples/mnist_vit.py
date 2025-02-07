@@ -197,7 +197,7 @@ class VisionTransformer(nnx.Module):
         z = jax.numpy.concatenate.to_onnx(cls_tokens + z, parameters={"axis": 1})
 
         pos_emb_z = Z(
-            shapes=self.positional_embedding.value.shape,
+            shapes=[self.positional_embedding.value.shape],
             names=["positional_embedding"],
             onnx_graph=z.onnx_graph
         )
@@ -210,10 +210,7 @@ class VisionTransformer(nnx.Module):
             )
         )
 
-        pos_emb_expanded = jax.lax.slice.to_onnx(
-            pos_emb_z, parameters={"start": [0, 0, 0], "end": [1, z.shapes[0][1], z.shapes[0][2]]}
-        )
-        z = jax.numpy.add.to_onnx(z + pos_emb_expanded)
+        z = jnp.add.to_onnx(z + pos_emb_z)
 
         for block in self.transformer_blocks:
             z = block.to_onnx(z)
@@ -222,6 +219,7 @@ class VisionTransformer(nnx.Module):
         z = jax.numpy.squeeze.to_onnx(z, parameters={"axes": [1]})
         z = self.dense.to_onnx(z)
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
+
 
 
 def get_test_params():
