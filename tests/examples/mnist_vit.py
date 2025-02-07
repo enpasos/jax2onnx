@@ -8,11 +8,12 @@ import onnx
 import onnx.helper as oh
 from jax2onnx.to_onnx import Z
 
-
+# todo: instead of num_patches (and adding 1 for the cls internally) use sequence length.
+# this function should not know details about how it is used.
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
-    position = jnp.arange(num_patches)[:, jnp.newaxis]
+    position = jnp.arange(num_patches + 1)[:, jnp.newaxis]  # Include CLS token
     div_term = jnp.exp(jnp.arange(0, num_hiddens, 2) * -(jnp.log(10000.0) / num_hiddens))
-    pos_embedding = jnp.zeros((num_patches, num_hiddens))
+    pos_embedding = jnp.zeros((num_patches + 1, num_hiddens))
     pos_embedding = pos_embedding.at[:, 0::2].set(jnp.sin(position * div_term))
     pos_embedding = pos_embedding.at[:, 1::2].set(jnp.cos(position * div_term))
     return pos_embedding[jnp.newaxis, :, :]
@@ -157,10 +158,17 @@ class VisionTransformer(nnx.Module):
 
         cls_tokens = jnp.tile(self.cls_token, (batch_size, 1, 1))
         x = jnp.concatenate([cls_tokens, x], axis=1)
-        # x = x + jnp.concatenate( [self.cls_token, jax.lax.slice(self.positional_embedding, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))], axis=1)
-        pos_emb_slice = jax.lax.dynamic_slice(self.positional_embedding.value, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))
-        pos_emb_slice = jnp.asarray(pos_emb_slice)  # Ensure it's a JAX array
-        x = x + jnp.concatenate([self.cls_token, pos_emb_slice], axis=1)
+
+        # pos_emb_slice = jax.lax.dynamic_slice(self.positional_embedding.value, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))
+        # pos_emb_slice = jnp.asarray(pos_emb_slice)  # Ensure it's a JAX array
+        # x = x + jnp.concatenate([self.cls_token, pos_emb_slice], axis=1)
+
+        # Ensure positional encoding applies to CLS token as well
+        pos_emb_expanded = jax.lax.dynamic_slice(self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2]))
+        pos_emb_expanded = jnp.asarray(pos_emb_expanded)  # Ensure it's a JAX array
+
+        x = x + pos_emb_expanded
+
         for block in self.transformer_blocks:
             x = block(x, deterministic)
         x = self.layer_norm(x)
@@ -188,7 +196,6 @@ class VisionTransformer(nnx.Module):
         cls_tokens = jax.numpy.tile.to_onnx(cls_token_z, parameters={"repeats": (batch_size, 1, 1)})
         z = jax.numpy.concatenate.to_onnx(cls_tokens + z, parameters={"axis": 1})
 
-        # Add positional_embedding as an initializer
         pos_emb_z = Z(
             shapes=self.positional_embedding.value.shape,
             names=["positional_embedding"],
@@ -203,10 +210,10 @@ class VisionTransformer(nnx.Module):
             )
         )
 
-        pos_emb_sliced = jax.lax.slice.to_onnx(
-            pos_emb_z, parameters={"start": [0, 0, 0], "end": [1, z.shapes[0][1] - 1, z.shapes[0][2]]}
+        pos_emb_expanded = jax.lax.slice.to_onnx(
+            pos_emb_z, parameters={"start": [0, 0, 0], "end": [1, z.shapes[0][1], z.shapes[0][2]]}
         )
-        z = jax.numpy.add.to_onnx(z + jax.numpy.concatenate.to_onnx(cls_token_z + pos_emb_sliced, parameters={"axis": 1}))
+        z = jax.numpy.add.to_onnx(z + pos_emb_expanded)
 
         for block in self.transformer_blocks:
             z = block.to_onnx(z)
@@ -215,7 +222,6 @@ class VisionTransformer(nnx.Module):
         z = jax.numpy.squeeze.to_onnx(z, parameters={"axes": [1]})
         z = self.dense.to_onnx(z)
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
-
 
 
 def get_test_params():
