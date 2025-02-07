@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins/squeeze.py
 
-# JAX API reference: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze
+# JAX API: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__Squeeze.html
 
 import jax.numpy as jnp

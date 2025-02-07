@@ -12,7 +12,7 @@ This library follows a **test-driven and demand-driven** approach, giving you **
 
 ### **Supported and Planned JAX/ONNX Components**
 
- JAX Component                                                                                                                              | ONNX Component                                                                       | since  | v0.1.0 |
+ JAX Component                                                                                                                               | ONNX Component                                                                       | since  | v0.1.0 |
 |:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:-------|:------:|
 | [`flax.nnx.AvgPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool)                  | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)               | v0.1.0 |   ✅    |
 | [`flax.nnx.BatchNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm)               | [`BatchNormalization`](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 |   ✅    |
@@ -51,7 +51,10 @@ This library follows a **test-driven and demand-driven** approach, giving you **
 | [`jax.numpy.matmul`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html)                                               | [`MatMul`](https://onnx.ai/onnx/operators/onnx__MatMul.html)                         | v0.1.0 |   ✅    |
 | [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 |   ✅    |
 | [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                 | [`Squeeze`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
-| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                               | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                   | v0.1.0 |   ✅    |
+| [`jax.numpy.tile`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.tile.html#jax.numpy.tile)                                | [`Tile`](https://onnx.ai/onnx/operators/onnx__Tile.html)                        | v0.1.0 |   ✅    |
+| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                           | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                   | v0.1.0 |   ✅    |
+
+
 
 ✅ = implemented with unit test for eval<br>
 ❌ = planned but not implemented, yet<br>
@@ -137,10 +140,7 @@ t.b.d.:
 ```bash
 pip install jax2onnx  
 ```
-
-
  
-
 ### **License**
 This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
 
