@@ -42,7 +42,7 @@ def build_add_onnx_node( z, parameters=None):
 
 
 # Assign ONNX node builder to jax.numpy.add
-jnp.add.to_onnx = lambda *args: build_add_onnx_node(*args)
+jnp.add.to_onnx =  build_add_onnx_node
 
 
 def build_concat_onnx_node( z, parameters):
@@ -96,7 +96,7 @@ def build_concat_onnx_node( z, parameters):
 
 
 # Assign ONNX node builder to jax.numpy.concatenate
-jnp.concatenate.to_onnx = lambda *args: build_concat_onnx_node(*args)
+jnp.concatenate.to_onnx = build_concat_onnx_node
 
 
 def get_test_params():
