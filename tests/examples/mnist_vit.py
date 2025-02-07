@@ -157,7 +157,10 @@ class VisionTransformer(nnx.Module):
 
         cls_tokens = jnp.tile(self.cls_token, (batch_size, 1, 1))
         x = jnp.concatenate([cls_tokens, x], axis=1)
-        x = x + jnp.concatenate( [self.cls_token, jax.lax.slice(self.positional_embedding, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))], axis=1)
+        # x = x + jnp.concatenate( [self.cls_token, jax.lax.slice(self.positional_embedding, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))], axis=1)
+        pos_emb_slice = jax.lax.dynamic_slice(self.positional_embedding.value, (0, 0, 0), (1, x.shape[1] - 1, x.shape[2]))
+        pos_emb_slice = jnp.asarray(pos_emb_slice)  # Ensure it's a JAX array
+        x = x + jnp.concatenate([self.cls_token, pos_emb_slice], axis=1)
         for block in self.transformer_blocks:
             x = block(x, deterministic)
         x = self.layer_norm(x)
