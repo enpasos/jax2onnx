@@ -2,7 +2,6 @@
 
 import jax.numpy as jnp
 import onnx.helper as oh
-from jax2onnx.to_onnx import Z
 
 
 def to_onnx_matmul(z, parameters=None):
@@ -40,7 +39,9 @@ def to_onnx_matmul(z, parameters=None):
     K_B, N = input_shape_B[-2], input_shape_B[-1]
 
     if K_A != K_B:
-        raise ValueError(f"Incompatible MatMul shapes: {input_shape_A} x {input_shape_B}")
+        raise ValueError(
+            f"Incompatible MatMul shapes: {input_shape_A} x {input_shape_B}"
+        )
 
     output_shape = batch_dims + [M, N]
 

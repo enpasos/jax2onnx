@@ -3,7 +3,6 @@
 import onnx
 import onnx.helper as oh
 from flax import nnx
-from jax2onnx.to_onnx import Z
 
 
 def to_onnx_dropout(self, z, parameters=None):

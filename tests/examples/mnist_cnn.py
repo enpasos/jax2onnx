@@ -2,9 +2,7 @@
 from functools import partial
 import jax
 import jax.numpy as jnp
-import onnx.helper as oh
 from flax import nnx
-from jax2onnx.to_onnx import Z
 
 
 class MNIST_CNN(nnx.Module):
@@ -12,8 +10,8 @@ class MNIST_CNN(nnx.Module):
 
     def __init__(self, *, rngs: nnx.Rngs):
         """Initializes the CNN model with convolutional and linear layers."""
-        self.conv1 = nnx.Conv(1, 32, kernel_size=(3, 3), padding='SAME', rngs=rngs)
-        self.conv2 = nnx.Conv(32, 64, kernel_size=(3, 3), padding='SAME', rngs=rngs)
+        self.conv1 = nnx.Conv(1, 32, kernel_size=(3, 3), padding="SAME", rngs=rngs)
+        self.conv2 = nnx.Conv(32, 64, kernel_size=(3, 3), padding="SAME", rngs=rngs)
         self.avg_pool = partial(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2))
         self.linear1 = nnx.Linear(3136, 256, rngs=rngs)
         self.linear2 = nnx.Linear(256, 10, rngs=rngs)
@@ -40,7 +38,10 @@ class MNIST_CNN(nnx.Module):
         z = self.act.to_onnx(z)
         z = nnx.avg_pool.to_onnx(z, {"window_shape": (2, 2), "strides": (2, 2)})
 
-        reshape_params = {"shape": (z.shapes[0][0], 3136), "pre_transpose": [(0, 2, 3, 1)]}
+        reshape_params = {
+            "shape": (z.shapes[0][0], 3136),
+            "pre_transpose": [(0, 2, 3, 1)],
+        }
         z = jax.numpy.reshape.to_onnx(z, reshape_params)
 
         z = self.linear1.to_onnx(z)
@@ -55,7 +56,7 @@ def get_test_params():
     return [
         {
             "model_name": "mnist_cnn",
-            "model":  MNIST_CNN(rngs=nnx.Rngs(0)),
+            "model": MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
             "export": {"pre_transpose": [(0, 3, 1, 2)]},
         }

@@ -2,7 +2,6 @@
 
 import jax.numpy as jnp
 import onnx.helper as oh
-from jax2onnx.to_onnx import Z
 
 
 def to_onnx_einsum(z, parameters):

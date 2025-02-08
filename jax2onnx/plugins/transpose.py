@@ -4,10 +4,9 @@
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__Transpose.html
 
 import jax.numpy as jnp
-import onnx
 import onnx.helper as oh
-import numpy as np
 from jax2onnx.to_onnx import Z
+
 
 def build_transpose_onnx_node(z, parameters=None):
     """
@@ -51,6 +50,7 @@ def build_transpose_onnx_node(z, parameters=None):
 
     return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
 
+
 # Attach ONNX conversion method to JAX transpose function
 jnp.transpose.to_onnx = build_transpose_onnx_node
 
@@ -86,5 +86,5 @@ def get_test_params():
             "input_shapes": [(2, 3, 4, 5, 6)],
             "to_onnx": jnp.transpose.to_onnx,
             "export": {"axes": [4, 3, 2, 1, 0]},
-        }
+        },
     ]

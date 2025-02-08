@@ -1,17 +1,13 @@
-# file: jax2onnx/plugins/batchnorm.py
-
-# JAX API reference: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm
-# ONNX Operator: https://onnx.ai/onnx/operators/onnx__BatchNormalization.html
-
-
+from typing import Optional
 import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
 from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx  # Import the protocol
 
 
-def to_onnx(self, z, parameters=None):
+def to_onnx(self: Supports2Onnx, z: Z, parameters: Optional[dict] = None) -> Z:
     """
     Converts an `nnx.BatchNorm` layer into an ONNX `BatchNormalization` node.
 
@@ -48,10 +44,38 @@ def to_onnx(self, z, parameters=None):
     var_name = f"{node_name}_variance"
 
     # Add parameters to the initializers
-    onnx_graph.add_initializer(oh.make_tensor(scale_name, onnx.TensorProto.FLOAT, scale.shape, scale.flatten().astype(np.float32)))
-    onnx_graph.add_initializer(oh.make_tensor(bias_name, onnx.TensorProto.FLOAT, bias.shape, bias.flatten().astype(np.float32)))
-    onnx_graph.add_initializer(oh.make_tensor(mean_name, onnx.TensorProto.FLOAT, mean.shape, mean.flatten().astype(np.float32)))
-    onnx_graph.add_initializer(oh.make_tensor(var_name, onnx.TensorProto.FLOAT, var.shape, var.flatten().astype(np.float32)))
+    onnx_graph.add_initializer(
+        oh.make_tensor(
+            scale_name,
+            onnx.TensorProto.FLOAT,
+            scale.shape,
+            scale.flatten().astype(np.float32),
+        )
+    )
+    onnx_graph.add_initializer(
+        oh.make_tensor(
+            bias_name,
+            onnx.TensorProto.FLOAT,
+            bias.shape,
+            bias.flatten().astype(np.float32),
+        )
+    )
+    onnx_graph.add_initializer(
+        oh.make_tensor(
+            mean_name,
+            onnx.TensorProto.FLOAT,
+            mean.shape,
+            mean.flatten().astype(np.float32),
+        )
+    )
+    onnx_graph.add_initializer(
+        oh.make_tensor(
+            var_name,
+            onnx.TensorProto.FLOAT,
+            var.shape,
+            var.flatten().astype(np.float32),
+        )
+    )
 
     # Define ONNX output names
     onnx_output_names = [f"{node_name}_output"]
@@ -96,12 +120,18 @@ def get_test_params():
     return [
         {
             "model_name": "batchnorm",
-            "model":  nnx.BatchNorm(num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)),
+            "model": nnx.BatchNorm(
+                num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)
             "to_onnx": nnx.BatchNorm.to_onnx,
             "export": {
-                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (N, H, W, C) to ONNX (N, C, H, W)
-                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
-            }
+                "pre_transpose": [
+                    (0, 3, 1, 2)
+                ],  # Convert JAX (N, H, W, C) to ONNX (N, C, H, W)
+                "post_transpose": [
+                    (0, 2, 3, 1)
+                ],  # Convert ONNX output back to JAX format
+            },
         }
     ]

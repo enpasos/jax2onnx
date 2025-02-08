@@ -2,7 +2,6 @@
 from flax import nnx
 import jax
 import jax.numpy as jnp
-from functools import partial
 
 
 class MLP(nnx.Module):
@@ -26,7 +25,13 @@ class MLP(nnx.Module):
 
     def to_onnx(self, z, parameters=None):
         """Defines the ONNX export logic for the MLP model."""
-        for layer in [self.linear1, self.batch_norm, self.dropout, self.activation, self.linear2]:
+        for layer in [
+            self.linear1,
+            self.batch_norm,
+            self.dropout,
+            self.activation,
+            self.linear2,
+        ]:
             z = layer.to_onnx(z, parameters)
         return z
 
@@ -42,6 +47,6 @@ def get_test_params():
         {
             "model_name": "mlp",
             "model": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
-            "input_shapes": [(1, 30)]
+            "input_shapes": [(1, 30)],
         }
     ]

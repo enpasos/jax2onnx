@@ -1,7 +1,7 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.1.0.dev20250206"
+version = "0.1.0.dev20250207"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
@@ -36,8 +36,12 @@ name = "jax-releases"
 url = "https://storage.googleapis.com/jax-releases/jax_releases.html"
 priority = "supplemental"
 
+
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
+pre-commit = "^4.1.0"
+ruff = "^0.9.5"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -45,6 +49,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 
-[tool.poetry.scripts]
-generate-version = "scripts.version:generate_version"
+
