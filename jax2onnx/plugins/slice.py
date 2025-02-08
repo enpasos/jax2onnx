@@ -11,6 +11,7 @@ from jax2onnx.to_onnx import Z
 
 from functools import partial
 
+
 def build_slice_onnx_node(z, parameters=None):
     """
     Converts JAX lax.slice operation to ONNX Slice operation.
@@ -26,7 +27,6 @@ def build_slice_onnx_node(z, parameters=None):
         raise ValueError("Slice operation requires 'start' and 'end' parameters.")
 
     onnx_graph = z.onnx_graph
-    input_shape = z.shapes[0]
     input_name = z.names[0]
 
     start = parameters["start"]
@@ -40,7 +40,13 @@ def build_slice_onnx_node(z, parameters=None):
     onnx_graph.add_node(
         oh.make_node(
             "Slice",
-            inputs=[input_name, f"{node_name}_start", f"{node_name}_end", f"{node_name}_axes", f"{node_name}_steps"],
+            inputs=[
+                input_name,
+                f"{node_name}_start",
+                f"{node_name}_end",
+                f"{node_name}_axes",
+                f"{node_name}_steps",
+            ],
             outputs=[output_name],
             name=node_name,
         )
@@ -85,13 +91,16 @@ def build_slice_onnx_node(z, parameters=None):
     onnx_graph.add_local_outputs([output_shape], [output_name])
 
     # Corrected jax_function
-    jax_function = partial(jax.lax.slice, start_indices=start, limit_indices=end, strides=strides)
+    jax_function = partial(
+        jax.lax.slice, start_indices=start, limit_indices=end, strides=strides
+    )
 
     return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
 
 
 # Attach ONNX conversion method to JAX slice function
 jax.lax.slice.to_onnx = build_slice_onnx_node
+
 
 def get_test_params():
     """
@@ -103,15 +112,24 @@ def get_test_params():
     return [
         {
             "model_name": "slice_basic",
-            "input_shapes": [(1, 5, 5, 3)],  # Example input shape (batch, height, width, channels)
+            "input_shapes": [
+                (1, 5, 5, 3)
+            ],  # Example input shape (batch, height, width, channels)
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {"start": [0, 1, 1, 0], "end": [1, 4, 4, 3]},  # Extracting a 3x3 region
+            "export": {
+                "start": [0, 1, 1, 0],
+                "end": [1, 4, 4, 3],
+            },  # Extracting a 3x3 region
         },
         {
             "model_name": "slice_with_stride",
             "input_shapes": [(1, 6, 6, 3)],
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {"start": [0, 0, 0, 0], "end": [1, 6, 6, 3], "strides": [1, 2, 2, 1]},  # Strided slice
+            "export": {
+                "start": [0, 0, 0, 0],
+                "end": [1, 6, 6, 3],
+                "strides": [1, 2, 2, 1],
+            },  # Strided slice
         },
         {
             "model_name": "slice_single_element",
@@ -124,5 +142,5 @@ def get_test_params():
             "input_shapes": [(4, 5)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
             "export": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
-        }
+        },
     ]

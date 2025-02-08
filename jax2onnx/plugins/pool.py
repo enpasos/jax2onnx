@@ -5,11 +5,10 @@ import jax.numpy as jnp
 import onnx.helper as oh
 from functools import partial
 
-from transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
+from jax2onnx.transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
 
 def to_onnx(pool_type, jax_function, z, parameters=None):
-
     """
     Constructs an ONNX node for pooling operations (AveragePool, MaxPool).
 
@@ -46,7 +45,6 @@ def to_onnx(pool_type, jax_function, z, parameters=None):
 
     node_name = f"node{onnx_graph.next_id()}"
 
-
     onnx_output_names = [f"{node_name}_output"]
 
     onnx_graph.add_node(
@@ -68,7 +66,9 @@ def to_onnx(pool_type, jax_function, z, parameters=None):
     # construct jax_example_input
     jax_example_input = jnp.zeros(input_shape_jax)
 
-    jax_function = partial( jax_function, window_shape=window_shape, strides=strides, padding=padding)
+    jax_function = partial(
+        jax_function, window_shape=window_shape, strides=strides, padding=padding
+    )
 
     jax_example_output = jax_function(jax_example_input)
     jax_example_output_shape = jax_example_output.shape
@@ -81,9 +81,10 @@ def to_onnx(pool_type, jax_function, z, parameters=None):
     z.names = onnx_output_names
     return z
 
+
 # Assign ONNX node builders to Flax pooling functions
-nnx.avg_pool.to_onnx = lambda *args: to_onnx( 'AveragePool', nnx.avg_pool, *args)
-nnx.max_pool.to_onnx = lambda *args: to_onnx( 'MaxPool', nnx.max_pool, *args)
+nnx.avg_pool.to_onnx = lambda *args: to_onnx("AveragePool", nnx.avg_pool, *args)
+nnx.max_pool.to_onnx = lambda *args: to_onnx("MaxPool", nnx.max_pool, *args)
 # nnx.min_pool.to_onnx = lambda *args: to_onnx( 'MinPool', nnx.min_pool, *args)
 
 
@@ -100,22 +101,33 @@ def get_test_params():
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.avg_pool.to_onnx,
             "export": {
-                "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
-                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
-            }
+                "window_shape": (2, 2),
+                "strides": (2, 2),
+                "padding": "VALID",
+                "pre_transpose": [
+                    (0, 3, 1, 2)
+                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [
+                    (0, 2, 3, 1)
+                ],  # Convert ONNX output back to JAX format
+            },
         },
         {
             "model_name": "max_pool",
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.max_pool.to_onnx,
             "export": {
-                "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
-                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
-            }
+                "window_shape": (2, 2),
+                "strides": (2, 2),
+                "padding": "VALID",
+                "pre_transpose": [
+                    (0, 3, 1, 2)
+                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [
+                    (0, 2, 3, 1)
+                ],  # Convert ONNX output back to JAX format
+            },
         },
-
         # {
         #     "model_name": "min_pool",
         #     "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)

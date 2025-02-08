@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import onnx.helper as oh
 
 
-def build_add_onnx_node( z, parameters=None):
+def build_add_onnx_node(z, parameters=None):
     """
     Constructs an ONNX node for element-wise addition.
 
@@ -37,15 +37,15 @@ def build_add_onnx_node( z, parameters=None):
 
     z.shapes = output_shapes
     z.names = output_names
-    z.jax_function =  jnp.add
+    z.jax_function = jnp.add
     return z
 
 
 # Assign ONNX node builder to jax.numpy.add
-jnp.add.to_onnx =  build_add_onnx_node
+jnp.add.to_onnx = build_add_onnx_node
 
 
-def build_concat_onnx_node( z, parameters):
+def build_concat_onnx_node(z, parameters):
     """
     Constructs an ONNX node for concatenation along a specified axis.
 
@@ -61,7 +61,6 @@ def build_concat_onnx_node( z, parameters):
         raise TypeError("Expected parameters to be a dictionary containing 'axis'.")
 
     axis = parameters["axis"]  # Extract the axis parameter
-
 
     onnx_graph = z.onnx_graph
     input_shapes = z.shapes
@@ -91,7 +90,9 @@ def build_concat_onnx_node( z, parameters):
 
     z.shapes = output_shapes
     z.names = output_names
-    z.jax_function =   lambda *args: jnp.concatenate(args, axis=axis)  # Define the JAX function
+    z.jax_function = lambda *args: jnp.concatenate(
+        args, axis=axis
+    )  # Define the JAX function
     return z
 
 
@@ -109,7 +110,10 @@ def get_test_params():
     return [
         {
             "model_name": "add",
-            "input_shapes": [(1, 10), (1, 10)],  # Two input shapes for element-wise addition
+            "input_shapes": [
+                (1, 10),
+                (1, 10),
+            ],  # Two input shapes for element-wise addition
             "to_onnx": jnp.add.to_onnx,
         },
         {

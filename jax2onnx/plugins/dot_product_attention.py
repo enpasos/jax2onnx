@@ -17,7 +17,9 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
 
     softmax_axis = parameters.get("softmax_axis", -1)
     if len(input_shapes) < 3:
-        raise ValueError("dot_product_attention requires at least 3 inputs: [query, key, value].")
+        raise ValueError(
+            "dot_product_attention requires at least 3 inputs: [query, key, value]."
+        )
 
     q_shape, k_shape, v_shape = input_shapes[:3]
     q_onnx_name, k_onnx_name, v_onnx_name = input_names[:3]
@@ -27,7 +29,6 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
     # Compute scaling factor d = sqrt(E)
     depth = int(k_shape[-1])  # Ensure depth is an integer scalar
     scale_value = 1.0 / jnp.sqrt(depth)
-
 
     # Create ONNX constant for the scaling factor
     scale_const_name = f"{node_prefix}_scale_const"
@@ -41,8 +42,8 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
                 name=scale_const_name,
                 data_type=onnx.TensorProto.FLOAT,
                 dims=[],
-                vals=[scale_value]
-            )
+                vals=[scale_value],
+            ),
         )
     )
 
@@ -55,7 +56,7 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
             inputs=[q_onnx_name, k_onnx_name],
             outputs=[attn_scores_name],
             name=f"{node_prefix}_einsum_qk",
-            equation="BNHE,BMHE->BNHM"
+            equation="BNHE,BMHE->BNHM",
         )
     )
     onnx_graph.add_local_outputs([attn_scores_shape], [attn_scores_name])
@@ -67,7 +68,7 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
             "Mul",
             inputs=[attn_scores_name, scale_const_name],
             outputs=[scaled_attn_scores_name],
-            name=f"{node_prefix}_scale"
+            name=f"{node_prefix}_scale",
         )
     )
     onnx_graph.add_local_outputs([attn_scores_shape], [scaled_attn_scores_name])
@@ -82,7 +83,7 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
             inputs=[scaled_attn_scores_name],
             outputs=[attn_weights_name],
             name=f"{node_prefix}_softmax",
-            axis=softmax_axis
+            axis=softmax_axis,
         )
     )
     onnx_graph.add_local_outputs([attn_scores_shape], [attn_weights_name])
@@ -96,7 +97,7 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
             inputs=[attn_weights_name, v_onnx_name],
             outputs=[attn_output_name],
             name=f"{node_prefix}_einsum_attn_v",
-            equation="BNHM,BMHE->BNHE"
+            equation="BNHM,BMHE->BNHE",
         )
     )
     onnx_graph.add_local_outputs([attn_output_shape], [attn_output_name])
@@ -109,6 +110,7 @@ def build_dot_product_attention_onnx_node(z, parameters=None):
 
 # Assign ONNX node builder to dot_product_attention function
 nnx.dot_product_attention.to_onnx = build_dot_product_attention_onnx_node
+
 
 # Example test parameters
 def get_test_params():
@@ -126,7 +128,11 @@ def get_test_params():
         },
         {
             "model_name": "dot_product_attention_shape_check",
-            "input_shapes": [(2, 4, 8, 16), (2, 6, 8, 16), (2, 6, 8, 16)],  # K has different sequence length
+            "input_shapes": [
+                (2, 4, 8, 16),
+                (2, 6, 8, 16),
+                (2, 6, 8, 16),
+            ],  # K has different sequence length
             "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {

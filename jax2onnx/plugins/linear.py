@@ -6,6 +6,7 @@ import onnx.helper as oh
 from flax import nnx
 from jax2onnx.to_onnx import Z
 
+
 def to_onnx(self, z, parameters=None):
     """
     Converts an `nnx.Linear` layer into an ONNX `Gemm` (General Matrix Multiplication) node.
@@ -24,7 +25,6 @@ def to_onnx(self, z, parameters=None):
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
-    in_features = self.kernel.shape[0]
     out_features = self.kernel.shape[1]
 
     # Determine if reshaping is necessary
@@ -70,7 +70,9 @@ def to_onnx(self, z, parameters=None):
             name=node_name,
         )
     )
-    onnx_graph.add_local_outputs([[flattened_shape[0], out_features]], [gemm_output_name])
+    onnx_graph.add_local_outputs(
+        [[flattened_shape[0], out_features]], [gemm_output_name]
+    )
 
     # Add weight matrix as an ONNX initializer
     onnx_graph.add_initializer(
@@ -120,9 +122,9 @@ def to_onnx(self, z, parameters=None):
 
     return Z([output_shape], [final_output_name], onnx_graph)
 
+
 # Attach the `to_onnx` method to `nnx.Linear`
 nnx.Linear.to_onnx = to_onnx
-
 
 
 def get_test_params():
@@ -140,17 +142,18 @@ def get_test_params():
     return [
         {
             "model_name": "linear",
-            "model":  nnx.Linear(5, 3, rngs=nnx.Rngs(0)),  # Linear layer with input dim 5, output dim 3
+            "model": nnx.Linear(
+                5, 3, rngs=nnx.Rngs(0)
+            ),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
             "to_onnx": nnx.Linear.to_onnx,
         },
-
-
         {
             "model_name": "linear_2",
-            "model":  nnx.Linear(256, 512, rngs=nnx.Rngs(0)),  # Linear layer with input dim 5, output dim 3
+            "model": nnx.Linear(
+                256, 512, rngs=nnx.Rngs(0)
+            ),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 10, 256)],
             "to_onnx": nnx.Linear.to_onnx,
-        }
-
+        },
     ]

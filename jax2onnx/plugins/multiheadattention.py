@@ -38,8 +38,12 @@ def to_onnx_multihead_attention(self, z, parameters=None):
     # Apply dot-product attention
     dpa_params = {"softmax_axis": -1}
     z_attn = nnx.dot_product_attention.to_onnx(
-        Z([z_q.shapes[0], z_k.shapes[0], z_v.shapes[0]], [z_q.names[0], z_k.names[0], z_v.names[0]], onnx_graph),
-        parameters=dpa_params
+        Z(
+            [z_q.shapes[0], z_k.shapes[0], z_v.shapes[0]],
+            [z_q.names[0], z_k.names[0], z_v.names[0]],
+            onnx_graph,
+        ),
+        parameters=dpa_params,
     )
 
     # Apply final projection
@@ -68,9 +72,11 @@ def get_test_params():
                 qkv_features=256,
                 out_features=256,
                 rngs=nnx.Rngs(0),
-                decode=False  # Explicitly set decode=False
+                decode=False,  # Explicitly set decode=False
             ),
-            "input_shapes": [(2, 4, 256)],  # Input shape: (Batch=2, SeqLength=4, Features=256)
-            #"to_onnx": nnx.MultiHeadAttention.to_onnx
+            "input_shapes": [
+                (2, 4, 256)
+            ],  # Input shape: (Batch=2, SeqLength=4, Features=256)
+            # "to_onnx": nnx.MultiHeadAttention.to_onnx
         }
     ]

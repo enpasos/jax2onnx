@@ -11,6 +11,7 @@ from jax2onnx.to_onnx import Z
 
 from functools import partial
 
+
 def build_squeeze_onnx_node(z, parameters=None):
     """
     Converts JAX numpy.squeeze operation to ONNX Squeeze operation.
@@ -62,6 +63,7 @@ def build_squeeze_onnx_node(z, parameters=None):
 
     return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
 
+
 # Attach ONNX conversion method to JAX squeeze function
 jnp.squeeze.to_onnx = build_squeeze_onnx_node
 
@@ -97,5 +99,5 @@ def get_test_params():
             "input_shapes": [(3, 49, 10)],  # No singleton dimensions
             "to_onnx": jnp.squeeze.to_onnx,
             "export": {"axes": []},  # No dimensions should be removed
-        }
+        },
     ]

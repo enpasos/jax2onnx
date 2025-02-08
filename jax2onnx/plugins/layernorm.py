@@ -41,14 +41,24 @@ def to_onnx(self, z, parameters=None):
         scale_name = f"{node_name}_scale"
         inputs.append(scale_name)
         onnx_graph.add_initializer(
-            oh.make_tensor(scale_name, onnx.TensorProto.FLOAT, self.scale.shape, self.scale.value.flatten())
+            oh.make_tensor(
+                scale_name,
+                onnx.TensorProto.FLOAT,
+                self.scale.shape,
+                self.scale.value.flatten(),
+            )
         )
 
     if use_bias:
         bias_name = f"{node_name}_bias"
         inputs.append(bias_name)
         onnx_graph.add_initializer(
-            oh.make_tensor(bias_name, onnx.TensorProto.FLOAT, self.bias.shape, self.bias.value.flatten())
+            oh.make_tensor(
+                bias_name,
+                onnx.TensorProto.FLOAT,
+                self.bias.shape,
+                self.bias.value.flatten(),
+            )
         )
 
     # Define ONNX output names
@@ -97,18 +107,27 @@ def get_test_params():
     return [
         {
             "model_name": "layernorm_default",
-            "model":  nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
+            "model": nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 64)],
             "to_onnx": nnx.LayerNorm.to_onnx,
         },
         {
             "model_name": "layernorm_multiaxis",
-            "model":  nnx.LayerNorm(3 * 3 * 64, reduction_axes=(1, 2, 3), feature_axes=(1, 2, 3), rngs=nnx.Rngs(0)),
+            "model": nnx.LayerNorm(
+                3 * 3 * 64,
+                reduction_axes=(1, 2, 3),
+                feature_axes=(1, 2, 3),
+                rngs=nnx.Rngs(0),
+            ),
             "input_shapes": [(1, 3, 3, 64)],
             "to_onnx": nnx.LayerNorm.to_onnx,
             "export": {
-                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
-            }
+                "pre_transpose": [
+                    (0, 3, 1, 2)
+                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [
+                    (0, 2, 3, 1)
+                ],  # Convert ONNX output back to JAX format
+            },
         },
     ]

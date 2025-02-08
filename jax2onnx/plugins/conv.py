@@ -4,8 +4,7 @@ import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 from flax import nnx
-from jax2onnx.to_onnx import Z
-from transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
+from jax2onnx.transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
 
 
 def to_onnx(self, z, parameters=None):
@@ -26,7 +25,6 @@ def to_onnx(self, z, parameters=None):
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_names = z.names
-    input_name = z.names[0]
 
     # Convert ONNX shape to JAX format (B, H, W, C)
     input_shape_jax = onnx_shape_to_jax_shape(input_shape)
@@ -43,28 +41,55 @@ def to_onnx(self, z, parameters=None):
     node_name = f"node{onnx_graph.next_id()}"
 
     # Handle padding for 'SAME' mode
-    if self.padding == 'SAME':
+    if self.padding == "SAME":
         input_height, input_width = input_shape[1], input_shape[2]
         kernel_height, kernel_width = self.kernel_size
-        stride_height, stride_width = self.strides if isinstance(self.strides, tuple) else (self.strides, self.strides)
-        dilation_height, dilation_width = self.kernel_dilation if isinstance(self.kernel_dilation, tuple) else (self.kernel_dilation, self.kernel_dilation)
+        stride_height, stride_width = (
+            self.strides
+            if isinstance(self.strides, tuple)
+            else (self.strides, self.strides)
+        )
+        dilation_height, dilation_width = (
+            self.kernel_dilation
+            if isinstance(self.kernel_dilation, tuple)
+            else (self.kernel_dilation, self.kernel_dilation)
+        )
 
-        pad_h = max((input_shape[1] - 1) * stride_height +
-                    (kernel_height - 1) * dilation_height + 1 - input_height, 0)
-        pad_w = max((input_shape[2] - 1) * stride_width +
-                    (kernel_width - 1) * dilation_width + 1 - input_width, 0)
+        pad_h = max(
+            (input_shape[1] - 1) * stride_height
+            + (kernel_height - 1) * dilation_height
+            + 1
+            - input_height,
+            0,
+        )
+        pad_w = max(
+            (input_shape[2] - 1) * stride_width
+            + (kernel_width - 1) * dilation_width
+            + 1
+            - input_width,
+            0,
+        )
         pads = [pad_h // 2, pad_w // 2, pad_h - pad_h // 2, pad_w - pad_w // 2]
     else:
         pads = [0, 0, 0, 0]
 
     # Define ONNX Conv node
     conv_node = oh.make_node(
-        'Conv',
-        inputs=[input_names[0], f'{node_name}_weight'] + ([f'{node_name}_bias'] if self.use_bias else []),
-        outputs=[f'{node_name}_output'],
+        "Conv",
+        inputs=[input_names[0], f"{node_name}_weight"]
+        + ([f"{node_name}_bias"] if self.use_bias else []),
+        outputs=[f"{node_name}_output"],
         name=node_name,
-        strides=list(self.strides) if isinstance(self.strides, tuple) else [self.strides, self.strides],
-        dilations=list(self.kernel_dilation) if isinstance(self.kernel_dilation, tuple) else [self.kernel_dilation, self.kernel_dilation],
+        strides=(
+            list(self.strides)
+            if isinstance(self.strides, tuple)
+            else [self.strides, self.strides]
+        ),
+        dilations=(
+            list(self.kernel_dilation)
+            if isinstance(self.kernel_dilation, tuple)
+            else [self.kernel_dilation, self.kernel_dilation]
+        ),
         pads=pads,
         group=self.feature_group_count,
     )
@@ -76,7 +101,11 @@ def to_onnx(self, z, parameters=None):
         oh.make_tensor(
             f"{node_name}_weight",
             onnx.TensorProto.FLOAT,
-            (self.out_features, self.in_features // self.feature_group_count, *self.kernel_size),
+            (
+                self.out_features,
+                self.in_features // self.feature_group_count,
+                *self.kernel_size,
+            ),
             kernel_onnx,
         )
     )
@@ -133,8 +162,12 @@ def get_test_params():
             ),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "export": {
-                "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format
+                "pre_transpose": [
+                    (0, 3, 1, 2)
+                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                "post_transpose": [
+                    (0, 2, 3, 1)
+                ],  # Convert ONNX output back to JAX format
             },
         }
     ]

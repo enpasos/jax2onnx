@@ -1,6 +1,5 @@
 # file: jax2onnx/plugins/linear_general.py
 
-import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx.helper as oh
@@ -35,7 +34,7 @@ def to_onnx(self, z, parameters=None):
     use_bias = self.use_bias
 
     # Compute batch dimensions
-    batch_dims = list(input_shape[:-len(axis)])
+    batch_dims = list(input_shape[: -len(axis)])
     output_shape = batch_dims + list(out_features)
 
     node_name = f"node{onnx_graph.next_id()}"
@@ -61,14 +60,17 @@ def to_onnx(self, z, parameters=None):
                 "Reshape",
                 inputs=[input_name, shape_name],
                 outputs=[reshaped_input_name],
-                name=f"{node_name}_reshape_input"
+                name=f"{node_name}_reshape_input",
             )
         )
         onnx_graph.add_local_outputs([reshaped_input_shape], [reshaped_input_name])
 
     # Define weight matrix for MatMul
     weight_name = f"{node_name}_weight"
-    kernel_shape = (np.prod(in_features).item(), np.prod(out_features).item())  # Compute kernel shape dynamically
+    kernel_shape = (
+        np.prod(in_features).item(),
+        np.prod(out_features).item(),
+    )  # Compute kernel shape dynamically
     transposed_kernel = self.kernel.value.reshape(kernel_shape)
 
     # Store in ONNX format
@@ -83,7 +85,11 @@ def to_onnx(self, z, parameters=None):
 
     # Call MatMul plugin
     z = to_onnx_matmul(
-        Z([reshaped_input_shape, kernel_shape], [reshaped_input_name, weight_name], onnx_graph)
+        Z(
+            [reshaped_input_shape, kernel_shape],
+            [reshaped_input_name, weight_name],
+            onnx_graph,
+        )
     )
 
     # Reshape MatMul output to the expected shape
@@ -102,7 +108,7 @@ def to_onnx(self, z, parameters=None):
             "Reshape",
             inputs=[z.names[0], shape_out_name],
             outputs=[final_out_name],
-            name=f"{node_name}_reshape_output"
+            name=f"{node_name}_reshape_output",
         )
     )
     onnx_graph.add_local_outputs([output_shape], [final_out_name])
@@ -146,35 +152,35 @@ def get_test_params():
     return [
         {
             "model_name": "linear_general",
-            "model":  nnx.LinearGeneral(
+            "model": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
-            "to_onnx": nnx.LinearGeneral.to_onnx
+            "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
             "model_name": "linear_general_2",
-            "model":  nnx.LinearGeneral(
+            "model": nnx.LinearGeneral(
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 256)],
-            "to_onnx": nnx.LinearGeneral.to_onnx
+            "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
             "model_name": "linear_general_mha_projection",
-            "model":  nnx.LinearGeneral(
+            "model": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
-            "to_onnx": nnx.LinearGeneral.to_onnx
-        }
+            "to_onnx": nnx.LinearGeneral.to_onnx,
+        },
     ]
