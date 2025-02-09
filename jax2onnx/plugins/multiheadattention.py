@@ -77,6 +77,5 @@ def get_test_params():
             "input_shapes": [
                 (2, 4, 256)
             ],  # Input shape: (Batch=2, SeqLength=4, Features=256)
-            # "to_onnx": nnx.MultiHeadAttention.to_onnx
         }
     ]
