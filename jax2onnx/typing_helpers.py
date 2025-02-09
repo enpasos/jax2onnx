@@ -9,9 +9,7 @@ class Supports2Onnx(Protocol):
     """Protocol for objects that support ONNX export via `to_onnx`."""
 
     def to_onnx(self, z: Z, parameters: Optional[dict] = None) -> Z: ...
-
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-
     def __getattr__(self, name: str) -> Any: ...
 
 
@@ -20,9 +18,19 @@ class PartialWithOnnx:
 
     def __init__(self, func: Supports2Onnx, *args: Any, **kwargs: Any) -> None:
         """Ensure MyPy correctly recognizes the `partial` function."""
-        self._wrapped_func = partial(func, *args, **kwargs)  # Store wrapped function
-        self.to_onnx = func.to_onnx  # Assign `to_onnx` directly
+        self._wrapped_func = partial(func, *args, **kwargs)
+
+        # Ensure function has `to_onnx`
+        if hasattr(func, "to_onnx"):
+            self.to_onnx = func.to_onnx
+        else:
+            raise AttributeError(
+                f"The function {func} wrapped in PartialWithOnnx does not have a `to_onnx` method."
+            )
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        """Ensure MyPy knows this is callable."""
         return self._wrapped_func(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the wrapped function."""
+        return getattr(self._wrapped_func.func, name)
