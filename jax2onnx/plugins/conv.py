@@ -7,7 +7,7 @@ from flax import nnx
 from jax2onnx.transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
 
 
-def to_onnx(self, z, parameters=None):
+def to_onnx(self, z, **params):
     """
     Converts an `nnx.Conv` layer into an ONNX `Conv` node.
 
@@ -16,7 +16,7 @@ def to_onnx(self, z, parameters=None):
     Args:
         self: The `nnx.Conv` instance.
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters (currently unused).
+        **params: Additional parameters (e.g., pre_transpose, post_transpose).
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -161,7 +161,7 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "export": {
+            "params": {
                 "pre_transpose": [
                     (0, 3, 1, 2)
                 ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)

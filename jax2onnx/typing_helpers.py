@@ -1,6 +1,6 @@
 # file: jax2onnx/typing_helpers.py
 
-from typing import Protocol, Optional, Any
+from typing import Protocol, Any
 from jax2onnx.to_onnx import Z
 from functools import partial
 
@@ -8,7 +8,7 @@ from functools import partial
 class Supports2Onnx(Protocol):
     """Protocol for objects that support ONNX export via `to_onnx`."""
 
-    def to_onnx(self, z: Z, parameters: Optional[dict] = None) -> Z: ...
+    def to_onnx(self, z: Z, **params) -> Z: ...
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
     def __getattr__(self, name: str) -> Any: ...
 

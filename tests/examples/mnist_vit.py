@@ -1,4 +1,6 @@
 # file: tests/examples/mnist_vit.py
+
+
 import jax.numpy as jnp
 from flax import nnx
 import jax
@@ -12,18 +14,13 @@ class ReshapeWithOnnx:
     """Wrapper for reshape function with ONNX support."""
 
     def __init__(self, shape_fn):
-        self.shape_fn = shape_fn  # shape_fn now expects a tuple, not an ndarray
+        self.shape_fn = shape_fn
 
     def __call__(self, x):
-        return x.reshape(
-            self.shape_fn(x.shape)
-        )  # ✅ x.shape is a tuple, pass it correctly
+        return x.reshape(self.shape_fn(x.shape))
 
     def to_onnx(self, z, _):
-        return jax.numpy.reshape.to_onnx(
-            z, parameters={"shape": self.shape_fn(z.shapes[0])}
-        )
-        # ✅ z.shapes[0] is already a tuple, no need for `.shape`
+        return jax.numpy.reshape.to_onnx(z, shape=self.shape_fn(z.shapes[0]))
 
 
 class TransposeWithOnnx:
@@ -36,13 +33,12 @@ class TransposeWithOnnx:
         return x.transpose(*self.axes)
 
     def to_onnx(self, z, _):
-        return jax.numpy.transpose.to_onnx(z, parameters={"axes": self.axes})
+        return jax.numpy.transpose.to_onnx(z, axes=self.axes)
 
 
-# todo: instead of num_patches (and adding 1 for the cls internally) use sequence length.
-# this function should not know details about how it is used.
+# Function for sinusoidal embeddings
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
-    position = jnp.arange(num_patches + 1)[:, jnp.newaxis]  # Include CLS token
+    position = jnp.arange(num_patches + 1)[:, jnp.newaxis]
     div_term = jnp.exp(
         jnp.arange(0, num_hiddens, 2) * -(jnp.log(10000.0) / num_hiddens)
     )
@@ -74,40 +70,32 @@ class PatchEmbedding(nnx.Module):
             out_features=num_hiddens,
             rngs=rngs,
         )
-
-        # Use wrapper class instead of assigning functions
         self.reshape1 = ReshapeWithOnnx(
             lambda shape: (
-                shape[0],  # ✅ Use shape directly (since it’s already a tuple)
+                shape[0],
                 self.num_patches_h,
                 self.patch_size,
                 self.num_patches_w,
                 self.patch_size,
-                shape[-1],  # ✅ Use shape directly
+                shape[-1],
             )
         )
-
         self.transpose = TransposeWithOnnx([0, 1, 3, 2, 4, 5])
-
         self.reshape2 = ReshapeWithOnnx(
             lambda shape: (
-                shape[0],  # ✅ Access directly (shape is already a list)
+                shape[0],
                 self.num_patches,
-                self.patch_size
-                * self.patch_size
-                * shape[-1],  # ✅ Use shape[-1] instead of x.shape[-1]
+                self.patch_size * self.patch_size * shape[-1],
             )
         )
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Apply transformations in sequence."""
         x = self.reshape1(x)
         x = self.transpose(x)
         x = self.reshape2(x)
         return self.linear(x)
 
     def to_onnx(self, z, parameters=None):
-        """Apply ONNX transformations in sequence."""
         z = self.reshape1.to_onnx(z, parameters)
         z = self.transpose.to_onnx(z, parameters)
         z = self.reshape2.to_onnx(z, parameters)
@@ -230,7 +218,6 @@ class VisionTransformer(nnx.Module):
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        """Forward pass for Vision Transformer."""
         x = self.patch_embedding(x)
         batch_size = x.shape[0]
 
@@ -240,7 +227,7 @@ class VisionTransformer(nnx.Module):
         pos_emb_expanded = jax.lax.dynamic_slice(
             self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
         )
-        pos_emb_expanded = jnp.asarray(pos_emb_expanded)  # Ensure it's a JAX array
+        pos_emb_expanded = jnp.asarray(pos_emb_expanded)
 
         x = x + pos_emb_expanded
 
@@ -268,10 +255,9 @@ class VisionTransformer(nnx.Module):
             )
         )
 
-        cls_tokens = jax.numpy.tile.to_onnx(
-            cls_token_z, parameters={"repeats": (batch_size, 1, 1)}
-        )
-        z = jax.numpy.concatenate.to_onnx(cls_tokens + z, parameters={"axis": 1})
+        cls_tokens = jax.numpy.tile.to_onnx(cls_token_z, repeats=(batch_size, 1, 1))
+
+        z = jax.numpy.concatenate.to_onnx(cls_tokens + z, axis=1)
 
         pos_emb_z = Z(
             shapes=[self.positional_embedding.value.shape],
@@ -293,9 +279,11 @@ class VisionTransformer(nnx.Module):
             z = block.to_onnx(z)
         z = self.layer_norm.to_onnx(z)
         z = jax.lax.slice.to_onnx(
-            z, parameters={"start": [0, 0, 0], "end": [1, 1, self.dense.in_features]}
+            z, start=[0, 0, 0], end=[1, 1, self.dense.in_features]
         )
-        z = jax.numpy.squeeze.to_onnx(z, parameters={"axes": [1]})
+
+        z = jax.numpy.squeeze.to_onnx(z, axes=[1])
+
         z = self.dense.to_onnx(z)
         return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
 

@@ -8,24 +8,24 @@ import onnx.helper as oh
 from jax2onnx.to_onnx import Z
 
 
-def build_transpose_onnx_node(z, parameters=None):
+def build_transpose_onnx_node(z, **params):
     """
     Converts JAX numpy.transpose operation to ONNX Transpose operation.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'axes' to specify the permutation.
+        **params: Dictionary containing 'axes' to specify the permutation.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if parameters is None or "axes" not in parameters:
+    if "axes" not in params:
         raise ValueError("Transpose operation requires 'axes' parameter.")
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
     input_shape = z.shapes[0]
-    axes = parameters["axes"]
+    axes = params["axes"]
     output_shape = [input_shape[i] for i in axes]
 
     node_name = f"node{onnx_graph.next_id()}"
@@ -61,30 +61,30 @@ def get_test_params():
             "model_name": "transpose_basic",
             "input_shapes": [(2, 3)],
             "to_onnx": jnp.transpose.to_onnx,
-            "export": {"axes": [1, 0]},  # Change "perm" to "axes"
+            "params": {"axes": [1, 0]},  # Change "perm" to "axes"
         },
         {
             "model_name": "transpose_reverse",
             "input_shapes": [(2, 3, 4)],
             "to_onnx": jnp.transpose.to_onnx,
-            "export": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
+            "params": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
         },
         {
             "model_name": "transpose_4d",
             "input_shapes": [(1, 2, 3, 4)],
             "to_onnx": jnp.transpose.to_onnx,
-            "export": {"axes": [0, 2, 3, 1]},
+            "params": {"axes": [0, 2, 3, 1]},
         },
         {
             "model_name": "transpose_square_matrix",
             "input_shapes": [(5, 5)],
             "to_onnx": jnp.transpose.to_onnx,
-            "export": {"axes": [1, 0]},
+            "params": {"axes": [1, 0]},
         },
         {
             "model_name": "transpose_high_dim",
             "input_shapes": [(2, 3, 4, 5, 6)],
             "to_onnx": jnp.transpose.to_onnx,
-            "export": {"axes": [4, 3, 2, 1, 0]},
+            "params": {"axes": [4, 3, 2, 1, 0]},
         },
     ]

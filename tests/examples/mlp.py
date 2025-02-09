@@ -1,4 +1,5 @@
 # file: tests/examples/mlp.py
+
 from flax import nnx
 import jax
 import jax.numpy as jnp
@@ -23,7 +24,7 @@ class MLP(nnx.Module):
         x = self.activation(x)
         return self.linear2(x)
 
-    def to_onnx(self, z, parameters=None):
+    def to_onnx(self, z, **params):
         """Defines the ONNX export logic for the MLP model."""
         for layer in [
             self.linear1,
@@ -32,7 +33,7 @@ class MLP(nnx.Module):
             self.activation,
             self.linear2,
         ]:
-            z = layer.to_onnx(z, parameters)
+            z = layer.to_onnx(z, **params)
         return z
 
 

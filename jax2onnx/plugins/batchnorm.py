@@ -1,4 +1,5 @@
-from typing import Optional
+# file: jax2onnx/plugins/batchnorm.py
+
 import numpy as np
 import onnx
 import onnx.helper as oh
@@ -7,7 +8,7 @@ from jax2onnx.to_onnx import Z
 from jax2onnx.typing_helpers import Supports2Onnx  # Import the protocol
 
 
-def to_onnx(self: Supports2Onnx, z: Z, parameters: Optional[dict] = None) -> Z:
+def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.BatchNorm` layer into an ONNX `BatchNormalization` node.
 
@@ -125,7 +126,7 @@ def get_test_params():
             ),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)
             "to_onnx": nnx.BatchNorm.to_onnx,
-            "export": {
+            "params": {
                 "pre_transpose": [
                     (0, 3, 1, 2)
                 ],  # Convert JAX (N, H, W, C) to ONNX (N, C, H, W)

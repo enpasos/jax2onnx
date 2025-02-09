@@ -6,7 +6,7 @@ from flax import nnx
 from jax2onnx.to_onnx import Z
 
 
-def to_onnx(self, z, parameters=None):
+def to_onnx(self, z, **params):
     """
     Converts an `nnx.LayerNorm` layer into an ONNX `LayerNormalization` node.
 
@@ -15,7 +15,7 @@ def to_onnx(self, z, parameters=None):
     Args:
         self: The `nnx.LayerNorm` instance.
         z (Z): Contains input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional conversion parameters.
+        **params: Additional conversion parameters.
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -121,7 +121,7 @@ def get_test_params():
             ),
             "input_shapes": [(1, 3, 3, 64)],
             "to_onnx": nnx.LayerNorm.to_onnx,
-            "export": {
+            "params": {
                 "pre_transpose": [
                     (0, 3, 1, 2)
                 ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
