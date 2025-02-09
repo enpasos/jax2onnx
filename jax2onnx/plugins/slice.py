@@ -12,26 +12,26 @@ from jax2onnx.to_onnx import Z
 from functools import partial
 
 
-def build_slice_onnx_node(z, parameters=None):
+def build_slice_onnx_node(z, **params):
     """
     Converts JAX lax.slice operation to ONNX Slice operation.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'start', 'end', and optionally 'strides'.
+        **params: Dictionary containing 'start', 'end', and optionally 'strides'.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if parameters is None or "start" not in parameters or "end" not in parameters:
+    if "start" not in params or "end" not in params:
         raise ValueError("Slice operation requires 'start' and 'end' parameters.")
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
 
-    start = parameters["start"]
-    end = parameters["end"]
-    strides = parameters.get("strides", [1] * len(start))  # Default to step size 1
+    start = params["start"]
+    end = params["end"]
+    strides = params.get("strides", [1] * len(start))  # Default to step size 1
 
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
@@ -116,7 +116,7 @@ def get_test_params():
                 (1, 5, 5, 3)
             ],  # Example input shape (batch, height, width, channels)
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {
+            "params": {
                 "start": [0, 1, 1, 0],
                 "end": [1, 4, 4, 3],
             },  # Extracting a 3x3 region
@@ -125,7 +125,7 @@ def get_test_params():
             "model_name": "slice_with_stride",
             "input_shapes": [(1, 6, 6, 3)],
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {
+            "params": {
                 "start": [0, 0, 0, 0],
                 "end": [1, 6, 6, 3],
                 "strides": [1, 2, 2, 1],
@@ -135,12 +135,12 @@ def get_test_params():
             "model_name": "slice_single_element",
             "input_shapes": [(3, 3)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {"start": [1, 1], "end": [2, 2]},  # Extracting a single element
+            "params": {"start": [1, 1], "end": [2, 2]},  # Extracting a single element
         },
         {
             "model_name": "slice_last_column",
             "input_shapes": [(4, 5)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
-            "export": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
+            "params": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
         },
     ]

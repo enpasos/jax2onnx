@@ -11,25 +11,25 @@ from jax2onnx.to_onnx import Z
 from functools import partial
 
 
-def build_tile_onnx_node(z, parameters=None):
+def build_tile_onnx_node(z, **params):
     """
     Converts JAX numpy.tile operation to ONNX Tile operation.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'repeats' specifying repetitions along each axis.
+        **params: Dictionary containing 'repeats' specifying repetitions along each axis.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if parameters is None or "repeats" not in parameters:
+    if "repeats" not in params:
         raise ValueError("Tile operation requires 'repeats' parameter.")
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
     input_shape = z.shapes[0]
 
-    repeats = parameters["repeats"]
+    repeats = params["repeats"]
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
 
@@ -79,24 +79,24 @@ def get_test_params():
             "model_name": "tile_2x",
             "input_shapes": [(2, 3)],
             "to_onnx": jnp.tile.to_onnx,
-            "export": {"repeats": [2, 2]},
+            "params": {"repeats": [2, 2]},
         },
         {
             "model_name": "tile_1d",
             "input_shapes": [(4,)],
             "to_onnx": jnp.tile.to_onnx,
-            "export": {"repeats": [3]},
+            "params": {"repeats": [3]},
         },
         {
             "model_name": "tile_batch_dim",
             "input_shapes": [(1, 5, 5)],
             "to_onnx": jnp.tile.to_onnx,
-            "export": {"repeats": [2, 1, 1]},
+            "params": {"repeats": [2, 1, 1]},
         },
         {
             "model_name": "tile_large",
             "input_shapes": [(3, 3)],
             "to_onnx": jnp.tile.to_onnx,
-            "export": {"repeats": [4, 4]},
+            "params": {"repeats": [4, 4]},
         },
     ]

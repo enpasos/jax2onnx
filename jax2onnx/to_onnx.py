@@ -73,10 +73,10 @@ def to_onnx(
     input_shapes,
     output_path="model.onnx",
     to_onnx=None,
-    parameters=None,
+    params=None,
 ):
-    if parameters is None:
-        parameters = {}
+    if params is None:
+        params = {}
 
     # Initialize the ONNX graph
     onnx_graph = OnnxGraph()
@@ -86,19 +86,19 @@ def to_onnx(
     z = Z(input_shapes, input_names, onnx_graph)
 
     # Optional pre-transpose
-    z = pre_transpose(z, parameters)
+    z = pre_transpose(z, **params)
 
     if hasattr(model, "to_onnx"):
-        z = model.to_onnx(z, parameters)
+        z = model.to_onnx(z, **params)
     elif to_onnx:
-        z = to_onnx(z, parameters)
+        z = to_onnx(z, **params)
     else:
         raise ValueError(
             "Model does not have a `to_onnx` method and no conversion function was provided."
         )
 
     # Optional post-transpose
-    z = post_transpose(z, parameters)
+    z = post_transpose(z, **params)
     final_output_shapes = z.shapes
     final_output_names = z.names
 
@@ -143,17 +143,18 @@ def to_onnx(
     return z
 
 
-def pre_transpose(z, parameters):
+def pre_transpose(z, **params):
     shapes = z.shapes
     names = z.names
     onnx_graph = z.onnx_graph
     transposed_input_names = names[:]
     shapes_out = shapes[:]
-    if "pre_transpose" in parameters:
-        pre_transpose_perm = parameters.get(
+
+    if "pre_transpose" in params:
+        pre_transpose_perm = params.pop(
             "pre_transpose", [(0, 3, 1, 2)]
         )  # Default NHWC → NCHW
-        parameters.pop("pre_transpose")
+
         transposed_input_names = [
             f"{name}_transposed_{onnx_graph.next_id()}" for name in names
         ]
@@ -170,23 +171,26 @@ def pre_transpose(z, parameters):
             x = jnp.zeros(shapes[i])
             shape = jnp.transpose(x, pre_transpose_perm[i]).shape
             shapes_out[i] = shape
+
         onnx_graph.add_local_outputs(shapes_out, transposed_input_names)
         z.shapes = shapes_out
         z.names = transposed_input_names
+
     return z
 
 
-def post_transpose(z, parameters):
+def post_transpose(z, **params):
     output_shapes = z.shapes
     output_names = z.names
     onnx_graph = z.onnx_graph
     final_output_names = output_names[:]
     shapes = output_shapes[:]
-    if "post_transpose" in parameters:
-        post_transpose_perm = parameters.get(
+
+    if "post_transpose" in params:
+        post_transpose_perm = params.pop(
             "post_transpose", [(0, 2, 3, 1)]
         )  # Default NCHW → NHWC
-        parameters.pop("post_transpose")
+
         final_output_names = [
             f"{name}_transposed_{onnx_graph.next_id()}" for name in output_names
         ]
@@ -203,7 +207,9 @@ def post_transpose(z, parameters):
                     name=f"transpose_output_{onnx_graph.next_id()}",
                 )
             )
+
         onnx_graph.add_local_outputs(shapes, final_output_names)
         z.shapes = shapes
         z.names = final_output_names
+
     return z

@@ -4,22 +4,22 @@ import jax.numpy as jnp
 import onnx.helper as oh
 
 
-def to_onnx_einsum(z, parameters):
+def to_onnx_einsum(z, **params):
     """
     Converts `jax.numpy.einsum` into an ONNX Einsum node.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict): Dictionary containing 'equation' information.
+        **params: Dictionary containing 'equation' information.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
 
-    if not isinstance(parameters, dict) or "equation" not in parameters:
-        raise ValueError("Einsum requires a dictionary with an 'equation' parameter.")
+    if "equation" not in params:
+        raise ValueError("Einsum requires an 'equation' parameter.")
 
-    equation = parameters["equation"]
+    equation = params["equation"]
 
     onnx_graph = z.onnx_graph
     input_shapes = z.shapes
@@ -72,6 +72,6 @@ def get_test_params():
             "model_name": "einsum",
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
             "to_onnx": jnp.einsum.to_onnx,
-            "export": {"equation": equation},
+            "params": {"equation": equation},
         },
     ]

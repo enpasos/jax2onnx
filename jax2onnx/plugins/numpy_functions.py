@@ -4,13 +4,13 @@ import jax.numpy as jnp
 import onnx.helper as oh
 
 
-def build_add_onnx_node(z, parameters=None):
+def build_add_onnx_node(z, **params):
     """
     Constructs an ONNX node for element-wise addition.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters (unused for Add).
+        **params: Additional parameters (unused for Add).
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -45,22 +45,21 @@ def build_add_onnx_node(z, parameters=None):
 jnp.add.to_onnx = build_add_onnx_node
 
 
-def build_concat_onnx_node(z, parameters):
+def build_concat_onnx_node(z, **params):
     """
     Constructs an ONNX node for concatenation along a specified axis.
 
     Args:
-        jax_function: The JAX function (for reference and testing, unused in ONNX).
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict): Dictionary containing 'axis' information.
+        **params: Additional parameters, should contain 'axis'.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if not isinstance(parameters, dict) or "axis" not in parameters:
-        raise TypeError("Expected parameters to be a dictionary containing 'axis'.")
+    if "axis" not in params:
+        raise TypeError("Expected 'axis' parameter for concatenation.")
 
-    axis = parameters["axis"]  # Extract the axis parameter
+    axis = params["axis"]  # Extract the axis parameter
 
     onnx_graph = z.onnx_graph
     input_shapes = z.shapes
@@ -120,6 +119,6 @@ def get_test_params():
             "model_name": "concat",
             "input_shapes": [(1, 10), (1, 10)],  # Compatible shapes for axis=1
             "to_onnx": jnp.concatenate.to_onnx,
-            "export": {"axis": 1},  # Correct axis for concatenation
+            "params": {"axis": 1},  # Correct axis for concatenation
         },
     ]

@@ -5,7 +5,7 @@ import onnx.helper as oh
 from flax import nnx
 
 
-def to_onnx_dropout(self, z, parameters=None):
+def to_onnx_dropout(self, z, **params):
     """
     Converts an `nnx.Dropout` layer into an ONNX `Dropout` node.
 
@@ -14,7 +14,7 @@ def to_onnx_dropout(self, z, parameters=None):
     Args:
         self: The `nnx.Dropout` instance.
         z (Z): Contains input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional conversion parameters.
+        **params: Additional conversion parameters.
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -76,7 +76,7 @@ def get_test_params():
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.Dropout.to_onnx,
-            "export": {
+            "params": {
                 "pre_transpose": [(0, 3, 1, 2)],
                 "post_transpose": [(0, 2, 3, 1)],
             },

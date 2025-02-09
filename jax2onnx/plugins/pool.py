@@ -8,29 +8,26 @@ from functools import partial
 from jax2onnx.transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
 
-def to_onnx(pool_type, jax_function, z, parameters=None):
+def to_onnx(pool_type, jax_function, z, **params):
     """
     Constructs an ONNX node for pooling operations (AveragePool, MaxPool).
 
     Args:
-        pool_type (str): The type of ONNX pooling operation ('AveragePool' or 'MaxPool' or 'MinPool').
-        input_shapes (list of tuples): Input tensor shapes.
-        input_names (list of str): Names of input tensors.
-        onnx_graph: The ONNX graph object where the node will be added.
-        parameters (dict): Dictionary containing kernel shape, strides, and padding.
+        pool_type (str): The type of ONNX pooling operation ('AveragePool' or 'MaxPool').
+        jax_function: The JAX function used for pooling.
+        z (Z): A container with input shapes, names, and the ONNX graph.
+        **params: Additional parameters containing 'window_shape', 'strides', and 'padding'.
 
     Returns:
-        tuple:
-            - output_shapes (list of tuples): Shape of the output tensor.
-            - onnx_output_names (list of str): Names of the generated ONNX output tensors.
+        Z: Updated instance with new shapes and names.
     """
 
     input_shapes = z.shapes
     input_names = z.names
     onnx_graph = z.onnx_graph
-    window_shape = parameters.get("window_shape", (2, 2))
-    strides = parameters.get("strides", (2, 2))
-    padding = parameters.get("padding", "VALID")
+    window_shape = params.get("window_shape", (2, 2))
+    strides = params.get("strides", (2, 2))
+    padding = params.get("padding", "VALID")
 
     # Convert padding string to ONNX-compatible pads
     if isinstance(padding, str):
@@ -61,9 +58,8 @@ def to_onnx(pool_type, jax_function, z, parameters=None):
 
     input_shape = input_shapes[0]
 
-    # transform shape to JAX format (B, H, W, C)
+    # Transform shape to JAX format (B, H, W, C)
     input_shape_jax = onnx_shape_to_jax_shape(input_shape)
-    # construct jax_example_input
     jax_example_input = jnp.zeros(input_shape_jax)
 
     jax_function = partial(
@@ -83,9 +79,11 @@ def to_onnx(pool_type, jax_function, z, parameters=None):
 
 
 # Assign ONNX node builders to Flax pooling functions
-nnx.avg_pool.to_onnx = lambda *args: to_onnx("AveragePool", nnx.avg_pool, *args)
-nnx.max_pool.to_onnx = lambda *args: to_onnx("MaxPool", nnx.max_pool, *args)
-# nnx.min_pool.to_onnx = lambda *args: to_onnx( 'MinPool', nnx.min_pool, *args)
+nnx.avg_pool.to_onnx = lambda z, **params: to_onnx(
+    "AveragePool", nnx.avg_pool, z, **params
+)
+nnx.max_pool.to_onnx = lambda z, **params: to_onnx("MaxPool", nnx.max_pool, z, **params)
+# nnx.min_pool.to_onnx = lambda z, **params: to_onnx('MinPool', nnx.min_pool, z, **params)
 
 
 def get_test_params():
@@ -100,7 +98,7 @@ def get_test_params():
             "model_name": "avg_pool",
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.avg_pool.to_onnx,
-            "export": {
+            "params": {
                 "window_shape": (2, 2),
                 "strides": (2, 2),
                 "padding": "VALID",
@@ -116,7 +114,7 @@ def get_test_params():
             "model_name": "max_pool",
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.max_pool.to_onnx,
-            "export": {
+            "params": {
                 "window_shape": (2, 2),
                 "strides": (2, 2),
                 "padding": "VALID",
@@ -132,7 +130,7 @@ def get_test_params():
         #     "model_name": "min_pool",
         #     "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
         #     "to_onnx": nnx.min_pool.to_onnx,
-        #     "export": {
+        #     "params": {
         #         "window_shape": (2, 2), "strides": (2, 2), "padding": "VALID",
         #         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
         #         "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX output back to JAX format

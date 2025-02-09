@@ -1,4 +1,5 @@
 # file: tests/examples/mnist_cnn.py
+
 from functools import partial
 import jax
 import jax.numpy as jnp
@@ -28,24 +29,39 @@ class MNIST_CNN(nnx.Module):
         x = self.linear2(x)
         return x
 
-    def to_onnx(self, z, parameters=None):
+    def to_onnx(self, z, **params):
         """Defines the ONNX export logic for the CNN model."""
+
+        # Convolution 1
         z = self.conv1.to_onnx(z)
-        z = self.act.to_onnx(z)
-        z = nnx.avg_pool.to_onnx(z, {"window_shape": (2, 2), "strides": (2, 2)})
 
+        # Apply ReLU activation
+        z = jax.nn.relu.to_onnx(z)
+
+        # Apply first pooling layer
+        z = nnx.avg_pool.to_onnx(z, window_shape=(2, 2), strides=(2, 2))
+
+        # Convolution 2
         z = self.conv2.to_onnx(z)
-        z = self.act.to_onnx(z)
-        z = nnx.avg_pool.to_onnx(z, {"window_shape": (2, 2), "strides": (2, 2)})
 
+        # Apply ReLU activation again
+        z = jax.nn.relu.to_onnx(z)
+
+        # Apply second pooling layer
+        z = nnx.avg_pool.to_onnx(z, window_shape=(2, 2), strides=(2, 2))
+
+        # Reshape before feeding into fully connected layers
         reshape_params = {
-            "shape": (z.shapes[0][0], 3136),
-            "pre_transpose": [(0, 2, 3, 1)],
+            "shape": (z.shapes[0][0], 3136),  # Flatten the feature map
+            "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
         }
-        z = jax.numpy.reshape.to_onnx(z, reshape_params)
+        z = jax.numpy.reshape.to_onnx(z, **reshape_params)
 
-        z = self.linear1.to_onnx(z)
-        z = self.act.to_onnx(z)
+        # Fully connected layers
+        z = self.linear1.to_onnx(
+            z
+        )  # No **params, since linear layers don't expect pre_transpose
+        z = jax.nn.relu.to_onnx(z)
         z = self.linear2.to_onnx(z)
 
         return z
@@ -58,6 +74,6 @@ def get_test_params():
             "model_name": "mnist_cnn",
             "model": MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
-            "export": {"pre_transpose": [(0, 3, 1, 2)]},
+            "params": {"pre_transpose": [(0, 3, 1, 2)]},
         }
     ]

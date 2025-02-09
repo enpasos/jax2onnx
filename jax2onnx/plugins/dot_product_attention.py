@@ -6,16 +6,25 @@ import onnx
 import onnx.helper as oh
 
 
-def build_dot_product_attention_onnx_node(z, parameters=None):
+def build_dot_product_attention_onnx_node(z, **params):
+    """
+    Converts `nnx.dot_product_attention` into an ONNX node.
+
+    Args:
+        z (Z): A container with input shapes, names, and the ONNX graph.
+        **params: Additional parameters such as `softmax_axis`.
+
+    Returns:
+        Z: Updated instance with new shapes and names.
+    """
 
     input_shapes = z.shapes
     input_names = z.names
     onnx_graph = z.onnx_graph
 
-    if not isinstance(parameters, dict):
-        raise ValueError("dot_product_attention parameters must be a dict.")
+    # ✅ Provide a default value if softmax_axis is missing
+    softmax_axis = params.get("softmax_axis", -1)
 
-    softmax_axis = parameters.get("softmax_axis", -1)
     if len(input_shapes) < 3:
         raise ValueError(
             "dot_product_attention requires at least 3 inputs: [query, key, value]."
@@ -139,6 +148,6 @@ def get_test_params():
             "model_name": "dot_product_attention_softmax_axis",
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
             "to_onnx": nnx.dot_product_attention.to_onnx,
-            "export": {"softmax_axis": -1},  # Explicit test for softmax axis
+            "params": {"softmax_axis": -1},  # Explicit test for softmax axis
         },
     ]

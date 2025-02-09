@@ -76,9 +76,7 @@ def test_onnx_export(test_params):
         jax_model.eval()
 
     input_shapes = test_params["input_shapes"]  # Note the plural!
-    export_params = test_params.get(
-        "export", {}
-    )  # Get export_params from the test case
+    params = test_params.get("params", {})  # Get params from the test case
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
@@ -98,7 +96,7 @@ def test_onnx_export(test_params):
         output_path=model_path,
         # Provide a default function or None if no conversion is needed
         to_onnx=to_onnx_function,
-        parameters=export_params,
+        params=params,
     )
 
     # Load the ONNX jax_model

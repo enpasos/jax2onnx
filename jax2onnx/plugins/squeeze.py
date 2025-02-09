@@ -12,25 +12,25 @@ from jax2onnx.to_onnx import Z
 from functools import partial
 
 
-def build_squeeze_onnx_node(z, parameters=None):
+def build_squeeze_onnx_node(z, **params):
     """
     Converts JAX numpy.squeeze operation to ONNX Squeeze operation.
 
     Args:
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'axes' specifying dimensions to remove.
+        **params: Dictionary containing 'axes' specifying dimensions to remove.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if parameters is None or "axes" not in parameters:
+    if "axes" not in params:
         raise ValueError("Squeeze operation requires 'axes' parameter.")
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
     input_shape = z.shapes[0]
 
-    axes = parameters["axes"]
+    axes = params["axes"]
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
 
@@ -80,24 +80,24 @@ def get_test_params():
             "model_name": "squeeze_single_dim",
             "input_shapes": [(1, 49, 10)],  # Single batch dimension
             "to_onnx": jnp.squeeze.to_onnx,
-            "export": {"axes": [0]},  # Removing the batch dimension
+            "params": {"axes": [0]},  # Removing the batch dimension
         },
         {
             "model_name": "squeeze_multiple_dims",
             "input_shapes": [(1, 49, 1, 10)],  # Multiple singleton dimensions
             "to_onnx": jnp.squeeze.to_onnx,
-            "export": {"axes": [0, 2]},  # Removing batch and last singleton dimension
+            "params": {"axes": [0, 2]},  # Removing batch and last singleton dimension
         },
         {
             "model_name": "squeeze_vit_output",
             "input_shapes": [(1, 1, 10)],  # Common ViT output shape
             "to_onnx": jnp.squeeze.to_onnx,
-            "export": {"axes": [1]},  # Removing the second singleton dimension
+            "params": {"axes": [1]},  # Removing the second singleton dimension
         },
         {
             "model_name": "squeeze_no_change",
             "input_shapes": [(3, 49, 10)],  # No singleton dimensions
             "to_onnx": jnp.squeeze.to_onnx,
-            "export": {"axes": []},  # No dimensions should be removed
+            "params": {"axes": []},  # No dimensions should be removed
         },
     ]
