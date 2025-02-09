@@ -146,7 +146,6 @@ def get_test_params():
                 5, 3, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
-            "to_onnx": nnx.Linear.to_onnx,
         },
         {
             "testcase": "linear_2",
@@ -154,6 +153,5 @@ def get_test_params():
                 256, 512, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 10, 256)],
-            "to_onnx": nnx.Linear.to_onnx,
         },
     ]

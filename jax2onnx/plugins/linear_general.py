@@ -170,7 +170,6 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 256)],
-            "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
             "testcase": "linear_general_mha_projection",
@@ -181,6 +180,5 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
-            "to_onnx": nnx.LinearGeneral.to_onnx,
         },
     ]

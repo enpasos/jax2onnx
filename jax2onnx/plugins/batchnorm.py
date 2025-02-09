@@ -15,7 +15,7 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     Args:
         self: The `nnx.BatchNorm` instance.
         z (Z): Contains input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional conversion parameters.
+        **params: Additional conversion parameters.
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -125,7 +125,6 @@ def get_test_params():
                 num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)
-            "to_onnx": nnx.BatchNorm.to_onnx,
             "params": {
                 "pre_transpose": [
                     (0, 3, 1, 2)
