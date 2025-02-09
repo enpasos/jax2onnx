@@ -108,7 +108,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "add",
+            "testcase": "add",
             "input_shapes": [
                 (1, 10),
                 (1, 10),
@@ -116,7 +116,7 @@ def get_test_params():
             "to_onnx": jnp.add.to_onnx,
         },
         {
-            "model_name": "concat",
+            "testcase": "concat",
             "input_shapes": [(1, 10), (1, 10)],  # Compatible shapes for axis=1
             "to_onnx": jnp.concatenate.to_onnx,
             "params": {"axis": 1},  # Correct axis for concatenation

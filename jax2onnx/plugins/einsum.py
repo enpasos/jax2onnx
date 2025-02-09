@@ -69,7 +69,7 @@ def get_test_params():
     equation = "BNHE,BMHE->BNHM"
     return [
         {
-            "model_name": "einsum",
+            "testcase": "einsum",
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
             "to_onnx": jnp.einsum.to_onnx,
             "params": {"equation": equation},

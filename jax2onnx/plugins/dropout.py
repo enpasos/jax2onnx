@@ -72,7 +72,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "dropout",
+            "testcase": "dropout",
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "to_onnx": nnx.Dropout.to_onnx,
@@ -82,31 +82,31 @@ def get_test_params():
             },
         },
         {
-            "model_name": "dropout_low",
+            "testcase": "dropout_low",
             "model": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 32, 32, 3)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
         {
-            "model_name": "dropout_high",
+            "testcase": "dropout_high",
             "model": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 32, 32, 3)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
         {
-            "model_name": "dropout_1d",
+            "testcase": "dropout_1d",
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10,)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
         {
-            "model_name": "dropout_2d",
+            "testcase": "dropout_2d",
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20)],
             "to_onnx": nnx.Dropout.to_onnx,
         },
         {
-            "model_name": "dropout_4d",
+            "testcase": "dropout_4d",
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20, 30, 40)],
             "to_onnx": nnx.Dropout.to_onnx,

@@ -141,7 +141,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "linear",
+            "testcase": "linear",
             "model": nnx.Linear(
                 5, 3, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 5, output dim 3
@@ -149,7 +149,7 @@ def get_test_params():
             "to_onnx": nnx.Linear.to_onnx,
         },
         {
-            "model_name": "linear_2",
+            "testcase": "linear_2",
             "model": nnx.Linear(
                 256, 512, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 5, output dim 3

@@ -111,7 +111,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "slice_basic",
+            "testcase": "slice_basic",
             "input_shapes": [
                 (1, 5, 5, 3)
             ],  # Example input shape (batch, height, width, channels)
@@ -122,7 +122,7 @@ def get_test_params():
             },  # Extracting a 3x3 region
         },
         {
-            "model_name": "slice_with_stride",
+            "testcase": "slice_with_stride",
             "input_shapes": [(1, 6, 6, 3)],
             "to_onnx": jax.lax.slice.to_onnx,
             "params": {
@@ -132,13 +132,13 @@ def get_test_params():
             },  # Strided slice
         },
         {
-            "model_name": "slice_single_element",
+            "testcase": "slice_single_element",
             "input_shapes": [(3, 3)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
             "params": {"start": [1, 1], "end": [2, 2]},  # Extracting a single element
         },
         {
-            "model_name": "slice_last_column",
+            "testcase": "slice_last_column",
             "input_shapes": [(4, 5)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
             "params": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column

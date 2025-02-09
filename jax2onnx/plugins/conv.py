@@ -149,7 +149,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "conv",
+            "testcase": "conv",
             "model": nnx.Conv(
                 in_features=3,
                 out_features=16,

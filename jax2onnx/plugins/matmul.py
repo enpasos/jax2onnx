@@ -78,17 +78,17 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "matmul_2d",
+            "testcase": "matmul_2d",
             "input_shapes": [(3, 4), (4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
         },
         {
-            "model_name": "matmul_3d",
+            "testcase": "matmul_3d",
             "input_shapes": [(2, 3, 4), (2, 4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
         },
         {
-            "model_name": "matmul_4d",
+            "testcase": "matmul_4d",
             "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
             "to_onnx": jnp.matmul.to_onnx,
         },
