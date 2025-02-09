@@ -88,13 +88,13 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "reshape",
+            "testcase": "reshape",
             "input_shapes": [(30,)],
             "to_onnx": jnp.reshape.to_onnx,
             "params": {"shape": (10, 3)},
         },
         {
-            "model_name": "reshape2",
+            "testcase": "reshape2",
             "input_shapes": [(3, 7, 7, 64)],
             "to_onnx": jnp.reshape.to_onnx,
             "params": {

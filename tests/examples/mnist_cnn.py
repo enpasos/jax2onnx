@@ -71,7 +71,7 @@ def get_test_params():
     """Define test parameters for the MNIST CNN."""
     return [
         {
-            "model_name": "mnist_cnn",
+            "testcase": "mnist_cnn",
             "model": MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
             "params": {"pre_transpose": [(0, 3, 1, 2)]},

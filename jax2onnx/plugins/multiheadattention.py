@@ -65,7 +65,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "multihead_attention",
+            "testcase": "multihead_attention",
             "model": nnx.MultiHeadAttention(
                 num_heads=8,
                 in_features=256,

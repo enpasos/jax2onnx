@@ -152,7 +152,7 @@ def get_test_params():
     """Define test parameters for the CNN."""
     return [
         {
-            "model_name": "mnist_cnn_2",
+            "testcase": "mnist_cnn_2",
             "model": CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],
             "params": {"pre_transpose": [(0, 3, 1, 2)]},

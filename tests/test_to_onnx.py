@@ -26,9 +26,7 @@ def load_test_params():
             if isinstance(plugin_params, list):
                 if all(isinstance(p, dict) for p in plugin_params):
                     for param in plugin_params:
-                        param.setdefault(
-                            "test_name", param.get("model_name", "Unnamed")
-                        )
+                        param.setdefault("test_name", param.get("testcase", "Unnamed"))
                     params.extend(plugin_params)
                 else:
                     raise ValueError(
@@ -36,7 +34,7 @@ def load_test_params():
                     )
             elif isinstance(plugin_params, dict):
                 plugin_params.setdefault(
-                    "test_name", plugin_params.get("model_name", "Unnamed")
+                    "test_name", plugin_params.get("testcase", "Unnamed")
                 )
                 params.append(plugin_params)
             else:
@@ -54,7 +52,7 @@ def load_test_params():
                 isinstance(p, dict) for p in example_params
             ):
                 for param in example_params:
-                    param.setdefault("test_name", param.get("model_name", "Unnamed"))
+                    param.setdefault("test_name", param.get("testcase", "Unnamed"))
                 params.extend(example_params)
             else:
                 raise ValueError(f"Example {name} must return a list of dictionaries.")
@@ -64,7 +62,7 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["model_name"] in [ "mnist_vit" ]
+        # if param["testcase"] in [ "mnist_vit" ]
     ]
 
 
@@ -84,7 +82,7 @@ def test_onnx_export(test_params):
     inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
 
     # Export the jax_model to ONNX
-    onnx_model_file_name = f"{test_params['model_name']}_model.onnx"
+    onnx_model_file_name = f"{test_params['testcase']}_model.onnx"
     model_path = f"output/{onnx_model_file_name}"
     os.makedirs("output", exist_ok=True)
 
@@ -127,4 +125,4 @@ def test_onnx_export(test_params):
         np.testing.assert_allclose(
             onnx_outputs[i], expected_outputs[i], rtol=1e-2, atol=1e-4
         )
-    print(f"Test for {test_params['model_name']} passed!")
+    print(f"Test for {test_params['testcase']} passed!")

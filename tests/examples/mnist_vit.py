@@ -292,7 +292,7 @@ def get_test_params():
     """Return test parameters for Vision Transformer."""
     return [
         {
-            "model_name": "patch_embedding",
+            "testcase": "patch_embedding",
             "model": PatchEmbedding(
                 height=28,
                 width=28,
@@ -304,7 +304,7 @@ def get_test_params():
             "input_shapes": [(1, 28, 28, 1)],
         },
         {
-            "model_name": "mnist_vit",
+            "testcase": "mnist_vit",
             "model": VisionTransformer(
                 height=28,
                 width=28,
@@ -321,14 +321,14 @@ def get_test_params():
             "input_shapes": [(1, 28, 28, 1)],
         },
         {
-            "model_name": "mlp_block",
+            "testcase": "mlp_block",
             "model": MLPBlock(
                 num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 10, 256)],
         },
         {
-            "model_name": "transformer_block",
+            "testcase": "transformer_block",
             "model": TransformerBlock(
                 num_hiddens=256,
                 num_heads=8,

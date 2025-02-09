@@ -190,54 +190,54 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "relu",
+            "testcase": "relu",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.relu.to_onnx,
         },
         {
-            "model_name": "sigmoid",
+            "testcase": "sigmoid",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.sigmoid.to_onnx,
         },
         {
-            "model_name": "tanh",
+            "testcase": "tanh",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.tanh.to_onnx,
         },
         {
-            "model_name": "softmax",
+            "testcase": "softmax",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.softmax.to_onnx,
         },
         {
-            "model_name": "log_softmax",
+            "testcase": "log_softmax",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.log_softmax.to_onnx,
             "parameters": {"axis": -1},
         },
         {
-            "model_name": "leaky_relu",
+            "testcase": "leaky_relu",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.leaky_relu.to_onnx,
             "parameters": {"alpha": 0.02},
         },
         {
-            "model_name": "elu",
+            "testcase": "elu",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.elu.to_onnx,
         },
         {
-            "model_name": "softplus",
+            "testcase": "softplus",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.softplus.to_onnx,
         },
         {
-            "model_name": "gelu",
+            "testcase": "gelu",
             "input_shapes": [(1, 10)],
             "to_onnx": jax.nn.gelu.to_onnx,
         },
         {
-            "model_name": "gelu2",
+            "testcase": "gelu2",
             "input_shapes": [(1, 512)],
             "to_onnx": jax.nn.gelu.to_onnx,
         },

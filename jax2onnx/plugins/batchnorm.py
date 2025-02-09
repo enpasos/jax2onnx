@@ -120,7 +120,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "batchnorm",
+            "testcase": "batchnorm",
             "model": nnx.BatchNorm(
                 num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
             ),

@@ -58,31 +58,31 @@ jnp.transpose.to_onnx = build_transpose_onnx_node
 def get_test_params():
     return [
         {
-            "model_name": "transpose_basic",
+            "testcase": "transpose_basic",
             "input_shapes": [(2, 3)],
             "to_onnx": jnp.transpose.to_onnx,
             "params": {"axes": [1, 0]},  # Change "perm" to "axes"
         },
         {
-            "model_name": "transpose_reverse",
+            "testcase": "transpose_reverse",
             "input_shapes": [(2, 3, 4)],
             "to_onnx": jnp.transpose.to_onnx,
             "params": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
         },
         {
-            "model_name": "transpose_4d",
+            "testcase": "transpose_4d",
             "input_shapes": [(1, 2, 3, 4)],
             "to_onnx": jnp.transpose.to_onnx,
             "params": {"axes": [0, 2, 3, 1]},
         },
         {
-            "model_name": "transpose_square_matrix",
+            "testcase": "transpose_square_matrix",
             "input_shapes": [(5, 5)],
             "to_onnx": jnp.transpose.to_onnx,
             "params": {"axes": [1, 0]},
         },
         {
-            "model_name": "transpose_high_dim",
+            "testcase": "transpose_high_dim",
             "input_shapes": [(2, 3, 4, 5, 6)],
             "to_onnx": jnp.transpose.to_onnx,
             "params": {"axes": [4, 3, 2, 1, 0]},

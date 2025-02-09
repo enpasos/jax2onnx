@@ -151,7 +151,7 @@ def get_test_params():
     """
     return [
         {
-            "model_name": "linear_general",
+            "testcase": "linear_general",
             "model": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
@@ -162,7 +162,7 @@ def get_test_params():
             "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
-            "model_name": "linear_general_2",
+            "testcase": "linear_general_2",
             "model": nnx.LinearGeneral(
                 in_features=(256,),
                 out_features=(8, 32),
@@ -173,7 +173,7 @@ def get_test_params():
             "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
-            "model_name": "linear_general_mha_projection",
+            "testcase": "linear_general_mha_projection",
             "model": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
