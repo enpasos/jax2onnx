@@ -80,25 +80,25 @@ def get_test_params():
         {
             "testcase": "tile_2x",
             "input_shapes": [(2, 3)],
-            "to_onnx": jnp.tile.to_onnx,
+            "component": jnp.tile,
             "params": {"repeats": [2, 2]},
         },
         {
             "testcase": "tile_1d",
             "input_shapes": [(4,)],
-            "to_onnx": jnp.tile.to_onnx,
+            "component": jnp.tile,
             "params": {"repeats": [3]},
         },
         {
             "testcase": "tile_batch_dim",
             "input_shapes": [(1, 5, 5)],
-            "to_onnx": jnp.tile.to_onnx,
+            "component": jnp.tile,
             "params": {"repeats": [2, 1, 1]},
         },
         {
             "testcase": "tile_large",
             "input_shapes": [(3, 3)],
-            "to_onnx": jnp.tile.to_onnx,
+            "component": jnp.tile,
             "params": {"repeats": [4, 4]},
         },
     ]

@@ -69,7 +69,7 @@ def get_test_params():
     return [
         {
             "testcase": "mnist_cnn",
-            "model": MNIST_CNN(rngs=nnx.Rngs(0)),
+            "component": MNIST_CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 28, 28, 1)],  # (N, H, W, C) format for JAX
             "params": {"pre_transpose": [(0, 3, 1, 2)]},
         }

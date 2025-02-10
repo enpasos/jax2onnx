@@ -1,5 +1,5 @@
 # file: tests/test_to_onnx.py
-
+import flax.nnx
 import pytest
 import jax
 import onnxruntime as ort
@@ -9,6 +9,7 @@ import os
 import numpy as np
 
 from jax2onnx.to_onnx import to_onnx
+from jax2onnx.typing_helpers import supports_onnx
 
 
 def load_test_params():
@@ -63,16 +64,22 @@ def load_test_params():
         pytest.param(param, id=param["test_name"])
         for param in params
         # filter only conv
-        # if param["testcase"] in [ "mnist_cnn" ]
+        # if param["testcase"] in [ "einsum_attention" ]
     ]
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
 
-    jax_model = test_params.get("model", None)
-    if hasattr(jax_model, "eval"):
-        jax_model.eval()
+    component = test_params.get("component", None)
+
+    if not supports_onnx(component):
+        raise TypeError(
+            f"Component {type(component).__name__} does not support ONNX export."
+        )
+
+    if hasattr(component, "eval"):
+        component.eval()
 
     input_shapes = test_params["input_shapes"]  # Note the plural!
     params = test_params.get("params", {})  # Get params from the test case
@@ -87,14 +94,11 @@ def test_onnx_export(test_params):
     model_path = f"output/{onnx_model_file_name}"
     os.makedirs("output", exist_ok=True)
 
-    to_onnx_function = test_params.get("to_onnx", None)
     z = to_onnx(
         onnx_model_file_name,
-        jax_model,
+        component,
         input_shapes,
         output_path=model_path,
-        # Provide a default function or None if no conversion is needed
-        to_onnx=to_onnx_function,
         params=params,
     )
 
@@ -113,13 +117,15 @@ def test_onnx_export(test_params):
     # Compute JAX output
     # for now one input, one output
     # call model or function
-    if (jax_model is not None) and callable(jax_model):
-        expected_outputs = [jax_model(*inputs)]
+    # if component is instance of flax.nnx.Module
+
+    if isinstance(component, flax.nnx.Module):
+        expected_outputs = [component(*inputs)]
     # else if to_onnx_function is not None and is a function
-    elif to_onnx_function is not None and callable(to_onnx_function):
+    elif z.jax_function is not None and callable(z.jax_function):
         expected_outputs = [z.jax_function(*inputs)]
     else:
-        raise ValueError("No model or to_onnx function provided")
+        raise ValueError("Can not call JAX function or module")
 
     # Assert the results
     for i in range(len(expected_outputs)):

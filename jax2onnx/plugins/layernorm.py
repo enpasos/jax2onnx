@@ -106,20 +106,18 @@ def get_test_params():
     return [
         {
             "testcase": "layernorm_default",
-            "model": nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
+            "component": nnx.LayerNorm(64, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 10, 64)],
-            "to_onnx": nnx.LayerNorm.to_onnx,
         },
         {
             "testcase": "layernorm_multiaxis",
-            "model": nnx.LayerNorm(
+            "component": nnx.LayerNorm(
                 3 * 3 * 64,
                 reduction_axes=(1, 2, 3),
                 feature_axes=(1, 2, 3),
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 3, 3, 64)],
-            "to_onnx": nnx.LayerNorm.to_onnx,
             "params": {
                 "pre_transpose": [
                     (0, 3, 1, 2)

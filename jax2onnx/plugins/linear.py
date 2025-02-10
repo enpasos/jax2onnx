@@ -146,14 +146,14 @@ def get_test_params():
     return [
         {
             "testcase": "linear",
-            "model": nnx.Linear(
+            "component": nnx.Linear(
                 5, 3, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 5, output dim 3
             "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
         },
         {
             "testcase": "linear_2",
-            "model": nnx.Linear(
+            "component": nnx.Linear(
                 256, 512, rngs=nnx.Rngs(0)
             ),  # Linear layer with input dim 256, output dim 512
             "input_shapes": [

@@ -112,7 +112,7 @@ def get_test_params():
         {
             "testcase": "avg_pool",
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "to_onnx": nnx.avg_pool.to_onnx,
+            "component": nnx.avg_pool,
             "params": {
                 "window_shape": (2, 2),
                 "strides": (2, 2),
@@ -128,7 +128,7 @@ def get_test_params():
         {
             "testcase": "max_pool",
             "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "to_onnx": nnx.max_pool.to_onnx,
+            "component": nnx.max_pool,
             "params": {
                 "window_shape": (2, 2),
                 "strides": (2, 2),

@@ -61,31 +61,31 @@ def get_test_params():
         {
             "testcase": "transpose_basic",
             "input_shapes": [(2, 3)],
-            "to_onnx": jnp.transpose.to_onnx,
+            "component": jnp.transpose,
             "params": {"axes": [1, 0]},  # Change "perm" to "axes"
         },
         {
             "testcase": "transpose_reverse",
             "input_shapes": [(2, 3, 4)],
-            "to_onnx": jnp.transpose.to_onnx,
+            "component": jnp.transpose,
             "params": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
         },
         {
             "testcase": "transpose_4d",
             "input_shapes": [(1, 2, 3, 4)],
-            "to_onnx": jnp.transpose.to_onnx,
+            "component": jnp.transpose,
             "params": {"axes": [0, 2, 3, 1]},
         },
         {
             "testcase": "transpose_square_matrix",
             "input_shapes": [(5, 5)],
-            "to_onnx": jnp.transpose.to_onnx,
+            "component": jnp.transpose,
             "params": {"axes": [1, 0]},
         },
         {
             "testcase": "transpose_high_dim",
             "input_shapes": [(2, 3, 4, 5, 6)],
-            "to_onnx": jnp.transpose.to_onnx,
+            "component": jnp.transpose,
             "params": {"axes": [4, 3, 2, 1, 0]},
         },
     ]

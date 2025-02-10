@@ -75,19 +75,19 @@ def get_test_params():
         {
             "testcase": "einsum_attention",
             "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
-            "to_onnx": jnp.einsum.to_onnx,
+            "component": jnp.einsum,
             "params": {"equation": "BNHE,BMHE->BNHM"},
         },
         {
             "testcase": "einsum_matmul",
             "input_shapes": [(32, 64), (64, 128)],
-            "to_onnx": jnp.einsum.to_onnx,
+            "component": jnp.einsum,
             "params": {"equation": "ij,jk->ik"},
         },
         {
             "testcase": "einsum_batch_matmul",
             "input_shapes": [(10, 32, 64), (10, 64, 128)],
-            "to_onnx": jnp.einsum.to_onnx,
+            "component": jnp.einsum,
             "params": {"equation": "bij,bjk->bik"},
         },
     ]
