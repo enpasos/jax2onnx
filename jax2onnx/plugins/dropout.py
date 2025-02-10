@@ -76,7 +76,7 @@ def get_test_params():
     return [
         {
             "testcase": "dropout",
-            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
             "params": {
                 "pre_transpose": [(0, 3, 1, 2)],
@@ -85,32 +85,32 @@ def get_test_params():
         },
         {
             "testcase": "dropout_low",
-            "model": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 32, 32, 3)],
         },
         {
             "testcase": "dropout_high",
-            "model": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 32, 32, 3)],
         },
         {
             "testcase": "dropout_1d",
-            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10,)],
         },
         {
             "testcase": "dropout_2d",
-            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20)],
         },
         {
             "testcase": "dropout_3d",
-            "model": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(17)),
+            "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(17)),
             "input_shapes": [(1, 10, 512)],
         },
         {
             "testcase": "dropout_4d",
-            "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20, 30, 40)],
         },
     ]

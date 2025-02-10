@@ -119,13 +119,13 @@ def get_test_params():
         {
             "testcase": "reshape",
             "input_shapes": [(30,)],
-            "to_onnx": jnp.reshape.to_onnx,
+            "component": jnp.reshape,
             "params": {"shape": (10, 3)},
         },
         {
             "testcase": "reshape_dynamic",
             "input_shapes": [(3, 7, 7, 64)],
-            "to_onnx": jnp.reshape.to_onnx,
+            "component": jnp.reshape,
             "params": {
                 "shape": (3, -1),  # Dynamic reshape now correctly inferred
             },
@@ -133,7 +133,7 @@ def get_test_params():
         {
             "testcase": "reshape_batch",
             "input_shapes": [(1, 3, 224, 224)],
-            "to_onnx": jnp.reshape.to_onnx,
+            "component": jnp.reshape,
             "params": {
                 "shape": (1, -1),  # Dynamic reshape to flatten feature maps
             },
@@ -141,7 +141,7 @@ def get_test_params():
         # {
         #     "testcase": "reshape_invalid",
         #     "input_shapes": [(3, 7, 7, 64)],
-        #     "to_onnx": jnp.reshape.to_onnx,
+        #     "component": jnp.reshape,
         #     "params": {
         #         "shape": (3, 7),  # ❌ Should trigger an error
         #     },

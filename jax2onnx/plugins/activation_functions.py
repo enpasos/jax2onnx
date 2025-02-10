@@ -145,61 +145,45 @@ jax.nn.gelu.to_onnx = build_gelu_onnx_node
 def get_test_params():
     """Defines test parameters for verifying the ONNX conversion of activation functions."""
     return [
+        {"component": jax.nn.relu, "testcase": "relu", "input_shapes": [(1, 10)]},
+        {"component": jax.nn.sigmoid, "testcase": "sigmoid", "input_shapes": [(1, 10)]},
+        {"component": jax.nn.tanh, "testcase": "tanh", "input_shapes": [(1, 10)]},
+        {"component": jax.nn.softmax, "testcase": "softmax", "input_shapes": [(1, 10)]},
         {
-            "testcase": "relu",
-            "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.relu.to_onnx,
-        },
-        {
-            "testcase": "sigmoid",
-            "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.sigmoid.to_onnx,
-        },
-        {
-            "testcase": "tanh",
-            "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.tanh.to_onnx,
-        },
-        {
-            "testcase": "softmax",
-            "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.softmax.to_onnx,
-        },
-        {
+            "component": jax.nn.log_softmax,
             "testcase": "log_softmax",
             "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.log_softmax.to_onnx,
             "parameters": {"axis": -1},
         },
         {
+            "component": jax.nn.leaky_relu,
             "testcase": "leaky_relu",
             "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.leaky_relu.to_onnx,
             "parameters": {"alpha": 0.02},
         },
         {
+            "component": jax.nn.elu,
             "testcase": "elu",
             "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.elu.to_onnx,
         },
         {
+            "component": jax.nn.softplus,
             "testcase": "softplus",
             "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.softplus.to_onnx,
         },
         {
+            "component": jax.nn.gelu,
             "testcase": "gelu",
             "input_shapes": [(1, 10)],
-            "to_onnx": jax.nn.gelu.to_onnx,
         },
         {
+            "component": jax.nn.gelu,
             "testcase": "gelu2",
             "input_shapes": [(1, 512)],
-            "to_onnx": jax.nn.gelu.to_onnx,
         },
         {
+            "component": jax.nn.gelu,
             "testcase": "gelu3",
             "input_shapes": [(1, 10, 512)],
-            "to_onnx": jax.nn.gelu.to_onnx,
         },
     ]

@@ -69,7 +69,7 @@ def load_plugins():
 
 def to_onnx(
     model_file_name,
-    model,
+    component,
     input_shapes,
     output_path="model.onnx",
     to_onnx=None,
@@ -93,10 +93,8 @@ def to_onnx(
         k: v for k, v in params.items() if k not in ["pre_transpose", "post_transpose"]
     }
 
-    if hasattr(model, "to_onnx"):
-        z = model.to_onnx(z, **params_no_transpose)
-    elif to_onnx:
-        z = to_onnx(z, **params_no_transpose)
+    if hasattr(component, "to_onnx"):
+        z = component.to_onnx(z, **params_no_transpose)
     else:
         raise ValueError(
             "Model does not have a `to_onnx` method and no conversion function was provided."

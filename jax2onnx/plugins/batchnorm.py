@@ -104,7 +104,7 @@ def get_test_params():
     return [
         {
             "testcase": "batchnorm",
-            "model": nnx.BatchNorm(
+            "component": nnx.BatchNorm(
                 num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(11, 2, 2, 64)],  # JAX shape: (N, H, W, C)

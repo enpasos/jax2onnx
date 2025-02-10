@@ -142,7 +142,7 @@ def get_test_params():
     return [
         {
             "testcase": "conv",
-            "model": nnx.Conv(
+            "component": nnx.Conv(
                 in_features=3,
                 out_features=16,
                 kernel_size=(3, 3),

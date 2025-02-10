@@ -151,7 +151,7 @@ def get_test_params():
     return [
         {
             "testcase": "linear_general",
-            "model": nnx.LinearGeneral(
+            "component": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
@@ -161,7 +161,7 @@ def get_test_params():
         },
         {
             "testcase": "linear_general_2",
-            "model": nnx.LinearGeneral(
+            "component": nnx.LinearGeneral(
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
@@ -171,7 +171,7 @@ def get_test_params():
         },
         {
             "testcase": "linear_general_mha_projection",
-            "model": nnx.LinearGeneral(
+            "component": nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),

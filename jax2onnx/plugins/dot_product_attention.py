@@ -129,7 +129,7 @@ def get_test_params():
         {
             "testcase": "dot_product_attention",
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
-            "to_onnx": nnx.dot_product_attention.to_onnx,
+            "component": nnx.dot_product_attention,
         },
         {
             "testcase": "dot_product_attention_shape_check",
@@ -138,12 +138,12 @@ def get_test_params():
                 (2, 6, 8, 16),
                 (2, 6, 8, 16),
             ],
-            "to_onnx": nnx.dot_product_attention.to_onnx,
+            "component": nnx.dot_product_attention,
         },
         {
             "testcase": "dot_product_attention_softmax_axis",
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
-            "to_onnx": nnx.dot_product_attention.to_onnx,
+            "component": nnx.dot_product_attention,
             "params": {"softmax_axis": -1},
         },
     ]

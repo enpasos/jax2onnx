@@ -126,7 +126,7 @@ def get_test_params():
             "input_shapes": [
                 (1, 5, 5, 3)
             ],  # Example input shape (batch, height, width, channels)
-            "to_onnx": jax.lax.slice.to_onnx,
+            "component": jax.lax.slice,
             "params": {
                 "start": [0, 1, 1, 0],
                 "end": [1, 4, 4, 3],
@@ -135,7 +135,7 @@ def get_test_params():
         {
             "testcase": "slice_with_stride",
             "input_shapes": [(1, 6, 6, 3)],
-            "to_onnx": jax.lax.slice.to_onnx,
+            "component": jax.lax.slice,
             "params": {
                 "start": [0, 0, 0, 0],
                 "end": [1, 6, 6, 3],
@@ -145,19 +145,19 @@ def get_test_params():
         {
             "testcase": "slice_single_element",
             "input_shapes": [(3, 3)],  # Example 2D matrix
-            "to_onnx": jax.lax.slice.to_onnx,
+            "component": jax.lax.slice,
             "params": {"start": [1, 1], "end": [2, 2]},  # Extracting a single element
         },
         {
             "testcase": "slice_last_column",
             "input_shapes": [(4, 5)],  # Example 2D matrix
-            "to_onnx": jax.lax.slice.to_onnx,
+            "component": jax.lax.slice,
             "params": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
         },
         {
             "testcase": "slice_out_of_bounds",
             "input_shapes": [(4, 5)],
-            "to_onnx": jax.lax.slice.to_onnx,
+            "component": jax.lax.slice,
             "params": {"start": [0, 3], "end": [4, 7]},  # Exceeds bounds
         },
     ]

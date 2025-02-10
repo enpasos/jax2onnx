@@ -84,12 +84,12 @@ def get_test_params():
         {
             "testcase": "add",
             "input_shapes": [(1, 10), (1, 10)],
-            "to_onnx": jnp.add.to_onnx,
+            "component": jnp.add,
         },
         {
             "testcase": "concat",
             "input_shapes": [(1, 10), (1, 10)],
-            "to_onnx": jnp.concatenate.to_onnx,
+            "component": jnp.concatenate,
             "params": {"axis": 1},
         },
     ]

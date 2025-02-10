@@ -65,3 +65,8 @@ class PartialWithOnnx(Supports2Onnx):
     def __getattr__(self, name: str) -> Any:
         """Delegates attribute access to the wrapped function."""
         return getattr(self._wrapped_func.func, name)
+
+
+def supports_onnx(obj: Any) -> bool:
+    """Check if an object supports ONNX export."""
+    return hasattr(obj, "to_onnx") and callable(obj.to_onnx)

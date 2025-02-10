@@ -46,7 +46,7 @@ def get_test_params():
     return [
         {
             "testcase": "mlp",
-            "model": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+            "component": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
             "input_shapes": [(1, 30)],
         }
     ]

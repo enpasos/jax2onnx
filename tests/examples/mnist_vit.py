@@ -281,7 +281,7 @@ def get_test_params():
     return [
         {
             "testcase": "patch_embedding",
-            "model": PatchEmbedding(
+            "component": PatchEmbedding(
                 height=28,
                 width=28,
                 patch_size=4,
@@ -293,21 +293,21 @@ def get_test_params():
         },
         {
             "testcase": "mnist_vit",
-            "model": VisionTransformer(
+            "component": VisionTransformer(
                 28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 28, 28, 1)],
         },
         {
             "testcase": "mlp_block",
-            "model": MLPBlock(
+            "component": MLPBlock(
                 num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 10, 256)],
         },
         {
             "testcase": "transformer_block",
-            "model": TransformerBlock(
+            "component": TransformerBlock(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
