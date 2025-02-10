@@ -1,9 +1,34 @@
 # file: tests/examples/mnist_cnn.py
 
-from functools import partial
 import jax
-import jax.numpy as jnp
 from flax import nnx
+from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
+from typing import Any
+import jax.numpy as jnp
+from jax2onnx.to_onnx import Z
+
+
+class ReshapeWithOnnx(Supports2Onnx):
+
+    def __init__(self) -> None:
+        pass
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Reshapes input using the provided shape function."""
+        return x.reshape(x.shape[0], -1)
+
+    def to_onnx(self, z: Z, **params: Any) -> Z:
+        """ONNX conversion function for Reshape."""
+        flatten_size = z.shapes[0][1] * z.shapes[0][2] * z.shapes[0][3]
+        reshape_params = {
+            "shape": (z.shapes[0][0], flatten_size),  # Flatten the feature map
+            "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
+        }
+        return jax.numpy.reshape.to_onnx(z, **reshape_params)
+
+    def __getattr__(self, name: str) -> Any:
+        """Ensures compatibility with Supports2Onnx by forwarding attributes."""
+        raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
 
 class MNIST_CNN(nnx.Module):
@@ -11,69 +36,41 @@ class MNIST_CNN(nnx.Module):
 
     def __init__(self, *, rngs: nnx.Rngs):
         """Initializes the CNN model with convolutional and linear layers."""
-        self.conv1 = nnx.Conv(1, 32, kernel_size=(3, 3), padding="SAME", rngs=rngs)
-        self.conv2 = nnx.Conv(32, 64, kernel_size=(3, 3), padding="SAME", rngs=rngs)
-        self.avg_pool = partial(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2))
-        self.linear1 = nnx.Linear(3136, 256, rngs=rngs)
-        self.linear2 = nnx.Linear(256, 10, rngs=rngs)
-        self.act = jax.nn.relu
-        self.reshape = lambda x: x.reshape(x.shape[0], -1)
+
+        self.layers: list[Supports2Onnx] = [
+            nnx.Conv(1, 32, kernel_size=(3, 3), padding="SAME", rngs=rngs),
+            jax.nn.relu,
+            PartialWithOnnx(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2)),
+            nnx.Conv(32, 64, kernel_size=(3, 3), padding="SAME", rngs=rngs),
+            jax.nn.relu,
+            PartialWithOnnx(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2)),
+            ReshapeWithOnnx(),
+            nnx.Linear(3136, 256, rngs=rngs),
+            jax.nn.relu,
+            nnx.Linear(256, 10, rngs=rngs),
+            nnx.log_softmax,
+        ]
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Defines the forward pass of the model."""
-        x = self.avg_pool(self.act(self.conv1(x)))
-        x = self.avg_pool(self.act(self.conv2(x)))
-        x = self.reshape(x)
-        x = self.linear1(x)
-        x = self.act(x)
-        x = self.linear2(x)
+        for layer in self.layers:
+            x = layer(x)
         return x
 
     def to_onnx(self, z, **params):
         """Defines the ONNX export logic for the CNN model."""
-
-        # Convolution 1
-        z = self.conv1.to_onnx(z)
-
-        # Apply ReLU activation
-        z = jax.nn.relu.to_onnx(z)
-
-        # Apply first pooling layer
-        z = nnx.avg_pool.to_onnx(z, window_shape=(2, 2), strides=(2, 2))
-
-        # Convolution 2
-        z = self.conv2.to_onnx(z)
-
-        # Apply ReLU activation again
-        z = jax.nn.relu.to_onnx(z)
-
-        # Apply second pooling layer
-        z = nnx.avg_pool.to_onnx(z, window_shape=(2, 2), strides=(2, 2))
-
-        # Reshape before feeding into fully connected layers
-        reshape_params = {
-            "shape": (z.shapes[0][0], 3136),  # Flatten the feature map
-            "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
-        }
-        z = jax.numpy.reshape.to_onnx(z, **reshape_params)
-
-        # Fully connected layers
-        z = self.linear1.to_onnx(
-            z
-        )  # No **params, since linear layers don't expect pre_transpose
-        z = jax.nn.relu.to_onnx(z)
-        z = self.linear2.to_onnx(z)
-
+        for layer in self.layers:
+            z = layer.to_onnx(z, **params)
         return z
 
 
 def get_test_params():
-    """Define test parameters for the MNIST CNN."""
+    """Defines test parameters for the MNIST CNN."""
     return [
         {
             "testcase": "mnist_cnn",
             "model": MNIST_CNN(rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 28, 28, 1)],  # Updated for (N, H, W, C) as used in JAX
+            "input_shapes": [(1, 28, 28, 1)],  # (N, H, W, C) format for JAX
             "params": {"pre_transpose": [(0, 3, 1, 2)]},
         }
     ]

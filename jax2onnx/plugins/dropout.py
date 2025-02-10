@@ -4,8 +4,11 @@ import onnx
 import onnx.helper as oh
 from flax import nnx
 
+from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
-def to_onnx_dropout(self, z, **params):
+
+def build_dropout_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.Dropout` layer into an ONNX `Dropout` node.
 
@@ -59,8 +62,8 @@ def to_onnx_dropout(self, z, **params):
     return z
 
 
-# Attach the `to_onnx_dropout` method to `nnx.Dropout`
-nnx.Dropout.to_onnx = to_onnx_dropout
+# Attach the ONNX conversion method to `nnx.Dropout`
+nnx.Dropout.to_onnx = build_dropout_onnx_node
 
 
 def get_test_params():
@@ -99,6 +102,11 @@ def get_test_params():
             "testcase": "dropout_2d",
             "model": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
             "input_shapes": [(10, 20)],
+        },
+        {
+            "testcase": "dropout_3d",
+            "model": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(17)),
+            "input_shapes": [(1, 10, 512)],
         },
         {
             "testcase": "dropout_4d",

@@ -4,14 +4,15 @@ import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 from flax import nnx
+
+from jax2onnx.to_onnx import Z
 from jax2onnx.transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
+from jax2onnx.typing_helpers import Supports2Onnx  # Import protocol
 
 
-def to_onnx(self, z, **params):
+def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.Conv` layer into an ONNX `Conv` node.
-
-    This function adds the kernel and bias initializers to the ONNX graph.
 
     Args:
         self: The `nnx.Conv` instance.
@@ -21,7 +22,6 @@ def to_onnx(self, z, **params):
     Returns:
         Z: Updated instance with new shapes and names.
     """
-
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_names = z.names
@@ -138,14 +138,6 @@ nnx.Conv.to_onnx = to_onnx
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of `nnx.Conv`.
-
-    The test parameters define:
-    - A simple `nnx.Conv` model with input and output dimensions.
-    - The corresponding input tensor shape.
-    - The ONNX conversion function to be used in unit tests.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
     """
     return [
         {

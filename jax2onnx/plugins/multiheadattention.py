@@ -1,10 +1,12 @@
 # file: jax2onnx/plugins/multiheadattention.py
 
 import flax.nnx as nnx
+
 from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
 
-def to_onnx_multihead_attention(self, z, parameters=None):
+def build_multihead_attention_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts `nnx.MultiHeadAttention` into an ONNX equivalent.
 
@@ -17,20 +19,17 @@ def to_onnx_multihead_attention(self, z, parameters=None):
     Args:
         self: The `nnx.MultiHeadAttention` instance.
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters (e.g., `softmax_axis` for attention).
+        **params: Additional parameters (e.g., `softmax_axis` for attention).
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
 
-    if parameters is None:
-        parameters = {}
-
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]  # (B, L, in_features)
     input_name = z.names[0]
 
-    # Query, Key, and Value projections
+    # Query, Key, and Value projections using LinearGeneral
     z_q = self.query.to_onnx(Z([input_shape], [input_name], onnx_graph))
     z_k = self.key.to_onnx(Z([input_shape], [input_name], onnx_graph))
     z_v = self.value.to_onnx(Z([input_shape], [input_name], onnx_graph))
@@ -43,7 +42,7 @@ def to_onnx_multihead_attention(self, z, parameters=None):
             [z_q.names[0], z_k.names[0], z_v.names[0]],
             onnx_graph,
         ),
-        parameters=dpa_params,
+        **dpa_params,
     )
 
     # Apply final projection
@@ -53,7 +52,7 @@ def to_onnx_multihead_attention(self, z, parameters=None):
 
 
 # Attach ONNX conversion function to `nnx.MultiHeadAttention`
-nnx.MultiHeadAttention.to_onnx = to_onnx_multihead_attention
+nnx.MultiHeadAttention.to_onnx = build_multihead_attention_onnx_node
 
 
 def get_test_params():

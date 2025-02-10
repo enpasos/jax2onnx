@@ -1,13 +1,17 @@
 # file: jax2onnx/plugins/linear.py
 
+# file: jax2onnx/plugins/linear.py
+
 import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
+
 from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
 
-def to_onnx(self, z, parameters=None):
+def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.Linear` layer into an ONNX `Gemm` (General Matrix Multiplication) node.
 
@@ -16,7 +20,7 @@ def to_onnx(self, z, parameters=None):
     Args:
         self: The `nnx.Linear` instance.
         z (Z): Contains input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional conversion parameters.
+        **params: Additional conversion parameters.
 
     Returns:
         Z: Updated instance with new shapes and names.
@@ -24,7 +28,6 @@ def to_onnx(self, z, parameters=None):
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
-
     out_features = self.kernel.shape[1]
 
     # Determine if reshaping is necessary
@@ -33,6 +36,7 @@ def to_onnx(self, z, parameters=None):
         flattened_shape = (new_first_dim, input_shape[-1])
         reshape_input_name = f"{input_name}_reshaped"
 
+        # Add reshape node
         onnx_graph.add_node(
             oh.make_node(
                 "Reshape",
@@ -151,7 +155,9 @@ def get_test_params():
             "testcase": "linear_2",
             "model": nnx.Linear(
                 256, 512, rngs=nnx.Rngs(0)
-            ),  # Linear layer with input dim 5, output dim 3
-            "input_shapes": [(1, 10, 256)],
+            ),  # Linear layer with input dim 256, output dim 512
+            "input_shapes": [
+                (1, 10, 256)
+            ],  # Batched input for testing reshape handling
         },
     ]

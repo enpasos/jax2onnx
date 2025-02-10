@@ -1,28 +1,27 @@
 # file: jax2onnx/plugins/linear_general.py
 
+import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
+
 from jax2onnx.to_onnx import Z
-from jax2onnx.plugins.matmul import to_onnx_matmul  # Import MatMul plugin
+from jax2onnx.typing_helpers import Supports2Onnx
 
 
-def to_onnx(self, z, parameters=None):
+def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.LinearGeneral` layer into an ONNX `MatMul` node with optional reshaping.
 
     Args:
         self: The `nnx.LinearGeneral` instance.
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters (currently unused).
+        **params: Additional conversion parameters.
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-
-    if parameters is None:
-        parameters = {}
 
     onnx_graph = z.onnx_graph
     input_shape = list(map(int, z.shapes[0]))  # Convert to Python int
@@ -84,7 +83,7 @@ def to_onnx(self, z, parameters=None):
     )
 
     # Call MatMul plugin
-    z = to_onnx_matmul(
+    z = jnp.matmul.to_onnx(
         Z(
             [reshaped_input_shape, kernel_shape],
             [reshaped_input_name, weight_name],
@@ -141,8 +140,8 @@ def to_onnx(self, z, parameters=None):
     return Z([output_shape], [final_out_name], onnx_graph)
 
 
-# Attach the ONNX conversion function to `nnx.LinearGeneral`
-nnx.LinearGeneral.to_onnx = to_onnx
+# ✅ Correctly attach `to_onnx` method to `nnx.LinearGeneral`
+nnx.LinearGeneral.to_onnx = build_linear_general_onnx_node
 
 
 def get_test_params():
@@ -159,7 +158,6 @@ def get_test_params():
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
-            "to_onnx": nnx.LinearGeneral.to_onnx,
         },
         {
             "testcase": "linear_general_2",

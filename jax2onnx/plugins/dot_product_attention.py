@@ -5,8 +5,10 @@ import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 
+from jax2onnx.to_onnx import Z
 
-def build_dot_product_attention_onnx_node(z, **params):
+
+def build_dot_product_attention_onnx_node(z: Z, **params) -> Z:
     """
     Converts `nnx.dot_product_attention` into an ONNX node.
 
@@ -17,13 +19,9 @@ def build_dot_product_attention_onnx_node(z, **params):
     Returns:
         Z: Updated instance with new shapes and names.
     """
-
     input_shapes = z.shapes
     input_names = z.names
     onnx_graph = z.onnx_graph
-
-    # ✅ Provide a default value if softmax_axis is missing
-    softmax_axis = params.get("softmax_axis", -1)
 
     if len(input_shapes) < 3:
         raise ValueError(
@@ -34,6 +32,7 @@ def build_dot_product_attention_onnx_node(z, **params):
     q_onnx_name, k_onnx_name, v_onnx_name = input_names[:3]
 
     node_prefix = f"node{onnx_graph.next_id()}"
+    softmax_axis = params.get("softmax_axis", -1)
 
     # Compute scaling factor d = sqrt(E)
     depth = int(k_shape[-1])  # Ensure depth is an integer scalar
@@ -125,9 +124,6 @@ nnx.dot_product_attention.to_onnx = build_dot_product_attention_onnx_node
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of dot-product attention.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
     """
     return [
         {
@@ -141,13 +137,13 @@ def get_test_params():
                 (2, 4, 8, 16),
                 (2, 6, 8, 16),
                 (2, 6, 8, 16),
-            ],  # K has different sequence length
+            ],
             "to_onnx": nnx.dot_product_attention.to_onnx,
         },
         {
             "testcase": "dot_product_attention_softmax_axis",
             "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
             "to_onnx": nnx.dot_product_attention.to_onnx,
-            "params": {"softmax_axis": -1},  # Explicit test for softmax axis
+            "params": {"softmax_axis": -1},
         },
     ]

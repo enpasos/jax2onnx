@@ -1,13 +1,13 @@
 # file: tests/examples/mnist_vit.py
 
-
 import jax.numpy as jnp
 from flax import nnx
 import jax
-from functools import partial
 import onnx
 import onnx.helper as oh
 from jax2onnx.to_onnx import Z
+
+from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 
 
 class ReshapeWithOnnx:
@@ -19,7 +19,7 @@ class ReshapeWithOnnx:
     def __call__(self, x):
         return x.reshape(self.shape_fn(x.shape))
 
-    def to_onnx(self, z, _):
+    def to_onnx(self, z, **params):
         return jax.numpy.reshape.to_onnx(z, shape=self.shape_fn(z.shapes[0]))
 
 
@@ -32,12 +32,12 @@ class TransposeWithOnnx:
     def __call__(self, x):
         return x.transpose(*self.axes)
 
-    def to_onnx(self, z, _):
+    def to_onnx(self, z, **params):
         return jax.numpy.transpose.to_onnx(z, axes=self.axes)
 
 
-# Function for sinusoidal embeddings
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
+    """Generates sinusoidal positional embeddings."""
     position = jnp.arange(num_patches + 1)[:, jnp.newaxis]
     div_term = jnp.exp(
         jnp.arange(0, num_hiddens, 2) * -(jnp.log(10000.0) / num_hiddens)
@@ -49,91 +49,79 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
 
 
 class PatchEmbedding(nnx.Module):
+    """Applies patch embedding for Vision Transformers."""
+
     def __init__(
-        self,
-        height: int,
-        width: int,
-        patch_size: int,
-        num_hiddens: int,
-        in_features: int,
-        *,
-        rngs: nnx.Rngs,
+        self, height, width, patch_size, num_hiddens, in_features, *, rngs: nnx.Rngs
     ):
-        self.height = height
-        self.width = width
-        self.patch_size = patch_size
-        self.num_patches_h = height // patch_size
-        self.num_patches_w = width // patch_size
-        self.num_patches = self.num_patches_h * self.num_patches_w
-        self.linear = nnx.Linear(
-            in_features=patch_size * patch_size * in_features,
-            out_features=num_hiddens,
-            rngs=rngs,
-        )
-        self.reshape1 = ReshapeWithOnnx(
-            lambda shape: (
-                shape[0],
-                self.num_patches_h,
-                self.patch_size,
-                self.num_patches_w,
-                self.patch_size,
-                shape[-1],
-            )
-        )
-        self.transpose = TransposeWithOnnx([0, 1, 3, 2, 4, 5])
-        self.reshape2 = ReshapeWithOnnx(
-            lambda shape: (
-                shape[0],
-                self.num_patches,
-                self.patch_size * self.patch_size * shape[-1],
-            )
-        )
+        """Initializes the patch embedding module."""
+        num_patches_h, num_patches_w = height // patch_size, width // patch_size
+        num_patches = num_patches_h * num_patches_w
+
+        self.layers = [
+            ReshapeWithOnnx(
+                lambda shape: (
+                    shape[0],
+                    num_patches_h,
+                    patch_size,
+                    num_patches_w,
+                    patch_size,
+                    shape[-1],
+                )
+            ),
+            TransposeWithOnnx([0, 1, 3, 2, 4, 5]),
+            ReshapeWithOnnx(
+                lambda shape: (
+                    shape[0],
+                    num_patches,
+                    patch_size * patch_size * shape[-1],
+                )
+            ),
+            nnx.Linear(
+                in_features=patch_size * patch_size * in_features,
+                out_features=num_hiddens,
+                rngs=rngs,
+            ),
+        ]
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = self.reshape1(x)
-        x = self.transpose(x)
-        x = self.reshape2(x)
-        return self.linear(x)
+        """Forward pass for patch embedding."""
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
-    def to_onnx(self, z, parameters=None):
-        z = self.reshape1.to_onnx(z, parameters)
-        z = self.transpose.to_onnx(z, parameters)
-        z = self.reshape2.to_onnx(z, parameters)
-        return self.linear.to_onnx(z, parameters)
+    def to_onnx(self, z, **params):
+        """ONNX conversion for patch embedding."""
+        for layer in self.layers:
+            z = layer.to_onnx(z, **params)
+        return z
 
 
 class MLPBlock(nnx.Module):
-    def __init__(
-        self,
-        num_hiddens: int,
-        mlp_dim: int,
-        dropout_rate: float = 0.1,
-        *,
-        rngs: nnx.Rngs,
-    ):
-        self.linear1 = nnx.Linear(
-            in_features=num_hiddens, out_features=mlp_dim, rngs=rngs
-        )
-        self.linear2 = nnx.Linear(
-            in_features=mlp_dim, out_features=num_hiddens, rngs=rngs
-        )
-        self.activation = partial(jax.nn.gelu, approximate=False)
-        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+    """MLP block for Transformer layers."""
+
+    def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
+        """Initializes the MLP block."""
+        self.layers: list[Supports2Onnx] = [
+            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+            PartialWithOnnx(jax.nn.gelu, approximate=False),
+            nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+            nnx.Dropout(rate=dropout_rate, rngs=rngs),
+        ]
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.activation(self.linear1(x))
-        x = self.dropout(x, deterministic=deterministic)
-        x = self.linear2(x)
-        x = self.dropout(x, deterministic=deterministic)
+        """Forward pass for MLP block."""
+        for layer in self.layers:
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=deterministic)
+            else:
+                x = layer(x)
         return x
 
-    def to_onnx(self, z, parameters=None):
-        self.activation.to_onnx = jax.nn.gelu.to_onnx
-        z = self.linear1.to_onnx(z)
-        z = self.activation.to_onnx(z)
-        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
-        z = self.linear2.to_onnx(z)
-        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
+    def to_onnx(self, z, **params):
+        for layer in self.layers:
+            z = layer.to_onnx(z, **params)
         return z
 
 
@@ -289,7 +277,7 @@ class VisionTransformer(nnx.Module):
 
 
 def get_test_params():
-    """Return test parameters for Vision Transformer."""
+    """Returns test parameters for Vision Transformer."""
     return [
         {
             "testcase": "patch_embedding",
@@ -306,17 +294,7 @@ def get_test_params():
         {
             "testcase": "mnist_vit",
             "model": VisionTransformer(
-                height=28,
-                width=28,
-                patch_size=4,
-                num_hiddens=256,
-                num_layers=6,
-                num_heads=8,
-                mlp_dim=512,
-                num_classes=10,
-                in_features=1,
-                dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 28, 28, 1)],
         },
