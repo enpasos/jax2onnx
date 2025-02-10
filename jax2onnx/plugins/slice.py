@@ -4,12 +4,11 @@
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__Slice.html
 
 import jax
+import numpy as np
 import onnx
 import onnx.helper as oh
-import numpy as np
-from jax2onnx.to_onnx import Z
 
-from functools import partial
+from jax2onnx.to_onnx import Z
 
 
 def build_slice_onnx_node(z, **params):
@@ -23,36 +22,28 @@ def build_slice_onnx_node(z, **params):
     Returns:
         Z: Updated instance with new shapes and names.
     """
+
     if "start" not in params or "end" not in params:
         raise ValueError("Slice operation requires 'start' and 'end' parameters.")
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
+    input_shape = list(map(int, z.shapes[0]))  # Convert to Python int list
 
-    start = params["start"]
-    end = params["end"]
-    strides = params.get("strides", [1] * len(start))  # Default to step size 1
+    start = list(map(int, params["start"]))  # Convert to Python int list
+    end = list(map(int, params["end"]))
+    strides = list(map(int, params.get("strides", [1] * len(start))))  # Default step=1
+
+    # ✅ Ensure `end` is within input shape (avoid out-of-bounds slicing)
+    end = [min(e, input_shape[i]) for i, e in enumerate(end)]
+
+    # ✅ Ensure `start` is within input shape
+    start = [max(0, s) for s in start]
 
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
 
-    # Add Slice node to the ONNX graph
-    onnx_graph.add_node(
-        oh.make_node(
-            "Slice",
-            inputs=[
-                input_name,
-                f"{node_name}_start",
-                f"{node_name}_end",
-                f"{node_name}_axes",
-                f"{node_name}_steps",
-            ],
-            outputs=[output_name],
-            name=node_name,
-        )
-    )
-
-    # Add initializers for slice parameters
+    # ✅ Create ONNX slice parameters as initializers
     onnx_graph.add_initializer(
         oh.make_tensor(
             f"{node_name}_start",
@@ -74,7 +65,7 @@ def build_slice_onnx_node(z, **params):
             f"{node_name}_axes",
             onnx.TensorProto.INT64,
             [len(start)],
-            np.arange(len(start), dtype=np.int64),
+            np.arange(len(start), dtype=np.int64),  # Axes are sequential
         )
     )
     onnx_graph.add_initializer(
@@ -86,19 +77,39 @@ def build_slice_onnx_node(z, **params):
         )
     )
 
-    # Update output shapes
-    output_shape = [(e - s) // step for s, e, step in zip(start, end, strides)]
-    onnx_graph.add_local_outputs([output_shape], [output_name])
-
-    # Corrected jax_function
-    jax_function = partial(
-        jax.lax.slice, start_indices=start, limit_indices=end, strides=strides
+    # ✅ Add Slice node to ONNX graph
+    onnx_graph.add_node(
+        oh.make_node(
+            "Slice",
+            inputs=[
+                input_name,
+                f"{node_name}_start",
+                f"{node_name}_end",
+                f"{node_name}_axes",
+                f"{node_name}_steps",
+            ],
+            outputs=[output_name],
+            name=node_name,
+        )
     )
 
-    return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
+    # ✅ Compute output shape dynamically
+    output_shape = [
+        max(0, (e - s + (step - 1)) // step)  # Ensures no negative dims
+        for s, e, step in zip(start, end, strides)
+    ]
+    onnx_graph.add_local_outputs([tuple(output_shape)], [output_name])
+
+    # ✅ Define JAX slice function
+    def jax_slice_fn(x):
+        return jax.lax.slice(x, start_indices=start, limit_indices=end, strides=strides)
+
+    return Z(
+        [tuple(output_shape)], [output_name], onnx_graph, jax_function=jax_slice_fn
+    )
 
 
-# Attach ONNX conversion method to JAX slice function
+# ✅ Attach ONNX conversion method to JAX `lax.slice`
 jax.lax.slice.to_onnx = build_slice_onnx_node
 
 
@@ -142,5 +153,11 @@ def get_test_params():
             "input_shapes": [(4, 5)],  # Example 2D matrix
             "to_onnx": jax.lax.slice.to_onnx,
             "params": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
+        },
+        {
+            "testcase": "slice_out_of_bounds",
+            "input_shapes": [(4, 5)],
+            "to_onnx": jax.lax.slice.to_onnx,
+            "params": {"start": [0, 3], "end": [4, 7]},  # Exceeds bounds
         },
     ]

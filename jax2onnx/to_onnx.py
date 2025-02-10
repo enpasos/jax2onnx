@@ -46,13 +46,13 @@ class Z:
 
     def __add__(self, other):
         if not isinstance(other, Z):
-            return NotImplemented  # Ensures correct behavior if `other` is not a `Z` instance
+            return NotImplemented
 
         return Z(
             self.shapes + other.shapes,
             self.names + other.names,
-            self.onnx_graph,  # Keeps `onnx_graph` from `self`
-            self.jax_function,  # Keeps the function from `self`
+            self.onnx_graph,
+            self.jax_function,
         )
 
 
@@ -80,18 +80,23 @@ def to_onnx(
 
     # Initialize the ONNX graph
     onnx_graph = OnnxGraph()
-
-    input_names = [f"input_{onnx_graph.next_id()}" for i in range(len(input_shapes))]
+    input_names = [f"input_{onnx_graph.next_id()}" for _ in input_shapes]
 
     z = Z(input_shapes, input_names, onnx_graph)
 
     # Optional pre-transpose
     z = pre_transpose(z, **params)
 
+    # Convert the model to ONNX
+    # call the with a copy of params that has not pre_transpose and post_transpose included
+    params_no_transpose = {
+        k: v for k, v in params.items() if k not in ["pre_transpose", "post_transpose"]
+    }
+
     if hasattr(model, "to_onnx"):
-        z = model.to_onnx(z, **params)
+        z = model.to_onnx(z, **params_no_transpose)
     elif to_onnx:
-        z = to_onnx(z, **params)
+        z = to_onnx(z, **params_no_transpose)
     else:
         raise ValueError(
             "Model does not have a `to_onnx` method and no conversion function was provided."
@@ -144,16 +149,12 @@ def to_onnx(
 
 
 def pre_transpose(z, **params):
-    shapes = z.shapes
-    names = z.names
-    onnx_graph = z.onnx_graph
-    transposed_input_names = names[:]
-    shapes_out = shapes[:]
+    """Applies a pre-transposition to ONNX inputs if specified in `params`."""
+    shapes, names, onnx_graph = z.shapes, z.names, z.onnx_graph
+    transposed_input_names, shapes_out = names[:], shapes[:]
 
     if "pre_transpose" in params:
-        pre_transpose_perm = params.pop(
-            "pre_transpose", [(0, 3, 1, 2)]
-        )  # Default NHWC → NCHW
+        pre_transpose_perm = params.pop("pre_transpose", [(0, 3, 1, 2)])  # NHWC → NCHW
 
         transposed_input_names = [
             f"{name}_transposed_{onnx_graph.next_id()}" for name in names
@@ -169,35 +170,30 @@ def pre_transpose(z, **params):
                 )
             )
             x = jnp.zeros(shapes[i])
-            shape = jnp.transpose(x, pre_transpose_perm[i]).shape
-            shapes_out[i] = shape
+            shapes_out[i] = jnp.transpose(x, pre_transpose_perm[i]).shape
 
         onnx_graph.add_local_outputs(shapes_out, transposed_input_names)
-        z.shapes = shapes_out
-        z.names = transposed_input_names
+        z.shapes, z.names = shapes_out, transposed_input_names
 
     return z
 
 
 def post_transpose(z, **params):
-    output_shapes = z.shapes
-    output_names = z.names
-    onnx_graph = z.onnx_graph
-    final_output_names = output_names[:]
-    shapes = output_shapes[:]
+    """Applies a post-transposition to ONNX outputs if specified in `params`."""
+    output_shapes, output_names, onnx_graph = z.shapes, z.names, z.onnx_graph
+    final_output_names, shapes = output_names[:], output_shapes[:]
 
     if "post_transpose" in params:
         post_transpose_perm = params.pop(
             "post_transpose", [(0, 2, 3, 1)]
-        )  # Default NCHW → NHWC
+        )  # NCHW → NHWC
 
         final_output_names = [
             f"{name}_transposed_{onnx_graph.next_id()}" for name in output_names
         ]
         for i in range(len(output_names)):
             x = jnp.zeros(output_shapes[i])
-            shape = jnp.transpose(x, post_transpose_perm[i]).shape
-            shapes[i] = shape
+            shapes[i] = jnp.transpose(x, post_transpose_perm[i]).shape
             onnx_graph.add_node(
                 oh.make_node(
                     "Transpose",
@@ -209,7 +205,6 @@ def post_transpose(z, **params):
             )
 
         onnx_graph.add_local_outputs(shapes, final_output_names)
-        z.shapes = shapes
-        z.names = final_output_names
+        z.shapes, z.names = shapes, final_output_names
 
     return z

@@ -3,13 +3,14 @@
 # JAX API: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__Squeeze.html
 
+from functools import partial
+
 import jax.numpy as jnp
+import numpy as np
 import onnx
 import onnx.helper as oh
-import numpy as np
-from jax2onnx.to_onnx import Z
 
-from functools import partial
+from jax2onnx.to_onnx import Z
 
 
 def build_squeeze_onnx_node(z, **params):

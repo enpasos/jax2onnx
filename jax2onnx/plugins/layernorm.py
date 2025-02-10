@@ -3,17 +3,17 @@
 import onnx
 import onnx.helper as oh
 from flax import nnx
+
 from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
 
-def to_onnx(self, z, **params):
+def build_layernorm_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
     """
     Converts an `nnx.LayerNorm` layer into an ONNX `LayerNormalization` node.
 
-    This function adds scale and bias initializers to the ONNX graph if applicable.
-
     Args:
-        self: The `nnx.LayerNorm` instance.
+        self: The LayerNorm instance.
         z (Z): Contains input shapes, names, and the ONNX graph.
         **params: Additional conversion parameters.
 
@@ -62,7 +62,7 @@ def to_onnx(self, z, **params):
         )
 
     # Define ONNX output names
-    onnx_output_names = [f"{node_name}_output"]
+    output_names = [f"{node_name}_output"]
 
     # Compute output shapes (LayerNorm does not alter shape)
     output_shapes = [input_shape]
@@ -75,7 +75,7 @@ def to_onnx(self, z, **params):
         oh.make_node(
             "LayerNormalization",
             inputs=inputs,
-            outputs=onnx_output_names,
+            outputs=output_names,
             name=node_name,
             epsilon=epsilon,
             axis=axis,
@@ -83,23 +83,22 @@ def to_onnx(self, z, **params):
     )
 
     # Register the output tensor in the ONNX graph
-    onnx_graph.add_local_outputs(output_shapes, onnx_output_names)
+    onnx_graph.add_local_outputs(output_shapes, output_names)
 
-    return Z(output_shapes, onnx_output_names, onnx_graph)
+    # Update and return Z
+    z.shapes = output_shapes
+    z.names = output_names
+    z.jax_function = self
+    return z
 
 
-# Attach the `to_onnx` method to `nnx.LayerNorm`
-nnx.LayerNorm.to_onnx = to_onnx
+# ✅ Correctly attach `to_onnx` method to `nnx.LayerNorm`
+nnx.LayerNorm.to_onnx = build_layernorm_onnx_node
 
 
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of `nnx.LayerNorm`.
-
-    The test parameters define:
-    - A simple `nnx.LayerNorm` model with input and output dimensions.
-    - The corresponding input tensor shape.
-    - The ONNX conversion function to be used in unit tests.
 
     Returns:
         list: A list of dictionaries, each defining a test case.

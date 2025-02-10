@@ -1,25 +1,18 @@
 # file: jax2onnx/plugins/activation_functions.py
 
-import jax
-import onnx.helper as oh
-from jax2onnx.to_onnx import Z
-
 from functools import partial
 
+import jax
+import onnx.helper as oh
 
-def build_generic_onnx_node(op_type, jax_function, z, parameters=None):
-    """
-    Creates an ONNX node for standard activation functions (e.g., ReLU, Sigmoid).
+from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
-    Args:
-        op_type (str): The corresponding ONNX operation type (e.g., 'Relu', 'Sigmoid').
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters for ONNX, if applicable.
 
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
-
+def build_generic_onnx_node(
+    op_type: str, jax_function: Supports2Onnx, z: Z, **params
+) -> Z:
+    """Creates an ONNX node for standard activation functions (e.g., ReLU, Sigmoid)."""
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
@@ -28,7 +21,6 @@ def build_generic_onnx_node(op_type, jax_function, z, parameters=None):
     node_name = f"node{onnx_graph.next_id()}"
     output_names = [f"{node_name}_output"]
 
-    # Add the activation function node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
             op_type,
@@ -38,7 +30,6 @@ def build_generic_onnx_node(op_type, jax_function, z, parameters=None):
         )
     )
 
-    # Activation functions do not change the tensor shape
     output_shapes = [input_shape]
     onnx_graph.add_local_outputs(output_shapes, output_names)
 
@@ -62,26 +53,16 @@ jax.nn.softplus.to_onnx = lambda *args: build_generic_onnx_node(
 )
 
 
-def build_log_softmax_onnx_node(z, parameters=None):
-    """
-    Creates an ONNX node for LogSoftmax with configurable axis.
-
-    Args:
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'axis' (default: -1).
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
+def build_log_softmax_onnx_node(z: Z, **params) -> Z:
+    """Creates an ONNX node for LogSoftmax with configurable axis."""
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
     node_name = f"node{onnx_graph.next_id()}"
-    axis = parameters.get("axis", -1) if parameters else -1
+    axis = params.get("axis", -1)
     output_names = [f"{node_name}_output"]
 
-    # Add LogSoftmax node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
             "LogSoftmax",
@@ -101,26 +82,16 @@ def build_log_softmax_onnx_node(z, parameters=None):
 jax.nn.log_softmax.to_onnx = build_log_softmax_onnx_node
 
 
-def build_leaky_relu_onnx_node(z, parameters=None):
-    """
-    Creates an ONNX node for LeakyReLU with configurable alpha.
-
-    Args:
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing 'alpha' (default: 0.01).
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
+def build_leaky_relu_onnx_node(z: Z, **params) -> Z:
+    """Creates an ONNX node for LeakyReLU with configurable alpha."""
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
     node_name = f"node{onnx_graph.next_id()}"
-    alpha = parameters.get("alpha", 0.01) if parameters else 0.01
+    alpha = params.get("alpha", 0.01)
     output_names = [f"{node_name}_output"]
 
-    # Add LeakyReLU node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
             "LeakyRelu",
@@ -140,17 +111,8 @@ def build_leaky_relu_onnx_node(z, parameters=None):
 jax.nn.leaky_relu.to_onnx = build_leaky_relu_onnx_node
 
 
-def build_gelu_onnx_node(z, parameters=None):
-    """
-    Creates an ONNX node for GELU activation function.
-
-    Args:
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Dictionary containing ONNX-specific parameters (not used).
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
+def build_gelu_onnx_node(z: Z, **params) -> Z:
+    """Creates an ONNX node for GELU activation function."""
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
@@ -158,7 +120,6 @@ def build_gelu_onnx_node(z, parameters=None):
     node_name = f"node{onnx_graph.next_id()}"
     output_names = [f"{node_name}_output"]
 
-    # Add GELU node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
             "Gelu",
@@ -182,12 +143,7 @@ jax.nn.gelu.to_onnx = build_gelu_onnx_node
 
 
 def get_test_params():
-    """
-    Defines test parameters for verifying the ONNX conversion of activation functions.
-
-    Returns:
-        list: A list of dictionaries, each representing a test case.
-    """
+    """Defines test parameters for verifying the ONNX conversion of activation functions."""
     return [
         {
             "testcase": "relu",
@@ -239,6 +195,11 @@ def get_test_params():
         {
             "testcase": "gelu2",
             "input_shapes": [(1, 512)],
+            "to_onnx": jax.nn.gelu.to_onnx,
+        },
+        {
+            "testcase": "gelu3",
+            "input_shapes": [(1, 10, 512)],
             "to_onnx": jax.nn.gelu.to_onnx,
         },
     ]

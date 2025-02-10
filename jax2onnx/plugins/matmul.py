@@ -3,22 +3,23 @@
 import jax.numpy as jnp
 import onnx.helper as oh
 
+from jax2onnx.to_onnx import Z
+from jax2onnx.typing_helpers import Supports2Onnx
 
-def to_onnx_matmul(z, parameters=None):
+
+def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
     """
-    Constructs an ONNX node for jax.numpy.matmul, ensuring proper handling of batch dimensions
+    Constructs an ONNX node for `jax.numpy.matmul`, ensuring proper handling of batch dimensions
     and transpositions to match ONNX's MatMul behavior.
 
     Args:
+        jax_function: The JAX function (here, `jax.numpy.matmul`).
         z (Z): A container with input shapes, names, and the ONNX graph.
-        parameters (dict, optional): Additional parameters (currently unused).
+        **params: Additional parameters (currently unused).
 
     Returns:
         Z: Updated instance with new shapes and names.
     """
-    if parameters is None:
-        parameters = {}
-
     if len(z.shapes) != 2:
         raise ValueError("MatMul requires exactly two inputs.")
 
@@ -61,20 +62,19 @@ def to_onnx_matmul(z, parameters=None):
     # Update and return Z
     z.shapes = [output_shape]
     z.names = [matmul_out_name]
-    z.jax_function = jnp.matmul
+    z.jax_function = jax_function
     return z
 
 
-# Attach the ONNX conversion function to `jax.numpy.matmul`
-jnp.matmul.to_onnx = to_onnx_matmul
+# ✅ Attach `to_onnx` method to `jax.numpy.matmul`
+jnp.matmul.to_onnx = lambda *args, **kwargs: build_matmul_onnx_node(
+    jnp.matmul, *args, **kwargs
+)
 
 
 def get_test_params():
     """
     Returns test parameters for verifying the ONNX conversion of MatMul.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
     """
     return [
         {

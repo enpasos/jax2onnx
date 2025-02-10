@@ -1,14 +1,17 @@
 # file: jax2onnx/plugins/batchnorm.py
 
+from typing import cast, Any
+
 import numpy as np
 import onnx
 import onnx.helper as oh
 from flax import nnx
+
 from jax2onnx.to_onnx import Z
-from jax2onnx.typing_helpers import Supports2Onnx  # Import the protocol
+from jax2onnx.typing_helpers import Supports2Onnx
 
 
-def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
+def to_onnx(self: Supports2Onnx, z: Z, **params: Any) -> Z:
     """
     Converts an `nnx.BatchNorm` layer into an ONNX `BatchNormalization` node.
 
@@ -20,7 +23,6 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     Returns:
         Z: Updated instance with new shapes and names.
     """
-
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
@@ -28,55 +30,37 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     # Generate unique node name
     node_name = f"node{onnx_graph.next_id()}"
 
-    # Extract epsilon and momentum or use defaults
+    # Extract epsilon and momentum safely
     epsilon = getattr(self, "epsilon", 1e-5)
     momentum = 1 - getattr(self, "momentum", 0.9)
 
-    # Extract learned parameters
-    scale = self.scale.value
-    bias = self.bias.value
-    mean = self.mean.value
-    var = self.var.value
+    # Ensure that self is a proper nnx.BatchNorm instance
+    self = cast(nnx.BatchNorm, self)
+
+    # Extract trained parameters
+    scale, bias, mean, var = (
+        self.scale.value,
+        self.bias.value,
+        self.mean.value,
+        self.var.value,
+    )
 
     # Create tensor names
-    scale_name = f"{node_name}_scale"
-    bias_name = f"{node_name}_bias"
-    mean_name = f"{node_name}_mean"
-    var_name = f"{node_name}_variance"
+    scale_name, bias_name = f"{node_name}_scale", f"{node_name}_bias"
+    mean_name, var_name = f"{node_name}_mean", f"{node_name}_variance"
 
-    # Add parameters to the initializers
-    onnx_graph.add_initializer(
-        oh.make_tensor(
-            scale_name,
-            onnx.TensorProto.FLOAT,
-            scale.shape,
-            scale.flatten().astype(np.float32),
+    # Add parameters as ONNX initializers
+    for name, tensor in zip(
+        [scale_name, bias_name, mean_name, var_name], [scale, bias, mean, var]
+    ):
+        onnx_graph.add_initializer(
+            oh.make_tensor(
+                name,
+                onnx.TensorProto.FLOAT,
+                tensor.shape,
+                tensor.flatten().astype(np.float32),
+            )
         )
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(
-            bias_name,
-            onnx.TensorProto.FLOAT,
-            bias.shape,
-            bias.flatten().astype(np.float32),
-        )
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(
-            mean_name,
-            onnx.TensorProto.FLOAT,
-            mean.shape,
-            mean.flatten().astype(np.float32),
-        )
-    )
-    onnx_graph.add_initializer(
-        oh.make_tensor(
-            var_name,
-            onnx.TensorProto.FLOAT,
-            var.shape,
-            var.flatten().astype(np.float32),
-        )
-    )
 
     # Define ONNX output names
     onnx_output_names = [f"{node_name}_output"]
@@ -102,7 +86,6 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     return Z(output_shapes, onnx_output_names, onnx_graph)
 
 
-# Attach the `to_onnx` method to `nnx.BatchNorm`
 nnx.BatchNorm.to_onnx = to_onnx
 
 

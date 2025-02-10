@@ -1,8 +1,10 @@
 # file: tests/examples/mlp.py
 
+
 from flax import nnx
 import jax
 import jax.numpy as jnp
+from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 
 
 class MLP(nnx.Module):
@@ -10,29 +12,26 @@ class MLP(nnx.Module):
 
     def __init__(self, din: int, dmid: int, dout: int, *, rngs=nnx.Rngs(0)):
         """Initializes the MLP model with linear layers, batch normalization, dropout, and activation."""
-        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-        self.batch_norm = nnx.BatchNorm(dmid, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
-        self.activation = jax.nn.gelu
-        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+        self.layers: list[Supports2Onnx] = [
+            nnx.Linear(din, dmid, rngs=rngs),
+            nnx.BatchNorm(dmid, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
+            PartialWithOnnx(jax.nn.gelu, approximate=False),
+            nnx.Linear(dmid, dout, rngs=rngs),
+        ]
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         """Defines the forward pass of the MLP."""
-        x = self.linear1(x)
-        x = self.batch_norm(x)
-        x = self.dropout(x, deterministic=deterministic)
-        x = self.activation(x)
-        return self.linear2(x)
+        for layer in self.layers:
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=deterministic)
+            else:
+                x = layer(x)
+        return x
 
     def to_onnx(self, z, **params):
         """Defines the ONNX export logic for the MLP model."""
-        for layer in [
-            self.linear1,
-            self.batch_norm,
-            self.dropout,
-            self.activation,
-            self.linear2,
-        ]:
+        for layer in self.layers:
             z = layer.to_onnx(z, **params)
         return z
 
