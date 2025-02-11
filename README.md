@@ -74,8 +74,8 @@ Versions of Major Dependencies
 
 | Library       | jax2onnx v0.1.0 | 
 |:--------------|:----------------| 
-| `JAX`         | v0.4.38         | 
-| `Flax`        | v0.10.2         | 
+| `JAX`         | v0.5.0          | 
+| `Flax`        | v0.10.3         | 
 | `onnx`        | v1.17.0         |  
 | `onnxruntime` | v1.20.1         |  
 
