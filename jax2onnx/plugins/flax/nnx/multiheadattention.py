@@ -64,17 +64,50 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "multihead_attention",
-            "component": nnx.MultiHeadAttention(
-                num_heads=8,
-                in_features=256,
-                qkv_features=256,
-                out_features=256,
-                rngs=nnx.Rngs(0),
-                decode=False,  # Explicitly set decode=False
-            ),
-            "input_shapes": [
-                (2, 4, 256)
-            ],  # Input shape: (Batch=2, SeqLength=4, Features=256)
+            "jax_component": "flax.nnx.MultiHeadAttention",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention",
+            "onnx": [
+                {
+                    "component": "Reshape",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+                },
+                {
+                    "component": "MatMul",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+                },
+                {
+                    "component": "Constant",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+                },
+                {
+                    "component": "Einsum",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+                },
+                {
+                    "component": "Mul",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html",
+                },
+                {
+                    "component": "Softmax",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "multihead_attention",
+                    "component": nnx.MultiHeadAttention(
+                        num_heads=8,
+                        in_features=256,
+                        qkv_features=256,
+                        out_features=256,
+                        rngs=nnx.Rngs(0),
+                        decode=False,  # Explicitly set decode=False
+                    ),
+                    "input_shapes": [
+                        (2, 4, 256)
+                    ],  # Input shape: (Batch=2, SeqLength=4, Features=256)
+                }
+            ],
         }
     ]

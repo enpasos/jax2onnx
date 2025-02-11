@@ -78,18 +78,31 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "matmul_2d",
-            "input_shapes": [(3, 4), (4, 3)],
-            "component": jnp.matmul,
-        },
-        {
-            "testcase": "matmul_3d",
-            "input_shapes": [(2, 3, 4), (2, 4, 3)],
-            "component": jnp.matmul,
-        },
-        {
-            "testcase": "matmul_4d",
-            "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
-            "component": jnp.matmul,
-        },
+            "jax_component": "jax.numpy.matmul",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html",
+            "onnx": [
+                {
+                    "component": "MatMul",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "matmul_2d",
+                    "input_shapes": [(3, 4), (4, 3)],
+                    "component": jnp.matmul,
+                },
+                {
+                    "testcase": "matmul_3d",
+                    "input_shapes": [(2, 3, 4), (2, 4, 3)],
+                    "component": jnp.matmul,
+                },
+                {
+                    "testcase": "matmul_4d",
+                    "input_shapes": [(1, 2, 3, 4), (1, 2, 4, 3)],
+                    "component": jnp.matmul,
+                },
+            ],
+        }
     ]

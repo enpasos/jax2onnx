@@ -59,33 +59,46 @@ jnp.transpose.to_onnx = build_transpose_onnx_node
 def get_test_params():
     return [
         {
-            "testcase": "transpose_basic",
-            "input_shapes": [(2, 3)],
-            "component": jnp.transpose,
-            "params": {"axes": [1, 0]},  # Change "perm" to "axes"
-        },
-        {
-            "testcase": "transpose_reverse",
-            "input_shapes": [(2, 3, 4)],
-            "component": jnp.transpose,
-            "params": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
-        },
-        {
-            "testcase": "transpose_4d",
-            "input_shapes": [(1, 2, 3, 4)],
-            "component": jnp.transpose,
-            "params": {"axes": [0, 2, 3, 1]},
-        },
-        {
-            "testcase": "transpose_square_matrix",
-            "input_shapes": [(5, 5)],
-            "component": jnp.transpose,
-            "params": {"axes": [1, 0]},
-        },
-        {
-            "testcase": "transpose_high_dim",
-            "input_shapes": [(2, 3, 4, 5, 6)],
-            "component": jnp.transpose,
-            "params": {"axes": [4, 3, 2, 1, 0]},
-        },
+            "jax_component": "jax.numpy.transpose",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.transpose.html",
+            "onnx": [
+                {
+                    "component": "Transpose",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "transpose_basic",
+                    "input_shapes": [(2, 3)],
+                    "component": jnp.transpose,
+                    "params": {"axes": [1, 0]},  # Change "perm" to "axes"
+                },
+                {
+                    "testcase": "transpose_reverse",
+                    "input_shapes": [(2, 3, 4)],
+                    "component": jnp.transpose,
+                    "params": {"axes": [2, 1, 0]},  # Change "perm" to "axes"
+                },
+                {
+                    "testcase": "transpose_4d",
+                    "input_shapes": [(1, 2, 3, 4)],
+                    "component": jnp.transpose,
+                    "params": {"axes": [0, 2, 3, 1]},
+                },
+                {
+                    "testcase": "transpose_square_matrix",
+                    "input_shapes": [(5, 5)],
+                    "component": jnp.transpose,
+                    "params": {"axes": [1, 0]},
+                },
+                {
+                    "testcase": "transpose_high_dim",
+                    "input_shapes": [(2, 3, 4, 5, 6)],
+                    "component": jnp.transpose,
+                    "params": {"axes": [4, 3, 2, 1, 0]},
+                },
+            ],
+        }
     ]

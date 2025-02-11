@@ -150,33 +150,50 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "linear_general",
-            "component": nnx.LinearGeneral(
-                in_features=(8, 32),
-                out_features=(256,),
-                axis=(-2, -1),
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(2, 4, 8, 32)],
-        },
-        {
-            "testcase": "linear_general_2",
-            "component": nnx.LinearGeneral(
-                in_features=(256,),
-                out_features=(8, 32),
-                axis=(-1,),
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(2, 4, 256)],
-        },
-        {
-            "testcase": "linear_general_mha_projection",
-            "component": nnx.LinearGeneral(
-                in_features=(8, 32),
-                out_features=(256,),
-                axis=(-2, -1),
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(2, 4, 8, 32)],
-        },
+            "jax_component": "flax.nnx.LinearGeneral",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
+            "onnx": [
+                {
+                    "component": "Reshape",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+                },
+                {
+                    "component": "MatMul",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "linear_general",
+                    "component": nnx.LinearGeneral(
+                        in_features=(8, 32),
+                        out_features=(256,),
+                        axis=(-2, -1),
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(2, 4, 8, 32)],
+                },
+                {
+                    "testcase": "linear_general_2",
+                    "component": nnx.LinearGeneral(
+                        in_features=(256,),
+                        out_features=(8, 32),
+                        axis=(-1,),
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(2, 4, 256)],
+                },
+                {
+                    "testcase": "linear_general_mha_projection",
+                    "component": nnx.LinearGeneral(
+                        in_features=(8, 32),
+                        out_features=(256,),
+                        axis=(-2, -1),
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(2, 4, 8, 32)],
+                },
+            ],
+        }
     ]

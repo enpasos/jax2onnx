@@ -132,32 +132,36 @@ nnx.Linear.to_onnx = to_onnx
 
 
 def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of `nnx.Linear`.
-
-    The test parameters define:
-    - A simple `nnx.Linear` model with input and output dimensions.
-    - The corresponding input tensor shape.
-    - The ONNX conversion function to be used in unit tests.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
-    """
     return [
         {
-            "testcase": "linear",
-            "component": nnx.Linear(
-                5, 3, rngs=nnx.Rngs(0)
-            ),  # Linear layer with input dim 5, output dim 3
-            "input_shapes": [(1, 5)],  # Example input shape (batch_size=1, input_dim=5)
-        },
-        {
-            "testcase": "linear_2",
-            "component": nnx.Linear(
-                256, 512, rngs=nnx.Rngs(0)
-            ),  # Linear layer with input dim 256, output dim 512
-            "input_shapes": [
-                (1, 10, 256)
-            ],  # Batched input for testing reshape handling
-        },
+            "jax_component": "flax.nnx.Linear",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Linear",
+            "onnx": [
+                {
+                    "component": "Gemm",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "linear",
+                    "component": nnx.Linear(
+                        5, 3, rngs=nnx.Rngs(0)
+                    ),  # Linear layer with input dim 5, output dim 3
+                    "input_shapes": [
+                        (1, 5)
+                    ],  # Example input shape (batch_size=1, input_dim=5)
+                },
+                {
+                    "testcase": "linear_2",
+                    "component": nnx.Linear(
+                        256, 512, rngs=nnx.Rngs(0)
+                    ),  # Linear layer with input dim 256, output dim 512
+                    "input_shapes": [
+                        (1, 10, 256)
+                    ],  # Batched input for testing reshape handling
+                },
+            ],
+        }
     ]

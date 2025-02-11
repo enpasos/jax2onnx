@@ -40,8 +40,21 @@ jnp.add.to_onnx = lambda z, **params: build_add_onnx_node(z, **params)
 def get_test_params():
     return [
         {
-            "testcase": "add",
-            "input_shapes": [(1, 10), (1, 10)],
-            "component": jnp.add,
-        },
+            "jax_component": "jax.numpy.add",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
+            "onnx": [
+                {
+                    "component": "Add",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Add.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "add",
+                    "input_shapes": [(1, 10), (1, 10)],
+                    "component": jnp.add,
+                },
+            ],
+        }
     ]

@@ -136,30 +136,53 @@ nnx.Conv.to_onnx = to_onnx
 
 
 def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of `nnx.Conv`.
-    """
+    """Defines test parameters for `nnx.Conv` ONNX conversion."""
     return [
         {
-            "testcase": "conv",
-            "component": nnx.Conv(
-                in_features=3,
-                out_features=16,
-                kernel_size=(3, 3),
-                strides=(1, 1),
-                padding="SAME",
-                kernel_dilation=(1, 1),
-                use_bias=True,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "params": {
-                "pre_transpose": [
-                    (0, 3, 1, 2)
-                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [
-                    (0, 2, 3, 1)
-                ],  # Convert ONNX output back to JAX format
-            },
+            "jax_component": "flax.nnx.Conv",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv",
+            "onnx": [
+                {
+                    "component": "Conv",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
+                }
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "conv_3x3",
+                    "component": nnx.Conv(
+                        in_features=3,
+                        out_features=16,
+                        kernel_size=(3, 3),
+                        strides=(1, 1),
+                        padding="SAME",
+                        kernel_dilation=(1, 1),
+                        use_bias=True,
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(1, 64, 64, 3)],  # JAX shape (N, H, W, C)
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                        "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX → JAX
+                    },
+                },
+                {
+                    "testcase": "conv_5x5_stride2",
+                    "component": nnx.Conv(
+                        in_features=3,
+                        out_features=16,
+                        kernel_size=(5, 5),
+                        strides=(2, 2),
+                        padding="SAME",
+                        rngs=nnx.Rngs(42),
+                    ),
+                    "input_shapes": [(1, 64, 64, 3)],  # JAX shape (N, H, W, C)
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                        "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX → JAX
+                    },
+                },
+            ],
         }
     ]

@@ -1,99 +1,62 @@
 # file: tests/test_to_onnx.py
 
-import flax.nnx
+import pytest
 import jax
 import onnxruntime as ort
-import numpy as np
-
-from jax2onnx.to_onnx import to_onnx
-from jax2onnx.typing_helpers import supports_onnx
-
-import pytest
-import os
-import pathlib
 import importlib
+import os
+import numpy as np
+from flax import nnx
+from jax2onnx.to_onnx import to_onnx
 
 
 def load_test_params():
-    """Recursively loads test parameters from plugins and example modules."""
     params = []
 
-    # Load plugins recursively
-    base_plugin_package = "jax2onnx.plugins"
-    plugins_base_path = pathlib.Path(__file__).parent / "../jax2onnx/plugins"
+    # Load plugins
+    plugins_path = os.path.join(os.path.dirname(__file__), "../jax2onnx/plugins")
+    examples_path = os.path.join(
+        os.path.dirname(__file__), "../jax2onnx/examples"
+    )  # ✅ Add examples path
 
-    for path in plugins_base_path.rglob("*.py"):
-        if path.name == "__init__.py":  # Skip __init__.py files
-            continue
+    def load_tests_from_directory(base_path):
+        """Helper function to load testcases from a given directory."""
+        for dirpath, _, filenames in os.walk(base_path):
+            for filename in filenames:
+                if filename.endswith(".py") and filename != "__init__.py":
+                    module_path = os.path.join(dirpath, filename)
+                    module_name = module_path.replace("/", ".").replace(".py", "")
 
-        relative_path = path.relative_to(plugins_base_path).with_suffix("")
-        module_name = (
-            f"{base_plugin_package}.{relative_path.as_posix().replace('/', '.')}"
-        )
+                    spec = importlib.util.spec_from_file_location(
+                        module_name, module_path
+                    )
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
 
-        module = importlib.import_module(module_name)
-        if hasattr(module, "get_test_params"):
-            print(f"Loading test params from plugin: {module_name}")
-            plugin_params = module.get_test_params()
+                    if hasattr(module, "get_test_params"):
+                        test_params = module.get_test_params()
+                        if isinstance(test_params, list):
+                            for entry in test_params:
+                                # Unpack multiple testcases per component
+                                if "testcases" in entry:
+                                    for test in entry["testcases"]:
+                                        test["jax_component"] = entry[
+                                            "jax_component"
+                                        ]  # Add reference
+                                        params.append(test)
 
-            if isinstance(plugin_params, list) and all(
-                isinstance(p, dict) for p in plugin_params
-            ):
-                for param in plugin_params:
-                    param.setdefault("test_name", param.get("testcase", "Unnamed"))
-                params.extend(plugin_params)
-            elif isinstance(plugin_params, dict):
-                plugin_params.setdefault(
-                    "test_name", plugin_params.get("testcase", "Unnamed")
-                )
-                params.append(plugin_params)
-            else:
-                raise ValueError(
-                    f"Plugin {module_name} must return a list or a dictionary."
-                )
-
-    # Load example models recursively
-    base_example_package = "jax2onnx.examples"
-    examples_base_path = pathlib.Path(__file__).parent / "../jax2onnx/examples"
-
-    for path in examples_base_path.rglob("*.py"):
-        if path.name == "__init__.py":  # Skip __init__.py files
-            continue
-
-        relative_path = path.relative_to(examples_base_path).with_suffix("")
-        module_name = (
-            f"{base_example_package}.{relative_path.as_posix().replace('/', '.')}"
-        )
-
-        module = importlib.import_module(module_name)
-        if hasattr(module, "get_test_params"):
-            print(f"Loading test params from example: {module_name}")
-            example_params = module.get_test_params()
-
-            if isinstance(example_params, list) and all(
-                isinstance(p, dict) for p in example_params
-            ):
-                for param in example_params:
-                    param.setdefault("test_name", param.get("testcase", "Unnamed"))
-                params.extend(example_params)
-            else:
-                raise ValueError(
-                    f"Example {module_name} must return a list of dictionaries."
-                )
+    # ✅ Load tests from plugins and examples
+    load_tests_from_directory(plugins_path)
+    load_tests_from_directory(examples_path)
 
     # Wrap params with pytest.param to set custom test names
-    return [pytest.param(param, id=param["test_name"]) for param in params]
+    return [pytest.param(param, id=param["testcase"]) for param in params]
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
 
     component = test_params.get("component", None)
-
-    if not supports_onnx(component):
-        raise TypeError(
-            f"Component {type(component).__name__} does not support ONNX export."
-        )
 
     if hasattr(component, "eval"):
         component.eval()
@@ -131,18 +94,12 @@ def test_onnx_export(test_params):
     # Compute ONNX output
     onnx_outputs = ort_session.run(None, onnx_inputs_dict)
 
-    # Compute JAX output
-    # for now one input, one output
-    # call model or function
-    # if component is instance of flax.nnx.Module
-
-    if isinstance(component, flax.nnx.Module):
+    if isinstance(component, nnx.Module):
         expected_outputs = [component(*inputs)]
-    # else if to_onnx_function is not None and is a function
     elif z.jax_function is not None and callable(z.jax_function):
         expected_outputs = [z.jax_function(*inputs)]
     else:
-        raise ValueError("Can not call JAX function or module")
+        raise ValueError("Cannot call JAX function or module")
 
     # Assert the results
     for i in range(len(expected_outputs)):

@@ -75,42 +75,55 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "dropout",
-            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
-            "params": {
-                "pre_transpose": [(0, 3, 1, 2)],
-                "post_transpose": [(0, 2, 3, 1)],
-            },
-        },
-        {
-            "testcase": "dropout_low",
-            "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 32, 32, 3)],
-        },
-        {
-            "testcase": "dropout_high",
-            "component": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10, 32, 32, 3)],
-        },
-        {
-            "testcase": "dropout_1d",
-            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10,)],
-        },
-        {
-            "testcase": "dropout_2d",
-            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10, 20)],
-        },
-        {
-            "testcase": "dropout_3d",
-            "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(17)),
-            "input_shapes": [(1, 10, 512)],
-        },
-        {
-            "testcase": "dropout_4d",
-            "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10, 20, 30, 40)],
-        },
+            "jax_component": "flax.nnx.Dropout",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
+            "onnx": [
+                {
+                    "component": "Dropout",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Dropout.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "dropout",
+                    "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(1, 64, 64, 3)],  # JAX shape: (B, H, W, C)
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],
+                        "post_transpose": [(0, 2, 3, 1)],
+                    },
+                },
+                {
+                    "testcase": "dropout_low",
+                    "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(1, 32, 32, 3)],
+                },
+                {
+                    "testcase": "dropout_high",
+                    "component": nnx.Dropout(rate=0.9, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(10, 32, 32, 3)],
+                },
+                {
+                    "testcase": "dropout_1d",
+                    "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(10,)],
+                },
+                {
+                    "testcase": "dropout_2d",
+                    "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(10, 20)],
+                },
+                {
+                    "testcase": "dropout_3d",
+                    "component": nnx.Dropout(rate=0.1, rngs=nnx.Rngs(17)),
+                    "input_shapes": [(1, 10, 512)],
+                },
+                {
+                    "testcase": "dropout_4d",
+                    "component": nnx.Dropout(rate=0.5, rngs=nnx.Rngs(0)),
+                    "input_shapes": [(10, 20, 30, 40)],
+                },
+            ],
+        }
     ]

@@ -110,35 +110,61 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "avg_pool",
-            "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "component": nnx.avg_pool,
-            "params": {
-                "window_shape": (2, 2),
-                "strides": (2, 2),
-                "padding": "SAME",
-                "pre_transpose": [
-                    (0, 3, 1, 2)
-                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [
-                    (0, 2, 3, 1)
-                ],  # Convert ONNX output back to JAX format
-            },
+            "jax_component": "flax.nnx.avg_pool",
+            "jax_doc": "https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool",
+            "onnx": [
+                {
+                    "component": "AveragePool",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",
+                }
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "avg_pool",
+                    "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
+                    "component": nnx.avg_pool,
+                    "params": {
+                        "window_shape": (2, 2),
+                        "strides": (2, 2),
+                        "padding": "SAME",
+                        "pre_transpose": [
+                            (0, 3, 1, 2)
+                        ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                        "post_transpose": [
+                            (0, 2, 3, 1)
+                        ],  # Convert ONNX output back to JAX format
+                    },
+                }
+            ],
         },
         {
-            "testcase": "max_pool",
-            "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
-            "component": nnx.max_pool,
-            "params": {
-                "window_shape": (2, 2),
-                "strides": (2, 2),
-                "padding": "SAME",
-                "pre_transpose": [
-                    (0, 3, 1, 2)
-                ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
-                "post_transpose": [
-                    (0, 2, 3, 1)
-                ],  # Convert ONNX output back to JAX format
-            },
+            "jax_component": "flax.nnx.max_pool",
+            "jax_doc": "https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool",
+            "onnx": [
+                {
+                    "component": "MaxPool",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
+                }
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "max_pool",
+                    "input_shapes": [(1, 32, 32, 3)],  # JAX shape: (B, H, W, C)
+                    "component": nnx.max_pool,
+                    "params": {
+                        "window_shape": (2, 2),
+                        "strides": (2, 2),
+                        "padding": "SAME",
+                        "pre_transpose": [
+                            (0, 3, 1, 2)
+                        ],  # Convert JAX (B, H, W, C) to ONNX (B, C, H, W)
+                        "post_transpose": [
+                            (0, 2, 3, 1)
+                        ],  # Convert ONNX output back to JAX format
+                    },
+                },
+            ],
         },
     ]

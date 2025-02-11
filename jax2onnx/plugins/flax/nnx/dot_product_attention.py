@@ -127,23 +127,48 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "dot_product_attention",
-            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
-            "component": nnx.dot_product_attention,
-        },
-        {
-            "testcase": "dot_product_attention_shape_check",
-            "input_shapes": [
-                (2, 4, 8, 16),
-                (2, 6, 8, 16),
-                (2, 6, 8, 16),
+            "jax_component": "flax.nnx.dot_product_attention",
+            "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
+            "onnx": [
+                {
+                    "component": "Constant",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+                },
+                {
+                    "component": "Einsum",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+                },
+                {
+                    "component": "Mul",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html",
+                },
+                {
+                    "component": "Softmax",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+                },
             ],
-            "component": nnx.dot_product_attention,
-        },
-        {
-            "testcase": "dot_product_attention_softmax_axis",
-            "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
-            "component": nnx.dot_product_attention,
-            "params": {"softmax_axis": -1},
-        },
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "dot_product_attention",
+                    "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+                    "component": nnx.dot_product_attention,
+                },
+                {
+                    "testcase": "dot_product_attention_shape_check",
+                    "input_shapes": [
+                        (2, 4, 8, 16),
+                        (2, 6, 8, 16),
+                        (2, 6, 8, 16),
+                    ],
+                    "component": nnx.dot_product_attention,
+                },
+                {
+                    "testcase": "dot_product_attention_softmax_axis",
+                    "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
+                    "component": nnx.dot_product_attention,
+                    "params": {"softmax_axis": -1},
+                },
+            ],
+        }
     ]

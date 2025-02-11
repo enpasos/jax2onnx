@@ -50,9 +50,22 @@ jnp.concatenate.to_onnx = lambda z, **params: build_concat_onnx_node(z, **params
 def get_test_params():
     return [
         {
-            "testcase": "concat",
-            "input_shapes": [(1, 10), (1, 10)],
-            "component": jnp.concatenate,
-            "params": {"axis": 1},
-        },
+            "jax_component": "jax.numpy.concat",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.concat.html",
+            "onnx": [
+                {
+                    "component": "Concat",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "concat",
+                    "input_shapes": [(1, 10), (1, 10)],
+                    "component": jnp.concatenate,
+                    "params": {"axis": 1},
+                },
+            ],
+        }
     ]

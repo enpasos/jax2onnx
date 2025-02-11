@@ -73,21 +73,34 @@ def get_test_params():
 
     return [
         {
-            "testcase": "einsum_attention",
-            "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
-            "component": jnp.einsum,
-            "params": {"equation": "BNHE,BMHE->BNHM"},
-        },
-        {
-            "testcase": "einsum_matmul",
-            "input_shapes": [(32, 64), (64, 128)],
-            "component": jnp.einsum,
-            "params": {"equation": "ij,jk->ik"},
-        },
-        {
-            "testcase": "einsum_batch_matmul",
-            "input_shapes": [(10, 32, 64), (10, 64, 128)],
-            "component": jnp.einsum,
-            "params": {"equation": "bij,bjk->bik"},
-        },
+            "jax_component": "jax.numpy.einsum",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html",
+            "onnx": [
+                {
+                    "component": "Einsum",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "einsum_attention",
+                    "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
+                    "component": jnp.einsum,
+                    "params": {"equation": "BNHE,BMHE->BNHM"},
+                },
+                {
+                    "testcase": "einsum_matmul",
+                    "input_shapes": [(32, 64), (64, 128)],
+                    "component": jnp.einsum,
+                    "params": {"equation": "ij,jk->ik"},
+                },
+                {
+                    "testcase": "einsum_batch_matmul",
+                    "input_shapes": [(10, 32, 64), (10, 64, 128)],
+                    "component": jnp.einsum,
+                    "params": {"equation": "bij,bjk->bik"},
+                },
+            ],
+        }
     ]

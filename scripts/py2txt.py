@@ -6,7 +6,7 @@ import shutil
 
 def main():
     # Define the output directory
-    output_dir = os.path.join(".", "output", "py2txt")
+    output_dir = os.path.join("..", "output", "py2txt")
     # Create the directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
@@ -14,7 +14,7 @@ def main():
     current_script = os.path.abspath(__file__)
 
     # Walk through the current directory and subdirectories
-    for root, dirs, files in os.walk("."):
+    for root, dirs, files in os.walk(".."):
         for filename in files:
             if filename.endswith(".py"):
                 source_path = os.path.join(root, filename)

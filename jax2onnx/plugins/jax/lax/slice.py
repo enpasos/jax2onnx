@@ -122,42 +122,61 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "slice_basic",
-            "input_shapes": [
-                (1, 5, 5, 3)
-            ],  # Example input shape (batch, height, width, channels)
-            "component": jax.lax.slice,
-            "params": {
-                "start": [0, 1, 1, 0],
-                "end": [1, 4, 4, 3],
-            },  # Extracting a 3x3 region
-        },
-        {
-            "testcase": "slice_with_stride",
-            "input_shapes": [(1, 6, 6, 3)],
-            "component": jax.lax.slice,
-            "params": {
-                "start": [0, 0, 0, 0],
-                "end": [1, 6, 6, 3],
-                "strides": [1, 2, 2, 1],
-            },  # Strided slice
-        },
-        {
-            "testcase": "slice_single_element",
-            "input_shapes": [(3, 3)],  # Example 2D matrix
-            "component": jax.lax.slice,
-            "params": {"start": [1, 1], "end": [2, 2]},  # Extracting a single element
-        },
-        {
-            "testcase": "slice_last_column",
-            "input_shapes": [(4, 5)],  # Example 2D matrix
-            "component": jax.lax.slice,
-            "params": {"start": [0, 4], "end": [4, 5]},  # Extracting the last column
-        },
-        {
-            "testcase": "slice_out_of_bounds",
-            "input_shapes": [(4, 5)],
-            "component": jax.lax.slice,
-            "params": {"start": [0, 3], "end": [4, 7]},  # Exceeds bounds
-        },
+            "jax_component": "jax.lax.slice",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html",
+            "onnx": [
+                {
+                    "component": "Slice",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "slice_basic",
+                    "input_shapes": [
+                        (1, 5, 5, 3)
+                    ],  # Example input shape (batch, height, width, channels)
+                    "component": jax.lax.slice,
+                    "params": {
+                        "start": [0, 1, 1, 0],
+                        "end": [1, 4, 4, 3],
+                    },  # Extracting a 3x3 region
+                },
+                {
+                    "testcase": "slice_with_stride",
+                    "input_shapes": [(1, 6, 6, 3)],
+                    "component": jax.lax.slice,
+                    "params": {
+                        "start": [0, 0, 0, 0],
+                        "end": [1, 6, 6, 3],
+                        "strides": [1, 2, 2, 1],
+                    },  # Strided slice
+                },
+                {
+                    "testcase": "slice_single_element",
+                    "input_shapes": [(3, 3)],  # Example 2D matrix
+                    "component": jax.lax.slice,
+                    "params": {
+                        "start": [1, 1],
+                        "end": [2, 2],
+                    },  # Extracting a single element
+                },
+                {
+                    "testcase": "slice_last_column",
+                    "input_shapes": [(4, 5)],  # Example 2D matrix
+                    "component": jax.lax.slice,
+                    "params": {
+                        "start": [0, 4],
+                        "end": [4, 5],
+                    },  # Extracting the last column
+                },
+                {
+                    "testcase": "slice_out_of_bounds",
+                    "input_shapes": [(4, 5)],
+                    "component": jax.lax.slice,
+                    "params": {"start": [0, 3], "end": [4, 7]},  # Exceeds bounds
+                },
+            ],
+        }
     ]

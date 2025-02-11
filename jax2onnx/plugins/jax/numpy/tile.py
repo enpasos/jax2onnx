@@ -78,27 +78,40 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "tile_2x",
-            "input_shapes": [(2, 3)],
-            "component": jnp.tile,
-            "params": {"repeats": [2, 2]},
-        },
-        {
-            "testcase": "tile_1d",
-            "input_shapes": [(4,)],
-            "component": jnp.tile,
-            "params": {"repeats": [3]},
-        },
-        {
-            "testcase": "tile_batch_dim",
-            "input_shapes": [(1, 5, 5)],
-            "component": jnp.tile,
-            "params": {"repeats": [2, 1, 1]},
-        },
-        {
-            "testcase": "tile_large",
-            "input_shapes": [(3, 3)],
-            "component": jnp.tile,
-            "params": {"repeats": [4, 4]},
-        },
+            "jax_component": "jax.numpy.tile",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html",
+            "onnx": [
+                {
+                    "component": "Tile",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Tile.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "tile_2x",
+                    "input_shapes": [(2, 3)],
+                    "component": jnp.tile,
+                    "params": {"repeats": [2, 2]},
+                },
+                {
+                    "testcase": "tile_1d",
+                    "input_shapes": [(4,)],
+                    "component": jnp.tile,
+                    "params": {"repeats": [3]},
+                },
+                {
+                    "testcase": "tile_batch_dim",
+                    "input_shapes": [(1, 5, 5)],
+                    "component": jnp.tile,
+                    "params": {"repeats": [2, 1, 1]},
+                },
+                {
+                    "testcase": "tile_large",
+                    "input_shapes": [(3, 3)],
+                    "component": jnp.tile,
+                    "params": {"repeats": [4, 4]},
+                },
+            ],
+        }
     ]
