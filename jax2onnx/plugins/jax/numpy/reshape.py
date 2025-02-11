@@ -117,33 +117,46 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "reshape",
-            "input_shapes": [(30,)],
-            "component": jnp.reshape,
-            "params": {"shape": (10, 3)},
-        },
-        {
-            "testcase": "reshape_dynamic",
-            "input_shapes": [(3, 7, 7, 64)],
-            "component": jnp.reshape,
-            "params": {
-                "shape": (3, -1),  # Dynamic reshape now correctly inferred
-            },
-        },
-        {
-            "testcase": "reshape_batch",
-            "input_shapes": [(1, 3, 224, 224)],
-            "component": jnp.reshape,
-            "params": {
-                "shape": (1, -1),  # Dynamic reshape to flatten feature maps
-            },
-        },
-        # {
-        #     "testcase": "reshape_invalid",
-        #     "input_shapes": [(3, 7, 7, 64)],
-        #     "component": jnp.reshape,
-        #     "params": {
-        #         "shape": (3, 7),  # ❌ Should trigger an error
-        #     },
-        # },
+            "jax_component": "jax.numpy.reshape",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html",
+            "onnx": [
+                {
+                    "component": "Reshape",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "reshape",
+                    "input_shapes": [(30,)],
+                    "component": jnp.reshape,
+                    "params": {"shape": (10, 3)},
+                },
+                {
+                    "testcase": "reshape_dynamic",
+                    "input_shapes": [(3, 7, 7, 64)],
+                    "component": jnp.reshape,
+                    "params": {
+                        "shape": (3, -1),  # Dynamic reshape now correctly inferred
+                    },
+                },
+                {
+                    "testcase": "reshape_batch",
+                    "input_shapes": [(1, 3, 224, 224)],
+                    "component": jnp.reshape,
+                    "params": {
+                        "shape": (1, -1),  # Dynamic reshape to flatten feature maps
+                    },
+                },
+                # {
+                #     "testcase": "reshape_invalid",
+                #     "input_shapes": [(3, 7, 7, 64)],
+                #     "component": jnp.reshape,
+                #     "params": {
+                #         "shape": (3, 7),  # ❌ Should trigger an error
+                #     },
+                # },
+            ],
+        }
     ]

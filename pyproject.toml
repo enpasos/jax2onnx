@@ -40,8 +40,11 @@ priority = "supplemental"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
+pytest-json-report = "^1.5.0"
 pre-commit = "^4.1.0"
 ruff = "^0.9.5"
+
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -17,7 +17,7 @@ def generate_version():
 
 
 def update_pyproject_toml(version):
-    pyproject_path = Path("pyproject.toml")
+    pyproject_path = Path("../pyproject.toml")
     content = pyproject_path.read_text()
     # Replace the version field
     new_content = []

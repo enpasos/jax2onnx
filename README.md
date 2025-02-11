@@ -10,57 +10,51 @@ Components can be easily added as plugins, including their test cases, which are
 
 This library follows a **test-driven and demand-driven** approach, giving you **full control** over how JAX/Flax components are mapped to ONNX—**no hidden magic, no black-box abstraction**. While it may not cover every use case out of the box, you can **extend it by adding your own plugins** and contribute them back to the project. 🚀
 
-### **Supported and Planned JAX/ONNX Components**
-
- JAX Component                                                                                                                               | ONNX Component                                                                       | since  | v0.1.0 |
-|:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------|:-------|:------:|
-| [`flax.nnx.AvgPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool)                  | [`AveragePool`](https://onnx.ai/onnx/operators/onnx__AveragePool.html)               | v0.1.0 |   ✅    |
-| [`flax.nnx.BatchNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm)               | [`BatchNormalization`](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 |   ✅    |
-| [`flax.nnx.Conv`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv)                                | [`Conv`](https://onnx.ai/onnx/operators/onnx__Conv.html)                             | v0.1.0 |   ✅    |
-| [`flax.nnx.ConvTranspose`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.ConvTranspose)              | [`ConvTranspose`](https://onnx.ai/onnx/operators/onnx__ConvTranspose.html)           |        |   ➖    |
-| [`flax.nnx.Dropout`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout)                      | [`Dropout`](https://onnx.ai/onnx/operators/onnx__Dropout.html)                       | v0.1.0 |   ✅    |
-| [`flax.nnx.Einsum`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Einsum)                            | [`Einsum`](https://onnx.ai/onnx/operators/onnx__Einsum.html)                         | v0.1.0 |   ➖    |
-| [`flax.nnx.LayerNorm`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm)               | [`LayerNormalization`](https://onnx.ai/onnx/operators/onnx__LayerNormalization.html) | v0.1.0 |   ✅    |
-| [`flax.nnx.Linear`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Linear)                            | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                             | v0.1.0 |   ✅    |
-| [`flax.nnx.LinearGeneral`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral)              | [`Gemm`](https://onnx.ai/onnx/operators/onnx__Gemm.html)                             | v0.1.0 |   ✅    |
-| [`flax.nnx.MaxPool`](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool)                  | [`MaxPool`](https://onnx.ai/onnx/operators/onnx__MaxPool.html)                       | v0.1.0 |   ✅    |
-| [`flax.nnx.MultiHeadAttention`](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention) | [`Attention`](https://onnx.ai/onnx/operators/onnx__Attention.html)                   | v0.1.0 |   ✅    |
-| [`jax.lax.slice`](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html)                                                     | [`Slice`](https://onnx.ai/onnx/operators/onnx__Slice.html)                           | v0.1.0 |   ✅    |
-| [`jax.nn.celu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.celu)                                                               | [`Celu`](https://onnx.ai/onnx/operators/onnx__Celu.html)                             | v0.1.0 |   ✅    |
-| [`jax.nn.dot_product_attention`](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html)                       | N/A                                                                                  | v0.1.0 |   ✅    |
-| [`jax.nn.elu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.elu)                                                                 | [`Elu`](https://onnx.ai/onnx/operators/onnx__Elu.html)                               | v0.1.0 |   ✅    |
-| [`jax.nn.gelu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.gelu)                                                               | [`Gelu`](https://onnx.ai/onnx/operators/onnx__Gelu.html)                             | v0.1.0 |   ✅    |
-| [`jax.nn.glu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.glu)                                                                 | N/A                                                                                  |        |   ➖    |
-| [`jax.nn.hard_sigmoid`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.hard_sigmoid)                                               | [`HardSigmoid`](https://onnx.ai/onnx/operators/onnx__HardSigmoid.html)               |        |   ➖    |
-| [`jax.nn.hard_silu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.hard_silu)                                                     | N/A                                                                                  |        |   ➖    |
-| [`jax.nn.hard_swish`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.hard_swish)                                                   | N/A                                                                                  |        |   ➖    |
-| [`jax.nn.hard_tanh`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.hard_tanh)                                                     | N/A                                                                                  |        |   ➖    |
-| [`jax.nn.leaky_relu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.leaky_relu)                                                   | [`LeakyRelu`](https://onnx.ai/onnx/operators/onnx__LeakyRelu.html)                   | v0.1.0 |   ✅    |
-| [`jax.nn.log_sigmoid`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.log_sigmoid)                                                 |                                                                                      | v0.1.0 |   ✅    |
-| [`jax.nn.log_softmax`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.log_softmax)                                                 | [`LogSoftmax`](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html)                 | v0.1.0 |   ✅    |
-| [`jax.nn.relu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.relu)                                                               | [`Relu`](https://onnx.ai/onnx/operators/onnx__Relu.html)                             | v0.1.0 |   ✅    |
-| [`jax.nn.sigmoid`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.sigmoid)                                                         | [`Sigmoid`](https://onnx.ai/onnx/operators/onnx__Sigmoid.html)                       | v0.1.0 |   ✅    |
-| [`jax.nn.silu`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.silu)                                                               | N/A                                                                                  |        |   ➖    |
-| [`jax.nn.softplus`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.softplus)                                                       | [`Softplus`](https://onnx.ai/onnx/operators/onnx__Softplus.html)                     | v0.1.0 |   ✅    |
-| [`jax.nn.softsign`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.softsign)                                                       | [`Softsign`](https://onnx.ai/onnx/operators/onnx__Softsign.html)                     | v0.1.0 |   ✅    |
-| [`jax.nn.softmax`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.softmax)                                                         | [`Softmax`](https://onnx.ai/onnx/operators/onnx__Softmax.html)                       | v0.1.0 |   ✅    |
-| [`jax.nn.tanh`](https://jax.readthedocs.io/en/latest/jax.nn.html#jax.nn.tanh)                                                               | [`Tanh`](https://onnx.ai/onnx/operators/onnx__Tanh.html)                             | v0.1.0 |   ✅    |
-| [`jax.numpy.add`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html)                                                     | [`Add`](https://onnx.ai/onnx/operators/onnx__Add.html)                               | v0.1.0 |   ✅    |
-| [`jax.numpy.concat`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.concat.html)                                               | [`Concat`](https://onnx.ai/onnx/operators/onnx__Concat.html)                         | v0.1.0 |   ✅    |
-| [`jax.numpy.einsum`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html)                                               | [`Einsum`](https://onnx.ai/onnx/operators/onnx__Einsum.html)                         | v0.1.0 |   ✅    |
-| [`jax.numpy.matmul`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html)                                               | [`MatMul`](https://onnx.ai/onnx/operators/onnx__MatMul.html)                         | v0.1.0 |   ✅    |
-| [`jax.numpy.reshape`](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html)                                             | [`Reshape`](https://onnx.ai/onnx/operators/onnx__Reshape.html)                       | v0.1.0 |   ✅    |
-| [`jax.numpy.squeeze`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.squeeze.html#jax.numpy.squeeze)                                 | [`Squeeze`](https://onnx.ai/onnx/operators/onnx__Squeeze.html)                       | v0.1.0 |   ✅    |
-| [`jax.numpy.tile`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.tile.html#jax.numpy.tile)                                | [`Tile`](https://onnx.ai/onnx/operators/onnx__Tile.html)                        | v0.1.0 |   ✅    |
-| [`jax.numpy.transpose`](https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html#jax.numpy.transpose)                           | [`Transpose`](https://onnx.ai/onnx/operators/onnx__Transpose.html)                   | v0.1.0 |   ✅    |
+### **Supported JAX/ONNX Components**
 
 
+<!-- AUTOGENERATED TABLE START -->
 
-✅ = implemented with unit test for eval<br>
-❌ = planned but not implemented, yet<br>
-➖ = not planned for the upcoming version
+| JAX Component | ONNX Components | Since | Testcases |
+    |:-------------|:---------------|:------|:---------|
+| [flax.nnx.BatchNorm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm) | [BatchNormalization](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 | batchnorm ✅ |
+| [flax.nnx.Conv](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv) | [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html) | v0.1.0 | conv_3x3 ✅<br>conv_5x5_stride2 ❌ |
+| [flax.nnx.Dropout](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout) | [Dropout](https://onnx.ai/onnx/operators/onnx__Dropout.html) | v0.1.0 | dropout ✅<br>dropout_1d ✅<br>dropout_2d ✅<br>dropout_3d ✅<br>dropout_4d ✅<br>dropout_high ✅<br>dropout_low ✅ |
+| [flax.nnx.LayerNorm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm) | [LayerNormalization](https://onnx.ai/onnx/operators/onnx__LayerNormalization.html) | v0.1.0 | layernorm_default ✅<br>layernorm_multiaxis ✅ |
+| [flax.nnx.Linear](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Linear) | [Gemm](https://onnx.ai/onnx/operators/onnx__Gemm.html) | v0.1.0 | linear ✅<br>linear_2 ✅ |
+| [flax.nnx.LinearGeneral](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral) | [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html)<br>[MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html) | v0.1.0 | linear_general ✅<br>linear_general_2 ✅<br>linear_general_mha_projection ✅ |
+| [flax.nnx.MultiHeadAttention](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.MultiHeadAttention) | [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html)<br>[MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html)<br>[Constant](https://onnx.ai/onnx/operators/onnx__Constant.html)<br>[Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html)<br>[Mul](https://onnx.ai/onnx/operators/onnx__Mul.html)<br>[Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html) | v0.1.0 | multihead_attention ✅ |
+| [flax.nnx.avg_pool](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool) | [AveragePool](https://onnx.ai/onnx/operators/onnx__AveragePool.html) | v0.1.0 | avg_pool ✅ |
+| [flax.nnx.dot_product_attention](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention) | [Constant](https://onnx.ai/onnx/operators/onnx__Constant.html)<br>[Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html)<br>[Mul](https://onnx.ai/onnx/operators/onnx__Mul.html)<br>[Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html) | v0.1.0 | dot_product_attention ✅<br>dot_product_attention_shape_check ✅<br>dot_product_attention_softmax_axis ✅ |
+| [flax.nnx.elu](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.elu) | [Elu](https://onnx.ai/onnx/operators/onnx__Elu.html) | v0.1.0 | elu ✅ |
+| [flax.nnx.gelu](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.gelu) | [Gelu](https://onnx.ai/onnx/operators/onnx__Gelu.html) | v0.1.0 | gelu ✅<br>gelu2 ✅<br>gelu3 ✅ |
+| [flax.nnx.leaky_relu](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.leaky_relu) | [LeakyRelu](https://onnx.ai/onnx/operators/onnx__LeakyRelu.html) | v0.1.0 | leaky_relu ✅ |
+| [flax.nnx.log_softmax](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.log_softmax) | [LogSoftmax](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html) | v0.1.0 | log_softmax ✅ |
+| [flax.nnx.max_pool](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool) | [MaxPool](https://onnx.ai/onnx/operators/onnx__MaxPool.html) | v0.1.0 | max_pool ✅ |
+| [flax.nnx.relu](https://docs.jax.dev/en/latest/_autosummary/jax.nn.relu.html#jax.nn.relu) | [Relu](https://onnx.ai/onnx/operators/onnx__Relu.html) | v0.1.0 | relu ✅ |
+| [flax.nnx.sigmoid](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.sigmoid) | [Sigmoid](https://onnx.ai/onnx/operators/onnx__Sigmoid.html) | v0.1.0 | sigmoid ✅ |
+| [flax.nnx.softmax](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.softmax) | [Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html) | v0.1.0 | softmax ✅ |
+| [flax.nnx.softplus](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.softplus) | [Softplus](https://onnx.ai/onnx/operators/onnx__Softplus.html) | v0.1.0 | softplus ✅ |
+| [flax.nnx.tanh](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.tanh) | [Tanh](https://onnx.ai/onnx/operators/onnx__Tanh.html) | v0.1.0 | tanh ✅ |
+| [jax.lax.slice](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html) | [Slice](https://onnx.ai/onnx/operators/onnx__Slice.html) | v0.1.0 | slice_basic ✅<br>slice_last_column ✅<br>slice_out_of_bounds ✅<br>slice_single_element ✅<br>slice_with_stride ✅ |
+| [jax.numpy.add](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html) | [Add](https://onnx.ai/onnx/operators/onnx__Add.html) | v0.1.0 | add ✅ |
+| [jax.numpy.concat](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.concat.html) | [Concat](https://onnx.ai/onnx/operators/onnx__Concat.html) | v0.1.0 | concat ✅ |
+| [jax.numpy.einsum](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html) | [Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html) | v0.1.0 | einsum_attention ✅<br>einsum_batch_matmul ✅<br>einsum_matmul ✅ |
+| [jax.numpy.matmul](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html) | [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html) | v0.1.0 | matmul_2d ✅<br>matmul_3d ✅<br>matmul_4d ✅ |
+| [jax.numpy.reshape](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html) | [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | v0.1.0 | reshape ✅<br>reshape_batch ✅<br>reshape_dynamic ✅ |
+| [jax.numpy.squeeze](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.squeeze.html) | [Squeeze](https://onnx.ai/onnx/operators/onnx__Squeeze.html) | v0.1.0 | squeeze_multiple_dims ✅<br>squeeze_no_change ✅<br>squeeze_single_dim ✅<br>squeeze_vit_output ✅ |
+| [jax.numpy.tile](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html) | [Tile](https://onnx.ai/onnx/operators/onnx__Tile.html) | v0.1.0 | tile_1d ✅<br>tile_2x ✅<br>tile_batch_dim ✅<br>tile_large ✅ |
+| [jax.numpy.transpose](https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.transpose.html) | [Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | v0.1.0 | transpose_4d ✅<br>transpose_basic ✅<br>transpose_high_dim ✅<br>transpose_reverse ✅<br>transpose_square_matrix ✅ |
+
+<!-- AUTOGENERATED TABLE END -->
+
+✅ = passed<br>
+❌ = failed<br>
+➖ = no tests, yet
 
 Examples
+
+<!-- AUTOGENERATED EXAMPLES TABLE START -->
 
 | Component Name | Description                                               | From   | v0.1.0 |
 |:---------------|:----------------------------------------------------------|:-------|:------:|
@@ -68,6 +62,8 @@ Examples
 | `MNIST - CNN`  | CNN based MNIST classification                            | v0.1.0 |     ✅   |
 | `MNIST - CNN2` | CNN based MNIST classification with Dropout and LayerNorm | v0.1.0 |     ✅   |
 | `MNIST - ViT`  | Vision Transformer based MNIST classification             | v0.1.0 |   ✅  |
+
+<!-- AUTOGENERATED EXAMPLES TABLE END -->
 
 
 Versions of Major Dependencies
@@ -84,7 +80,7 @@ Note: for more details look into the `pyproject.toml` file
 
 
 ### **Usage**
-Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `jax2onnx.to_onnx.to_onnx` 
+Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `jax2onnx.to_onnx.to_onnx`
 function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
 
@@ -125,7 +121,7 @@ to_onnx(
 ### **How to Contribute**
 
 If you'd like to see a model or function supported, consider contributing by adding a plugin for an existing   
-module or function under the `jax2onnx/plugins` directory. Or you can add an example to the `examples` directory. 
+module or function under the `jax2onnx/plugins` directory. Or you can add an example to the `examples` directory.
 Certainly any other improvements are welcome as well.
 
 ### **Installation**
@@ -140,7 +136,7 @@ t.b.d.:
 ```bash
 pip install jax2onnx  
 ```
- 
+
 ### **License**
 This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
 

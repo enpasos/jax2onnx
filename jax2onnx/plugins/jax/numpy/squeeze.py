@@ -78,27 +78,42 @@ def get_test_params():
     """
     return [
         {
-            "testcase": "squeeze_single_dim",
-            "input_shapes": [(1, 49, 10)],  # Single batch dimension
-            "component": jnp.squeeze,
-            "params": {"axes": [0]},  # Removing the batch dimension
-        },
-        {
-            "testcase": "squeeze_multiple_dims",
-            "input_shapes": [(1, 49, 1, 10)],  # Multiple singleton dimensions
-            "component": jnp.squeeze,
-            "params": {"axes": [0, 2]},  # Removing batch and last singleton dimension
-        },
-        {
-            "testcase": "squeeze_vit_output",
-            "input_shapes": [(1, 1, 10)],  # Common ViT output shape
-            "component": jnp.squeeze,
-            "params": {"axes": [1]},  # Removing the second singleton dimension
-        },
-        {
-            "testcase": "squeeze_no_change",
-            "input_shapes": [(3, 49, 10)],  # No singleton dimensions
-            "component": jnp.squeeze,
-            "params": {"axes": []},  # No dimensions should be removed
-        },
+            "jax_component": "jax.numpy.squeeze",
+            "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.squeeze.html",
+            "onnx": [
+                {
+                    "component": "Squeeze",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Squeeze.html",
+                },
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "squeeze_single_dim",
+                    "input_shapes": [(1, 49, 10)],  # Single batch dimension
+                    "component": jnp.squeeze,
+                    "params": {"axes": [0]},  # Removing the batch dimension
+                },
+                {
+                    "testcase": "squeeze_multiple_dims",
+                    "input_shapes": [(1, 49, 1, 10)],  # Multiple singleton dimensions
+                    "component": jnp.squeeze,
+                    "params": {
+                        "axes": [0, 2]
+                    },  # Removing batch and last singleton dimension
+                },
+                {
+                    "testcase": "squeeze_vit_output",
+                    "input_shapes": [(1, 1, 10)],  # Common ViT output shape
+                    "component": jnp.squeeze,
+                    "params": {"axes": [1]},  # Removing the second singleton dimension
+                },
+                {
+                    "testcase": "squeeze_no_change",
+                    "input_shapes": [(3, 49, 10)],  # No singleton dimensions
+                    "component": jnp.squeeze,
+                    "params": {"axes": []},  # No dimensions should be removed
+                },
+            ],
+        }
     ]
