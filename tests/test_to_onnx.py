@@ -1,55 +1,75 @@
 # file: tests/test_to_onnx.py
+
 import flax.nnx
-import pytest
 import jax
 import onnxruntime as ort
-import importlib
-import pkgutil
-import os
 import numpy as np
 
 from jax2onnx.to_onnx import to_onnx
 from jax2onnx.typing_helpers import supports_onnx
 
+import pytest
+import os
+import pathlib
+import importlib
+
 
 def load_test_params():
+    """Recursively loads test parameters from plugins and example modules."""
     params = []
 
-    # Load plugins
-    package = "jax2onnx.plugins"
-    plugins_path = os.path.join(os.path.dirname(__file__), "../jax2onnx/plugins")
+    # Load plugins recursively
+    base_plugin_package = "jax2onnx.plugins"
+    plugins_base_path = pathlib.Path(__file__).parent / "../jax2onnx/plugins"
 
-    for _, name, _ in pkgutil.iter_modules([plugins_path]):
-        module = importlib.import_module(f"{package}.{name}")
+    for path in plugins_base_path.rglob("*.py"):
+        if path.name == "__init__.py":  # Skip __init__.py files
+            continue
+
+        relative_path = path.relative_to(plugins_base_path).with_suffix("")
+        module_name = (
+            f"{base_plugin_package}.{relative_path.as_posix().replace('/', '.')}"
+        )
+
+        module = importlib.import_module(module_name)
         if hasattr(module, "get_test_params"):
-            print(f"Loading test params from plugin: {name}")
+            print(f"Loading test params from plugin: {module_name}")
             plugin_params = module.get_test_params()
 
-            if isinstance(plugin_params, list):
-                if all(isinstance(p, dict) for p in plugin_params):
-                    for param in plugin_params:
-                        param.setdefault("test_name", param.get("testcase", "Unnamed"))
-                    params.extend(plugin_params)
-                else:
-                    raise ValueError(
-                        f"Plugin {name} must return a list of dictionaries."
-                    )
+            if isinstance(plugin_params, list) and all(
+                isinstance(p, dict) for p in plugin_params
+            ):
+                for param in plugin_params:
+                    param.setdefault("test_name", param.get("testcase", "Unnamed"))
+                params.extend(plugin_params)
             elif isinstance(plugin_params, dict):
                 plugin_params.setdefault(
                     "test_name", plugin_params.get("testcase", "Unnamed")
                 )
                 params.append(plugin_params)
             else:
-                raise ValueError(f"Plugin {name} must return a list or a dictionary.")
+                raise ValueError(
+                    f"Plugin {module_name} must return a list or a dictionary."
+                )
 
-    # Load examples
-    examples_package = "tests.examples"
-    examples_path = os.path.join(os.path.dirname(__file__), "examples")
-    for _, name, _ in pkgutil.iter_modules([examples_path]):
-        module = importlib.import_module(f"{examples_package}.{name}")
+    # Load example models recursively
+    base_example_package = "jax2onnx.examples"
+    examples_base_path = pathlib.Path(__file__).parent / "../jax2onnx/examples"
+
+    for path in examples_base_path.rglob("*.py"):
+        if path.name == "__init__.py":  # Skip __init__.py files
+            continue
+
+        relative_path = path.relative_to(examples_base_path).with_suffix("")
+        module_name = (
+            f"{base_example_package}.{relative_path.as_posix().replace('/', '.')}"
+        )
+
+        module = importlib.import_module(module_name)
         if hasattr(module, "get_test_params"):
-            print(f"Loading test params from example: {name}")
+            print(f"Loading test params from example: {module_name}")
             example_params = module.get_test_params()
+
             if isinstance(example_params, list) and all(
                 isinstance(p, dict) for p in example_params
             ):
@@ -57,15 +77,12 @@ def load_test_params():
                     param.setdefault("test_name", param.get("testcase", "Unnamed"))
                 params.extend(example_params)
             else:
-                raise ValueError(f"Example {name} must return a list of dictionaries.")
+                raise ValueError(
+                    f"Example {module_name} must return a list of dictionaries."
+                )
 
     # Wrap params with pytest.param to set custom test names
-    return [
-        pytest.param(param, id=param["test_name"])
-        for param in params
-        # filter only conv
-        # if param["testcase"] in [ "einsum_attention" ]
-    ]
+    return [pytest.param(param, id=param["test_name"]) for param in params]
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
