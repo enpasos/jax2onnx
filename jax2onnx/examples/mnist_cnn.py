@@ -39,14 +39,14 @@ class MNIST_CNN(nnx.Module):
 
         self.layers: list[Supports2Onnx] = [
             nnx.Conv(1, 32, kernel_size=(3, 3), padding="SAME", rngs=rngs),
-            jax.nn.relu,
+            nnx.relu,
             PartialWithOnnx(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2)),
             nnx.Conv(32, 64, kernel_size=(3, 3), padding="SAME", rngs=rngs),
-            jax.nn.relu,
+            nnx.relu,
             PartialWithOnnx(nnx.avg_pool, window_shape=(2, 2), strides=(2, 2)),
             ReshapeWithOnnx(),
             nnx.Linear(3136, 256, rngs=rngs),
-            jax.nn.relu,
+            nnx.relu,
             nnx.Linear(256, 10, rngs=rngs),
             nnx.log_softmax,
         ]
@@ -68,9 +68,24 @@ def get_test_params():
     """Defines test parameters for the MNIST CNN."""
     return [
         {
-            "testcase": "mnist_cnn",
-            "component": MNIST_CNN(rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 28, 28, 1)],  # (N, H, W, C) format for JAX
-            "params": {"pre_transpose": [(0, 3, 1, 2)]},
+            "component": "CNN",
+            "description": "A MNIST CNN model with convolutional and linear layers.",
+            "children": [
+                "flax.nnx.Conv",
+                "flax.nnx.Linear",
+                "flax.nnx.relu",
+                "flax.nnx.avg_pool",
+                "flax.nnx.reshape",
+                "flax.nnx.log_softmax",
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "mnist_cnn",
+                    "component": MNIST_CNN(rngs=nnx.Rngs(0)),
+                    "input_shapes": [(1, 28, 28, 1)],  # (N, H, W, C) format for JAX
+                    "params": {"pre_transpose": [(0, 3, 1, 2)]},
+                }
+            ],
         }
     ]

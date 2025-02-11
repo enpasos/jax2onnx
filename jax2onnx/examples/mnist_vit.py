@@ -104,7 +104,7 @@ class MLPBlock(nnx.Module):
         """Initializes the MLP block."""
         self.layers: list[Supports2Onnx] = [
             nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            PartialWithOnnx(jax.nn.gelu, approximate=False),
+            PartialWithOnnx(nnx.gelu, approximate=False),
             nnx.Dropout(rate=dropout_rate, rngs=rngs),
             nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
             nnx.Dropout(rate=dropout_rate, rngs=rngs),
@@ -273,47 +273,90 @@ class VisionTransformer(nnx.Module):
         z = jax.numpy.squeeze.to_onnx(z, axes=[1])
 
         z = self.dense.to_onnx(z)
-        return jax.nn.log_softmax.to_onnx(z, parameters={"axis": -1})
+        return nnx.log_softmax.to_onnx(z, parameters={"axis": -1})
 
 
 def get_test_params():
     """Returns test parameters for Vision Transformer."""
     return [
         {
-            "testcase": "patch_embedding",
-            "component": PatchEmbedding(
-                height=28,
-                width=28,
-                patch_size=4,
-                num_hiddens=256,
-                in_features=1,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(1, 28, 28, 1)],
+            "component": "ViT",
+            "description": "A MNIST Vision Tansformer (ViT) model",
+            "children": [
+                "PatchEmbedding",
+                "TransformerBlock",
+                "flax.nnx.Linear",
+                "flax.nnx.LayerNorm",
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "mnist_vit",
+                    "component": VisionTransformer(
+                        28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
+                    ),
+                    "input_shapes": [(1, 28, 28, 1)],
+                }
+            ],
         },
         {
-            "testcase": "mnist_vit",
-            "component": VisionTransformer(
-                28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
-            ),
-            "input_shapes": [(1, 28, 28, 1)],
+            "component": "TransformerBlock",
+            "description": "Transformer from 'Attention Is All You Need.'",
+            "children": [
+                "flax.nnx.MultiHeadAttention",
+                "flax.nnx.LayerNorm",
+                "flax.nnx.Dropout",
+                "MLPBlock",
+                "flax.nnx.Dropout",
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "transformer_block",
+                    "component": TransformerBlock(
+                        num_hiddens=256,
+                        num_heads=8,
+                        mlp_dim=512,
+                        dropout_rate=0.1,
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(1, 10, 256)],
+                },
+            ],
         },
         {
-            "testcase": "mlp_block",
-            "component": MLPBlock(
-                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
-            ),
-            "input_shapes": [(1, 10, 256)],
+            "component": "PatchEmbedding",
+            "description": "Cutting the image into patches and linearly embedding them.",
+            "children": ["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "patch_embedding",
+                    "component": PatchEmbedding(
+                        height=28,
+                        width=28,
+                        patch_size=4,
+                        num_hiddens=256,
+                        in_features=1,
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(1, 28, 28, 1)],
+                }
+            ],
         },
         {
-            "testcase": "transformer_block",
-            "component": TransformerBlock(
-                num_hiddens=256,
-                num_heads=8,
-                mlp_dim=512,
-                dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [(1, 10, 256)],
+            "component": "MLP Block",
+            "description": "MLP in Transformer",
+            "children": ["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "mlp_block",
+                    "component": MLPBlock(
+                        num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+                    ),
+                    "input_shapes": [(1, 10, 256)],
+                },
+            ],
         },
     ]

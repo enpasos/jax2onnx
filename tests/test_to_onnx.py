@@ -13,14 +13,14 @@ from jax2onnx.to_onnx import to_onnx
 def load_test_params():
     params = []
 
-    # Load plugins
-    plugins_path = os.path.join(os.path.dirname(__file__), "../jax2onnx/plugins")
-    examples_path = os.path.join(
-        os.path.dirname(__file__), "../jax2onnx/examples"
-    )  # ✅ Add examples path
+    # Load plugins and examples
+    base_paths = {
+        "Plugin": os.path.join(os.path.dirname(__file__), "../jax2onnx/plugins"),
+        "Example": os.path.join(os.path.dirname(__file__), "../jax2onnx/examples"),
+    }
 
-    def load_tests_from_directory(base_path):
-        """Helper function to load testcases from a given directory."""
+    def load_tests_from_directory(base_path, source_name):
+        """Helper function to load test cases from plugins/examples directories."""
         for dirpath, _, filenames in os.walk(base_path):
             for filename in filenames:
                 if filename.endswith(".py") and filename != "__init__.py":
@@ -37,25 +37,29 @@ def load_test_params():
                         test_params = module.get_test_params()
                         if isinstance(test_params, list):
                             for entry in test_params:
-                                # Unpack multiple testcases per component
                                 if "testcases" in entry:
                                     for test in entry["testcases"]:
-                                        test["jax_component"] = entry[
-                                            "jax_component"
-                                        ]  # Add reference
+                                        test["source"] = (
+                                            source_name  # Track whether it's from plugins/examples
+                                        )
+                                        test["jax_component"] = entry.get(
+                                            "jax_component", entry.get("component")
+                                        )
                                         params.append(test)
 
     # ✅ Load tests from plugins and examples
-    load_tests_from_directory(plugins_path)
-    load_tests_from_directory(examples_path)
+    for source, path in base_paths.items():
+        load_tests_from_directory(path, source)
 
     # Wrap params with pytest.param to set custom test names
-    return [pytest.param(param, id=param["testcase"]) for param in params]
+    return [
+        pytest.param(param, id=f"{param['testcase']} ({param['source']})")
+        for param in params
+    ]
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
 def test_onnx_export(test_params):
-
     component = test_params.get("component", None)
 
     if hasattr(component, "eval"):
