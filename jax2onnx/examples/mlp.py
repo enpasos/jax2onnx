@@ -2,7 +2,6 @@
 
 
 from flax import nnx
-import jax
 import jax.numpy as jnp
 from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 
@@ -16,7 +15,7 @@ class MLP(nnx.Module):
             nnx.Linear(din, dmid, rngs=rngs),
             nnx.BatchNorm(dmid, rngs=rngs),
             nnx.Dropout(rate=0.1, rngs=rngs),
-            PartialWithOnnx(jax.nn.gelu, approximate=False),
+            PartialWithOnnx(nnx.gelu, approximate=False),
             nnx.Linear(dmid, dout, rngs=rngs),
         ]
 
@@ -37,16 +36,24 @@ class MLP(nnx.Module):
 
 
 def get_test_params():
-    """
-    Defines test parameters for verifying the ONNX conversion of the MLP model.
-
-    Returns:
-        list: A list of test cases for the MLP model.
-    """
     return [
         {
-            "testcase": "mlp",
-            "component": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
-            "input_shapes": [(1, 30)],
+            "component": "MLP",
+            "description": "A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation.",
+            "children": [
+                "flax.nnx.Linear",
+                "flax.nnx.BatchNorm",
+                "flax.nnx.Dropout",
+                "flax.nnx.gelu",
+                "flax.nnx.Linear",
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "mlp",
+                    "component": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+                    "input_shapes": [(1, 30)],
+                }
+            ],
         }
     ]
