@@ -1,14 +1,14 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.1.0.dev20250208"
+version = "0.1.0.dev20250210"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.12,<4"
 dependencies = [
-    "jax[extras-cuda]==0.4.38; extra == 'cuda'",
-    "flax==0.10.2",
+    "jax[extras-cuda]==0.5.0; extra == 'cuda'",
+    "flax==0.10.3",
     "ml_dtypes==0.5.1",
     "optax==0.2.4",
     "orbax-checkpoint==0.11.0",
@@ -50,4 +50,3 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-
