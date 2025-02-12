@@ -55,6 +55,7 @@ def load_test_params():
     return [
         pytest.param(param, id=f"{param['testcase']} ({param['source']})")
         for param in params
+        # if param["testcase"] in [ "conv_3x3", "conv_3x3_1", "conv_3x3_2", "conv_3x3_3", "mnist_conv_embedding" ]
     ]
 
 
@@ -75,8 +76,8 @@ def test_onnx_export(test_params):
 
     # Export the jax_model to ONNX
     onnx_model_file_name = f"{test_params['testcase']}_model.onnx"
-    model_path = f"output/{onnx_model_file_name}"
-    os.makedirs("output", exist_ok=True)
+    model_path = f"docs/onnx/{onnx_model_file_name}"
+    os.makedirs("docs/onnx", exist_ok=True)
 
     z = to_onnx(
         onnx_model_file_name,

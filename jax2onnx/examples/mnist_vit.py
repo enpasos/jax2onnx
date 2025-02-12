@@ -5,6 +5,11 @@ from flax import nnx
 import jax
 import onnx
 import onnx.helper as oh
+
+from typing import List
+
+import jax2onnx.plugins  # noqa: F401
+
 from jax2onnx.to_onnx import Z
 
 from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
@@ -95,6 +100,87 @@ class PatchEmbedding(nnx.Module):
         for layer in self.layers:
             z = layer.to_onnx(z, **params)
         return z
+
+
+class MNISTConvolutionalTokenEmbedding(nnx.Module):
+    """Convolutional Token Embedding for MNIST with hierarchical downsampling."""
+
+    def __init__(
+        self,
+        W: int = 28,
+        H: int = 28,
+        embed_dims: List[int] = [32, 64, 128],
+        kernel_size: int = 3,
+        strides: List[int] = [1, 2, 2],
+        *,
+        rngs=nnx.Rngs(0),
+    ):
+        """Initializes the convolutional embedding layers with hierarchical downsampling."""
+        padding = "SAME"  # Explicit padding to match ONNX behavior
+
+        layernormfeatures = embed_dims[-1] * W // 4 * H // 4
+
+        self.layers: List[Supports2Onnx] = [
+            nnx.Conv(
+                in_features=1,
+                out_features=embed_dims[0],
+                kernel_size=(kernel_size, kernel_size),
+                strides=(strides[0], strides[0]),
+                padding=padding,
+                rngs=rngs,
+            ),
+            PartialWithOnnx(nnx.gelu, approximate=False),
+            nnx.Conv(
+                in_features=embed_dims[0],
+                out_features=embed_dims[1],
+                kernel_size=(kernel_size, kernel_size),
+                strides=(strides[1], strides[1]),
+                padding=padding,
+                rngs=rngs,
+            ),
+            PartialWithOnnx(nnx.gelu, approximate=False),
+            nnx.Conv(
+                in_features=embed_dims[1],
+                out_features=embed_dims[2],
+                kernel_size=(kernel_size, kernel_size),
+                strides=(strides[2], strides[2]),
+                padding=padding,
+                rngs=rngs,
+            ),
+            PartialWithOnnx(nnx.gelu, approximate=False),
+            nnx.LayerNorm(
+                num_features=layernormfeatures,
+                reduction_axes=(1, 2, 3),
+                feature_axes=(1, 2, 3),
+                rngs=rngs,
+            ),
+        ]
+
+        # LayerNorm will be initialized dynamically based on the last feature dimension
+        self.layer_norm = None
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Forward pass: Applies convolutional layers and normalizes token embeddings."""
+        for layer in self.layers:
+            x = layer(x)
+
+        B, H, W, C = x.shape
+
+        # Flatten into token sequence
+        x = x.reshape(B, H * W, C)  # [B, N, C]
+        return x
+
+    def to_onnx(self, z, **params):
+        """Defines the ONNX export logic for convolutional token embedding."""
+        for layer in self.layers:
+            z = layer.to_onnx(z, **params)
+
+        B, C, H, W = z.shapes[0]
+        reshape_params = {
+            "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
+            "shape": (B, H * W, C),  # Flatten the feature map
+        }
+        return jax.numpy.reshape.to_onnx(z, **reshape_params)
 
 
 class MLPBlock(nnx.Module):
@@ -189,15 +275,27 @@ class VisionTransformer(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.patch_embedding = PatchEmbedding(
-            height, width, patch_size, num_hiddens, in_features, rngs=rngs
+        # self.embedding = PatchEmbedding(
+        #     height, width, patch_size, num_hiddens, in_features, rngs=rngs
+        # )
+
+        # ignore patch_size
+
+        self.embedding = MNISTConvolutionalTokenEmbedding(
+            embed_dims=[32, 64, num_hiddens],
+            kernel_size=3,
+            strides=[1, 2, 2],
+            rngs=nnx.Rngs(0),
         )
         self.cls_token = nnx.Param(jnp.zeros((1, 1, num_hiddens)))
         self.positional_embedding = nnx.Param(
-            create_sinusoidal_embeddings(
-                (height // patch_size) * (width // patch_size), num_hiddens
-            )
+            create_sinusoidal_embeddings((height // 4) * (width // 4), num_hiddens)
         )
+        # self.positional_embedding = nnx.Param(
+        #     create_sinusoidal_embeddings(
+        #         (height // patch_size) * (width // patch_size), num_hiddens
+        #     )
+        # )
         self.transformer_blocks = [
             TransformerBlock(num_hiddens, num_heads, mlp_dim, dropout_rate, rngs=rngs)
             for _ in range(num_layers)
@@ -206,7 +304,7 @@ class VisionTransformer(nnx.Module):
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.patch_embedding(x)
+        x = self.embedding(x)
         batch_size = x.shape[0]
 
         cls_tokens = jnp.tile(self.cls_token, (batch_size, 1, 1))
@@ -226,7 +324,7 @@ class VisionTransformer(nnx.Module):
         return nnx.log_softmax(self.dense(x))
 
     def to_onnx(self, z, parameters=None):
-        z = self.patch_embedding.to_onnx(z)
+        z = self.embedding.to_onnx(z)
         batch_size = z.shapes[0][0]
 
         cls_token_z = Z(
@@ -281,7 +379,7 @@ def get_test_params():
     return [
         {
             "component": "ViT",
-            "description": "A MNIST Vision Tansformer (ViT) model",
+            "description": "A MNIST Vision Transformer (ViT) model",
             "children": [
                 "PatchEmbedding",
                 "TransformerBlock",
@@ -296,6 +394,9 @@ def get_test_params():
                         28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
                     ),
                     "input_shapes": [(1, 28, 28, 1)],
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                    },
                 }
             ],
         },
@@ -357,6 +458,32 @@ def get_test_params():
                     ),
                     "input_shapes": [(1, 10, 256)],
                 },
+            ],
+        },
+        {
+            "component": "MNISTConvolutionalTokenEmbedding",
+            "description": "Convolutional Token Embedding for MNIST with hierarchical downsampling.",
+            "children": [
+                "flax.nnx.Conv",
+                "flax.nnx.LayerNorm",
+                "jax.numpy.Reshape",
+                "jax.nn.relu",
+            ],
+            "since": "v0.1.0",
+            "testcases": [
+                {
+                    "testcase": "mnist_conv_embedding",
+                    "component": MNISTConvolutionalTokenEmbedding(
+                        embed_dims=[32, 64, 128],
+                        kernel_size=3,
+                        strides=[1, 2, 2],
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(1, 28, 28, 1)],
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                    },
+                }
             ],
         },
     ]

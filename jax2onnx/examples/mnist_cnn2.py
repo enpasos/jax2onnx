@@ -4,6 +4,8 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from flax import nnx
+
+import jax2onnx.plugins  # noqa: F401
 from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 
 

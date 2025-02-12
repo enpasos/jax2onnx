@@ -5,6 +5,8 @@ from flax import nnx
 from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 from typing import Any
 import jax.numpy as jnp
+
+import jax2onnx.plugins  # noqa: F401
 from jax2onnx.to_onnx import Z
 
 

@@ -3,6 +3,8 @@
 
 from flax import nnx
 import jax.numpy as jnp
+
+import jax2onnx.plugins  # noqa: F401
 from jax2onnx.typing_helpers import PartialWithOnnx, Supports2Onnx
 
 
