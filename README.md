@@ -93,23 +93,24 @@ Example of an MLP with the `to_onnx` function implemented:
 
 ```py
 class MLP(nnx.Module):
-    def __init__(self, din: int, dmid: int, dout: int, *, rngs=nnx.Rngs(0)): 
-        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-        self.batch_norm = nnx.BatchNorm(dmid, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
-        self.activation = jax.nn.gelu
-        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
-
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray: 
-        x = self.linear1(x)
-        x = self.batch_norm(x)
-        x = self.dropout(x, deterministic=deterministic)
-        x = self.activation(x)
-        return self.linear2(x)
-
-    def to_onnx(self, z, parameters=None): 
-        for layer in [self.linear1, self.batch_norm, self.dropout, self.activation, self.linear2]:
-            z = layer.to_onnx(z, parameters)
+    def __init__(self, din, dmid, dout, *, rngs=nnx.Rngs(0)):
+        self.layers: list[Supports2Onnx] = [
+            nnx.Linear(din, dmid, rngs=rngs),
+            nnx.BatchNorm(dmid, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
+            PartialWithOnnx(nnx.gelu, approximate=False),
+            nnx.Linear(dmid, dout, rngs=rngs),
+        ]
+    def __call__(self, x, deterministic = True):
+        for layer in self.layers:
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=deterministic)
+            else:
+                x = layer(x)
+        return x
+    def to_onnx(self, z, **params):
+        for layer in self.layers:
+            z = layer.to_onnx(z, **params)
         return z
 ```
 
