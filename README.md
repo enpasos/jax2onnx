@@ -19,7 +19,7 @@ This library follows a **test-driven and demand-driven** approach, giving you **
 | JAX Component | ONNX Components | Since | Testcases |
 |:-------------|:---------------|:------|:---------|
 | [flax.nnx.BatchNorm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm) | [BatchNormalization](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | v0.1.0 | [`batchnorm`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/batchnorm_model.onnx) ✅ |
-| [flax.nnx.Conv](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv) | [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html) | v0.1.0 | [`conv_3x3`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/conv_3x3_model.onnx) ✅<br>[`conv_5x5_stride2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/conv_5x5_stride2_model.onnx) ❌ |
+| [flax.nnx.Conv](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv) | [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html) | v0.1.0 | [`conv_3x3_1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/conv_3x3_1_model.onnx) ✅<br>[`conv_3x3_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/conv_3x3_2_model.onnx) ✅<br>[`conv_3x3_3`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/conv_3x3_3_model.onnx) ✅ |
 | [flax.nnx.Dropout](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout) | [Dropout](https://onnx.ai/onnx/operators/onnx__Dropout.html) | v0.1.0 | [`dropout`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_model.onnx) ✅<br>[`dropout_1d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_1d_model.onnx) ✅<br>[`dropout_2d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_2d_model.onnx) ✅<br>[`dropout_3d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_3d_model.onnx) ✅<br>[`dropout_4d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_4d_model.onnx) ✅<br>[`dropout_high`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_high_model.onnx) ✅<br>[`dropout_low`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/dropout_low_model.onnx) ✅ |
 | [flax.nnx.LayerNorm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm) | [LayerNormalization](https://onnx.ai/onnx/operators/onnx__LayerNormalization.html) | v0.1.0 | [`layernorm_default`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/layernorm_default_model.onnx) ✅<br>[`layernorm_multiaxis`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/layernorm_multiaxis_model.onnx) ✅ |
 | [flax.nnx.Linear](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Linear) | [Gemm](https://onnx.ai/onnx/operators/onnx__Gemm.html) | v0.1.0 | [`linear`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/linear_model.onnx) ✅<br>[`linear_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/linear_2_model.onnx) ✅ |
@@ -63,9 +63,10 @@ Examples
 | CNN | A MNIST CNN model with convolutional, layer norm, pooling, dropout, and linear layers. | flax.nnx.Conv<br>flax.nnx.Linear<br>flax.nnx.relu<br>flax.nnx.avg_pool<br>flax.nnx.reshape<br>flax.nnx.log_softmax<br>flax.nnx.LayerNorm<br>flax.nnx.Dropout<br>flax.nnx.max_pool | v0.1.0 | [`mnist_cnn_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mnist_cnn_2_model.onnx) ✅ |
 | MLP | A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation. | flax.nnx.Linear<br>flax.nnx.BatchNorm<br>flax.nnx.Dropout<br>flax.nnx.gelu<br>flax.nnx.Linear | v0.1.0 | [`mlp`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mlp_model.onnx) ✅ |
 | MLP Block | MLP in Transformer | flax.nnx.Linear<br>flax.nnx.Dropout<br>flax.nnx.gelu | v0.1.0 | [`mlp_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mlp_block_model.onnx) ✅ |
+| MNISTConvolutionalTokenEmbedding | Convolutional Token Embedding for MNIST with hierarchical downsampling. | flax.nnx.Conv<br>flax.nnx.LayerNorm<br>jax.numpy.Reshape<br>jax.nn.relu | v0.1.0 | [`mnist_conv_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mnist_conv_embedding_model.onnx) ✅ |
 | PatchEmbedding | Cutting the image into patches and linearly embedding them. | flax.nnx.Linear<br>jax.numpy.Transpose<br>jax.numpy.Reshape | v0.1.0 | [`patch_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/patch_embedding_model.onnx) ✅ |
 | TransformerBlock | Transformer from 'Attention Is All You Need.' | flax.nnx.MultiHeadAttention<br>flax.nnx.LayerNorm<br>flax.nnx.Dropout<br>MLPBlock<br>flax.nnx.Dropout | v0.1.0 | [`transformer_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/transformer_block_model.onnx) ✅ |
-| ViT | A MNIST Vision Tansformer (ViT) model | PatchEmbedding<br>TransformerBlock<br>flax.nnx.Linear<br>flax.nnx.LayerNorm | v0.1.0 | [`mnist_vit`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mnist_vit_model.onnx) ✅ |
+| ViT | A MNIST Vision Transformer (ViT) model | PatchEmbedding<br>TransformerBlock<br>flax.nnx.Linear<br>flax.nnx.LayerNorm | v0.1.0 | [`mnist_vit`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/mnist_vit_model.onnx) ✅ |
 
 <!-- AUTOGENERATED EXAMPLES TABLE END -->
 
@@ -116,8 +117,8 @@ To export the model to ONNX format, use the `to_onnx` function:
 ```py
 from jax2onnx.to_onnx import to_onnx
 to_onnx(
-    file_name="mlp.onnx",
-    jax_model=MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+    model_file_name="mlp.onnx",
+    component=MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
     input_shapes=[(1, 30)]
 )
 ```

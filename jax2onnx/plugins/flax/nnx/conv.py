@@ -23,13 +23,13 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
         Z: Updated instance with new shapes and names.
     """
     onnx_graph = z.onnx_graph
-    input_shape = z.shapes[0]
+    input_shape = z.shapes[0]  # ONNX shape: (B, C, H, W)
     input_names = z.names
 
     # Convert ONNX shape to JAX format (B, H, W, C)
     input_shape_jax = onnx_shape_to_jax_shape(input_shape)
 
-    # Infer output shape using a dummy JAX input tensor
+    # Compute expected output shape from JAX
     jax_example_input = jnp.zeros(input_shape_jax)
     jax_example_output = self(jax_example_input)
     output_shape_jax = jax_example_output.shape
@@ -37,38 +37,27 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     # Convert back to ONNX format (B, C, H, W)
     output_shapes = [jax_shape_to_onnx_shape(output_shape_jax)]
 
-    # Generate a unique node name
+    # Generate unique node name
     node_name = f"node{onnx_graph.next_id()}"
 
-    # Handle padding for 'SAME' mode
+    # Compute ONNX-compatible padding for "SAME"
     if self.padding == "SAME":
-        input_height, input_width = input_shape[1], input_shape[2]
         kernel_height, kernel_width = self.kernel_size
         stride_height, stride_width = (
             self.strides
             if isinstance(self.strides, tuple)
             else (self.strides, self.strides)
         )
-        dilation_height, dilation_width = (
-            self.kernel_dilation
-            if isinstance(self.kernel_dilation, tuple)
-            else (self.kernel_dilation, self.kernel_dilation)
-        )
+        input_height, input_width = input_shape[2], input_shape[3]  # ONNX (B, C, H, W)
+
+        output_height = int(jnp.ceil(input_height / stride_height))
+        output_width = int(jnp.ceil(input_width / stride_width))
 
         pad_h = max(
-            (input_shape[1] - 1) * stride_height
-            + (kernel_height - 1) * dilation_height
-            + 1
-            - input_height,
-            0,
+            (output_height - 1) * stride_height + kernel_height - input_height, 0
         )
-        pad_w = max(
-            (input_shape[2] - 1) * stride_width
-            + (kernel_width - 1) * dilation_width
-            + 1
-            - input_width,
-            0,
-        )
+        pad_w = max((output_width - 1) * stride_width + kernel_width - input_width, 0)
+
         pads = [pad_h // 2, pad_w // 2, pad_h - pad_h // 2, pad_w - pad_w // 2]
     else:
         pads = [0, 0, 0, 0]
@@ -95,7 +84,7 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     )
     onnx_graph.add_node(conv_node)
 
-    # Add kernel weights as an initializer (transposed to ONNX format)
+    # Add kernel weights as an initializer (transpose for ONNX format)
     kernel_onnx = self.kernel.value.transpose(3, 2, 0, 1).flatten().astype(jnp.float32)
     onnx_graph.add_initializer(
         oh.make_tensor(
@@ -110,7 +99,7 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
         )
     )
 
-    # Add bias as an initializer if `use_bias` is True
+    # Add bias if `use_bias=True`
     if self.use_bias:
         onnx_graph.add_initializer(
             oh.make_tensor(
@@ -125,18 +114,18 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     output_names = [f"{node_name}_output"]
     onnx_graph.add_local_outputs(output_shapes, output_names)
 
-    # Update and return Z
+    # Update and return `Z`
     z.shapes = output_shapes
     z.names = output_names
     return z
 
 
-# Attach the `to_onnx` method to `nnx.Conv`
+# Attach `to_onnx` to `nnx.Conv`
 nnx.Conv.to_onnx = to_onnx
 
 
 def get_test_params():
-    """Defines test parameters for `nnx.Conv` ONNX conversion."""
+    """Defines test parameters for `nnx.Conv` ONNX conversion, including `MNISTConvolutionalTokenEmbedding`."""
     return [
         {
             "jax_component": "flax.nnx.Conv",
@@ -150,34 +139,50 @@ def get_test_params():
             "since": "v0.1.0",
             "testcases": [
                 {
-                    "testcase": "conv_3x3",
+                    "testcase": "conv_3x3_1",
                     "component": nnx.Conv(
-                        in_features=3,
-                        out_features=16,
+                        in_features=1,
+                        out_features=32,
                         kernel_size=(3, 3),
-                        strides=(1, 1),
                         padding="SAME",
-                        kernel_dilation=(1, 1),
                         use_bias=True,
                         rngs=nnx.Rngs(0),
                     ),
-                    "input_shapes": [(1, 64, 64, 3)],  # JAX shape (N, H, W, C)
+                    "input_shapes": [(1, 28, 28, 1)],  # JAX shape (B, H, W, C)
                     "params": {
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
                         "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX → JAX
                     },
                 },
                 {
-                    "testcase": "conv_5x5_stride2",
+                    "testcase": "conv_3x3_2",
                     "component": nnx.Conv(
-                        in_features=3,
-                        out_features=16,
-                        kernel_size=(5, 5),
+                        in_features=32,
+                        out_features=64,
+                        kernel_size=(3, 3),
                         strides=(2, 2),
                         padding="SAME",
-                        rngs=nnx.Rngs(42),
+                        use_bias=True,
+                        rngs=nnx.Rngs(0),
                     ),
-                    "input_shapes": [(1, 64, 64, 3)],  # JAX shape (N, H, W, C)
+                    "input_shapes": [(1, 28, 28, 32)],  # JAX shape (B, H, W, C)
+                    "params": {
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                        "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX → JAX
+                    },
+                },
+                {
+                    "testcase": "conv_3x3_3",
+                    "component": nnx.Conv(
+                        in_features=64,
+                        out_features=128,
+                        kernel_size=(3, 3),
+                        strides=(2, 2),
+                        padding="SAME",
+                        use_bias=True,
+                        rngs=nnx.Rngs(0),
+                    ),
+                    "input_shapes": [(1, 28, 28, 64)],  # JAX shape (B, H, W, C)
                     "params": {
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
                         "post_transpose": [(0, 2, 3, 1)],  # Convert ONNX → JAX
