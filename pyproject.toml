@@ -11,7 +11,7 @@ dependencies = [
     "flax==0.10.3",
     "ml_dtypes==0.5.1",
     "optax==0.2.4",
-    "orbax-checkpoint==0.11.0",
+    "orbax-checkpoint==0.11.5",
     "orbax-export==0.0.6",
     "netron>=8.1.1",
     "onnx>=1.17.0",
