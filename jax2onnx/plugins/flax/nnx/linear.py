@@ -1,6 +1,5 @@
 # file: jax2onnx/plugins/linear.py
 
-# file: jax2onnx/plugins/linear.py
 
 import numpy as np
 import onnx
