@@ -275,27 +275,19 @@ class VisionTransformer(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        # self.embedding = PatchEmbedding(
-        #     height, width, patch_size, num_hiddens, in_features, rngs=rngs
-        # )
-
-        # ignore patch_size
-
         self.embedding = MNISTConvolutionalTokenEmbedding(
             embed_dims=[32, 64, num_hiddens],
             kernel_size=3,
             strides=[1, 2, 2],
             rngs=nnx.Rngs(0),
         )
-        self.cls_token = nnx.Param(jnp.zeros((1, 1, num_hiddens)))
+        self.cls_token = nnx.Param(
+            jax.random.normal(rngs.params(), (1, 1, num_hiddens))
+        )
+
         self.positional_embedding = nnx.Param(
             create_sinusoidal_embeddings((height // 4) * (width // 4), num_hiddens)
         )
-        # self.positional_embedding = nnx.Param(
-        #     create_sinusoidal_embeddings(
-        #         (height // patch_size) * (width // patch_size), num_hiddens
-        #     )
-        # )
         self.transformer_blocks = [
             TransformerBlock(num_hiddens, num_heads, mlp_dim, dropout_rate, rngs=rngs)
             for _ in range(num_layers)
@@ -307,12 +299,14 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         batch_size = x.shape[0]
 
-        cls_tokens = jnp.tile(self.cls_token, (batch_size, 1, 1))
+        cls_tokens = jnp.tile(
+            self.cls_token.value, (batch_size, 1, 1)
+        )  # ✅ Use `.value`
         x = jnp.concatenate([cls_tokens, x], axis=1)
 
         pos_emb_expanded = jax.lax.dynamic_slice(
             self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )
+        )  # ✅ Ensure `.value` usage
         pos_emb_expanded = jnp.asarray(pos_emb_expanded)
 
         x = x + pos_emb_expanded
@@ -328,7 +322,7 @@ class VisionTransformer(nnx.Module):
         batch_size = z.shapes[0][0]
 
         cls_token_z = Z(
-            shapes=[(1, 1, self.cls_token.value.shape[-1])],
+            shapes=[(1, 1, self.cls_token.value.shape[-1])],  # ✅ Ensure `.value`
             names=["cls_token"],
             onnx_graph=z.onnx_graph,
         )
@@ -337,7 +331,7 @@ class VisionTransformer(nnx.Module):
                 "cls_token",
                 onnx.TensorProto.FLOAT,
                 [1, 1, self.cls_token.value.shape[-1]],
-                jnp.array(self.cls_token.value).flatten(),
+                jnp.array(self.cls_token.value).flatten(),  # ✅ Use `.value`
             )
         )
 
@@ -346,7 +340,7 @@ class VisionTransformer(nnx.Module):
         z = jax.numpy.concatenate.to_onnx(cls_tokens + z, axis=1)
 
         pos_emb_z = Z(
-            shapes=[self.positional_embedding.value.shape],
+            shapes=[self.positional_embedding.value.shape],  # ✅ Use `.value`
             names=["positional_embedding"],
             onnx_graph=z.onnx_graph,
         )
@@ -355,7 +349,7 @@ class VisionTransformer(nnx.Module):
                 "positional_embedding",
                 onnx.TensorProto.FLOAT,
                 self.positional_embedding.value.shape,
-                jnp.array(self.positional_embedding.value).flatten(),
+                jnp.array(self.positional_embedding.value).flatten(),  # ✅ Use `.value`
             )
         )
 
