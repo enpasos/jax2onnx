@@ -264,13 +264,13 @@ class VisionTransformer(nnx.Module):
         self,
         height: int,
         width: int,
-        patch_size: int,
+        # patch_size: int,
         num_hiddens: int,
         num_layers: int,
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        in_features: int,
+        # in_features: int,
         dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
@@ -370,6 +370,19 @@ class VisionTransformer(nnx.Module):
 
 def get_test_params():
     """Returns test parameters for Vision Transformer."""
+
+    vit_params = {
+        "height": 28,
+        "width": 28,
+        "num_hiddens": 256,
+        "num_layers": 6,
+        "num_heads": 8,
+        "mlp_dim": 512,
+        "num_classes": 10,
+        "dropout_rate": 0.1,
+        "rngs": nnx.Rngs(0),
+    }
+
     return [
         {
             "component": "ViT",
@@ -384,9 +397,7 @@ def get_test_params():
             "testcases": [
                 {
                     "testcase": "mnist_vit",
-                    "component": VisionTransformer(
-                        28, 28, 4, 256, 6, 8, 512, 10, 1, 0.1, rngs=nnx.Rngs(0)
-                    ),
+                    "component": VisionTransformer(**vit_params),
                     "input_shapes": [(1, 28, 28, 1)],
                     "params": {
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
@@ -400,7 +411,6 @@ def get_test_params():
             "children": [
                 "flax.nnx.MultiHeadAttention",
                 "flax.nnx.LayerNorm",
-                "flax.nnx.Dropout",
                 "MLPBlock",
                 "flax.nnx.Dropout",
             ],
