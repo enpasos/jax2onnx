@@ -112,6 +112,7 @@ class MNISTConvolutionalTokenEmbedding(nnx.Module):
         embed_dims: List[int] = [32, 64, 128],
         kernel_size: int = 3,
         strides: List[int] = [1, 2, 2],
+        dropout_rate=0.5,
         *,
         rngs=nnx.Rngs(0),
     ):
@@ -154,6 +155,7 @@ class MNISTConvolutionalTokenEmbedding(nnx.Module):
                 feature_axes=(1, 2, 3),
                 rngs=rngs,
             ),
+            nnx.Dropout(rate=dropout_rate, rngs=rngs),
         ]
 
         # LayerNorm will be initialized dynamically based on the last feature dimension
@@ -279,6 +281,7 @@ class VisionTransformer(nnx.Module):
             embed_dims=[32, 64, num_hiddens],
             kernel_size=3,
             strides=[1, 2, 2],
+            dropout_rate=dropout_rate,
             rngs=nnx.Rngs(0),
         )
         self.cls_token = nnx.Param(
@@ -379,7 +382,7 @@ def get_test_params():
         "num_heads": 8,
         "mlp_dim": 512,
         "num_classes": 10,
-        "dropout_rate": 0.1,
+        "dropout_rate": 0.5,
         "rngs": nnx.Rngs(0),
     }
 
@@ -388,7 +391,7 @@ def get_test_params():
             "component": "ViT",
             "description": "A MNIST Vision Transformer (ViT) model",
             "children": [
-                "PatchEmbedding",
+                "MNISTConvolutionalTokenEmbedding",
                 "TransformerBlock",
                 "flax.nnx.Linear",
                 "flax.nnx.LayerNorm",

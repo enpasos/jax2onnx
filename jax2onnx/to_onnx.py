@@ -72,7 +72,6 @@ def to_onnx(
     component,
     input_shapes,
     output_path="model.onnx",
-    to_onnx=None,
     params=None,
 ):
     if params is None:
