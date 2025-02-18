@@ -146,6 +146,46 @@ pip install jax2onnx
 ```
 
 
+Below is an updated README section (or snippet) that explains the purpose and usage of the `pre_transpose` and `post_transpose` parameters. You can incorporate this into your README to help users understand how to control tensor dimension reordering when converting between JAX/Flax and ONNX:
+
+---
+
+### **Pre and Post Transpose**
+
+One of the challenges when converting models from JAX/Flax to ONNX is handling differences in tensor dimension conventions. For example, many JAX/Flax components (such as convolution layers) work with inputs in **NHWC** format (Batch, Height, Width, Channels), whereas ONNX’s convolution operator expects inputs in **NCHW** format (Batch, Channels, Height, Width).
+
+To bridge this gap, `jax2onnx` supports two optional parameters when calling `to_onnx` on a component from a testcase:
+
+- **`pre_transpose`**:  
+  A list of tuples that specify how to rearrange the dimensions of the **input tensor** before the conversion. For example, passing `[(0, 3, 1, 2)]` will convert a JAX/Flax input in NHWC format to ONNX’s NCHW format.  
+  **Usage example:**
+  ```python
+  "params": {
+      "pre_transpose": [(0, 3, 1, 2)]
+  }
+  ```
+
+- **`post_transpose`**:  
+  A list of tuples that specify how to rearrange the dimensions of the **output tensor** after the ONNX conversion. This parameter is useful if you need to convert the output back from ONNX’s format to the expected JAX/Flax format (or any other preferred layout). For example, using `[(0, 2, 3, 1)]` will convert an output in NCHW format back to NHWC.  
+  **Usage example:**
+  ```python
+  "params": {
+      "post_transpose": [(0, 2, 3, 1)]
+  }
+  ```
+
+#### **How It Works in `jax2onnx`**
+
+- In the **Conv** plugin, for instance, the input shape is first converted from ONNX (NCHW) to JAX (NHWC) using the helper function `onnx_shape_to_jax_shape`.
+- The optional `pre_transpose` parameter is then applied to the input tensor, ensuring that the tensor matches the expected layout of the ONNX operator.
+- After the ONNX Conv node is executed, the optional `post_transpose` parameter is applied to reformat the output tensor back to the original layout, so that downstream components (or tests) receive the tensor in the expected JAX format.
+
+This flexible approach allows you to tailor the conversion process for components that require specific tensor layouts—without changing the underlying functionality. In most common scenarios (like converting a convolutional network), using the provided defaults (`pre_transpose=[(0, 3, 1, 2)]` and `post_transpose=[(0, 2, 3, 1)]`) will correctly handle the conversion between NHWC and NCHW formats.
+
+---
+
+By including this section, users of `jax2onnx` will have clear guidance on how to adjust tensor dimension ordering when needed. Feel free to modify the wording as necessary to best fit your overall documentation style.
+
 ### **Dirty Details**
 Mapping components between JAX and ONNX can be inherently challenging due to fundamental differences in how they represent computations. In JAX, a function and its parameters are evaluated dynamically at runtime, whereas in ONNX, the computational graph is static and defined at conversion time (via JAX2ONNX) before being used at runtime.
 
