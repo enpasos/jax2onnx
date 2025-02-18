@@ -55,7 +55,7 @@ def load_test_params():
     return [
         pytest.param(param, id=f"{param['testcase']} ({param['source']})")
         for param in params
-        # if param["testcase"] in [ "conv_3x3", "conv_3x3_1", "conv_3x3_2", "conv_3x3_3", "mnist_conv_embedding" ]
+        # if param["testcase"] in [ "gather_tf_out" ]
     ]
 
 
