@@ -148,3 +148,17 @@ pip install jax2onnx
 ### **License**
 This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
 
+ 
+
+### **Dirty Details**
+Mapping components between JAX and ONNX can be inherently challenging due to fundamental differences in how they represent computations. In JAX, a function and its parameters are evaluated dynamically at runtime, whereas in ONNX, the computational graph is static and defined at conversion time (via JAX2ONNX) before being used at runtime.
+
+Rather than attempting to match all possible runtime parameters of a JAX component to an ONNX equivalent, we focus on mapping only those relevant to a specific use case. This tradeoff between simplicity and generality ensures practicality but requires awareness of the intended use case. There are two points in time when the use case can be known:
+1. **During Testing** – In unit tests, we explicitly define the parameters passed to the `to_onnx` function, which is monkey-patched onto the component. To ensure the correct mapping of JAX function parameters to their ONNX counterparts, `to_onnx` must return a function that accepts the JAX function parameters. An example of this approach can be found in `jax2onnx/plugins/jax/lax/slice.py`.
+2. **During Usage** – Ideally, our `to_onnx` implementation allows users to use JAX components as they normally would. However, in some cases, users may need to wrap a component in one of our `PartialWithOnnx` or `Supports2Onnx` classes. These wrappers enable fine-tuning of `to_onnx` behavior in conjunction with the component’s JAX `__call__` function. For an example, see `ReshapeWithOnnx(Supports2Onnx)` in `tests/examples/mnist_cnn.py`.
+
+This approach ensures flexibility while maintaining compatibility between JAX and ONNX, balancing ease of use with the necessary constraints of a static computational graph.
+
+
+ 
+
