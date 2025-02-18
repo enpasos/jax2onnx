@@ -145,10 +145,7 @@ t.b.d.:
 pip install jax2onnx  
 ```
 
-
-Below is an updated README section (or snippet) that explains the purpose and usage of the `pre_transpose` and `post_transpose` parameters. You can incorporate this into your README to help users understand how to control tensor dimension reordering when converting between JAX/Flax and ONNX:
-
----
+ 
 
 ### **Pre and Post Transpose**
 
