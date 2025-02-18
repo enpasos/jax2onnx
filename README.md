@@ -128,9 +128,9 @@ to_onnx(
 
 ### **How to Contribute**
 
-If you'd like to see a model or function supported, consider contributing by adding a plugin for an existing   
-module or function under the `jax2onnx/plugins` directory. Or you can add an example to the `examples` directory.
-Certainly any other improvements are welcome as well.
+If you'd like to see a specific model or function supported, consider contributing by adding a plugin for an existing module or function under the `jax2onnx/plugins` directory. You can also contribute by adding an example to the `examples` directory.
+
+Of course, any other improvements are welcome as well!
 
 ### **Installation**
 
@@ -145,10 +145,6 @@ t.b.d.:
 pip install jax2onnx  
 ```
 
-### **License**
-This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
-
- 
 
 ### **Dirty Details**
 Mapping components between JAX and ONNX can be inherently challenging due to fundamental differences in how they represent computations. In JAX, a function and its parameters are evaluated dynamically at runtime, whereas in ONNX, the computational graph is static and defined at conversion time (via JAX2ONNX) before being used at runtime.
@@ -160,5 +156,9 @@ Rather than attempting to match all possible runtime parameters of a JAX compone
 This approach ensures flexibility while maintaining compatibility between JAX and ONNX, balancing ease of use with the necessary constraints of a static computational graph.
 
 
- 
+
+### **License**
+This project is licensed under the terms of the Apache License, Version 2.0. See the `LICENSE` file for details.
+
+  
 
