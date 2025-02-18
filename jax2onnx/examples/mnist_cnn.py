@@ -12,9 +12,6 @@ from jax2onnx.to_onnx import Z
 
 class ReshapeWithOnnx(Supports2Onnx):
 
-    def __init__(self) -> None:
-        pass
-
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Reshapes input using the provided shape function."""
         return x.reshape(x.shape[0], -1)
@@ -27,10 +24,6 @@ class ReshapeWithOnnx(Supports2Onnx):
             "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
         }
         return jax.numpy.reshape.to_onnx(z, **reshape_params)
-
-    def __getattr__(self, name: str) -> Any:
-        """Ensures compatibility with Supports2Onnx by forwarding attributes."""
-        raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
 
 class MNIST_CNN(nnx.Module):

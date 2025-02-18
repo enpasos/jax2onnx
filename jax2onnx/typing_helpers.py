@@ -16,7 +16,7 @@ class Supports2Onnx(Protocol):
         """Makes the object callable."""
 
     def __getattr__(self, name: str) -> Any:
-        """Handles attribute access."""
+        raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
 
 T = TypeVar("T", bound=Supports2Onnx)

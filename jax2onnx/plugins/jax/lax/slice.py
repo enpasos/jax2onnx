@@ -1,7 +1,5 @@
-# file: jax2onnx/plugins/slice.py
+# file: jax2onnx/plugins/jax/lax/slice.py
 
-# JAX API reference: https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.slice.html
-# ONNX Operator: https://onnx.ai/onnx/operators/onnx__Slice.html
 
 import jax
 import numpy as np
