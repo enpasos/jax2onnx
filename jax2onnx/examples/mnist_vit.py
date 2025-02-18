@@ -223,7 +223,7 @@ class TransformerBlock(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.rng_collection = rngs  # <- Add this line
+        self.rng_collection = rngs
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.dropout_rate = dropout_rate
         self.attention = nnx.MultiHeadAttention(
@@ -272,17 +272,26 @@ class VisionTransformer(nnx.Module):
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        # in_features: int,
+        embed_dims: List[int] = [32, 128, 256],
+        kernel_size: int = 3,
+        strides: List[int] = [1, 2, 2],
         dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
     ):
+
+        # raise exception if embed_dims size is not 3 and embed_dims[2] != num_hiddens
+        if len(embed_dims) != 3 or embed_dims[2] != num_hiddens:
+            raise ValueError(
+                "embed_dims should be a list of size 3 with embed_dims[2] == num_hiddens"
+            )
+
         self.embedding = MNISTConvolutionalTokenEmbedding(
-            embed_dims=[32, 64, num_hiddens],
-            kernel_size=3,
-            strides=[1, 2, 2],
+            embed_dims=embed_dims,
+            kernel_size=kernel_size,
+            strides=strides,
             dropout_rate=dropout_rate,
-            rngs=nnx.Rngs(0),
+            rngs=rngs,
         )
         self.cls_token = nnx.Param(
             jax.random.normal(rngs.params(), (1, 1, num_hiddens))
@@ -361,6 +370,7 @@ class VisionTransformer(nnx.Module):
         for block in self.transformer_blocks:
             z = block.to_onnx(z)
         z = self.layer_norm.to_onnx(z)
+
         z = jax.lax.slice.to_onnx(
             z, start=[0, 0, 0], end=[1, 1, self.dense.in_features]
         )
