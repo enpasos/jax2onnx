@@ -371,12 +371,6 @@ class VisionTransformer(nnx.Module):
             z = block.to_onnx(z)
         z = self.layer_norm.to_onnx(z)
 
-        # z = jax.lax.slice.to_onnx(
-        #     z, start=[0, 0, 0], end=[1, 1, self.dense.in_features]
-        # )
-
-        # z = jax.numpy.squeeze.to_onnx(z, axes=[1])
-
         z = jax.lax.gather.to_onnx(z, indices=0, axis=1)
 
         z = self.dense.to_onnx(z)
@@ -407,6 +401,7 @@ def get_test_params():
                 "TransformerBlock",
                 "flax.nnx.Linear",
                 "flax.nnx.LayerNorm",
+                "jax.lax.gather",
             ],
             "since": "v0.1.0",
             "testcases": [

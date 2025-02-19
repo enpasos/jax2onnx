@@ -3,3 +3,4 @@ output
 .idea
 dist
 __pycache__/
+.vscode

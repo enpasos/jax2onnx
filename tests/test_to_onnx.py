@@ -55,7 +55,7 @@ def load_test_params():
     return [
         pytest.param(param, id=f"{param['testcase']} ({param['source']})")
         for param in params
-        # if param["testcase"] in [ "gather_tf_out" ]
+        # if param["testcase"] in [ "linear_general", "linear_general_2", "linear_general_mha_projection", "linear_general_mha_projection2" ]
     ]
 
 
