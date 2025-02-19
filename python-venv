@@ -1,4 +1,4 @@
 #!/bin/sh
-cd "$HOME/projects/jax2onnx"
-. "$HOME/.cache/pypoetry/virtualenvs/jax2onnx-MixY3GtB-py3.12/bin/activate"
-exec python3 $*
+cd "/home/enpasos/projects/jax2onnx"
+. "/home/enpasos/.cache/pypoetry/virtualenvs/jax2onnx-MixY3GtB-py3.12/bin/activate"
+exec python3 "$@"
