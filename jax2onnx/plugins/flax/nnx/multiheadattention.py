@@ -72,12 +72,8 @@ def get_test_params():
                     "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
                 },
                 {
-                    "component": "MatMul",
-                    "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
-                },
-                {
-                    "component": "Constant",
-                    "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+                    "component": "Gemm",
+                    "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
                 },
                 {
                     "component": "Einsum",
