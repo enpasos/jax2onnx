@@ -371,11 +371,13 @@ class VisionTransformer(nnx.Module):
             z = block.to_onnx(z)
         z = self.layer_norm.to_onnx(z)
 
-        z = jax.lax.slice.to_onnx(
-            z, start=[0, 0, 0], end=[1, 1, self.dense.in_features]
-        )
+        # z = jax.lax.slice.to_onnx(
+        #     z, start=[0, 0, 0], end=[1, 1, self.dense.in_features]
+        # )
 
-        z = jax.numpy.squeeze.to_onnx(z, axes=[1])
+        # z = jax.numpy.squeeze.to_onnx(z, axes=[1])
+
+        z = jax.lax.gather.to_onnx(z, indices=0, axis=1)
 
         z = self.dense.to_onnx(z)
         return nnx.log_softmax.to_onnx(z, parameters={"axis": -1})
