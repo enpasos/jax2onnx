@@ -31,6 +31,9 @@ def build_dot_product_attention_onnx_node(z: Z, **params) -> Z:
     q_shape, k_shape, v_shape = input_shapes[:3]
     q_onnx_name, k_onnx_name, v_onnx_name = input_names[:3]
 
+    B, N, H, E = q_shape  # (B, N, H, E)
+    _, M, _, _ = k_shape  # (B, M, H, E)
+
     node_prefix = f"node{onnx_graph.next_id()}"
     softmax_axis = params.get("softmax_axis", -1)
 
@@ -57,7 +60,7 @@ def build_dot_product_attention_onnx_node(z: Z, **params) -> Z:
 
     # Compute attention scores using Einsum: (BNHE, BMHE) -> (BNHM)
     attn_scores_name = f"{node_prefix}_attn_scores"
-    attn_scores_shape = [q_shape[0], q_shape[1], q_shape[2], k_shape[2]]  # B, N, H, M
+    attn_scores_shape = [B, N, H, M]
     onnx_graph.add_node(
         oh.make_node(
             "Einsum",
