@@ -9,18 +9,8 @@ import onnx.helper as oh
 from jax2onnx.to_onnx import Z
 
 
-def build_slice_onnx_node(z, **params):
-    """
-    Converts JAX lax.slice operation to ONNX Slice operation.
-
-    Args:
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        **params: Dictionary containing 'start', 'end', and optionally 'strides'.
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
-
+def build_slice_onnx_node(z: Z, **params) -> Z:
+    """Convert JAX lax.slice operation to ONNX Slice operation."""
     if "start" not in params or "end" not in params:
         raise ValueError("Slice operation requires 'start' and 'end' parameters.")
 
@@ -111,13 +101,8 @@ def build_slice_onnx_node(z, **params):
 jax.lax.slice.to_onnx = build_slice_onnx_node
 
 
-def get_test_params():
-    """
-    Defines test parameters for verifying the ONNX conversion of the Slice operation.
-
-    Returns:
-        list: A list of test cases with expected slice parameters.
-    """
+def get_test_params() -> list:
+    """Define test parameters for verifying the ONNX conversion of the Slice operation."""
     return [
         {
             "jax_component": "jax.lax.slice",

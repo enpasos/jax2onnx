@@ -42,7 +42,7 @@ class TransposeWithOnnx:
 
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
-    """Generates sinusoidal positional embeddings."""
+    """Generate sinusoidal positional embeddings."""
     position = jnp.arange(num_patches + 1)[:, jnp.newaxis]
     div_term = jnp.exp(
         jnp.arange(0, num_hiddens, 2) * -(jnp.log(10000.0) / num_hiddens)
@@ -54,7 +54,7 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
 
 
 class PatchEmbedding(nnx.Module):
-    """Applies patch embedding for Vision Transformers."""
+    """Apply patch embedding for Vision Transformers."""
 
     def __init__(
         self, height, width, patch_size, num_hiddens, in_features, *, rngs: nnx.Rngs
@@ -214,6 +214,8 @@ class MLPBlock(nnx.Module):
 
 
 class TransformerBlock(nnx.Module):
+    """Transformer block with multi-head attention and MLP."""
+
     def __init__(
         self,
         num_hiddens: int,
@@ -262,6 +264,8 @@ class TransformerBlock(nnx.Module):
 
 
 class VisionTransformer(nnx.Module):
+    """Vision Transformer model for MNIST."""
+
     def __init__(
         self,
         height: int,
@@ -377,8 +381,8 @@ class VisionTransformer(nnx.Module):
         return nnx.log_softmax.to_onnx(z, parameters={"axis": -1})
 
 
-def get_test_params():
-    """Returns test parameters for Vision Transformer."""
+def get_test_params() -> list:
+    """Return test parameters for Vision Transformer."""
 
     vit_params = {
         "height": 28,

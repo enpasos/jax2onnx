@@ -7,13 +7,8 @@ import onnx.helper as oh
 from jax2onnx.to_onnx import Z
 
 
-def build_gather_onnx_node(z, **params):
-    """
-    Converts JAX lax.gather operation to an ONNX Gather operation.
-
-    - Handles scalar indices correctly by converting them to a 1D tensor.
-    - Avoids using additional ONNX operations like Squeeze.
-    """
+def build_gather_onnx_node(z: Z, **params) -> Z:
+    """Convert JAX lax.gather operation to an ONNX Gather operation."""
     if "indices" not in params or "axis" not in params:
         raise ValueError("Gather operation requires 'indices' and 'axis' parameters.")
 
@@ -96,14 +91,8 @@ def build_gather_onnx_node(z, **params):
 jax.lax.gather.to_onnx = build_gather_onnx_node
 
 
-def get_test_params():
-    """
-    Defines test parameters for the use case:
-      - Input shape: (1, 50, 256)
-      - Scalar index: 0
-      - Axis: 1
-      - Expected output: (1, 256)
-    """
+def get_test_params() -> list:
+    """Define test parameters for verifying the ONNX conversion of the Gather operation."""
     return [
         {
             "jax_component": "jax.lax.gather",

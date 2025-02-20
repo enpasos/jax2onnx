@@ -8,18 +8,7 @@ from jax2onnx.typing_helpers import Supports2Onnx
 
 
 def build_einsum_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
-    """
-    Converts `jax.numpy.einsum` into an ONNX Einsum node.
-
-    Args:
-        jax_function: The JAX einsum function.
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        **params: Dictionary containing 'equation' information.
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
-
+    """Convert `jax.numpy.einsum` into an ONNX Einsum node."""
     if "equation" not in params:
         raise ValueError("Einsum requires an 'equation' parameter.")
 
@@ -63,14 +52,8 @@ jnp.einsum.to_onnx = lambda *args, **kwargs: build_einsum_onnx_node(
 )
 
 
-def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of einsum.
-
-    Returns:
-        list: A list of dictionaries, each defining a test case.
-    """
-
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of einsum."""
     return [
         {
             "jax_component": "jax.numpy.einsum",

@@ -2,6 +2,7 @@
 import importlib
 import os
 import pkgutil
+from typing import Optional
 
 import jax.numpy as jnp
 import onnx
@@ -56,7 +57,8 @@ class Z:
         )
 
 
-def load_plugins():
+def load_plugins() -> dict:
+    """Load plugins from the plugins directory."""
     plugins = {}
     package = "jax2onnx.plugins"
     plugins_path = os.path.join(os.path.dirname(__file__), "plugins")
@@ -68,12 +70,13 @@ def load_plugins():
 
 
 def to_onnx(
-    model_file_name,
-    component,
-    input_shapes,
-    output_path="model.onnx",
-    params=None,
-):
+    model_file_name: str,
+    component: object,
+    input_shapes: list,
+    output_path: str = "model.onnx",
+    params: Optional[dict] = None,
+) -> Z:
+    """Convert a JAX model to ONNX format."""
     if params is None:
         params = {}
 
@@ -145,8 +148,8 @@ def to_onnx(
     return z
 
 
-def pre_transpose(z, **params):
-    """Applies a pre-transposition to ONNX inputs if specified in `params`."""
+def pre_transpose(z: Z, **params) -> Z:
+    """Apply a pre-transposition to ONNX inputs if specified in `params`."""
     shapes, names, onnx_graph = z.shapes, z.names, z.onnx_graph
     transposed_input_names, shapes_out = names[:], shapes[:]
 
@@ -175,8 +178,8 @@ def pre_transpose(z, **params):
     return z
 
 
-def post_transpose(z, **params):
-    """Applies a post-transposition to ONNX outputs if specified in `params`."""
+def post_transpose(z: Z, **params) -> Z:
+    """Apply a post-transposition to ONNX outputs if specified in `params`."""
     output_shapes, output_names, onnx_graph = z.shapes, z.names, z.onnx_graph
     final_output_names, shapes = output_names[:], output_shapes[:]
 
