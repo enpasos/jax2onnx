@@ -37,7 +37,8 @@ class MLP(nnx.Module):
         return z
 
 
-def get_test_params():
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of the MLP model."""
     return [
         {
             "component": "MLP",

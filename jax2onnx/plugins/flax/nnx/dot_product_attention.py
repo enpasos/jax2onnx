@@ -9,16 +9,7 @@ from jax2onnx.to_onnx import Z
 
 
 def build_dot_product_attention_onnx_node(z: Z, **params) -> Z:
-    """
-    Converts `nnx.dot_product_attention` into an ONNX node.
-
-    Args:
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        **params: Additional parameters such as `softmax_axis`.
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
+    """Convert `nnx.dot_product_attention` into an ONNX node."""
     input_shapes = z.shapes
     input_names = z.names
     onnx_graph = z.onnx_graph
@@ -124,10 +115,8 @@ nnx.dot_product_attention.to_onnx = build_dot_product_attention_onnx_node
 
 
 # Example test parameters
-def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of dot-product attention.
-    """
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of dot-product attention."""
     return [
         {
             "jax_component": "flax.nnx.dot_product_attention",

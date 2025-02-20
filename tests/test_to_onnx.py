@@ -3,14 +3,15 @@
 import pytest
 import jax
 import onnxruntime as ort
-import importlib
+import importlib.util
 import os
 import numpy as np
 from flax import nnx
 from jax2onnx.to_onnx import to_onnx
 
 
-def load_test_params():
+def load_test_params() -> list:
+    """Load test parameters from plugins and examples."""
     params = []
 
     # Load plugins and examples
@@ -19,7 +20,7 @@ def load_test_params():
         "Example": os.path.join(os.path.dirname(__file__), "../jax2onnx/examples"),
     }
 
-    def load_tests_from_directory(base_path, source_name):
+    def load_tests_from_directory(base_path: str, source_name: str) -> None:
         """Helper function to load test cases from plugins/examples directories."""
         for dirpath, _, filenames in os.walk(base_path):
             for filename in filenames:
@@ -30,6 +31,15 @@ def load_test_params():
                     spec = importlib.util.spec_from_file_location(
                         module_name, module_path
                     )
+                    if spec is None:  # Check if spec is None
+                        raise ImportError(
+                            f"Could not find module specification for {module_name} at {module_path}"
+                        )
+                    if spec.loader is None:  # Check if spec.loader is None
+                        raise ImportError(
+                            f"Could not find loader for {module_name} at {module_path}"
+                        )
+
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
 
@@ -60,7 +70,8 @@ def load_test_params():
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
-def test_onnx_export(test_params):
+def test_onnx_export(test_params: dict) -> None:
+    """Test the ONNX export functionality."""
     component = test_params.get("component", None)
 
     if hasattr(component, "eval"):

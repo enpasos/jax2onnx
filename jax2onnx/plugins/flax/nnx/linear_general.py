@@ -9,19 +9,7 @@ from jax2onnx.typing_helpers import Supports2Onnx
 
 
 def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
-    """
-    Converts an `nnx.LinearGeneral` layer into an ONNX `Gemm` node when possible.
-    Falls back to `MatMul` and `Add` if `Gemm` is not applicable.
-
-    Args:
-        self: The `nnx.LinearGeneral` instance.
-        z (Z): A container with input shapes, names, and the ONNX graph.
-        **params: Additional conversion parameters.
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
-
+    """Convert an `nnx.LinearGeneral` layer into an ONNX `Gemm` node."""
     onnx_graph = z.onnx_graph
     input_shape = list(map(int, z.shapes[0]))  # Convert to Python int
     input_name = z.names[0]
@@ -160,10 +148,8 @@ def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
 nnx.LinearGeneral.to_onnx = build_linear_general_onnx_node
 
 
-def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of `nnx.LinearGeneral`.
-    """
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of `nnx.LinearGeneral`."""
     return [
         {
             "jax_component": "flax.nnx.LinearGeneral",

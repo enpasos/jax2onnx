@@ -11,19 +11,7 @@ from jax2onnx.typing_helpers import Supports2Onnx
 
 
 def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
-    """
-    Converts an `nnx.Linear` layer into an ONNX `Gemm` (General Matrix Multiplication) node.
-
-    This function adds the corresponding weight and bias initializers to the ONNX graph.
-
-    Args:
-        self: The `nnx.Linear` instance.
-        z (Z): Contains input shapes, names, and the ONNX graph.
-        **params: Additional conversion parameters.
-
-    Returns:
-        Z: Updated instance with new shapes and names.
-    """
+    """Convert an `nnx.Linear` layer into an ONNX `Gemm` node."""
     onnx_graph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
@@ -130,7 +118,8 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
 nnx.Linear.to_onnx = to_onnx
 
 
-def get_test_params():
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of `nnx.Linear`."""
     return [
         {
             "jax_component": "flax.nnx.Linear",

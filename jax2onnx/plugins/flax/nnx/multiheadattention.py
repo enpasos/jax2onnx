@@ -7,8 +7,7 @@ from jax2onnx.typing_helpers import Supports2Onnx
 
 
 def build_multihead_attention_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
-    """
-    Converts `nnx.MultiHeadAttention` into an ONNX equivalent.
+    """Convert `nnx.MultiHeadAttention` into an ONNX equivalent.
 
     Steps:
       1) Apply `LinearGeneral` for query, key, and value projections.
@@ -55,9 +54,8 @@ def build_multihead_attention_onnx_node(self: Supports2Onnx, z: Z, **params) -> 
 nnx.MultiHeadAttention.to_onnx = build_multihead_attention_onnx_node
 
 
-def get_test_params():
-    """
-    Returns test parameters for verifying the ONNX conversion of MultiHeadAttention.
+def get_test_params() -> list:
+    """Return test parameters for verifying the ONNX conversion of MultiHeadAttention.
 
     The test case verifies the correct transformation of query, key, and value inputs,
     followed by the attention computation and the final projection step.
