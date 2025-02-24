@@ -126,15 +126,10 @@ to_onnx(
     input_shapes=[(1, 30)]
 )
 ```
-### **Supported Configurations** 
-
-<div style="display: flex; flex-wrap: wrap; align-items: flex-start;">
-
-  <div style="flex: 1; min-width: 100px; max-width: 200px; margin-right: 10px;">
-    <img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="100%"/>
-  </div>
-
-  <div style="flex: 2; min-width: 300px;">
+### **Supported Configurations**
+ 
+ 
+<img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="400">
 
 | `internal_shape_info` | `dynamic_batch_dim` | Behavior |
 |-----------------------|---------------------|----------|
@@ -143,9 +138,9 @@ to_onnx(
 | **False**             | **True**            | Shape information is only provided for input and output tensors, with batch dimensions set dynamically (`'B'`). |
 | **True**              | **True**            | Shape information is included on all connections where possible, with batch dimensions set dynamically (`'B'`). However, in cases where the batch dimension is merged with other dimensions internally, shape annotations must be omitted. |
 
-  </div>
 
-</div>
+
+
 
 
 ### **How to Contribute**
