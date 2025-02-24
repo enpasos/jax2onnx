@@ -127,24 +127,44 @@ to_onnx(
 )
 ```
 ### **Supported Configurations**
-
+ 
 <table>
   <tr>
-    <td style="width: 200px; vertical-align: top;">
-      <img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="200"/>
+    <td valign="top" width="200">
+      <img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="200" style="min-width: 100px;">
     </td>
-    <td>
-
-| `internal_shape_info` | `dynamic_batch_dim` | Behavior |
-|-----------------------|---------------------|----------|
-| **True**              | **False**           | Default setting: Internal shape information is included, batch size is fixed. |
-| **False**             | **False**           | Like the default, but without internal shape annotations. |
-| **False**             | **True**            | Shape information is only provided for input and output tensors, with batch dimensions set dynamically (`'B'`). |
-| **True**              | **True**            | Shape information is included on all connections where possible, with batch dimensions set dynamically (`'B'`). However, in cases where the batch dimension is merged with other dimensions internally, shape annotations must be omitted. |
-
+    <td valign="top">
+      <table>
+        <tr>
+          <th>`internal_shape_info`</th>
+          <th>`dynamic_batch_dim`</th>
+          <th>Behavior</th>
+        </tr>
+        <tr>
+          <td><strong>True</strong></td>
+          <td><strong>False</strong></td>
+          <td>Default setting: Internal shape information is included, batch size is fixed.</td>
+        </tr>
+        <tr>
+          <td><strong>False</strong></td>
+          <td><strong>False</strong></td>
+          <td>Like the default, but without internal shape annotations.</td>
+        </tr>
+        <tr>
+          <td><strong>False</strong></td>
+          <td><strong>True</strong></td>
+          <td>Shape information is only provided for input and output tensors, with batch dimensions set dynamically (<code>'B'</code>).</td>
+        </tr>
+        <tr>
+          <td><strong>True</strong></td>
+          <td><strong>True</strong></td>
+          <td>Shape information is included on all connections where possible, with batch dimensions set dynamically (<code>'B'</code>). However, in cases where the batch dimension is merged with other dimensions internally, shape annotations must be omitted.</td>
+        </tr>
+      </table>
     </td>
   </tr>
 </table>
+
 
 
 
