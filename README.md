@@ -129,7 +129,7 @@ to_onnx(
 ### **Supported Configurations**
  
  
-<img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="200">
+<img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="400">
 
 | `internal_shape_info` | `dynamic_batch_dim` | Behavior |
 |-----------------------|---------------------|----------|
