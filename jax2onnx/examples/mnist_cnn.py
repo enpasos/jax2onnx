@@ -7,7 +7,7 @@ from typing import Any
 import jax.numpy as jnp
 
 import jax2onnx.plugins  # noqa: F401
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 
 
 class ReshapeWithOnnx(Supports2Onnx):

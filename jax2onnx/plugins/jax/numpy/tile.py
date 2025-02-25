@@ -10,7 +10,7 @@ import numpy as np
 import onnx
 import onnx.helper as oh
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 
 
 def build_tile_onnx_node(z, **params):

@@ -7,7 +7,7 @@ import importlib.util
 import os
 import numpy as np
 from flax import nnx
-from jax2onnx.to_onnx import to_onnx
+from jax2onnx import to_onnx
 
 
 def load_test_params() -> list:
@@ -27,7 +27,6 @@ def load_test_params() -> list:
                 if filename.endswith(".py") and filename != "__init__.py":
                     module_path = os.path.join(dirpath, filename)
                     module_name = module_path.replace("/", ".").replace(".py", "")
-
                     spec = importlib.util.spec_from_file_location(
                         module_name, module_path
                     )
@@ -39,19 +38,15 @@ def load_test_params() -> list:
                         raise ImportError(
                             f"Could not find loader for {module_name} at {module_path}"
                         )
-
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
-
                     if hasattr(module, "get_test_params"):
                         test_params = module.get_test_params()
                         if isinstance(test_params, list):
                             for entry in test_params:
                                 if "testcases" in entry:
                                     for test in entry["testcases"]:
-                                        test["source"] = (
-                                            source_name  # Track whether it's from plugins/examples
-                                        )
+                                        test["source"] = source_name  # Track whether it's from plugins/examples
                                         test["jax_component"] = entry.get(
                                             "jax_component", entry.get("component")
                                         )
@@ -61,12 +56,29 @@ def load_test_params() -> list:
     for source, path in base_paths.items():
         load_tests_from_directory(path, source)
 
-    # Wrap params with pytest.param to set custom test names
-    return [
-        pytest.param(param, id=f"{param['testcase']} ({param['source']})")
-        for param in params
-        # if param["testcase"] in [ "linear_general", "linear_general_2", "linear_general_mha_projection", "linear_general_mha_projection2" ]
+    # Add parameter combinations and filter to only one testcase: "conv_3x3_1_internal_True_dynamic_False"
+    combinations = [
+        (True, False),
+        (False, False),
+        (False, True),
+        (True, True)
     ]
+    new_params = []
+    for param in params:
+        # Change filter to check if "conv_3x3_1" is in the testcase name
+        # if "linear_general" not in param.get("testcase", ""): 
+        #    continue
+        for internal, dynamic in combinations:
+            # if (internal, dynamic) != (False, False):
+            #     continue
+            new_param = param.copy()
+            new_param["internal_shape_info"] = internal
+            new_param["dynamic_batch_dim"] = dynamic
+            new_param["testcase"] = f"{param['testcase']}_{'1' if internal else '0'}{'1' if dynamic else '0'}"
+            new_params.append(
+                pytest.param(new_param, id=f"{new_param['testcase']} ({new_param['source']})")
+            )
+    return new_params
 
 
 @pytest.mark.parametrize("test_params", load_test_params())
@@ -79,6 +91,8 @@ def test_onnx_export(test_params: dict) -> None:
 
     input_shapes = test_params["input_shapes"]  # Note the plural!
     params = test_params.get("params", {})  # Get params from the test case
+    internal_shape_info = test_params.get("internal_shape_info", True)
+    dynamic_batch_dim = test_params.get("dynamic_batch_dim", False)
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
@@ -96,6 +110,8 @@ def test_onnx_export(test_params: dict) -> None:
         input_shapes,
         output_path=model_path,
         params=params,
+        internal_shape_info=internal_shape_info,
+        dynamic_batch_dim=dynamic_batch_dim,
     )
 
     # Load the ONNX jax_model

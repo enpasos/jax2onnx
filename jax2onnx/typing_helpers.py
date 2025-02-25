@@ -3,7 +3,7 @@ from functools import partial
 from typing import Protocol, Any, Callable, Mapping, TypeVar
 from types import MappingProxyType
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 
 
 class Supports2Onnx(Protocol):

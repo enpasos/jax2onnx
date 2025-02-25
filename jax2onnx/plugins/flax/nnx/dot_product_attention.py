@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 
 
 def build_dot_product_attention_onnx_node(z: Z, **params) -> Z:

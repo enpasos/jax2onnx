@@ -6,7 +6,7 @@ import flax.nnx as nnx
 import jax.numpy as jnp
 import onnx.helper as oh
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 from jax2onnx.transpose_utils import jax_shape_to_onnx_shape, onnx_shape_to_jax_shape
 
 
@@ -73,7 +73,14 @@ def to_onnx(pool_type, jax_function, z: Z, **params) -> Z:
 
     # Compute expected JAX output shape
     input_shape = input_shapes[0]
-    input_shape_jax = onnx_shape_to_jax_shape(input_shape)
+    input_shape_jax = list(onnx_shape_to_jax_shape(input_shape))
+
+    # Remember the original batch dimension value
+    original_batch_dim = input_shape_jax[0]
+
+    # Use a concrete batch dimension of 1 for dummy test input
+    input_shape_jax[0] = 1
+
     jax_example_input = jnp.zeros(input_shape_jax)
 
     jax_function_partial = partial(
@@ -81,7 +88,12 @@ def to_onnx(pool_type, jax_function, z: Z, **params) -> Z:
     )
 
     jax_example_output = jax_function_partial(jax_example_input)
-    jax_example_output_shape = jax_example_output.shape
+    jax_example_output_shape = list(jax_example_output.shape)
+
+    # Restore the original batch dimension value
+    input_shape_jax[0] = original_batch_dim
+    jax_example_output_shape[0] = original_batch_dim
+
     output_shapes = [jax_shape_to_onnx_shape(jax_example_output_shape)]
 
     # Store expected output in ONNX graph

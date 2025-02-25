@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import onnx.helper as oh
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 from jax2onnx.typing_helpers import Supports2Onnx
 
 
