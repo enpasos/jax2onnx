@@ -5,7 +5,7 @@ import onnx
 import onnx.helper as oh
 from flax import nnx
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 from jax2onnx.transpose_utils import onnx_shape_to_jax_shape, jax_shape_to_onnx_shape
 from jax2onnx.typing_helpers import Supports2Onnx  # Import protocol
 
@@ -27,12 +27,22 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     input_names = z.names
 
     # Convert ONNX shape to JAX format (B, H, W, C)
-    input_shape_jax = onnx_shape_to_jax_shape(input_shape)
+    input_shape_jax = list(onnx_shape_to_jax_shape(input_shape))
+
+    # Remember the original batch dimension value
+    original_batch_dim = input_shape_jax[0]
+
+    # Use a concrete batch dimension of 1 for dummy test input
+    input_shape_jax[0] = 1
 
     # Compute expected output shape from JAX
     jax_example_input = jnp.zeros(input_shape_jax)
     jax_example_output = self(jax_example_input)
-    output_shape_jax = jax_example_output.shape
+    output_shape_jax = list(jax_example_output.shape)
+
+    # Restore the original batch dimension value
+    input_shape_jax[0] = original_batch_dim
+    output_shape_jax[0] = original_batch_dim
 
     # Convert back to ONNX format (B, C, H, W)
     output_shapes = [jax_shape_to_onnx_shape(output_shape_jax)]

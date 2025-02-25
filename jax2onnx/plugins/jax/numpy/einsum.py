@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import onnx.helper as oh
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z
 from jax2onnx.typing_helpers import Supports2Onnx
 
 
@@ -21,9 +21,19 @@ def build_einsum_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
     node_name = f"node{onnx_graph.next_id()}"
 
     # Compute output shape using JAX einsum for shape inference
-    jnp_inputs = [jnp.zeros(shape) for shape in input_shapes]
+    jnp_inputs = []
+    for shape in input_shapes:
+        shape_list = list(shape)
+        shape_list[0] = 1  # Use a concrete batch dimension of 1 for dummy test input
+        jnp_input = jnp.zeros(shape_list)
+        jnp_inputs.append(jnp_input)
+
     jax_output = jnp.einsum(equation, *jnp_inputs)
-    output_shape = jax_output.shape
+    output_shape = list(jax_output.shape)
+
+    # Restore the original batch dimension value
+    output_shape[0] = input_shapes[0][0]
+
     output_names = [f"{node_name}_output"]
 
     # Add the Einsum node to the ONNX graph

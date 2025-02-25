@@ -10,11 +10,13 @@ import onnx.helper as oh
 
 
 class OnnxGraph:
-    def __init__(self):
+    def __init__(self, internal_shape_info=True, dynamic_batch_dim=False):
         self.nodes = []
         self.initializers = []
         self.value_info = []
         self.counter = 0
+        self.internal_shape_info = internal_shape_info
+        self.dynamic_batch_dim = dynamic_batch_dim
 
     def add_node(self, node):
         self.nodes.append(node)
@@ -27,17 +29,18 @@ class OnnxGraph:
         return self.counter
 
     def add_local_outputs(self, output_shapes, output_names):
-        for i in range(len(output_names)):
-            self.value_info.append(
-                oh.make_tensor_value_info(
-                    output_names[i], onnx.TensorProto.FLOAT, output_shapes[i]
+        if self.internal_shape_info:
+            for i in range(len(output_names)):
+                self.value_info.append(
+                    oh.make_tensor_value_info(
+                        output_names[i], onnx.TensorProto.FLOAT, output_shapes[i]
+                    )
                 )
-            )
 
 
 class Z:
     def __init__(self, shapes, names, onnx_graph, jax_function=None):
-        self.shapes = shapes
+        self.shapes = [tuple(shape) for shape in shapes]  # Ensure shapes are tuples
         self.names = names
         self.onnx_graph = onnx_graph
         self.jax_function = jax_function
@@ -75,14 +78,20 @@ def to_onnx(
     input_shapes: list,
     output_path: str = "model.onnx",
     params: Optional[dict] = None,
+    internal_shape_info: bool = True,
+    dynamic_batch_dim: bool = False,
 ) -> Z:
     """Convert a JAX model to ONNX format."""
     if params is None:
         params = {}
 
     # Initialize the ONNX graph
-    onnx_graph = OnnxGraph()
+    onnx_graph = OnnxGraph(internal_shape_info=internal_shape_info, dynamic_batch_dim=dynamic_batch_dim)
     input_names = [f"input_{onnx_graph.next_id()}" for _ in input_shapes]
+
+    # Handle dynamic batch dimension
+    if dynamic_batch_dim:
+        input_shapes = [['B'] + list(shape)[1:] for shape in input_shapes]
 
     z = Z(input_shapes, input_names, onnx_graph)
 
@@ -107,12 +116,13 @@ def to_onnx(
     final_output_shapes = z.shapes
     final_output_names = z.names
 
-    # Remove outputs from onnx_graph.value_info
-    onnx_graph.value_info = [
-        value_info
-        for value_info in onnx_graph.value_info
-        if value_info.name not in final_output_names
-    ]
+    # Remove outputs from onnx_graph.value_info if internal_shape_info is False
+    if not internal_shape_info:
+        onnx_graph.value_info = [
+            value_info
+            for value_info in onnx_graph.value_info
+            if value_info.name in final_output_names
+        ]
 
     # Define ONNX inputs and outputs
     inputs = [
@@ -169,8 +179,7 @@ def pre_transpose(z: Z, **params) -> Z:
                     name=f"transpose_input_{onnx_graph.next_id()}",
                 )
             )
-            x = jnp.zeros(shapes[i])
-            shapes_out[i] = jnp.transpose(x, pre_transpose_perm[i]).shape
+            shapes_out[i] = [shapes[i][dim] for dim in pre_transpose_perm[i]]
 
         onnx_graph.add_local_outputs(shapes_out, transposed_input_names)
         z.shapes, z.names = shapes_out, transposed_input_names
@@ -186,14 +195,13 @@ def post_transpose(z: Z, **params) -> Z:
     if "post_transpose" in params:
         post_transpose_perm = params.pop(
             "post_transpose", [(0, 2, 3, 1)]
-        )  # NCHW → NHWC
+        )  # BCHW → BHWC
 
         final_output_names = [
             f"{name}_transposed_{onnx_graph.next_id()}" for name in output_names
         ]
         for i in range(len(output_names)):
-            x = jnp.zeros(output_shapes[i])
-            shapes[i] = jnp.transpose(x, post_transpose_perm[i]).shape
+            shapes[i] = [output_shapes[i][dim] for dim in post_transpose_perm[i]]
             onnx_graph.add_node(
                 oh.make_node(
                     "Transpose",

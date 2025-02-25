@@ -119,7 +119,7 @@ class MLP(nnx.Module):
 
 To export the model to ONNX format, use the `to_onnx` function:
 ```py
-from jax2onnx.to_onnx import to_onnx
+from jax2onnx import to_onnx
 to_onnx(
     model_file_name="mlp.onnx",
     component=MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),

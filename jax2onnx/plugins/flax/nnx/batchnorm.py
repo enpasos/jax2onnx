@@ -4,13 +4,13 @@ import onnx.helper as oh
 from flax import nnx
 from typing import Any, cast
 
-from jax2onnx.to_onnx import Z
+from jax2onnx.convert import Z, OnnxGraph
 from jax2onnx.typing_helpers import Supports2Onnx
 
 
 def to_onnx(self: Supports2Onnx, z: Z, **params: Any) -> Z:
     """Converts `nnx.BatchNorm` into an ONNX `BatchNormalization` node."""
-    onnx_graph = z.onnx_graph
+    onnx_graph : OnnxGraph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
@@ -82,11 +82,11 @@ def get_test_params():
                     "component": nnx.BatchNorm(
                         num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
                     ),
-                    "input_shapes": [(11, 2, 2, 64)],  # (N, H, W, C) format
+                    "input_shapes": [(11, 2, 2, 64)],  # (B, H, W, C) format
                     "params": {
                         "pre_transpose": [
                             (0, 3, 1, 2)
-                        ],  # Convert JAX (N, H, W, C) → ONNX (N, C, H, W)
+                        ],  # Convert JAX (B, H, W, C) → ONNX (B, C, H, W)
                         "post_transpose": [
                             (0, 2, 3, 1)
                         ],  # Convert ONNX back to JAX format
