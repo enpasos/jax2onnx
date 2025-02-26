@@ -107,7 +107,7 @@ def get_test_params():
                     "input_shapes": [(1, 1, 10)],  # Common ViT output shape
                     "component": jnp.squeeze,
                     "params": {"axes": [1]},  # Removing the second singleton dimension
-                }
+                },
             ],
         }
     ]

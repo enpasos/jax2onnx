@@ -28,15 +28,16 @@ def to_onnx_reshape(z: Z, **params) -> Z:
         params = params[0]  # Extract dictionary from list
 
     if "shape" not in params and "output_shape" not in params:
-        raise ValueError("Parameters for reshape must include 'shape' or 'output_shape'.")
+        raise ValueError(
+            "Parameters for reshape must include 'shape' or 'output_shape'."
+        )
 
     input_name = z.names[0]
     input_shape = z.shapes[0]
     reshape_shape = params.get("shape", None)
     output_shape = params.get("output_shape", None)
-    onnx_graph : OnnxGraph = z.onnx_graph
+    onnx_graph: OnnxGraph = z.onnx_graph
     jax_function = lambda x: jnp.reshape(x, reshape_shape or output_shape)
-
 
     # ✅ Apply pre-transpose if necessary
     z = pre_transpose(z, **params)
@@ -48,19 +49,19 @@ def to_onnx_reshape(z: Z, **params) -> Z:
             input = np.zeros(input_shape)
             output_shape = jax_function(input).shape
         else:
-            input_shape_with_batch_1 = [1 if dim == 'B' else dim for dim in input_shape]
+            input_shape_with_batch_1 = [1 if dim == "B" else dim for dim in input_shape]
             output_shape = jax_function(np.zeros(input_shape_with_batch_1)).shape
             # replace the first dimension with 'B' again
             output_shape_with_batch_1_try = tuple([1] + list(output_shape)[1:])
-            if np.prod(input_shape_with_batch_1) == np.prod(output_shape_with_batch_1_try):
-                output_shape = tuple(['B'] + list(output_shape)[1:])
+            if np.prod(input_shape_with_batch_1) == np.prod(
+                output_shape_with_batch_1_try
+            ):
+                output_shape = tuple(["B"] + list(output_shape)[1:])
             else:
                 output_shape = reshape_shape
 
-
-
     node_name = f"node{onnx_graph.next_id()}"
-    
+
     output_names = [f"{node_name}_output"]
 
     # ✅ Create a shape tensor
@@ -88,7 +89,7 @@ def to_onnx_reshape(z: Z, **params) -> Z:
     output_shapes = [tuple(reshape_shape or output_shape)]
 
     # Register final output in ONNX graph
-    onnx_graph.add_local_outputs([output_shape], output_names) 
+    onnx_graph.add_local_outputs([output_shape], output_names)
 
     # ✅ Apply post-transpose if necessary
     z.shapes = output_shapes
@@ -126,7 +127,7 @@ def get_test_params():
             "testcases": [
                 {
                     "testcase": "reshapeA",
-                    "input_shapes": [(3,10,6)],
+                    "input_shapes": [(3, 10, 6)],
                     "component": jnp.reshape,
                     "params": {"shape": (-1, 6)},
                 },
@@ -135,7 +136,7 @@ def get_test_params():
                     "input_shapes": [(3, 7, 6, 4)],
                     "component": jnp.reshape,
                     "params": {
-                        "shape": (-1, 7, 24),  
+                        "shape": (-1, 7, 24),
                     },
                 },
                 {
@@ -145,7 +146,7 @@ def get_test_params():
                     "params": {
                         "shape": (1, -1),  # Dynamic reshape to flatten feature maps
                     },
-                }
+                },
             ],
         }
     ]
