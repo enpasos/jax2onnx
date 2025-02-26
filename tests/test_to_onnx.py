@@ -46,7 +46,9 @@ def load_test_params() -> list:
                             for entry in test_params:
                                 if "testcases" in entry:
                                     for test in entry["testcases"]:
-                                        test["source"] = source_name  # Track whether it's from plugins/examples
+                                        test["source"] = (
+                                            source_name  # Track whether it's from plugins/examples
+                                        )
                                         test["jax_component"] = entry.get(
                                             "jax_component", entry.get("component")
                                         )
@@ -57,16 +59,11 @@ def load_test_params() -> list:
         load_tests_from_directory(path, source)
 
     # Add parameter combinations and filter to only one testcase: "conv_3x3_1_internal_True_dynamic_False"
-    combinations = [
-        (True, False),
-        (False, False),
-        (False, True),
-        (True, True)
-    ]
+    combinations = [(True, False), (False, False), (False, True), (True, True)]
     new_params = []
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
-        # if "slice" not in param.get("testcase", ""): 
+        # if "slice" not in param.get("testcase", ""):
         #   continue
         for internal, dynamic in combinations:
             # if (internal, dynamic) != (False, False):
@@ -74,9 +71,13 @@ def load_test_params() -> list:
             new_param = param.copy()
             new_param["internal_shape_info"] = internal
             new_param["dynamic_batch_dim"] = dynamic
-            new_param["testcase"] = f"{param['testcase']}_{'1' if internal else '0'}{'1' if dynamic else '0'}"
+            new_param["testcase"] = (
+                f"{param['testcase']}_{'1' if internal else '0'}{'1' if dynamic else '0'}"
+            )
             new_params.append(
-                pytest.param(new_param, id=f"{new_param['testcase']} ({new_param['source']})")
+                pytest.param(
+                    new_param, id=f"{new_param['testcase']} ({new_param['source']})"
+                )
             )
     return new_params
 

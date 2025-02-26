@@ -14,7 +14,7 @@ def build_slice_onnx_node(z: Z, **params) -> Z:
     if "start" not in params or "end" not in params:
         raise ValueError("Slice operation requires 'start' and 'end' parameters.")
 
-    onnx_graph : OnnxGraph = z.onnx_graph
+    onnx_graph: OnnxGraph = z.onnx_graph
     input_name = z.names[0]
     input_shape = z.shapes[0]
 
@@ -42,7 +42,12 @@ def build_slice_onnx_node(z: Z, **params) -> Z:
             else:
                 limit_indices.append(min(end_copy[i], dim_size))
 
-        return jax.lax.slice(x, start_indices=start_copy, limit_indices=limit_indices, strides=strides_copy)
+        return jax.lax.slice(
+            x,
+            start_indices=start_copy,
+            limit_indices=limit_indices,
+            strides=strides_copy,
+        )
 
     if onnx_graph.dynamic_batch_dim:
         input_shape = [b] + list(input_shape[1:])  # Remove batch dimension
@@ -55,7 +60,6 @@ def build_slice_onnx_node(z: Z, **params) -> Z:
         max(0, (e - s + (step - 1)) // step)  # Ensures no negative dims
         for s, e, step in zip(start_, end_, strides)
     ]
- 
 
     output_shape = [batch_dim if s == b else s for s in output_shape]
 
