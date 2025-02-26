@@ -6,7 +6,7 @@ import jax
 import onnx
 import onnx.helper as oh
 
-from typing import List
+from typing import List, Any
 
 import jax2onnx.plugins  # noqa: F401
 
@@ -21,12 +21,18 @@ class ReshapeWithOnnx:
     def __init__(self, shape_fn):
         self.shape_fn = shape_fn
 
-    def __call__(self, x):
-        return x.reshape(self.shape_fn(x.shape))
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Reshapes input using the provided shape function."""
+        return x.reshape(x.shape[0], -1)
 
-    def to_onnx(self, z, **params):
-        return jax.numpy.reshape.to_onnx(z, shape=self.shape_fn(z.shapes[0]))
-
+    def to_onnx(self, z: Z, **params: Any) -> Z:
+        """ONNX conversion function for Reshape.""" 
+        flatten_size = z.shapes[0][1] * z.shapes[0][2] * z.shapes[0][3]
+        reshape_params = {
+            "shape": (-1, flatten_size),  
+            "pre_transpose": [(0, 2, 3, 1)],  
+        }
+        return jax.numpy.reshape.to_onnx(z, **reshape_params)
 
 class TransposeWithOnnx:
     """Wrapper for transpose function with ONNX support."""

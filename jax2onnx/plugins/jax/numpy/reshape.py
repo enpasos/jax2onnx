@@ -37,7 +37,17 @@ def to_onnx_reshape(z: Z, **params) -> Z:
     reshape_shape = params.get("shape", None)
     output_shape = params.get("output_shape", None)
     onnx_graph: OnnxGraph = z.onnx_graph
-    jax_function = lambda x: jnp.reshape(x, reshape_shape or output_shape)
+    
+    # In the following line, get the dimension of the first reshape or output_shape from x at runtime
+    # This is done by reshaping x to the first reshape or output_shape and then getting the shape of the reshaped x
+    # This is done to handle dynamic batch dimensions
+    # jax_function = lambda x: jnp.reshape(x, reshape_shape or output_shape)
+    def jax_function(x):
+        shape = list(reshape_shape or output_shape)
+        if (shape[0] == "B"):
+            shape[0] = x.shape[0]
+        return jnp.reshape(x, tuple(shape)) 
+ 
 
     # ✅ Apply pre-transpose if necessary
     z = pre_transpose(z, **params)
