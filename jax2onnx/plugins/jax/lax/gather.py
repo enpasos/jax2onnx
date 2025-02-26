@@ -13,8 +13,17 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
         raise ValueError("Gather operation requires 'indices' and 'axis' parameters.")
 
     onnx_graph = z.onnx_graph
-    # input_name = z.names[0]
-    input_shape = list(map(int, z.shapes[0]))  # Example: (1, 50, 256)
+    input_name = z.names[0]
+    input_shape = z.shapes[0]
+
+    # Handle dynamic batch dimension
+    if isinstance(input_shape[0], str):
+        batch_dim = input_shape[0]
+        input_shape = input_shape[1:]
+    else:
+        batch_dim = None
+        input_shape = list(map(int, input_shape))  # Convert to Python int list
+
     axis = int(params["axis"])
 
     # --- Fix: Ensure `indices` is handled correctly ---
@@ -48,7 +57,7 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
     onnx_graph.add_node(
         oh.make_node(
             "Gather",
-            inputs=[z.names[0], indices_name],
+            inputs=[input_name, indices_name],
             outputs=[output_name],
             name=node_name,
             axis=params["axis"],
@@ -57,6 +66,8 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
 
     # Expected Output Shape: (1, 256) after removing axis 1
     final_output_shape = tuple(input_shape[:axis] + input_shape[axis + 1 :])
+    if batch_dim:
+        final_output_shape = (batch_dim,) + final_output_shape
     onnx_graph.add_local_outputs([final_output_shape], [output_name])
 
     # --- Define the JAX gold-standard gather function ---
