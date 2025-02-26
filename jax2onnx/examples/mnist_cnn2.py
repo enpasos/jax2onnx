@@ -17,11 +17,11 @@ class ReshapeWithOnnx(Supports2Onnx):
         return x.reshape(x.shape[0], -1)
 
     def to_onnx(self, z: Z, **params: Any) -> Z:
-        """ONNX conversion function for Reshape.""" 
+        """ONNX conversion function for Reshape."""
         flatten_size = z.shapes[0][1] * z.shapes[0][2] * z.shapes[0][3]
         reshape_params = {
-            "shape": (-1, flatten_size),  
-            "pre_transpose": [(0, 2, 3, 1)],  
+            "shape": (-1, flatten_size),
+            "pre_transpose": [(0, 2, 3, 1)],
         }
         return jax.numpy.reshape.to_onnx(z, **reshape_params)
 
