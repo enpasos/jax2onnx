@@ -66,8 +66,8 @@ def load_test_params() -> list:
     new_params = []
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
-        # if "linear_general" not in param.get("testcase", ""): 
-        #    continue
+        # if "slice" not in param.get("testcase", ""): 
+        #   continue
         for internal, dynamic in combinations:
             # if (internal, dynamic) != (False, False):
             #     continue
