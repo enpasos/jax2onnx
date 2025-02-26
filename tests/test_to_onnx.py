@@ -63,7 +63,7 @@ def load_test_params() -> list:
     new_params = []
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
-        # if "slice" not in param.get("testcase", ""):
+        # if "matmul" not in param.get("testcase", ""):
         #   continue
         for internal, dynamic in combinations:
             # if (internal, dynamic) != (False, False):
@@ -74,6 +74,11 @@ def load_test_params() -> list:
             new_param["testcase"] = (
                 f"{param['testcase']}_{'1' if internal else '0'}{'1' if dynamic else '0'}"
             )
+            if dynamic:
+                if "batch_input_shapes" in param:
+                    new_param["input_shapes"] = param["batch_input_shapes"]
+                else:
+                    new_param["input_shapes"] = [['B'] + list(shape)[1:] for shape in new_param["input_shapes"]]
             new_params.append(
                 pytest.param(
                     new_param, id=f"{new_param['testcase']} ({new_param['source']})"
@@ -93,12 +98,11 @@ def test_onnx_export(test_params: dict) -> None:
     input_shapes = test_params["input_shapes"]  # Note the plural!
     params = test_params.get("params", {})  # Get params from the test case
     internal_shape_info = test_params.get("internal_shape_info", True)
-    dynamic_batch_dim = test_params.get("dynamic_batch_dim", False)
+    
     seed = 0
     rng = jax.random.PRNGKey(seed)
 
-    # Generate JAX inputs
-    inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
+
 
     # Export the jax_model to ONNX
     onnx_model_file_name = f"{test_params['testcase']}_model.onnx"
@@ -112,11 +116,19 @@ def test_onnx_export(test_params: dict) -> None:
         output_path=model_path,
         params=params,
         internal_shape_info=internal_shape_info,
-        dynamic_batch_dim=dynamic_batch_dim,
     )
 
     # Load the ONNX jax_model
     ort_session = ort.InferenceSession(model_path)
+
+    # Generate JAX inputs
+    dynamic_batch_dim = test_params.get("dynamic_batch_dim", False)
+    if dynamic_batch_dim:
+        # replace the batch dimension with a string int 1
+        # take input_shape and replace any dim 'B' with 1
+        input_shapes =  [[1 if dim == 'B' else dim for dim in shape] for shape in input_shapes]
+    inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
+    
 
     # Create ONNX input dictionary
     onnx_inputs_dict = {

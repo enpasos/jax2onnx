@@ -79,19 +79,18 @@ def to_onnx(
     output_path: str = "model.onnx",
     params: Optional[dict] = None,
     internal_shape_info: bool = True,
-    dynamic_batch_dim: bool = False,
 ) -> Z:
     """Convert a JAX model to ONNX format."""
     if params is None:
         params = {}
 
+    # Determine if dynamic batch dimension is present
+    dynamic_batch_dim = any(isinstance(shape[0], str) and shape[0] == 'B' for shape in input_shapes)
+    print(f"Dynamic batch dimension: {dynamic_batch_dim}")
+
     # Initialize the ONNX graph
     onnx_graph = OnnxGraph(internal_shape_info=internal_shape_info, dynamic_batch_dim=dynamic_batch_dim)
     input_names = [f"input_{onnx_graph.next_id()}" for _ in input_shapes]
-
-    # Handle dynamic batch dimension
-    if dynamic_batch_dim:
-        input_shapes = [['B'] + list(shape)[1:] for shape in input_shapes]
 
     z = Z(input_shapes, input_names, onnx_graph)
 
