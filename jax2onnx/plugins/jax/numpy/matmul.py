@@ -40,7 +40,6 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
             f"MatMul requires at least one dimension for each input: {input_shape_A} x {input_shape_B}"
         )
     # raise exception if input shapes are not equal:
-    
 
     # Handle dynamic batch dimensions
     if isinstance(input_shape_A[0], str):
@@ -50,7 +49,6 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
         batch_dim = None
         input_shape_A = list(map(int, input_shape_A))  # Convert to Python int list
 
-     
     if len(input_shape_B) > 2 and isinstance(input_shape_B[0], str):
         batch_dim = input_shape_B[0]
         input_shape_B = input_shape_B[1:]
@@ -107,7 +105,9 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
         output_shape = [N]
     else:
         # Handle higher dimensions
-        batch_dims = tuple(input_shape_A[:-2])  # Assume broadcasting rules for batch dims
+        batch_dims = tuple(
+            input_shape_A[:-2]
+        )  # Assume broadcasting rules for batch dims
         M, K_A = input_shape_A[-2], input_shape_A[-1]
         K_B, N = input_shape_B[-2], input_shape_B[-1]
         if K_A != K_B:

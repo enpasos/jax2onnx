@@ -78,7 +78,9 @@ def load_test_params() -> list:
                 if "batch_input_shapes" in param:
                     new_param["input_shapes"] = param["batch_input_shapes"]
                 else:
-                    new_param["input_shapes"] = [['B'] + list(shape)[1:] for shape in new_param["input_shapes"]]
+                    new_param["input_shapes"] = [
+                        ["B"] + list(shape)[1:] for shape in new_param["input_shapes"]
+                    ]
             new_params.append(
                 pytest.param(
                     new_param, id=f"{new_param['testcase']} ({new_param['source']})"
@@ -98,11 +100,9 @@ def test_onnx_export(test_params: dict) -> None:
     input_shapes = test_params["input_shapes"]  # Note the plural!
     params = test_params.get("params", {})  # Get params from the test case
     internal_shape_info = test_params.get("internal_shape_info", True)
-    
+
     seed = 0
     rng = jax.random.PRNGKey(seed)
-
-
 
     # Export the jax_model to ONNX
     onnx_model_file_name = f"{test_params['testcase']}_model.onnx"
@@ -126,9 +126,10 @@ def test_onnx_export(test_params: dict) -> None:
     if dynamic_batch_dim:
         # replace the batch dimension with a string int 1
         # take input_shape and replace any dim 'B' with 1
-        input_shapes =  [[1 if dim == 'B' else dim for dim in shape] for shape in input_shapes]
+        input_shapes = [
+            [1 if dim == "B" else dim for dim in shape] for shape in input_shapes
+        ]
     inputs = [jax.random.normal(rng, shape) for shape in input_shapes]
-    
 
     # Create ONNX input dictionary
     onnx_inputs_dict = {

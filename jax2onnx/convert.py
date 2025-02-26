@@ -85,11 +85,15 @@ def to_onnx(
         params = {}
 
     # Determine if dynamic batch dimension is present
-    dynamic_batch_dim = any(isinstance(shape[0], str) and shape[0] == 'B' for shape in input_shapes)
+    dynamic_batch_dim = any(
+        isinstance(shape[0], str) and shape[0] == "B" for shape in input_shapes
+    )
     print(f"Dynamic batch dimension: {dynamic_batch_dim}")
 
     # Initialize the ONNX graph
-    onnx_graph = OnnxGraph(internal_shape_info=internal_shape_info, dynamic_batch_dim=dynamic_batch_dim)
+    onnx_graph = OnnxGraph(
+        internal_shape_info=internal_shape_info, dynamic_batch_dim=dynamic_batch_dim
+    )
     input_names = [f"input_{onnx_graph.next_id()}" for _ in input_shapes]
 
     z = Z(input_shapes, input_names, onnx_graph)
