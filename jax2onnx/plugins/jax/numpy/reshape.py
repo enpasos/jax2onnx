@@ -37,6 +37,12 @@ def to_onnx_reshape(z: Z, **params) -> Z:
     onnx_graph : OnnxGraph = z.onnx_graph
     jax_function = lambda x: jnp.reshape(x, reshape_shape or output_shape)
 
+
+    # ✅ Apply pre-transpose if necessary
+    z = pre_transpose(z, **params)
+    input_name = z.names[0]
+    input_shape = z.shapes[0]
+
     if reshape_shape and not output_shape:
         if not onnx_graph.dynamic_batch_dim:
             input = np.zeros(input_shape)
@@ -50,6 +56,8 @@ def to_onnx_reshape(z: Z, **params) -> Z:
                 output_shape = tuple(['B'] + list(output_shape)[1:])
             else:
                 output_shape = reshape_shape
+
+
 
     node_name = f"node{onnx_graph.next_id()}"
     
@@ -76,10 +84,21 @@ def to_onnx_reshape(z: Z, **params) -> Z:
         )
     )
 
+    # ✅ Compute output shapes
+    output_shapes = [tuple(reshape_shape or output_shape)]
+
     # Register final output in ONNX graph
     onnx_graph.add_local_outputs([output_shape], output_names) 
 
-    return Z([output_shape], output_names, onnx_graph, jax_function)
+    # ✅ Apply post-transpose if necessary
+    z.shapes = output_shapes
+    z.names = output_names
+    z = post_transpose(z, **params)
+    output_shapes = z.shapes
+
+    # ✅ Store JAX function with dynamic shape handling
+    z.jax_function = lambda x: jnp.reshape(x, tuple(reshape_shape or output_shape))
+    return z
 
 
 # ✅ Attach ONNX conversion function to `jax.numpy.reshape`
