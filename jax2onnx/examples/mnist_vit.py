@@ -33,7 +33,7 @@ class ReshapeWithOnnx:
         # Convert dynamic dimensions to a valid ONNX representation
         # new_shape = [dim if isinstance(dim, int) else z.shapes[0][i] for i, dim in enumerate(new_shape)]
         return jax.numpy.reshape.to_onnx(z, shape=new_shape)
-    
+
 
 class TransposeWithOnnx:
     """Wrapper for transpose function with ONNX support."""
@@ -107,6 +107,7 @@ class PatchEmbedding(nnx.Module):
         for layer in self.layers:
             z = layer.to_onnx(z, **params)
         return z
+
 
 class MNISTConvolutionalTokenEmbedding(nnx.Module):
     """Convolutional Token Embedding for MNIST with hierarchical downsampling."""

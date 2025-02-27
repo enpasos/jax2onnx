@@ -156,23 +156,31 @@ def get_test_params():
                         "shape": (1, -1),  # Dynamic reshape to flatten feature maps
                     },
                 },
-                
                 {
                     "testcase": "reshapeD",
                     "input_shapes": [(1, 7, 7, 128)],
                     "component": jnp.reshape,
                     "params": {
-                        "shape": (-1, 49, 128),  # Dynamic reshape to flatten feature maps
+                        "shape": (
+                            -1,
+                            49,
+                            128,
+                        ),  # Dynamic reshape to flatten feature maps
                     },
                 },
-                
-                
                 {
                     "testcase": "reshapeE",
                     "input_shapes": [(1, 28, 28, 1)],
                     "component": jnp.reshape,
                     "params": {
-                        "shape": (-1, 7, 4 ,7, 4, 1),  # Dynamic reshape to flatten feature maps
+                        "shape": (
+                            -1,
+                            7,
+                            4,
+                            7,
+                            4,
+                            1,
+                        ),  # Dynamic reshape to flatten feature maps
                     },
                 },
             ],
