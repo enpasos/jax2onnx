@@ -23,17 +23,17 @@ class ReshapeWithOnnx:
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Reshapes input using the provided shape function."""
-        return x.reshape(x.shape[0], -1)
+        new_shape = self.shape_fn(x.shape)
+        return x.reshape(new_shape)  # use the shape_fn
 
-    def to_onnx(self, z: Z, **params: Any) -> Z:
-        """ONNX conversion function for Reshape."""
-        flatten_size = z.shapes[0][1] * z.shapes[0][2] * z.shapes[0][3]
-        reshape_params = {
-            "shape": (-1, flatten_size),
-            "pre_transpose": [(0, 2, 3, 1)],
-        }
-        return jax.numpy.reshape.to_onnx(z, **reshape_params)
-
+    def to_onnx(self, z, **params):
+        new_shape = list(self.shape_fn(z.shapes[0]))
+        # Ensure the shape is valid for ONNX
+        # new_shape = [dim if dim != -1 else z.shapes[0][i] for i, dim in enumerate(new_shape)]
+        # Convert dynamic dimensions to a valid ONNX representation
+        # new_shape = [dim if isinstance(dim, int) else z.shapes[0][i] for i, dim in enumerate(new_shape)]
+        return jax.numpy.reshape.to_onnx(z, shape=new_shape)
+    
 
 class TransposeWithOnnx:
     """Wrapper for transpose function with ONNX support."""
@@ -73,18 +73,18 @@ class PatchEmbedding(nnx.Module):
         self.layers = [
             ReshapeWithOnnx(
                 lambda shape: (
-                    shape[0],
+                    -1,
                     num_patches_h,
                     patch_size,
                     num_patches_w,
                     patch_size,
-                    shape[-1],
+                    in_features,  # Corrected: Use in_features
                 )
             ),
             TransposeWithOnnx([0, 1, 3, 2, 4, 5]),
             ReshapeWithOnnx(
                 lambda shape: (
-                    shape[0],
+                    -1,
                     num_patches,
                     patch_size * patch_size * shape[-1],
                 )
@@ -107,7 +107,6 @@ class PatchEmbedding(nnx.Module):
         for layer in self.layers:
             z = layer.to_onnx(z, **params)
         return z
-
 
 class MNISTConvolutionalTokenEmbedding(nnx.Module):
     """Convolutional Token Embedding for MNIST with hierarchical downsampling."""
@@ -189,6 +188,9 @@ class MNISTConvolutionalTokenEmbedding(nnx.Module):
             "pre_transpose": [(0, 2, 3, 1)],  # Ensure correct ordering if needed
             "shape": (B, H * W, C),  # Flatten the feature map
         }
+        # Handle dynamic batch dimension
+        if isinstance(B, str):
+            reshape_params["shape"] = [-1, H * W, C]
         return jax.numpy.reshape.to_onnx(z, **reshape_params)
 
 
