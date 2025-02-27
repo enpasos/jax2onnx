@@ -3,7 +3,6 @@
 # JAX API: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.tile.html#jax.numpy.tile
 # ONNX Operator: https://onnx.ai/onnx/operators/onnx__Tile.html
 
-from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
@@ -29,7 +28,6 @@ def build_tile_onnx_node(z, **params):
 
     onnx_graph = z.onnx_graph
     input_name = z.names[0]
-    input_shape = z.shapes[0]
 
     repeats = params["repeats"]
     node_name = f"node{onnx_graph.next_id()}"

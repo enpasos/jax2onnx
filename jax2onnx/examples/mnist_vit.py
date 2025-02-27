@@ -6,7 +6,7 @@ import jax
 import onnx
 import onnx.helper as oh
 
-from typing import List, Any
+from typing import List
 
 import jax2onnx.plugins  # noqa: F401
 

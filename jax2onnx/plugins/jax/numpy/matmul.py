@@ -44,14 +44,14 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
     # Handle dynamic batch dimensions
     if isinstance(input_shape_A[0], str):
         batch_dim = input_shape_A[0]
-        input_shape_A = input_shape_A[1:]
+        input_shape_A = list(input_shape_A[1:])
     else:
         batch_dim = None
         input_shape_A = list(map(int, input_shape_A))  # Convert to Python int list
 
     if len(input_shape_B) > 2 and isinstance(input_shape_B[0], str):
         batch_dim = input_shape_B[0]
-        input_shape_B = input_shape_B[1:]
+        input_shape_B = list(input_shape_B[1:])
     elif isinstance(input_shape_B[1], str):
         batch_dim = input_shape_B[1]
         input_shape_B = [input_shape_B[0]]
@@ -76,7 +76,7 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
                 raise ValueError(
                     f"Incompatible MatMul shapes: {input_shape_A} x {input_shape_B}"
                 )
-            output_shape = [batch_dim, M, N]
+            output_shape = list((batch_dim,) + (M, N))
         else:
             M, K_A = input_shape_A
             K_B, N = input_shape_B
@@ -105,19 +105,21 @@ def build_matmul_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
         output_shape = [N]
     else:
         # Handle higher dimensions
-        batch_dims = tuple(
-            input_shape_A[:-2]
-        )  # Assume broadcasting rules for batch dims
+        # batch_dims = tuple(
+        #     input_shape_A[:-2]
+        # )
+
+        # Assume broadcasting rules for batch dims
         M, K_A = input_shape_A[-2], input_shape_A[-1]
         K_B, N = input_shape_B[-2], input_shape_B[-1]
         if K_A != K_B:
             raise ValueError(
                 f"Incompatible MatMul shapes: {input_shape_A} x {input_shape_B}"
             )
-        output_shape = batch_dims + (M, N)
+        output_shape = list((batch_dim,) + (M, N))
 
     if batch_dim:
-        output_shape = (batch_dim,) + tuple(output_shape)
+        output_shape = [batch_dim] + output_shape
 
     # Create MatMul node
     matmul_out_name = f"{node_name}_matmul"

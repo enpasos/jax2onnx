@@ -10,7 +10,7 @@ from jax2onnx.typing_helpers import Supports2Onnx
 
 def to_onnx(self: Supports2Onnx, z: Z, **params: Any) -> Z:
     """Converts `nnx.BatchNorm` into an ONNX `BatchNormalization` node."""
-    onnx_graph : OnnxGraph = z.onnx_graph
+    onnx_graph: OnnxGraph = z.onnx_graph
     input_shape = z.shapes[0]
     input_name = z.names[0]
 

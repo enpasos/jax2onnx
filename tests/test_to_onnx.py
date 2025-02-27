@@ -63,7 +63,7 @@ def load_test_params() -> list:
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
         # if not any(keyword in param.get("testcase", "") for keyword in
-        #            [ "mnist_vit" ]):
+        #            [ "batchnorm", "conv" ]):
         #     continue
 
         # Check if we should skip generating dynamic batch dim testcases
@@ -116,7 +116,7 @@ def test_onnx_export(test_params: dict) -> None:
     rng = jax.random.PRNGKey(seed)
 
     # Export the jax_model to ONNX
-    onnx_model_file_name = f"{test_params['testcase']}_model.onnx"
+    onnx_model_file_name = f"{test_params['testcase']}.onnx"
     model_path = f"docs/onnx/{onnx_model_file_name}"
     os.makedirs("docs/onnx", exist_ok=True)
 
@@ -137,7 +137,7 @@ def test_onnx_export(test_params: dict) -> None:
     for shape in input_shapes:
         # Check if shape contains 'B' and replace it with 2
         if any(isinstance(dim, str) and dim == "B" for dim in shape):
-            processed_shape = [1 if dim == "B" else dim for dim in shape]
+            processed_shape = [2 if dim == "B" else dim for dim in shape]
             processed_input_shapes.append(processed_shape)
         else:
             processed_input_shapes.append(shape)

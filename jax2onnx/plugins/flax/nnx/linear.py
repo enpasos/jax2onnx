@@ -13,6 +13,7 @@ from jax2onnx.utils import retry_with_dynamic_batch_dim
 
 def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     """Convert an `nnx.Linear` layer into an ONNX `Gemm` node."""
+
     def conversion_logic(self, z, **params):
         onnx_graph = z.onnx_graph
         input_shape = z.shapes[0]
@@ -106,7 +107,7 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
                     np.array(output_shape, dtype=np.int64),
                 )
             )
-            #onnx_graph.add_local_outputs([output_shape], [final_output_name])
+            # onnx_graph.add_local_outputs([output_shape], [final_output_name])
         else:
             final_output_name = gemm_output_name
 

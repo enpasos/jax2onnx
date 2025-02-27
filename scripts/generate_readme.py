@@ -99,6 +99,14 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     metadata_plugins = sorted(metadata_plugins, key=lambda x: x["jax_component"])
     metadata_examples = sorted(metadata_examples, key=lambda x: x["component"])
 
+    # Define the mapping of variants to tooltips
+    tooltips = {
+        "00": "static batch dim",
+        "01": "static batch dim + more shape info",
+        "11": "dynamic batch dim",
+        "10": "dynamic batch dim + more shape info",
+    }
+
     # Generate plugins table
     plugin_rows = []
     for entry in metadata_plugins:
@@ -106,17 +114,26 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
             [f"[{op['component']}]({op['doc']})" for op in entry["onnx"]]
         )
 
-        sorted_testcases = sorted(entry.get("testcases", {}).keys())
-        testcases_column = (
-            "<br>".join(
-                [
-                    f"[`{tc}`]({NETRON_BASE_URL}{tc}_model.onnx) {test_results.get(tc, '❌')}"
-                    for tc in sorted_testcases
-                ]
-            )
-            if sorted_testcases
-            else "➖"
+        # Prepare testcases with multiple variants
+        testcases_column = []
+        base_names = set(
+            tc.rsplit("_", 1)[0] for tc in entry.get("testcases", {}).keys()
         )
+
+        for base_name in sorted(base_names):
+            urls = {
+                variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
+                for variant in tooltips
+            }
+
+            # Use pass/fail status for the icons
+            testcase_row = f"`{base_name}` " + " ".join(
+                f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
+                for variant in tooltips
+            )
+            testcases_column.append(testcase_row)
+
+        testcases_column = "<br>".join(testcases_column) if testcases_column else "➖"
 
         plugin_rows.append(
             f"| [{entry['jax_component']}]({entry['jax_doc']}) "
@@ -130,17 +147,24 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     for entry in metadata_examples:
         children_list = "<br>".join(entry["children"])
 
-        sorted_testcases = sorted(entry.get("testcases", {}).keys())
-        testcases_column = (
-            "<br>".join(
-                [
-                    f"[`{tc}`]({NETRON_BASE_URL}{tc}_model.onnx) {test_results.get(tc, '❌')}"
-                    for tc in sorted_testcases
-                ]
-            )
-            if sorted_testcases
-            else "➖"
+        base_names = set(
+            tc.rsplit("_", 1)[0] for tc in entry.get("testcases", {}).keys()
         )
+        testcases_column = []
+
+        for base_name in sorted(base_names):
+            urls = {
+                variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
+                for variant in tooltips
+            }
+
+            testcase_row = f"`{base_name}` " + " ".join(
+                f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
+                for variant in tooltips
+            )
+            testcases_column.append(testcase_row)
+
+        testcases_column = "<br>".join(testcases_column) if testcases_column else "➖"
 
         example_rows.append(
             f"| {entry['component']} "

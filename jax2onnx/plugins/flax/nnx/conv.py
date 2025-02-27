@@ -45,7 +45,7 @@ def to_onnx(self: Supports2Onnx, z: Z, **params) -> Z:
     output_shape_jax[0] = original_batch_dim
 
     # Convert back to ONNX format (B, C, H, W)
-    output_shapes = [jax_shape_to_onnx_shape(output_shape_jax)]
+    output_shapes = [jax_shape_to_onnx_shape(tuple(output_shape_jax))]
 
     # Generate unique node name
     node_name = f"node{onnx_graph.next_id()}"
