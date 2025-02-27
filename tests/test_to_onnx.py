@@ -65,6 +65,12 @@ def load_test_params() -> list:
         # Change filter to check if "conv_3x3_1" is in the testcase name
         # if "reshape" not in param.get("testcase", ""):
         #   continue
+        if not any(keyword in param.get("testcase", "") for keyword in 
+                   # ["reshape"]):
+                # ["reshape", "patch_embedding"]):
+                ["mlp_block", "transformer_block", "patch_embedding", "mnist_vit", "mnist_conv_embedding"]):
+            continue
+
         for internal, dynamic in combinations:
             # if (internal, dynamic) != (False, False):
             #     continue

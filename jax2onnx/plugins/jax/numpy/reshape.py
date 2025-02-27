@@ -95,7 +95,7 @@ def to_onnx_reshape(z: Z, **params) -> Z:
     )
 
     # ✅ Compute output shapes
-    output_shapes = [tuple(reshape_shape or output_shape)]
+    output_shapes = [tuple(output_shape)]
 
     # Register final output in ONNX graph
     onnx_graph.add_local_outputs([output_shape], output_names)
@@ -154,6 +154,25 @@ def get_test_params():
                     "component": jnp.reshape,
                     "params": {
                         "shape": (1, -1),  # Dynamic reshape to flatten feature maps
+                    },
+                },
+                
+                {
+                    "testcase": "reshapeD",
+                    "input_shapes": [(1, 7, 7, 128)],
+                    "component": jnp.reshape,
+                    "params": {
+                        "shape": (-1, 49, 128),  # Dynamic reshape to flatten feature maps
+                    },
+                },
+                
+                
+                {
+                    "testcase": "reshapeE",
+                    "input_shapes": [(1, 28, 28, 1)],
+                    "component": jnp.reshape,
+                    "params": {
+                        "shape": (-1, 7, 4 ,7, 4, 1),  # Dynamic reshape to flatten feature maps
                     },
                 },
             ],
