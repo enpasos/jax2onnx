@@ -4,7 +4,6 @@ import os
 import pkgutil
 from typing import Optional
 
-import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 

@@ -94,7 +94,7 @@ def to_onnx(pool_type, jax_function, z: Z, **params) -> Z:
     input_shape_jax[0] = original_batch_dim
     jax_example_output_shape[0] = original_batch_dim
 
-    output_shapes = [jax_shape_to_onnx_shape(jax_example_output_shape)]
+    output_shapes = [jax_shape_to_onnx_shape(tuple(jax_example_output_shape))]
 
     # Store expected output in ONNX graph
     onnx_graph.add_local_outputs(output_shapes, onnx_output_names)

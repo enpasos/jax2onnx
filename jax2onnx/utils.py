@@ -1,5 +1,6 @@
 from jax2onnx.convert import OnnxGraph, Z
 
+
 def retry_with_dynamic_batch_dim(func, self, z: Z, **params):
     """Utility function to retry ONNX conversion with dynamic batch dim handling."""
     onnx_graph: OnnxGraph = z.onnx_graph

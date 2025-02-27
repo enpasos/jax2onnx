@@ -5,7 +5,6 @@ import jax
 import numpy as np
 import onnx
 import onnx.helper as oh
-import jax.numpy as jnp
 from jax2onnx.convert import Z, OnnxGraph
 
 

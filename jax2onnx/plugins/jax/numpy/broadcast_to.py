@@ -1,7 +1,5 @@
 # file: jax2onnx/plugins/jax/numpy/broadcast_to.py
 
-
-import jax
 import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
