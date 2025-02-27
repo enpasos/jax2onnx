@@ -349,7 +349,6 @@ class VisionTransformer(nnx.Module):
         orig_input_shape = z.shapes[0]
         orig_input_name = z.names[0]
 
-
         token_dim = self.cls_token.value.shape[-1]
 
         cls_token_z = Z(
@@ -366,13 +365,14 @@ class VisionTransformer(nnx.Module):
             )
         )
 
-
-        if batch_size == 'B':
+        if batch_size == "B":
             cls_token_z.shapes.append(orig_input_shape)
             cls_token_z.names.append(orig_input_name)
 
-        cls_tokens = jnp.broadcast_to.to_onnx(cls_token_z, sizes=(batch_size, 1, token_dim))
- 
+        cls_tokens = jnp.broadcast_to.to_onnx(
+            cls_token_z, sizes=(batch_size, 1, token_dim)
+        )
+
         z = jax.numpy.concatenate.to_onnx(cls_tokens + z, axis=1)
 
         pos_emb_z = Z(
@@ -525,4 +525,3 @@ def get_test_params() -> list:
             ],
         },
     ]
-
