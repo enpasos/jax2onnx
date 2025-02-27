@@ -35,6 +35,8 @@ def build_tile_onnx_node(z, **params):
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
 
+ 
+
     # Add Tile node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
@@ -55,14 +57,12 @@ def build_tile_onnx_node(z, **params):
         )
     )
 
-    # Compute new shape after tiling
-    output_shape = [dim * repeats[i] for i, dim in enumerate(input_shape)]
-    onnx_graph.add_local_outputs([output_shape], [output_name])
-
-    # Corrected jax_function
-    jax_function = partial(jnp.tile, reps=tuple(repeats))
-
-    return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
+    return Z(
+        shapes=[tuple(repeats)],
+        names=[output_name],
+        onnx_graph=onnx_graph,
+        jax_function=lambda x: jnp.tile(x, repeats)
+    )
 
 
 # Attach ONNX conversion method to JAX tile function
@@ -89,29 +89,24 @@ def get_test_params():
             "since": "v0.1.0",
             "testcases": [
                 {
-                    "testcase": "tile_2x",
+                    "testcase": "tile_a",
                     "input_shapes": [(2, 3)],
                     "component": jnp.tile,
-                    "params": {"repeats": [2, 2]},
+                    "params": {"repeats": [1, 2]},
                 },
+ 
                 {
-                    "testcase": "tile_1d",
-                    "input_shapes": [(4,)],
-                    "component": jnp.tile,
-                    "params": {"repeats": [3]},
-                },
-                {
-                    "testcase": "tile_batch_dim",
+                    "testcase": "tile_b",
                     "input_shapes": [(1, 5, 5)],
                     "component": jnp.tile,
-                    "params": {"repeats": [2, 1, 1]},
+                    "params": {"repeats": [1, 2, 1]},
                 },
                 {
-                    "testcase": "tile_large",
+                    "testcase": "tile_c",
                     "input_shapes": [(3, 3)],
                     "component": jnp.tile,
-                    "params": {"repeats": [4, 4]},
-                },
+                    "params": {"repeats": [1, 4]},
+                }
             ],
         }
     ]

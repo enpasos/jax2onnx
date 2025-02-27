@@ -346,9 +346,14 @@ class VisionTransformer(nnx.Module):
     def to_onnx(self, z, parameters=None):
         z = self.embedding.to_onnx(z)
         batch_size = z.shapes[0][0]
+        orig_input_shape = z.shapes[0]
+        orig_input_name = z.names[0]
+
+
+        token_dim = self.cls_token.value.shape[-1]
 
         cls_token_z = Z(
-            shapes=[(1, 1, self.cls_token.value.shape[-1])],  # ✅ Ensure `.value`
+            shapes=[(1, 1, token_dim)],  # ✅ Ensure `.value`
             names=["cls_token"],
             onnx_graph=z.onnx_graph,
         )
@@ -356,13 +361,18 @@ class VisionTransformer(nnx.Module):
             oh.make_tensor(
                 "cls_token",
                 onnx.TensorProto.FLOAT,
-                [1, 1, self.cls_token.value.shape[-1]],
+                [1, 1, token_dim],
                 jnp.array(self.cls_token.value).flatten(),  # ✅ Use `.value`
             )
         )
 
-        cls_tokens = jax.numpy.tile.to_onnx(cls_token_z, repeats=(batch_size, 1, 1))
 
+        if batch_size == 'B':
+            cls_token_z.shapes.append(orig_input_shape)
+            cls_token_z.names.append(orig_input_name)
+
+        cls_tokens = jnp.broadcast_to.to_onnx(cls_token_z, sizes=(batch_size, 1, token_dim))
+ 
         z = jax.numpy.concatenate.to_onnx(cls_tokens + z, axis=1)
 
         pos_emb_z = Z(
@@ -422,7 +432,7 @@ def get_test_params() -> list:
                 {
                     "testcase": "mnist_vit",
                     "component": VisionTransformer(**vit_params),
-                    "input_shapes": [(1, 28, 28, 1)],
+                    "input_shapes": [(3, 28, 28, 1)],
                     "params": {
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
                     },
@@ -469,7 +479,7 @@ def get_test_params() -> list:
                         in_features=1,
                         rngs=nnx.Rngs(0),
                     ),
-                    "input_shapes": [(1, 28, 28, 1)],
+                    "input_shapes": [(3, 28, 28, 1)],
                 }
             ],
         },
@@ -507,7 +517,7 @@ def get_test_params() -> list:
                         strides=[1, 2, 2],
                         rngs=nnx.Rngs(0),
                     ),
-                    "input_shapes": [(1, 28, 28, 1)],
+                    "input_shapes": [(3, 28, 28, 1)],
                     "params": {
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
                     },
@@ -515,3 +525,4 @@ def get_test_params() -> list:
             ],
         },
     ]
+
