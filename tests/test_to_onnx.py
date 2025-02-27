@@ -62,35 +62,36 @@ def load_test_params() -> list:
     new_params = []
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
-        # if not any(keyword in param.get("testcase", "") for keyword in 
+        # if not any(keyword in param.get("testcase", "") for keyword in
         #            [ "mnist_vit" ]):
         #     continue
 
         # Check if we should skip generating dynamic batch dim testcases
         skip_dynamic = param.get("generate_derived_batch_dim_testcases") is False
-        
+
         # Generate combinations based on flags
         for internal in [True, False]:
             for dynamic in [False, True]:
                 # Skip dynamic batch dimension cases if specified
                 if skip_dynamic and dynamic:
                     continue
-                    
+
                 new_param = param.copy()
                 new_param["internal_shape_info"] = internal
                 new_param["dynamic_batch_dim"] = dynamic
                 new_param["testcase"] = (
                     f"{param['testcase']}_{'1' if internal else '0'}{'1' if dynamic else '0'}"
                 )
-                
+
                 if dynamic:
                     if "batch_input_shapes" in param:
                         new_param["input_shapes"] = param["batch_input_shapes"]
                     else:
                         new_param["input_shapes"] = [
-                            ["B"] + list(shape)[1:] for shape in new_param["input_shapes"]
+                            ["B"] + list(shape)[1:]
+                            for shape in new_param["input_shapes"]
                         ]
-                
+
                 new_params.append(
                     pytest.param(
                         new_param, id=f"{new_param['testcase']} ({new_param['source']})"
@@ -135,12 +136,12 @@ def test_onnx_export(test_params: dict) -> None:
     processed_input_shapes = []
     for shape in input_shapes:
         # Check if shape contains 'B' and replace it with 2
-        if any(isinstance(dim, str) and dim == 'B' for dim in shape):
-            processed_shape = [1 if dim == 'B' else dim for dim in shape]
+        if any(isinstance(dim, str) and dim == "B" for dim in shape):
+            processed_shape = [1 if dim == "B" else dim for dim in shape]
             processed_input_shapes.append(processed_shape)
         else:
             processed_input_shapes.append(shape)
-    
+
     # Generate JAX inputs using processed shapes
     inputs = [jax.random.normal(rng, shape) for shape in processed_input_shapes]
 

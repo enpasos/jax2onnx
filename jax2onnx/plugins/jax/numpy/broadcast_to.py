@@ -2,11 +2,12 @@
 
 
 import jax
-import jax.numpy as jnp 
+import jax.numpy as jnp
 import onnx
 import onnx.helper as oh
 
 from jax2onnx.convert import Z
+
 
 def build_broadcast_onnx_node(z, **params):
     """
@@ -31,7 +32,7 @@ def build_broadcast_onnx_node(z, **params):
     output_name = f"{node_name}_output"
 
     # Check if we have multiple inputs and need to handle dynamic batch dimension
-    has_batch_dim = any(dim == 'B' for dim in sizes)
+    has_batch_dim = any(dim == "B" for dim in sizes)
     has_second_input = len(input_shapes) > 1
 
     if has_batch_dim and has_second_input:
@@ -39,7 +40,7 @@ def build_broadcast_onnx_node(z, **params):
         shape_node_name = f"{node_name}_shape"
         batch_dim_node_name = f"{node_name}_batch_dim"
         sizes_node_name = f"{node_name}_dynamic_sizes"
-        
+
         # Get shape of the second input
         onnx_graph.add_node(
             oh.make_node(
@@ -49,7 +50,7 @@ def build_broadcast_onnx_node(z, **params):
                 name=shape_node_name,
             )
         )
-        
+
         # Get the batch dimension (first dimension)
         onnx_graph.add_node(
             oh.make_node(
@@ -59,7 +60,7 @@ def build_broadcast_onnx_node(z, **params):
                 name=batch_dim_node_name,
             )
         )
-        
+
         # Add index initializer for Gather
         onnx_graph.add_initializer(
             oh.make_tensor(
@@ -69,27 +70,27 @@ def build_broadcast_onnx_node(z, **params):
                 [0],  # Get the first dimension
             )
         )
-        
+
         # Create static part of sizes
         onnx_graph.add_initializer(
             oh.make_tensor(
                 f"{node_name}_static_sizes",
                 onnx.TensorProto.INT64,
                 [len(sizes)],
-                [0 if dim == 'B' else dim for dim in sizes],
+                [0 if dim == "B" else dim for dim in sizes],
             )
         )
-        
+
         # Create a mask for where to insert batch dimension
         onnx_graph.add_initializer(
             oh.make_tensor(
                 f"{node_name}_mask",
                 onnx.TensorProto.BOOL,
                 [len(sizes)],
-                [dim == 'B' for dim in sizes],
+                [dim == "B" for dim in sizes],
             )
         )
-        
+
         # Create a Tensor with batch dim repeated len(sizes) times
         onnx_graph.add_node(
             oh.make_node(
@@ -99,7 +100,7 @@ def build_broadcast_onnx_node(z, **params):
                 name=f"{batch_dim_node_name}_expand",
             )
         )
-        
+
         # Add shape for the expansion
         onnx_graph.add_initializer(
             oh.make_tensor(
@@ -109,17 +110,21 @@ def build_broadcast_onnx_node(z, **params):
                 [len(sizes)],
             )
         )
-        
+
         # Use Where to merge static sizes and dynamic batch dim
         onnx_graph.add_node(
             oh.make_node(
                 "Where",
-                inputs=[f"{node_name}_mask", f"{batch_dim_node_name}_expanded", f"{node_name}_static_sizes"],
+                inputs=[
+                    f"{node_name}_mask",
+                    f"{batch_dim_node_name}_expanded",
+                    f"{node_name}_static_sizes",
+                ],
                 outputs=[sizes_node_name],
                 name=f"{node_name}_where",
             )
         )
-        
+
         # Add Expand node with dynamic sizes
         onnx_graph.add_node(
             oh.make_node(
@@ -147,7 +152,7 @@ def build_broadcast_onnx_node(z, **params):
                 f"{node_name}_sizes",
                 onnx.TensorProto.INT64,
                 [len(sizes)],
-                jnp.array([0 if dim == 'B' else dim for dim in sizes], dtype=jnp.int64),
+                jnp.array([0 if dim == "B" else dim for dim in sizes], dtype=jnp.int64),
             )
         )
 
@@ -157,12 +162,19 @@ def build_broadcast_onnx_node(z, **params):
         names=[output_name],
         onnx_graph=onnx_graph,
         jax_function=lambda x, y=None: jnp.broadcast_to(
-            x, [y.shape[0] if dim == 'B' else dim for dim in sizes] if y is not None and len(sizes) > 0 and 'B' in sizes else sizes
-        )
+            x,
+            (
+                [y.shape[0] if dim == "B" else dim for dim in sizes]
+                if y is not None and len(sizes) > 0 and "B" in sizes
+                else sizes
+            ),
+        ),
     )
+
 
 # Attach ONNX conversion method to JAX lax.broadcast function
 jnp.broadcast_to.to_onnx = build_broadcast_onnx_node
+
 
 def get_test_params() -> list:
     """
@@ -190,12 +202,11 @@ def get_test_params() -> list:
                     "params": {"sizes": [3, 1, 5]},
                     "generate_derived_batch_dim_testcases": False,
                 },
-                
                 {
                     "testcase": "broadcast_b",
-                    "input_shapes": [(1, 1, 5), ('B', 24, 24, 7)],
+                    "input_shapes": [(1, 1, 5), ("B", 24, 24, 7)],
                     "component": jnp.broadcast_to,
-                    "params": {"sizes": ['B', 1, 5]},
+                    "params": {"sizes": ["B", 1, 5]},
                     "dynamic_batch_dim": True,
                     "generate_derived_batch_dim_testcases": False,
                 },

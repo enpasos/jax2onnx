@@ -35,8 +35,6 @@ def build_tile_onnx_node(z, **params):
     node_name = f"node{onnx_graph.next_id()}"
     output_name = f"{node_name}_output"
 
- 
-
     # Add Tile node to the ONNX graph
     onnx_graph.add_node(
         oh.make_node(
@@ -61,7 +59,7 @@ def build_tile_onnx_node(z, **params):
         shapes=[tuple(repeats)],
         names=[output_name],
         onnx_graph=onnx_graph,
-        jax_function=lambda x: jnp.tile(x, repeats)
+        jax_function=lambda x: jnp.tile(x, repeats),
     )
 
 
@@ -94,7 +92,6 @@ def get_test_params():
                     "component": jnp.tile,
                     "params": {"repeats": [1, 2]},
                 },
- 
                 {
                     "testcase": "tile_b",
                     "input_shapes": [(1, 5, 5)],
@@ -106,7 +103,7 @@ def get_test_params():
                     "input_shapes": [(3, 3)],
                     "component": jnp.tile,
                     "params": {"repeats": [1, 4]},
-                }
+                },
             ],
         }
     ]
