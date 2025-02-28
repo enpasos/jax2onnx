@@ -52,9 +52,12 @@ def run_pytest():
                 testcase = testcase_raw.replace(" (Plugin)", "").replace(
                     " (Example)", ""
                 )
+                parts = testcase.split("_")
+                variant = parts[-1]                    # e.g. "10"
+                base_name = "_".join(parts[:-1])         # e.g. "conv_3x3_1"
 
                 status = "✅" if test["outcome"] == "passed" else "❌"
-                test_results[testcase] = status
+                test_results[f"{base_name}_{variant}"] = status
 
     logging.info(f"✅ {len(test_results)} tests completed.")
     return test_results
@@ -117,8 +120,9 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
         # Prepare testcases with multiple variants
         testcases_column = []
         base_names = set(
-            tc.rsplit("_", 1)[0] for tc in entry.get("testcases", {}).keys()
+            tc for tc in entry.get("testcases", {}).keys()
         )
+
 
         for base_name in sorted(base_names):
             urls = {
@@ -148,7 +152,7 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
         children_list = "<br>".join(entry["children"])
 
         base_names = set(
-            tc.rsplit("_", 1)[0] for tc in entry.get("testcases", {}).keys()
+            "_".join(tc.split("_")[:-1]) for tc in entry.get("testcases", {}).keys()
         )
         testcases_column = []
 
@@ -212,7 +216,7 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     logging.info("✅ README.md updated successfully!")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     start_time = time.time()
 
     test_results = run_pytest()  # Run full tests to capture pass/fail results
