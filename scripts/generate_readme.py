@@ -125,12 +125,14 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
             urls = {
                 variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
                 for variant in tooltips
+                if f"{base_name}_{variant}" in test_results
             }
 
             # Use pass/fail status for the icons
             testcase_row = f"`{base_name}` " + " ".join(
                 f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
                 for variant in tooltips
+                if f"{base_name}_{variant}" in test_results
             )
             testcases_column.append(testcase_row)
 
@@ -148,20 +150,20 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     for entry in metadata_examples:
         children_list = "<br>".join(entry["children"])
 
-        base_names = set(
-            "_".join(tc.split("_")[:-1]) for tc in entry.get("testcases", {}).keys()
-        )
+        base_names = set(tc for tc in entry.get("testcases", {}).keys())
         testcases_column = []
 
         for base_name in sorted(base_names):
             urls = {
                 variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
                 for variant in tooltips
+                if f"{base_name}_{variant}" in test_results
             }
 
             testcase_row = f"`{base_name}` " + " ".join(
                 f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
                 for variant in tooltips
+                if f"{base_name}_{variant}" in test_results
             )
             testcases_column.append(testcase_row)
 
@@ -185,7 +187,7 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     # Insert plugins table
     start_idx = readme_content.find(START_MARKER)
     end_idx = readme_content.find(END_MARKER)
-    if start_idx == -1 or end_idx == -1:
+    if (start_idx == -1) or (end_idx == -1):
         raise ValueError("Start or End marker for plugins not found in README.md")
 
     readme_content = (
@@ -197,7 +199,7 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     # Insert examples table
     start_idx = readme_content.find(EXAMPLES_START_MARKER)
     end_idx = readme_content.find(EXAMPLES_END_MARKER)
-    if start_idx == -1 or end_idx == -1:
+    if (start_idx == -1) or (end_idx == -1):
         raise ValueError("Start or End marker for examples not found in README.md")
 
     readme_content = (

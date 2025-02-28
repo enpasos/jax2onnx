@@ -17,12 +17,9 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
     input_shape = z.shapes[0]
 
     # Handle dynamic batch dimension
-    if isinstance(input_shape[0], str):
-        batch_dim = input_shape[0]
-        input_shape = input_shape[1:]
-    else:
-        batch_dim = None
-        input_shape = list(map(int, input_shape))  # Convert to Python int list
+    dynamic_batch = onnx_graph.dynamic_batch_dim and (
+        isinstance(input_shape[0], str) or input_shape[0] == -1
+    )
 
     axis = int(params["axis"])
 
@@ -64,31 +61,46 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
         )
     )
 
-    # Expected Output Shape: (1, 256) after removing axis 1
-    final_output_shape = tuple(input_shape[:axis] + input_shape[axis + 1 :])
-    if batch_dim:
-        final_output_shape = (batch_dim,) + final_output_shape
+    # Compute output shape correctly accounting for dynamic batch
+    if dynamic_batch:
+        # Preserve the dynamic batch dimension in the output shape
+        final_output_shape = list(input_shape)
+        final_output_shape.pop(axis)  # Remove the gathered axis
+        final_output_shape[0] = -1  # Ensure batch dimension is marked as dynamic
+    else:
+        # Static shape handling (unchanged)
+        input_shape_list = list(input_shape)
+        final_output_shape = input_shape_list[:axis] + input_shape_list[axis + 1 :]
+
     onnx_graph.add_local_outputs([final_output_shape], [output_name])
 
-    # --- Define the JAX gold-standard gather function ---
+    # --- Define the JAX gold-standard gather function that preserves batch dimensions ---
     def jax_gather_fn(x):
-        indices_for_jax = jax.numpy.array([params["indices"]])  # Ensure it's a tensor
-        gathered = jax.lax.gather(
-            x,
-            indices_for_jax[:, None],  # Ensure correct dimensionality for gather
-            dimension_numbers=jax.lax.GatherDimensionNumbers(
-                offset_dims=(0, 2),  # Preserve batch and last axis
-                collapsed_slice_dims=(1,),  # Remove axis 1
-                start_index_map=(1,),
-            ),
-            slice_sizes=(
-                1,
-                1,
-                x.shape[2],
-            ),  # Keep batch + last axis, gather single index
-            mode="fill",
-        )
-        return gathered[:, 0, :]  # ✅ This correctly removes axis 1
+        # For dynamic batch, we need to use jax.numpy.take directly
+        if dynamic_batch:
+            # Use numpy take which preserves batch dimension
+            return jax.numpy.take(x, params["indices"], axis=axis)
+        else:
+            # Original implementation for static case
+            indices_for_jax = jax.numpy.array(
+                [params["indices"]]
+            )  # Ensure it's a tensor
+            gathered = jax.lax.gather(
+                x,
+                indices_for_jax[:, None],  # Ensure correct dimensionality for gather
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(0, 2),  # Preserve batch and last axis
+                    collapsed_slice_dims=(1,),  # Remove axis 1
+                    start_index_map=(1,),
+                ),
+                slice_sizes=(
+                    1,
+                    1,
+                    x.shape[2],
+                ),  # Keep batch + last axis, gather single index
+                mode="fill",
+            )
+            return gathered[:, 0, :]  # Remove the single-element dimension
 
     return Z(
         [final_output_shape],

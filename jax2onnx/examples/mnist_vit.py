@@ -109,7 +109,7 @@ class PatchEmbedding(nnx.Module):
         return z
 
 
-class MNISTConvolutionalTokenEmbedding(nnx.Module):
+class ConvEmbedding(nnx.Module):
     """Convolutional Token Embedding for MNIST with hierarchical downsampling."""
 
     def __init__(
@@ -300,7 +300,7 @@ class VisionTransformer(nnx.Module):
                 "embed_dims should be a list of size 3 with embed_dims[2] == num_hiddens"
             )
 
-        self.embedding = MNISTConvolutionalTokenEmbedding(
+        self.embedding = ConvEmbedding(
             embed_dims=embed_dims,
             kernel_size=kernel_size,
             strides=strides,
@@ -421,7 +421,7 @@ def get_test_params() -> list:
             "component": "ViT",
             "description": "A MNIST Vision Transformer (ViT) model",
             "children": [
-                "MNISTConvolutionalTokenEmbedding",
+                "ConvEmbedding",
                 "TransformerBlock",
                 "flax.nnx.Linear",
                 "flax.nnx.LayerNorm",
@@ -499,7 +499,7 @@ def get_test_params() -> list:
             ],
         },
         {
-            "component": "MNISTConvolutionalTokenEmbedding",
+            "component": "ConvEmbedding",
             "description": "Convolutional Token Embedding for MNIST with hierarchical downsampling.",
             "children": [
                 "flax.nnx.Conv",
@@ -511,7 +511,7 @@ def get_test_params() -> list:
             "testcases": [
                 {
                     "testcase": "mnist_conv_embedding",
-                    "component": MNISTConvolutionalTokenEmbedding(
+                    "component": ConvEmbedding(
                         embed_dims=[32, 64, 128],
                         kernel_size=3,
                         strides=[1, 2, 2],

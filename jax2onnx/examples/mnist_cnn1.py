@@ -1,4 +1,4 @@
-# file: tests/examples/mnist_cnn.py
+# file: tests/examples/mnist_cnn1.py
 
 import jax
 from flax import nnx
@@ -76,7 +76,7 @@ def get_test_params():
             "since": "v0.1.0",
             "testcases": [
                 {
-                    "testcase": "mnist_cnn",
+                    "testcase": "mnist_cnn_1",
                     "component": MNIST_CNN(rngs=nnx.Rngs(0)),
                     "input_shapes": [(1, 28, 28, 1)],  # (N, H, W, C) format for JAX
                     "params": {
