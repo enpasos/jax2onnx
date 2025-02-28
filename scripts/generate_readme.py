@@ -89,13 +89,13 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
 
     # Table headers
     table_header_plugins = """
-| JAX Component | ONNX Components | Since | Testcases |
-|:-------------|:---------------|:------|:---------|
+| JAX Component | ONNX Components | Testcases | Since |
+|:-------------|:---------------|:---------|:------|
 """.strip()
 
     table_header_examples = """
-| Component | Description | Children | Since | Testcases |
-|:----------|:------------|:---------|:------|:---------|
+| Component | Description | Children | Testcases | Since |
+|:----------|:------------|:---------|:---------|:------|
 """.strip()
 
     # Sort plugins & examples
@@ -141,8 +141,8 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
         plugin_rows.append(
             f"| [{entry['jax_component']}]({entry['jax_doc']}) "
             f"| {onnx_links} "
-            f"| {entry['since']} "
-            f"| {testcases_column} |"
+            f"| {testcases_column} "
+            f"| {entry['since']} |"
         )
 
     # Generate examples table
@@ -173,8 +173,8 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
             f"| {entry['component']} "
             f"| {entry['description']} "
             f"| {children_list} "
-            f"| {entry['since']} "
-            f"| {testcases_column} |"
+            f"| {testcases_column} "
+            f"| {entry['since']} |"
         )
 
     table_plugins = "\n".join(plugin_rows)
