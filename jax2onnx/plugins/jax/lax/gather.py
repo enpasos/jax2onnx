@@ -66,7 +66,9 @@ def build_gather_onnx_node(z: Z, **params) -> Z:
         # Preserve the dynamic batch dimension in the output shape
         final_output_shape = list(input_shape)
         final_output_shape.pop(axis)  # Remove the gathered axis
-        final_output_shape[0] = -1  # Ensure batch dimension is marked as dynamic
+        final_output_shape[0] = input_shape[
+            0
+        ]  # Ensure batch dimension is marked as dynamic
     else:
         # Static shape handling (unchanged)
         input_shape_list = list(input_shape)
