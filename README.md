@@ -132,7 +132,7 @@ to_onnx(
  
 <img src="https://enpasos.github.io/jax2onnx/images/variants.png" alt="variants" width="400">
 
-| `internal_shape_info` | `dynamic_batch_dim` | Behavior |
+| `internal shape info` | `dynamic batch dim` | Behavior |
 |-----------------------|---------------------|----------|
 | **True**              | **False**           | Default setting: Internal shape information is included, batch size is fixed. |
 | **False**             | **False**           | Like the default, but without internal shape annotations. |
