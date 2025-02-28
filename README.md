@@ -151,7 +151,7 @@ Of course, any other improvements are welcome as well!
 
 ### **Installation**
 
-To install `jax2onnx`:
+To install `jax2onnx` ... **t.b.d. - meanwhile use latest development version**:
 
 ```bash
 pip install jax2onnx  
