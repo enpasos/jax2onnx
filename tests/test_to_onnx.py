@@ -63,7 +63,7 @@ def load_test_params() -> list:
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
         # if not any(keyword in param.get("testcase", "") for keyword in
-        #            [ "batchnorm", "conv" ]):
+        #            [ "gather" ]):
         #     continue
 
         # Check if we should skip generating dynamic batch dim testcases

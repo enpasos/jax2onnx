@@ -135,7 +135,7 @@ nnx.Conv.to_onnx = to_onnx
 
 
 def get_test_params():
-    """Defines test parameters for `nnx.Conv` ONNX conversion, including `MNISTConvolutionalTokenEmbedding`."""
+    """Defines test parameters for `nnx.Conv` ONNX conversion, including `ConvEmbedding`."""
     return [
         {
             "jax_component": "flax.nnx.Conv",

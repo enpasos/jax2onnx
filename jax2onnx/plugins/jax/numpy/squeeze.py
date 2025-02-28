@@ -32,35 +32,52 @@ def build_squeeze_onnx_node(z, **params):
     input_shape = z.shapes[0]
 
     axes = params["axes"]
-    node_name = f"node{onnx_graph.next_id()}"
-    output_name = f"{node_name}_output"
+    valid_axes = []
+    for axis in axes:
+        if axis == 0 and onnx_graph.dynamic_batch_dim:
+            continue  # Skip dynamic batch dimension
+        if isinstance(input_shape[axis], int) and input_shape[axis] == 1:
+            valid_axes.append(axis)
 
-    # Add Squeeze node to the ONNX graph
-    onnx_graph.add_node(
-        oh.make_node(
-            "Squeeze",
-            inputs=[input_name, f"{node_name}_axes"],
-            outputs=[output_name],
-            name=node_name,
+    if not valid_axes:
+        # If no valid axes, return the input as is (identity operation)
+        output_name = input_name
+        output_shape = input_shape
+    else:
+        node_name = f"node{onnx_graph.next_id()}"
+        output_name = f"{node_name}_output"
+
+        # Add Squeeze node to the ONNX graph
+        onnx_graph.add_node(
+            oh.make_node(
+                "Squeeze",
+                inputs=[input_name, f"{node_name}_axes"],
+                outputs=[output_name],
+                name=node_name,
+            )
         )
-    )
 
-    # Add initializer for squeeze axes
-    onnx_graph.add_initializer(
-        oh.make_tensor(
-            f"{node_name}_axes",
-            onnx.TensorProto.INT64,
-            [len(axes)],
-            np.array(axes, dtype=np.int64),
+        # Add initializer for squeeze axes
+        onnx_graph.add_initializer(
+            oh.make_tensor(
+                f"{node_name}_axes",
+                onnx.TensorProto.INT64,
+                [len(valid_axes)],
+                np.array(valid_axes, dtype=np.int64),
+            )
         )
-    )
 
-    # Compute new shape after squeeze
-    output_shape = [dim for i, dim in enumerate(input_shape) if i not in axes]
+        # Compute new shape after squeeze
+        output_shape = [dim for i, dim in enumerate(input_shape) if i not in valid_axes]
+        if onnx_graph.dynamic_batch_dim:
+            output_shape[0] = -1  # Handle dynamic batch dimension
+
     onnx_graph.add_local_outputs([output_shape], [output_name])
 
     # Corrected jax_function
-    jax_function = partial(jnp.squeeze, axis=tuple(axes))
+    jax_function = (
+        partial(jnp.squeeze, axis=tuple(valid_axes)) if valid_axes else lambda x: x
+    )
 
     return Z([output_shape], [output_name], onnx_graph, jax_function=jax_function)
 
@@ -107,6 +124,15 @@ def get_test_params():
                     "input_shapes": [(1, 1, 10)],  # Common ViT output shape
                     "component": jnp.squeeze,
                     "params": {"axes": [1]},  # Removing the second singleton dimension
+                },
+                # Add a test case for dynamic batch dimensions
+                {
+                    "testcase": "squeeze_dynamic_batch",
+                    "input_shapes": [
+                        ["B", 1, 10]
+                    ],  # Dynamic batch with singleton dimension
+                    "component": jnp.squeeze,
+                    "params": {"axes": [1]},  # Removing only the singleton dimension
                 },
             ],
         }

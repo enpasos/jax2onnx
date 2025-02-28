@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/flax/nnx/linear_general.py
+
 import numpy as np
 import onnx
 import onnx.helper as oh
@@ -12,23 +14,20 @@ def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
 
     onnx_graph: OnnxGraph = z.onnx_graph
 
-    # in case of dynamic batch dimension we assume first axis is batch dimension
-    # if z.is_dynamic_batch_dim:
-    #     # we remember the dynamic batch dimension
-    #     self.dynamic_batch_dim = z.shapes[0][0]
-    #     # and set the batch dimension to 1
-    #     z.shapes[0][0] = 1
-
     input_shape = z.shapes[0]
     input_name = z.names[0]
 
     in_features = self.in_features
-    out_features = self.out_features
-    axis = self.axis
+    out_features = (
+        list(self.out_features)
+        if isinstance(self.out_features, tuple)
+        else [self.out_features]
+    )
+    axis = self.axis if hasattr(self, "axis") else (-1,)
     use_bias = self.use_bias
 
     batch_dims = list(input_shape[: -len(axis)])  # Compute batch dimensions
-    output_shape = batch_dims + list(out_features)
+    output_shape = batch_dims + out_features
 
     node_name = f"node{onnx_graph.next_id()}"
 
@@ -38,7 +37,6 @@ def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
     if len(axis) > 1 or len(input_shape) > 2:
         if onnx_graph.dynamic_batch_dim:
             onnx_graph.internal_shape_info = False
-        # orig_dynamic_batch_dim = False
         reshape_params = {"shape": (-1, np.prod(in_features).item())}
         z = to_onnx_reshape(
             Z([input_shape], [input_name], onnx_graph), **reshape_params
@@ -107,7 +105,6 @@ def build_linear_general_onnx_node(self: Supports2Onnx, z: Z, **params) -> Z:
 
     # Step 3: Reshape back
     if len(output_shape) > 2:
-        # copy output_shape to reshape_shape
         if onnx_graph.dynamic_batch_dim:
             onnx_graph.internal_shape_info = False
         reshape_shape = output_shape.copy()

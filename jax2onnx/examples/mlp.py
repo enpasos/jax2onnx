@@ -48,7 +48,6 @@ def get_test_params() -> list:
                 "flax.nnx.BatchNorm",
                 "flax.nnx.Dropout",
                 "flax.nnx.gelu",
-                "flax.nnx.Linear",
             ],
             "since": "v0.1.0",
             "testcases": [

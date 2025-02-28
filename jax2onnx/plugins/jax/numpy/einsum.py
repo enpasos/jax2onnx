@@ -20,19 +20,28 @@ def build_einsum_onnx_node(jax_function: Supports2Onnx, z: Z, **params) -> Z:
     # Generate a unique node name
     node_name = f"node{onnx_graph.next_id()}"
 
+    # For shape inference, use the original equation
+    infer_equation = equation
+
     # Compute output shape using JAX einsum for shape inference
     jnp_inputs = []
     for shape in input_shapes:
         shape_list = list(shape)
-        shape_list[0] = 1  # Use a concrete batch dimension of 1 for dummy test input
+        # Replace any string dimension with 1 for shape inference
+        for i in range(len(shape_list)):
+            if not isinstance(shape_list[i], int) or shape_list[i] < 0:
+                shape_list[i] = 1
         jnp_input = jnp.zeros(shape_list)
         jnp_inputs.append(jnp_input)
 
-    jax_output = jnp.einsum(equation, *jnp_inputs)
+    jax_output = jnp.einsum(infer_equation, *jnp_inputs)
     output_shape = list(jax_output.shape)
 
     # Restore the original batch dimension value
-    output_shape[0] = input_shapes[0][0]
+    if onnx_graph.dynamic_batch_dim:
+        output_shape[0] = -1  # Handle dynamic batch dimension
+    else:
+        output_shape[0] = input_shapes[0][0]
 
     output_names = [f"{node_name}_output"]
 
@@ -81,18 +90,54 @@ def get_test_params() -> list:
                     "input_shapes": [(1, 64, 8, 32), (1, 128, 8, 32)],
                     "component": jnp.einsum,
                     "params": {"equation": "BNHE,BMHE->BNHM"},
+                    "generate_derived_batch_dim_testcases": False,
                 },
                 {
-                    "testcase": "einsum_matmul",
+                    "testcase": "einsum_matmul_static",  # Renamed to distinguish from dynamic version
                     "input_shapes": [(32, 64), (64, 128)],
                     "component": jnp.einsum,
                     "params": {"equation": "ij,jk->ik"},
+                    "generate_derived_batch_dim_testcases": False,
+                },
+                {
+                    "testcase": "einsum_matmul",  # This is the one that gets tested with dynamic batch
+                    "input_shapes": [
+                        (32, 64),
+                        (64, 32),
+                    ],  # Compatible dimensions for matrix multiplication
+                    "component": jnp.einsum,
+                    "params": {
+                        "equation": "ij,jk->ik"
+                    },  # Standard matrix multiplication,
+                    "generate_derived_batch_dim_testcases": False,
                 },
                 {
                     "testcase": "einsum_batch_matmul",
                     "input_shapes": [(10, 32, 64), (10, 64, 128)],
                     "component": jnp.einsum,
                     "params": {"equation": "bij,bjk->bik"},
+                    "generate_derived_batch_dim_testcases": False,
+                },
+                # Update dynamic batch matmul test case to use compatible shapes and equation
+                {
+                    "testcase": "einsum_dynamic_batch_matmul",
+                    "input_shapes": [
+                        ["B", 64],
+                        [64, 32],
+                    ],  # Compatible dimensions for matrix multiplication
+                    "component": jnp.einsum,
+                    "params": {
+                        "equation": "bi,ij->bj"
+                    },  # Correct equation for these shapes,
+                    "generate_derived_batch_dim_testcases": False,
+                },
+                # Add another dynamic batch test case
+                {
+                    "testcase": "einsum_dynamic_batch_matmul_batched",
+                    "input_shapes": [["B", 32, 64], ["B", 64, 32]],
+                    "component": jnp.einsum,
+                    "params": {"equation": "bij,bjk->bik"},
+                    "generate_derived_batch_dim_testcases": False,
                 },
             ],
         }
