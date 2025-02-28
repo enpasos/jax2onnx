@@ -105,9 +105,9 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     # Define the mapping of variants to tooltips
     tooltips = {
         "00": "static batch dim",
-        "01": "static batch dim + more shape info",
-        "11": "dynamic batch dim",
-        "10": "dynamic batch dim + more shape info",
+        "10": "static batch dim + more shape info",
+        "01": "dynamic batch dim",
+        "11": "dynamic batch dim + more shape info",
     }
 
     # Generate plugins table
