@@ -62,8 +62,8 @@ def load_test_params() -> list:
     new_params = []
     for param in params:
         # Change filter to check if "conv_3x3_1" is in the testcase name
-        if not any(keyword in param.get("testcase", "") for keyword in ["mnist_vit"]):
-            continue
+        # if not any(keyword in param.get("testcase", "") for keyword in ["mnist_vit"]):
+        #     continue
 
         # Check if we should skip generating dynamic batch dim testcases
         skip_dynamic = param.get("generate_derived_batch_dim_testcases") is False
