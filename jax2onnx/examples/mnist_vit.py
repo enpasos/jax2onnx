@@ -231,13 +231,13 @@ class TransformerBlock(nnx.Module):
         num_hiddens: int,
         num_heads: int,
         mlp_dim: int,
-        dropout_rate: float = 0.1,
+        attention_dropout_rate: float = 0.1,
+        mlp_dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
     ):
         self.rng_collection = rngs
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.dropout_rate = dropout_rate
         self.attention = nnx.MultiHeadAttention(
             num_heads=num_heads,
             qkv_features=num_hiddens,
@@ -247,8 +247,8 @@ class TransformerBlock(nnx.Module):
             decode=False,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock(num_hiddens, mlp_dim, dropout_rate, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.mlp_block = MLPBlock(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         y = self.attention(self.layer_norm1(x))
@@ -256,12 +256,12 @@ class TransformerBlock(nnx.Module):
         x = x + y
         return x + self.mlp_block(self.layer_norm2(x), deterministic)
 
-    def to_onnx(self, z, parameters=None):
+    def to_onnx(self, z, **kwargs):
         z_orig = z.clone()
         z = self.layer_norm1.to_onnx(z)
         z = self.attention.to_onnx(z)
 
-        z = self.dropout.to_onnx(z, parameters={"deterministic": True})
+        z = self.dropout.to_onnx(z, deterministic=True)
 
         z = jnp.add.to_onnx(z_orig + z)
 
@@ -274,13 +274,12 @@ class TransformerBlock(nnx.Module):
 
 
 class VisionTransformer(nnx.Module):
-    """Vision Transformer model for MNIST."""
+    """Vision Transformer model for MNIST with configurable embedding type."""
 
     def __init__(
         self,
         height: int,
         width: int,
-        # patch_size: int,
         num_hiddens: int,
         num_layers: int,
         num_heads: int,
@@ -289,33 +288,63 @@ class VisionTransformer(nnx.Module):
         embed_dims: List[int] = [32, 128, 256],
         kernel_size: int = 3,
         strides: List[int] = [1, 2, 2],
-        dropout_rate: float = 0.1,
+        patch_size: int = 4,
+        embedding_type: str = "conv",  # New parameter: "conv" or "patch"
+        embedding_dropout_rate: float = 0.1,
+        attention_dropout_rate: float = 0.1,
+        mlp_dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
     ):
 
-        # raise exception if embed_dims size is not 3 and embed_dims[2] != num_hiddens
-        if len(embed_dims) != 3 or embed_dims[2] != num_hiddens:
-            raise ValueError(
-                "embed_dims should be a list of size 3 with embed_dims[2] == num_hiddens"
-            )
+        if embedding_type not in ["conv", "patch"]:
+            raise ValueError("embedding_type must be either 'conv' or 'patch'")
 
-        self.embedding = ConvEmbedding(
-            embed_dims=embed_dims,
-            kernel_size=kernel_size,
-            strides=strides,
-            dropout_rate=dropout_rate,
-            rngs=rngs,
-        )
+        if embedding_type == "conv":
+            # Use convolutional embedding
+            if len(embed_dims) != 3 or embed_dims[2] != num_hiddens:
+                raise ValueError(
+                    "embed_dims should be a list of size 3 with embed_dims[2] == num_hiddens"
+                )
+
+            self.embedding = ConvEmbedding(
+                embed_dims=embed_dims,
+                kernel_size=kernel_size,
+                strides=strides,
+                dropout_rate=embedding_dropout_rate,
+                rngs=rngs,
+            )
+            num_patches = (height // 4) * (width // 4)
+
+        else:
+            # Use patch embedding
+            self.embedding = PatchEmbedding(
+                height=height,
+                width=width,
+                patch_size=patch_size,
+                num_hiddens=num_hiddens,
+                in_features=1,  # Assume grayscale input for MNIST
+                rngs=rngs,
+            )
+            num_patches = (height // patch_size) * (width // patch_size)
+
         self.cls_token = nnx.Param(
             jax.random.normal(rngs.params(), (1, 1, num_hiddens))
         )
 
         self.positional_embedding = nnx.Param(
-            create_sinusoidal_embeddings((height // 4) * (width // 4), num_hiddens)
+            create_sinusoidal_embeddings(num_patches, num_hiddens)
         )
+
         self.transformer_blocks = [
-            TransformerBlock(num_hiddens, num_heads, mlp_dim, dropout_rate, rngs=rngs)
+            TransformerBlock(
+                num_hiddens,
+                num_heads,
+                mlp_dim,
+                attention_dropout_rate,
+                mlp_dropout_rate,
+                rngs=rngs,
+            )
             for _ in range(num_layers)
         ]
         self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
@@ -325,14 +354,12 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         batch_size = x.shape[0]
 
-        cls_tokens = jnp.tile(
-            self.cls_token.value, (batch_size, 1, 1)
-        )  # ✅ Use `.value`
+        cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
         x = jnp.concatenate([cls_tokens, x], axis=1)
 
         pos_emb_expanded = jax.lax.dynamic_slice(
             self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )  # ✅ Ensure `.value` usage
+        )
         pos_emb_expanded = jnp.asarray(pos_emb_expanded)
 
         x = x + pos_emb_expanded
@@ -343,7 +370,8 @@ class VisionTransformer(nnx.Module):
         x = x[:, 0, :]
         return nnx.log_softmax(self.dense(x))
 
-    def to_onnx(self, z, parameters=None):
+    def to_onnx(self, z, **kwargs):
+        """Convert VisionTransformer to ONNX format."""
         z = self.embedding.to_onnx(z)
         batch_size = z.shapes[0][0]
         orig_input_shape = z.shapes[0]
@@ -398,7 +426,7 @@ class VisionTransformer(nnx.Module):
         z = jax.lax.gather.to_onnx(z, indices=0, axis=1)
 
         z = self.dense.to_onnx(z)
-        return nnx.log_softmax.to_onnx(z, parameters={"axis": -1})
+        return nnx.log_softmax.to_onnx(z, axis=-1)
 
 
 def get_test_params() -> list:
@@ -412,7 +440,9 @@ def get_test_params() -> list:
         "num_heads": 8,
         "mlp_dim": 512,
         "num_classes": 10,
-        "dropout_rate": 0.5,
+        "embedding_dropout_rate": 0.5,
+        "attention_dropout_rate": 0.5,
+        "mlp_dropout_rate": 0.5,
         "rngs": nnx.Rngs(0),
     }
 
@@ -422,6 +452,7 @@ def get_test_params() -> list:
             "description": "A MNIST Vision Transformer (ViT) model",
             "children": [
                 "ConvEmbedding",
+                "PatchEmbedding",
                 "TransformerBlock",
                 "flax.nnx.Linear",
                 "flax.nnx.LayerNorm",
@@ -430,13 +461,23 @@ def get_test_params() -> list:
             "since": "v0.1.0",
             "testcases": [
                 {
-                    "testcase": "mnist_vit",
+                    "testcase": "mnist_vit_conv",
                     "component": VisionTransformer(**vit_params),
                     "input_shapes": [(3, 28, 28, 1)],
                     "params": {
+                        "embedding_type": "conv",
                         "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
                     },
-                }
+                },
+                {
+                    "testcase": "mnist_vit_patch",
+                    "component": VisionTransformer(**vit_params),
+                    "input_shapes": [(3, 28, 28, 1)],
+                    "params": {
+                        "embedding_type": "patch",
+                        "pre_transpose": [(0, 3, 1, 2)],  # Convert JAX → ONNX
+                    },
+                },
             ],
         },
         {
@@ -456,7 +497,8 @@ def get_test_params() -> list:
                         num_hiddens=256,
                         num_heads=8,
                         mlp_dim=512,
-                        dropout_rate=0.1,
+                        attention_dropout_rate=0.1,
+                        mlp_dropout_rate=0.1,
                         rngs=nnx.Rngs(0),
                     ),
                     "input_shapes": [(1, 10, 256)],
