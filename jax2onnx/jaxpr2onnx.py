@@ -771,9 +771,16 @@ class JaxprToOnnx:
 
         # Get new shape and create constant for it
         new_shape = params["new_sizes"]
-        shape_name = self._get_constant_name(np.array(new_shape, dtype=np.int64))
 
-        # Create Reshape node
+        # Detect if reshape is redundant for bias broadcasting
+        input_shape = node_inputs[0].aval.shape
+        if len(new_shape) == 2 and new_shape[0] == 1 and input_shape == (new_shape[1],):
+            # Bias reshaped for broadcasting: Skip reshape and return directly
+            self.var_to_name[node_outputs[0]] = input_name
+            return
+
+        # Otherwise, keep reshape operation
+        shape_name = self._get_constant_name(np.array(new_shape, dtype=np.int64))
         node = helper.make_node(
             "Reshape",
             inputs=[input_name, shape_name],
@@ -1417,84 +1424,84 @@ import jax.random
 from jax.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr
 
 
-def filter_jaxpr(original_jaxpr, weight_val, bias_val):
-    """
-    Filter the given JAXPR to retain only the inference-related computations.
-    - original_jaxpr: the full JAXPR (e.g., from jax.make_jaxpr on example2).
-    - weight_val, bias_val: numpy or jax arrays for the trained weights and bias.
-    Returns a new JAXPR (or ClosedJaxpr) containing only the input, weight, bias, MatMul, and Add.
-    """
-    # Identify the input variable (assume it's the first invar of the jaxpr)
-    input_var = original_jaxpr.jaxpr.invars[0]
+# def filter_jaxpr(original_jaxpr, weight_val, bias_val):
+#     """
+#     Filter the given JAXPR to retain only the inference-related computations.
+#     - original_jaxpr: the full JAXPR (e.g., from jax.make_jaxpr on example2).
+#     - weight_val, bias_val: numpy or jax arrays for the trained weights and bias.
+#     Returns a new JAXPR (or ClosedJaxpr) containing only the input, weight, bias, MatMul, and Add.
+#     """
+#     # Identify the input variable (assume it's the first invar of the jaxpr)
+#     input_var = original_jaxpr.invars[0]
 
-    # Create new constant Vars for weight and bias to use in the filtered jaxpr
-    weight_const_var = Var(
-        original_jaxpr.jaxpr.constvars[0].count, "", weight_val.shape, weight_val.dtype
-    )
-    bias_const_var = Var(
-        original_jaxpr.jaxpr.constvars[0].count + 1, "", bias_val.shape, bias_val.dtype
-    )
-    # Note: In practice, you might use jax.core.gensym or similar to generate new Var.
+#     # Create new constant Vars for weight and bias to use in the filtered jaxpr
+#     weight_const_var = Var(
+#         original_jaxpr.constvars[0].count, "", weight_val.shape, weight_val.dtype
+#     )
+#     bias_const_var = Var(
+#         original_jaxpr.constvars[0].count + 1, "", bias_val.shape, bias_val.dtype
+#     )
+#     # Note: In practice, you might use jax.core.gensym or similar to generate new Var.
 
-    filtered_eqns = []
-    output_var = None
+#     filtered_eqns = []
+#     output_var = None
 
-    for eqn in original_jaxpr.jaxpr.eqns:
-        prim = eqn.primitive.name
-        if prim == "dot_general":
-            # Replace weight input of dot_general with weight_const_var
-            new_inputs = []
-            for var in eqn.invars:
-                if var not in (input_var, weight_const_var):
-                    # If original weight var encountered, replace with our weight_const_var
-                    new_inputs.append(weight_const_var)
-                else:
-                    new_inputs.append(var)
-            # Create a new equation for MatMul (dot_general) with input and weight
-            filtered_eqns.append(
-                JaxprEqn(
-                    primitive=eqn.primitive,  # dot_general primitive
-                    invars=tuple(new_inputs),
-                    outvars=eqn.outvars,
-                    params=eqn.params,
-                )  # carry over any params like dimension numbers
-            )
-            output_var = eqn.outvars[0]  # output of matmul (before bias add)
-        elif prim == "add":
-            # Replace bias input of add with bias_const_var
-            new_inputs = []
-            for var in eqn.invars:
-                if var not in (output_var, bias_const_var):
-                    # If original bias var encountered, replace with bias_const_var
-                    new_inputs.append(bias_const_var)
-                else:
-                    new_inputs.append(var)
-            # Create new equation for Add with matmul output and bias
-            filtered_eqns.append(
-                JaxprEqn(
-                    primitive=eqn.primitive,  # add primitive
-                    invars=tuple(new_inputs),
-                    outvars=eqn.outvars,
-                    params=eqn.params,
-                )
-            )
-            output_var = eqn.outvars[0]  # now output_var is final output
-        else:
-            # Skip any other primitives (random initializations, etc.)
-            continue
+#     for eqn in original_jaxpr.eqns:
+#         prim = eqn.primitive.name
+#         if prim == "dot_general":
+#             # Replace weight input of dot_general with weight_const_var
+#             new_inputs = []
+#             for var in eqn.invars:
+#                 if var not in (input_var, weight_const_var):
+#                     # If original weight var encountered, replace with our weight_const_var
+#                     new_inputs.append(weight_const_var)
+#                 else:
+#                     new_inputs.append(var)
+#             # Create a new equation for MatMul (dot_general) with input and weight
+#             filtered_eqns.append(
+#                 JaxprEqn(
+#                     primitive=eqn.primitive,  # dot_general primitive
+#                     invars=tuple(new_inputs),
+#                     outvars=eqn.outvars,
+#                     params=eqn.params,
+#                 )  # carry over any params like dimension numbers
+#             )
+#             output_var = eqn.outvars[0]  # output of matmul (before bias add)
+#         elif prim == "add":
+#             # Replace bias input of add with bias_const_var
+#             new_inputs = []
+#             for var in eqn.invars:
+#                 if var not in (output_var, bias_const_var):
+#                     # If original bias var encountered, replace with bias_const_var
+#                     new_inputs.append(bias_const_var)
+#                 else:
+#                     new_inputs.append(var)
+#             # Create new equation for Add with matmul output and bias
+#             filtered_eqns.append(
+#                 JaxprEqn(
+#                     primitive=eqn.primitive,  # add primitive
+#                     invars=tuple(new_inputs),
+#                     outvars=eqn.outvars,
+#                     params=eqn.params,
+#                 )
+#             )
+#             output_var = eqn.outvars[0]  # now output_var is final output
+#         else:
+#             # Skip any other primitives (random initializations, etc.)
+#             continue
 
-    # Construct a new JAXPR with the filtered equations
-    filtered_jaxpr = Jaxpr(
-        constvars=[],  # no constvars here (we'll use literals for weight/bias)
-        invars=[input_var],  # one input (the data)
-        outvars=[output_var],  # output of the bias addition
-        eqns=filtered_eqns,
-    )
-    # Create a ClosedJaxpr by attaching actual weight and bias values as literals
-    closed_filtered_jaxpr = ClosedJaxpr(
-        filtered_jaxpr, consts=[Literal(weight_val), Literal(bias_val)]
-    )
-    return closed_filtered_jaxpr
+#     # Construct a new JAXPR with the filtered equations
+#     filtered_jaxpr = Jaxpr(
+#         constvars=[],  # no constvars here (we'll use literals for weight/bias)
+#         invars=[input_var],  # one input (the data)
+#         outvars=[output_var],  # output of the bias addition
+#         eqns=filtered_eqns,
+#     )
+#     # Create a ClosedJaxpr by attaching actual weight and bias values as literals
+#     closed_filtered_jaxpr = ClosedJaxpr(
+#         filtered_jaxpr, consts=[Literal(weight_val), Literal(bias_val)]
+#     )
+#     return closed_filtered_jaxpr
 
 
 def example2():
@@ -1510,6 +1517,11 @@ def example2():
 
     print("Original JAXPR:")
     print(jaxpr)
+
+    # Filter the JAXPR to include weight and bias as constants
+    # filtered_jaxpr = filter_jaxpr(jaxpr, weight_val, bias_val)
+    # print("\nFiltered JAXPR:")
+    # print(filtered_jaxpr.pretty_print())  # Use pretty_print to avoid AttributeError
 
     # Convert to ONNX
     converter = JaxprToOnnx()
