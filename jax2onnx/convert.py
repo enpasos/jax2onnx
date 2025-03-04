@@ -2,7 +2,7 @@
 import importlib
 import os
 import pkgutil
-from typing import Optional
+from typing import Optional, Tuple, Any
 
 import onnx
 import onnx.helper as oh
@@ -35,6 +35,18 @@ class OnnxGraph:
                         output_names[i], onnx.TensorProto.FLOAT, output_shapes[i]
                     )
                 )
+
+
+class OnnxValue:
+    def __init__(
+        self,
+        name: str,
+        shape: Optional[Tuple[int, ...]] = None,
+        dtype: Optional[Any] = None,
+    ):
+        self.name = name
+        self.shape = shape
+        self.dtype = dtype
 
 
 class Z:
