@@ -21,6 +21,7 @@ class JaxprToOnnx:
         self.name_counter = name_counter
         self.var_to_name: Dict[Any, str] = {}
         self.primitive_handlers = {
+            linear_general_p: self._handle_linear_general,  # Add the custom primitive
             jax.lax.neg_p: self._handle_neg,
             jax.lax.not_p: self._handle_not,
             jax.lax.add_p: self._handle_add,
@@ -254,6 +255,35 @@ class JaxprToOnnx:
         )
         self.nodes.append(node)
 
+    def _handle_linear_general(self, node_inputs, node_outputs, params):
+        """Handle the custom linear_general primitive."""
+        input_names = [self._get_name(inp) for inp in node_inputs]
+        output_name = self._get_var_name(node_outputs[0])
+
+        # Extract dimension numbers.  This is *CRITICAL*.
+        dimension_numbers = params["dimension_numbers"]
+        ((lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch)) = dimension_numbers
+
+        # Get shapes from the *inputs*, not hardcoded
+        x_aval = node_inputs[0].aval
+        kernel_aval = node_inputs[1].aval
+        bias_aval = node_inputs[2].aval
+
+        # Construct the ONNX Gemm node
+        gemm_node = helper.make_node(
+            "Gemm",
+            inputs=[input_names[0], input_names[1], input_names[2]],  # x, kernel, bias
+            outputs=[output_name],
+            name=self._get_unique_name("linear_general_gemm"),
+            alpha=1.0,
+            beta=1.0,
+            transA=0,  # No transpose on input x
+            transB=1,  # Transpose the kernel!  This is important.
+            # No need for a separate bias reshape, Gemm handles broadcasting
+            domain="",  # Use the default ONNX domain
+        )
+        self.nodes.append(gemm_node)
+
     def _handle_neg(self, node_inputs, node_outputs, params):
         """Handle JAX neg primitive."""
         input_names = [self._get_name(inp) for inp in node_inputs]
@@ -460,31 +490,82 @@ class JaxprToOnnx:
         self.nodes.append(node)
 
     def _handle_dot_general(self, node_inputs, node_outputs, params):
-        """Handle JAX dot_general primitive."""
+        """Handle JAX dot_general primitive with a reshape-Gemm-reshape pattern."""
         input_names = [self._get_name(inp) for inp in node_inputs]
         output_name = self._get_var_name(node_outputs[0])
 
         # Extract dot_general parameters
-        dimension_numbers, precision = params["dimension_numbers"], params.get(
-            "precision", None
-        )
+        dimension_numbers = params["dimension_numbers"]
         ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
 
-        # For simple case where it's a standard matrix multiplication
-        if len(lhs_contract) == 1 and len(rhs_contract) == 1 and len(lhs_batch) == 0:
-            node = helper.make_node(
-                "MatMul",
-                inputs=input_names,
-                outputs=[output_name],
-                name=self._get_unique_name("matmul"),
-            )
-            self.nodes.append(node)
-        else:
-            # For more complex cases, we would need to add transposes and reshapes
-            # This is a simplified implementation for the common case
-            raise NotImplementedError(
-                f"Complex dot_general not yet implemented: {dimension_numbers}"
-            )
+        lhs_name, rhs_name = input_names
+        lhs_shape = node_inputs[0].aval.shape
+        rhs_shape = node_inputs[1].aval.shape
+        output_shape = node_outputs[0].aval.shape
+
+        # Compute batch and feature dimensions
+        batch_size = np.prod(
+            lhs_shape[: len(lhs_shape) - len(lhs_contract)], dtype=np.int64
+        )
+        feature_size = np.prod(
+            lhs_shape[len(lhs_shape) - len(lhs_contract) :], dtype=np.int64
+        )
+        rhs_output_size = np.prod(
+            rhs_shape[len(rhs_shape) - len(rhs_contract) :], dtype=np.int64
+        )
+
+        lhs_reshape_name = self._get_unique_name("reshape_input")
+        lhs_reshape_node = helper.make_node(
+            "Reshape",
+            inputs=[
+                lhs_name,
+                self._get_constant_name(
+                    np.array([feature_size, rhs_output_size], dtype=np.int64)
+                ),
+            ],
+            outputs=[lhs_reshape_name],
+            name=self._get_unique_name("reshape_lhs"),
+        )
+        self.nodes.append(lhs_reshape_node)
+
+        rhs_reshape_name = self._get_unique_name("rhs_reshape")
+        rhs_reshape_node = helper.make_node(
+            "Reshape",
+            inputs=[
+                rhs_name,
+                self._get_constant_name(
+                    np.array([feature_size, rhs_output_size], dtype=np.int64)
+                ),
+            ],
+            outputs=[rhs_reshape_name],
+            name=self._get_unique_name("reshape_rhs"),
+        )
+        self.nodes.append(rhs_reshape_node)
+
+        # Perform Gemm (General Matrix Multiplication)
+        gemm_output_name = self._get_unique_name("gemm_output")
+        gemm_node = helper.make_node(
+            "Gemm",
+            inputs=[lhs_reshape_name, rhs_reshape_name],  # B = Weights
+            outputs=[gemm_output_name],
+            name=self._get_unique_name("gemm"),
+            alpha=1.0,  # Standard scaling factor
+            beta=1.0,  # Include bias term
+            transB=0,  # Ensure no transpose on B
+        )
+        self.nodes.append(gemm_node)
+
+        # Second Reshape: Restore original batch dimensions and output shape
+        reshape_output_node = helper.make_node(
+            "Reshape",
+            inputs=[
+                gemm_output_name,
+                self._get_constant_name(np.array(output_shape, dtype=np.int64)),
+            ],
+            outputs=[output_name],
+            name=self._get_unique_name("reshape_output"),
+        )
+        self.nodes.append(reshape_output_node)
 
     def _handle_reduce_sum(self, node_inputs, node_outputs, params):
         """Handle JAX reduce_sum primitive."""
@@ -1424,86 +1505,6 @@ import jax.random
 from jax.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr
 
 
-# def filter_jaxpr(original_jaxpr, weight_val, bias_val):
-#     """
-#     Filter the given JAXPR to retain only the inference-related computations.
-#     - original_jaxpr: the full JAXPR (e.g., from jax.make_jaxpr on example2).
-#     - weight_val, bias_val: numpy or jax arrays for the trained weights and bias.
-#     Returns a new JAXPR (or ClosedJaxpr) containing only the input, weight, bias, MatMul, and Add.
-#     """
-#     # Identify the input variable (assume it's the first invar of the jaxpr)
-#     input_var = original_jaxpr.invars[0]
-
-#     # Create new constant Vars for weight and bias to use in the filtered jaxpr
-#     weight_const_var = Var(
-#         original_jaxpr.constvars[0].count, "", weight_val.shape, weight_val.dtype
-#     )
-#     bias_const_var = Var(
-#         original_jaxpr.constvars[0].count + 1, "", bias_val.shape, bias_val.dtype
-#     )
-#     # Note: In practice, you might use jax.core.gensym or similar to generate new Var.
-
-#     filtered_eqns = []
-#     output_var = None
-
-#     for eqn in original_jaxpr.eqns:
-#         prim = eqn.primitive.name
-#         if prim == "dot_general":
-#             # Replace weight input of dot_general with weight_const_var
-#             new_inputs = []
-#             for var in eqn.invars:
-#                 if var not in (input_var, weight_const_var):
-#                     # If original weight var encountered, replace with our weight_const_var
-#                     new_inputs.append(weight_const_var)
-#                 else:
-#                     new_inputs.append(var)
-#             # Create a new equation for MatMul (dot_general) with input and weight
-#             filtered_eqns.append(
-#                 JaxprEqn(
-#                     primitive=eqn.primitive,  # dot_general primitive
-#                     invars=tuple(new_inputs),
-#                     outvars=eqn.outvars,
-#                     params=eqn.params,
-#                 )  # carry over any params like dimension numbers
-#             )
-#             output_var = eqn.outvars[0]  # output of matmul (before bias add)
-#         elif prim == "add":
-#             # Replace bias input of add with bias_const_var
-#             new_inputs = []
-#             for var in eqn.invars:
-#                 if var not in (output_var, bias_const_var):
-#                     # If original bias var encountered, replace with bias_const_var
-#                     new_inputs.append(bias_const_var)
-#                 else:
-#                     new_inputs.append(var)
-#             # Create new equation for Add with matmul output and bias
-#             filtered_eqns.append(
-#                 JaxprEqn(
-#                     primitive=eqn.primitive,  # add primitive
-#                     invars=tuple(new_inputs),
-#                     outvars=eqn.outvars,
-#                     params=eqn.params,
-#                 )
-#             )
-#             output_var = eqn.outvars[0]  # now output_var is final output
-#         else:
-#             # Skip any other primitives (random initializations, etc.)
-#             continue
-
-#     # Construct a new JAXPR with the filtered equations
-#     filtered_jaxpr = Jaxpr(
-#         constvars=[],  # no constvars here (we'll use literals for weight/bias)
-#         invars=[input_var],  # one input (the data)
-#         outvars=[output_var],  # output of the bias addition
-#         eqns=filtered_eqns,
-#     )
-#     # Create a ClosedJaxpr by attaching actual weight and bias values as literals
-#     closed_filtered_jaxpr = ClosedJaxpr(
-#         filtered_jaxpr, consts=[Literal(weight_val), Literal(bias_val)]
-#     )
-#     return closed_filtered_jaxpr
-
-
 def example2():
     # Define a simple Flax model
 
@@ -1515,13 +1516,11 @@ def example2():
     closed_jaxpr = jax.make_jaxpr(example_fn)(x)
     jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
 
-    print("Original JAXPR:")
+    print("JAXPR:")
     print(jaxpr)
 
-    # Filter the JAXPR to include weight and bias as constants
-    # filtered_jaxpr = filter_jaxpr(jaxpr, weight_val, bias_val)
-    # print("\nFiltered JAXPR:")
-    # print(filtered_jaxpr.pretty_print())  # Use pretty_print to avoid AttributeError
+    print("CONST:")
+    print(consts)
 
     # Convert to ONNX
     converter = JaxprToOnnx()
@@ -1541,9 +1540,148 @@ def example2():
     print("The outputs are the same!")
 
 
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    x_shape = x.shape
+    k_shape = kernel.shape
+    b_shape = bias.shape
+    # print("Abstract", x_shape, k_shape, b_shape, dimension_numbers)
+    # Calculate output shape based on dimension_numbers
+    # (This is the same logic you'd use in your nnx code)
+    contracting_dims = dimension_numbers[0]
+    batch_dims = dimension_numbers[1]
+
+    x_contracting_dims = [x_shape[i] for i in contracting_dims[0]]
+    k_contracting_dims = [k_shape[i] for i in contracting_dims[1]]
+
+    assert x_contracting_dims == k_contracting_dims
+
+    batch_dims_shape_x = [x_shape[i] for i in batch_dims[0]]
+    batch_dims_shape_k = [k_shape[i] for i in batch_dims[1]]
+
+    assert batch_dims_shape_x == batch_dims_shape_k
+
+    # batch and contracting dims
+    x_remaining_dims_indices = [
+        i
+        for i in range(len(x_shape))
+        if i not in contracting_dims[0] and i not in batch_dims[0]
+    ]
+    k_remaining_dims_indices = [
+        i
+        for i in range(len(k_shape))
+        if i not in contracting_dims[1] and i not in batch_dims[1]
+    ]
+    out_shape = (
+        batch_dims_shape_x
+        + [x_shape[i] for i in x_remaining_dims_indices]
+        + [k_shape[i] for i in k_remaining_dims_indices]
+    )
+
+    return core.ShapedArray(tuple(out_shape), x.dtype)  # Output type.
+
+
+import jax
+from jax import core
+from jax.interpreters import ad, xla
+
+linear_general_p = core.Primitive("linear_general")
+linear_general_p.multiple_results = False  # Our operation has one output
+linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+
+
+def linear_general(x, kernel, bias, dimension_numbers):
+    return linear_general_p.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
+
+
+# --- Monkey-patching __call__ ---
+
+# def patched_linear_general_call(self, x):
+#     contracting_dims = (self.axis, tuple(range(len(self.in_features))))
+#     batch_dims = ((), ())
+#     dimension_numbers = (contracting_dims, batch_dims)
+#     # Use the custom linear_general function
+#     return linear_general(x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers)
+
+# Apply the monkey-patch:
+# nnx.LinearGeneral.__call__ = patched_linear_general_call
+
+## From here down a temporary monkey patch
+import contextlib
+
+
+@contextlib.contextmanager
+def temporary_linear_general_patch():
+    """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
+    original_call = nnx.LinearGeneral.__call__  # Store the original method
+
+    def patched_linear_general_call(self, x):
+        contracting_dims = (self.axis, tuple(range(len(self.in_features))))
+        batch_dims = ((), ())
+        dimension_numbers = (contracting_dims, batch_dims)
+        # Use the custom linear_general function
+        return linear_general(
+            x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
+        )
+
+    nnx.LinearGeneral.__call__ = patched_linear_general_call  # Apply the patch
+
+    try:
+        yield  # This is where the code using the patched function will run
+    finally:
+        nnx.LinearGeneral.__call__ = original_call  # Restore the original method
+
+
+def example3():
+    seed = 1001
+
+    fn = nnx.LinearGeneral(
+        in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
+    )
+
+    # Create inputs
+    rng = jax.random.PRNGKey(seed)
+    x = jax.random.normal(rng, (2, 4, 8, 32))
+
+    # Use the context manager for temporary patching
+    with temporary_linear_general_patch():
+        closed_jaxpr = jax.make_jaxpr(fn)(x)
+        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
+        print("JAXPR (inside context manager):")
+        print(jaxpr)
+        converter = JaxprToOnnx()
+        model_path = converter.convert(fn, (x,), "example_model3.onnx")
+        print(f"ONNX model saved to: {model_path}")
+        onnx_inputs = {"var_0": np.array(x)}  # Corrected input naming
+        session = ort.InferenceSession(
+            model_path, providers=["CPUExecutionProvider"]
+        )  # For old onnx versions
+        onnx_output = session.run(None, onnx_inputs)[0]
+        # Test the JAX function *inside* the context manager (while patched)
+        jax_output_patched = fn(x)
+        assert np.allclose(
+            onnx_output, jax_output_patched
+        ), "Outputs differ (inside context manager)!"
+
+    # Test JAX function *outside* the context manager (original behavior)
+    jax_output_original = fn(x)
+    print("The outputs are the same inside context manager!")
+
+    # Check that the original behavior is restored
+    closed_jaxpr_original = jax.make_jaxpr(fn)(x)
+    print("\nJAXPR (outside context manager - original behavior):")
+    print(closed_jaxpr_original.jaxpr)
+
+    # Compare onnx output to unpatched jax call.
+    assert not np.allclose(
+        onnx_output, jax_output_original
+    ), "Outputs should be different outside of patch!."
+    print("The outputs are different outside context manager!")
+
+
 def main():
     # example()
-    example2()
+    # example2()
+    example3()
 
 
 if __name__ == "__main__":
