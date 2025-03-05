@@ -20,6 +20,7 @@ class JaxprToOnnx:
         self._name_counter_init = name_counter
         self.name_counter = name_counter
         self.var_to_name: Dict[Any, str] = {}
+        self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {
             linear_general_p: self._handle_linear_general,  # Add the custom primitive
             jax.lax.neg_p: self._handle_neg,
@@ -257,32 +258,85 @@ class JaxprToOnnx:
 
     def _handle_linear_general(self, node_inputs, node_outputs, params):
         """Handle the custom linear_general primitive."""
-        input_names = [self._get_name(inp) for inp in node_inputs]
+        # Get the input name
+        input_name = self._get_name(node_inputs[0])
         output_name = self._get_var_name(node_outputs[0])
 
-        # Extract dimension numbers.  This is *CRITICAL*.
+        # Extract dimension numbers
         dimension_numbers = params["dimension_numbers"]
         ((lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch)) = dimension_numbers
 
-        # Get shapes from the *inputs*, not hardcoded
+        # Get shapes from the inputs
         x_aval = node_inputs[0].aval
         kernel_aval = node_inputs[1].aval
         bias_aval = node_inputs[2].aval
 
-        # Construct the ONNX Gemm node
+        bias_name = self.var_to_name[node_inputs[2]]
+
+        kernel_name = self.var_to_name[node_inputs[1]]
+        kernel_const = self.name_to_const[kernel_name]
+
+        # reshape kernel to (in_features, out_features)
+        in_features = np.prod(
+            [kernel_aval.shape[i] for i in rhs_contracting], dtype=np.int64
+        )
+        out_features = np.prod(
+            [
+                kernel_aval.shape[i]
+                for i in range(len(kernel_aval.shape))
+                if i not in rhs_contracting and i not in rhs_batch
+            ],
+            dtype=np.int64,
+        )
+        kernel_value = np.reshape(kernel_const, (in_features, out_features))
+        # Create weights constant for ONNX
+        weights_name = self._get_constant_name(kernel_value)
+
+        # Define batch_size
+        batch_size = np.prod([x_aval.shape[i] for i in lhs_batch], dtype=np.int64)
+
+        # First Reshape: Flatten the input to (batch_size, feature_size)
+        input_reshape_name = self._get_unique_name("input_reshape")
+        input_reshape_node = helper.make_node(
+            "Reshape",
+            inputs=[
+                input_name,
+                self._get_constant_name(
+                    np.array([batch_size, in_features], dtype=np.int64)
+                ),
+            ],
+            outputs=[input_reshape_name],
+            name=self._get_unique_name("reshape_input"),
+        )
+        self.nodes.append(input_reshape_node)
+
+        # Perform Gemm operation with the reshaped weights
+        gemm_output_name = self._get_unique_name("gemm_output")
         gemm_node = helper.make_node(
             "Gemm",
-            inputs=[input_names[0], input_names[1], input_names[2]],  # x, kernel, bias
-            outputs=[output_name],
-            name=self._get_unique_name("linear_general_gemm"),
+            inputs=[input_reshape_name, weights_name, bias_name],
+            outputs=[gemm_output_name],
+            name=self._get_unique_name("gemm"),
             alpha=1.0,
             beta=1.0,
-            transA=0,  # No transpose on input x
-            transB=1,  # Transpose the kernel!  This is important.
-            # No need for a separate bias reshape, Gemm handles broadcasting
-            domain="",  # Use the default ONNX domain
+            transB=0,  # No transpose needed since we pre-shaped the weights
         )
         self.nodes.append(gemm_node)
+
+        # Define output_shape
+        output_shape = node_outputs[0].aval.shape
+
+        # Final Reshape: Restore the output shape
+        reshape_output_node = helper.make_node(
+            "Reshape",
+            inputs=[
+                gemm_output_name,
+                self._get_constant_name(np.array(output_shape, dtype=np.int64)),
+            ],
+            outputs=[output_name],
+            name=self._get_unique_name("reshape_output"),
+        )
+        self.nodes.append(reshape_output_node)
 
     def _handle_neg(self, node_inputs, node_outputs, params):
         """Handle JAX neg primitive."""
@@ -1377,6 +1431,7 @@ class JaxprToOnnx:
             const_name = self._get_constant_name(const)
             const_var = jaxpr.constvars[i]
             self.var_to_name[const_var] = const_name
+            self.name_to_const[const_name] = const
 
         # Process all equations in the JAXPR
         for eqn in jaxpr.eqns:
@@ -1395,13 +1450,12 @@ class JaxprToOnnx:
         self.value_info = []
         self.name_counter = self._name_counter_init
         self.var_to_name = {}
+        self.name_to_const = {}
 
         # Get JAXPR from the function
         closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
-        # jaxpr = filter_jaxpr(jaxpr)
-
         self._process_jaxpr(jaxpr, consts)
 
     def convert(
@@ -1502,7 +1556,7 @@ import flax.nnx as nnx
 import jax.random
 
 
-from jax.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr
+from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
 
 
 def example2():
@@ -1543,48 +1597,57 @@ def example2():
 def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
     x_shape = x.shape
     k_shape = kernel.shape
-    b_shape = bias.shape
-    # print("Abstract", x_shape, k_shape, b_shape, dimension_numbers)
-    # Calculate output shape based on dimension_numbers
-    # (This is the same logic you'd use in your nnx code)
-    contracting_dims = dimension_numbers[0]
-    batch_dims = dimension_numbers[1]
 
-    x_contracting_dims = [x_shape[i] for i in contracting_dims[0]]
-    k_contracting_dims = [k_shape[i] for i in contracting_dims[1]]
+    # Unpack dimension numbers
+    ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
 
-    assert x_contracting_dims == k_contracting_dims
+    # Convert negative indices to positive indices
+    lhs_contract_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_contract]
+    rhs_contract_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_contract]
+    lhs_batch_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_batch]
+    rhs_batch_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_batch]
 
-    batch_dims_shape_x = [x_shape[i] for i in batch_dims[0]]
-    batch_dims_shape_k = [k_shape[i] for i in batch_dims[1]]
+    # Verify contracting dimensions match in size
+    for lhs_dim, rhs_dim in zip(lhs_contract_pos, rhs_contract_pos):
+        assert (
+            x_shape[lhs_dim] == k_shape[rhs_dim]
+        ), f"Contracting dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
 
-    assert batch_dims_shape_x == batch_dims_shape_k
+    # Verify batch dimensions match in size
+    for lhs_dim, rhs_dim in zip(lhs_batch_pos, rhs_batch_pos):
+        assert (
+            x_shape[lhs_dim] == k_shape[rhs_dim]
+        ), f"Batch dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
 
-    # batch and contracting dims
-    x_remaining_dims_indices = [
+    # Compute output shape:
+    # 1. Batch dimensions (from lhs)
+    # 2. Non-contracting, non-batch dimensions from lhs
+    # 3. Non-contracting, non-batch dimensions from rhs
+    lhs_remaining = [
         i
         for i in range(len(x_shape))
-        if i not in contracting_dims[0] and i not in batch_dims[0]
+        if i not in lhs_contract_pos and i not in lhs_batch_pos
     ]
-    k_remaining_dims_indices = [
+    rhs_remaining = [
         i
         for i in range(len(k_shape))
-        if i not in contracting_dims[1] and i not in batch_dims[1]
+        if i not in rhs_contract_pos and i not in rhs_batch_pos
     ]
+
     out_shape = (
-        batch_dims_shape_x
-        + [x_shape[i] for i in x_remaining_dims_indices]
-        + [k_shape[i] for i in k_remaining_dims_indices]
+        tuple(x_shape[i] for i in lhs_batch_pos)
+        + tuple(x_shape[i] for i in lhs_remaining)
+        + tuple(k_shape[i] for i in rhs_remaining)
     )
 
-    return core.ShapedArray(tuple(out_shape), x.dtype)  # Output type.
+    return core.ShapedArray(out_shape, x.dtype)
 
 
 import jax
 from jax import core
 from jax.interpreters import ad, xla
 
-linear_general_p = core.Primitive("linear_general")
+linear_general_p = Primitive("linear_general")
 linear_general_p.multiple_results = False  # Our operation has one output
 linear_general_p.def_abstract_eval(linear_general_abstract_eval)
 

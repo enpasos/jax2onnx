@@ -1,0 +1,190 @@
+import jax
+import jax.numpy as jnp
+import onnx
+from onnx import helper, TensorProto
+import numpy as np
+import flax.nnx as nnx 
+import contextlib  
+from jax import core
+from jax.interpreters import ad, xla
+import flax.nnx as nnx
+import jax.random
+
+
+from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
+
+class Converter:
+    def __init__(self, name_counter=0):
+        self.nodes = []
+        self.inputs = []
+        self.outputs = []
+        self.initializers = []
+        self.value_info = []
+        self.name_counter = name_counter
+        self.var_to_name = {}
+    
+    def _get_unique_name(self, prefix="node"):
+        name = f"{prefix}_{self.name_counter}"
+        self.name_counter += 1
+        return name
+    
+    def _get_var_name(self, var):
+        if var not in self.var_to_name:
+            self.var_to_name[var] = self._get_unique_name("var")
+        return self.var_to_name[var]
+
+    def _handle_linear_general(self, node_inputs, node_outputs, params):
+        input_name = self._get_var_name(node_inputs[0])
+        output_name = self._get_var_name(node_outputs[0])
+        node = helper.make_node(
+            "Gemm", inputs=[input_name], outputs=[output_name], name=self._get_unique_name("gemm")
+        )
+        self.nodes.append(node)
+
+    def _process_eqn(self, eqn):
+        if eqn.primitive.name == "linear_general":
+            self._handle_linear_general(eqn.invars, eqn.outvars, eqn.params)
+
+
+    def _process_jaxpr(self, jaxpr, consts):
+        # Setup inputs
+        for var in jaxpr.invars:
+            self._add_input(var, var.aval.shape, var.aval.dtype)
+
+        # Setup constants
+        for i, const in enumerate(consts):
+            const_name = self._get_constant_name(const)
+            const_var = jaxpr.constvars[i]
+            self.var_to_name[const_var] = const_name
+
+        # Process all equations in the JAXPR
+        for eqn in jaxpr.eqns:
+            self._process_eqn(eqn)
+
+        # Setup outputs
+        for var in jaxpr.outvars:
+            self._add_output(var, var.aval.shape, var.aval.dtype)
+
+
+    def trace_jaxpr(self, fn, example_args):
+        self.nodes = []
+        closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
+        self._process_jaxpr(jaxpr, consts)
+ 
+    
+    def convert(self, fn, example_args, output_path="model.onnx"):
+        # Use the context manager for temporary patching
+        with temporary_linear_general_patch():
+            self.trace_jaxpr(fn, example_args)
+            graph = helper.make_graph(self.nodes, "jax_model", self.inputs, self.outputs, self.initializers)
+            onnx_model = helper.make_model(graph, producer_name="jaxpr_to_onnx")
+            onnx.save(onnx_model, output_path)
+            return output_path
+
+
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    x_shape = x.shape
+    k_shape = kernel.shape
+    
+    # Unpack dimension numbers
+    ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
+    
+    # Convert negative indices to positive indices
+    lhs_contract_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_contract]
+    rhs_contract_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_contract]
+    lhs_batch_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_batch]
+    rhs_batch_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_batch]
+    
+    # Verify contracting dimensions match in size
+    for lhs_dim, rhs_dim in zip(lhs_contract_pos, rhs_contract_pos):
+        assert x_shape[lhs_dim] == k_shape[rhs_dim], f"Contracting dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
+    
+    # Verify batch dimensions match in size
+    for lhs_dim, rhs_dim in zip(lhs_batch_pos, rhs_batch_pos):
+        assert x_shape[lhs_dim] == k_shape[rhs_dim], f"Batch dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
+    
+    # Compute output shape:
+    # 1. Batch dimensions (from lhs)
+    # 2. Non-contracting, non-batch dimensions from lhs
+    # 3. Non-contracting, non-batch dimensions from rhs
+    lhs_remaining = [i for i in range(len(x_shape)) if i not in lhs_contract_pos and i not in lhs_batch_pos]
+    rhs_remaining = [i for i in range(len(k_shape)) if i not in rhs_contract_pos and i not in rhs_batch_pos]
+    
+    out_shape = tuple(x_shape[i] for i in lhs_batch_pos) + tuple(x_shape[i] for i in lhs_remaining) + tuple(k_shape[i] for i in rhs_remaining)
+    
+    return core.ShapedArray(out_shape, x.dtype)
+
+linear_general_p = Primitive("linear_general")
+linear_general_p.multiple_results = False  # Our operation has one output
+linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+
+
+
+
+
+def linear_general(x, kernel, bias, dimension_numbers):
+    return linear_general_p.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
+
+@contextlib.contextmanager
+def temporary_linear_general_patch():
+    """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
+    original_call = nnx.LinearGeneral.__call__  # Store the original method
+
+    def patched_linear_general_call(self, x):
+        contracting_dims = (self.axis, tuple(range(len(self.in_features))))
+        batch_dims = ((), ())
+        dimension_numbers = (contracting_dims, batch_dims)
+        # Use the custom linear_general function
+        return linear_general(
+            x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
+        )
+
+    nnx.LinearGeneral.__call__ = patched_linear_general_call  # Apply the patch
+
+    try:
+        yield  # This is where the code using the patched function will run
+    finally:
+        nnx.LinearGeneral.__call__ = original_call  # Restore the original method
+
+
+
+
+
+
+def example3():
+    seed = 1001
+
+    fn = nnx.LinearGeneral(
+        in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
+    )
+
+    # Create inputs
+    rng = jax.random.PRNGKey(seed)
+    x = jax.random.normal(rng, (2, 4, 8, 32))
+
+    converter = Converter()
+    model_path = converter.convert(fn, (x,), "example_model3.onnx")
+    print(f"ONNX model saved to: {model_path}")
+ 
+
+    # Test JAX function *outside* the context manager (original behavior)
+    jax_output_original = fn(x)
+    print("The outputs are the same inside context manager!")
+
+    # Check that the original behavior is restored
+    closed_jaxpr_original = jax.make_jaxpr(fn)(x)
+    print("\nJAXPR (outside context manager - original behavior):")
+    print(closed_jaxpr_original.jaxpr)
+
+    # Compare onnx output to unpatched jax call.
+    assert not np.allclose(
+        onnx_output, jax_output_original
+    ), "Outputs should be different outside of patch!."
+    print("The outputs are different outside context manager!")
+
+def main():
+    example3()
+
+if __name__ == "__main__":
+    main()
