@@ -8,12 +8,20 @@ from typing import Dict, List, Tuple, Any, Set, Optional
 
 class JaxprToOnnx:
     def convert(
-        self, fn, input_shapes, output_path="model.onnx", model_name="jax_model"
+        self,
+        fn,
+        input_shapes,
+        output_path="model.onnx",
+        model_name="jax_model",
+        include_intermediate_shapes=False,
     ):
         self._validate_input_shapes(input_shapes=input_shapes)
         example_args = [
             jax.numpy.zeros(self._shape_with_example_batch(s)) for s in input_shapes
         ]
+
+        with temporary_linear_general_patch():
+            jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         converter = InternalJaxprConverter()
         converter.trace_jaxpr(fn, example_args)
@@ -35,6 +43,9 @@ class JaxprToOnnx:
                 if idx < len(tensor_shape):
                     tensor_shape[idx].dim_param = "B"
 
+        # Optionally include intermediate shape information
+        value_info = converter.value_info if include_intermediate_shapes else []
+
         # Remove unused initializers
         used_initializers = {i for node in converter.nodes for i in node.input}
         converter.initializers = [
@@ -47,6 +58,7 @@ class JaxprToOnnx:
             inputs=converter.inputs,
             outputs=converter.outputs,
             initializer=converter.initializers,
+            value_info=value_info,
         )
 
         onnx_model = helper.make_model(
@@ -199,14 +211,14 @@ class InternalJaxprConverter:
         self.outputs.append(output_def)
         return name
 
-    def _add_intermediate(self, var, shape, dtype=np.float32):
-        """Add an intermediate value to the ONNX model."""
-        name = self._get_var_name(var)
-        value_info = helper.make_tensor_value_info(
-            name, self._numpy_dtype_to_onnx(dtype), shape
-        )
-        self.value_info.append(value_info)
-        return name
+    # def _add_intermediate(self, var, shape, dtype=np.float32):
+    #     """Add an intermediate value to the ONNX model."""
+    #     name = self._get_var_name(var)
+    #     value_info = helper.make_tensor_value_info(
+    #         name, self._numpy_dtype_to_onnx(dtype), shape
+    #     )
+    #     self.value_info.append(value_info)
+    #     return name
 
     def _get_name(self, var):
         if isinstance(var, jax._src.core.Var):
@@ -314,49 +326,88 @@ class InternalJaxprConverter:
         )
         self.nodes.append(node)
 
+    def _infer_reshape_output_shape(self, input_shape, reshape_target_shape):
+        """
+        Infer the most concrete reshape output shape possible from the input_shape
+        and reshape_target_shape. Useful when reshape_target_shape contains -1.
+        """
+        # Compute the total number of elements in the input shape, ignoring symbolic dimensions
+        input_size = np.prod([s for s in input_shape if isinstance(s, int)])
+        # Collect known dimensions from the reshape target shape (excluding -1)
+        known_dims = [s for s in reshape_target_shape if s != -1]
+
+        # If exactly one dimension is unknown, infer its value
+        if reshape_target_shape.count(-1) == 1 and input_size > 0:
+            known_size = np.prod(known_dims)
+            inferred_dim = input_size // known_size
+            inferred_shape = [
+                inferred if s != -1 else inferred for s in reshape_target_shape
+            ]
+        else:
+            # If no inference needed, return target shape directly
+            inferred_shape = reshape_target_shape
+
+        return inferred_shape
+
     def _handle_linear_general(self, node_inputs, node_outputs, params):
-        input_name = self._get_name(node_inputs[0])
-        output_name = self._get_var_name(node_outputs[0])
 
-        # Extract dimension numbers
-        dimension_numbers = params["dimension_numbers"]
-        ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
+        input_var = node_inputs[0]
+        output_var = node_outputs[0]
+        kernel_var = node_inputs[1]
+        bias_var = node_inputs[2]
 
-        x_aval = node_inputs[0].aval
-        kernel_aval = node_inputs[1].aval
-        bias_name = self.var_to_name[node_inputs[2]]
-        kernel_name = self.var_to_name[node_inputs[1]]
+        input_name = self._get_name(input_var)
+        input_shape = input_var.aval.shape
+        output_name = self._get_name(output_var)
+        output_shape = output_var.aval.shape
+        kernel_name = self._get_name(kernel_var)
+        kernel_shape = kernel_var.aval.shape
+        bias_name = self._get_name(bias_var)
+        bias_shape = bias_var.aval.shape
+
         kernel_const = self.name_to_const[kernel_name]
 
-        in_features = np.prod(
-            [kernel_aval.shape[i] for i in rhs_contract], dtype=np.int64
-        )
+        ((lhs_contract, rhs_contract), _) = params["dimension_numbers"]
+
+        # Calculate input and output features based on contraction dimensions
+        in_features = np.prod([kernel_shape[i] for i in rhs_contract], dtype=np.int64)
         out_features = np.prod(
             [
-                kernel_aval.shape[i]
-                for i in range(len(kernel_aval.shape))
-                if i not in rhs_contract and i not in rhs_batch
+                kernel_shape[i]
+                for i in range(len(kernel_shape))
+                if i not in rhs_contract
             ],
             dtype=np.int64,
         )
-        kernel_value = np.reshape(kernel_const, (in_features, out_features))
-        weights_name = self._get_constant_name(kernel_value)
 
-        # Fix for dynamic batch:
-        reshape_shape = [-1, in_features]  # explicitly dynamic here (-1)
+        # Add reshaped kernel weights to ONNX initializers
+        weights_name = self._get_constant_name(
+            kernel_const.reshape(in_features, out_features)
+        )
 
+        # First Reshape: flatten input tensor for GEMM operation
         input_reshape_name = self._get_unique_name("input_reshape")
+        reshape_shape_input = (-1, in_features)  # Use dynamic batch size
         input_reshape_node = helper.make_node(
             "Reshape",
             inputs=[
                 input_name,
-                self._get_constant_name(np.array(reshape_shape, dtype=np.int64)),
+                self._get_constant_name(np.array(reshape_shape_input, dtype=np.int64)),
             ],
             outputs=[input_reshape_name],
             name=self._get_unique_name("reshape_input"),
         )
         self.nodes.append(input_reshape_node)
 
+        # Compute concrete intermediate shape if possible (dynamic otherwise)
+        batch_dims = input_shape[: -len(lhs_contract)]
+        intermediate_batch_dim = (
+            np.prod(batch_dims) if all(isinstance(d, int) for d in batch_dims) else -1
+        )
+        intermediate_input_shape = (intermediate_batch_dim, in_features)
+        self._add_intermediate_from_name(input_reshape_name, intermediate_input_shape)
+
+        # GEMM operation for linear transformation
         gemm_output_name = self._get_unique_name("gemm_output")
         gemm_node = helper.make_node(
             "Gemm",
@@ -366,7 +417,10 @@ class InternalJaxprConverter:
         )
         self.nodes.append(gemm_node)
 
-        # Fix output reshape dynamically:
+        # Add shape information for GEMM output (batch size remains dynamic if needed)
+        gemm_output_shape = (intermediate_batch_dim, out_features)
+        self._add_intermediate_from_name(gemm_output_name, gemm_output_shape)
+
         output_shape = node_outputs[0].aval.shape
         dynamic_output_shape = (-1,) + output_shape[1:]  # first dim dynamic
 
@@ -1769,10 +1823,12 @@ def example3():
     )
 
     model_path = "example3.onnx"
-    input_shape = (7, 4, 8, 32)
+    input_shape = (7, 8, 32)
 
     jaxpr2onnx = JaxprToOnnx()
-    jaxpr2onnx.convert(linear_fn, [input_shape], model_path)
+    jaxpr2onnx.convert(
+        linear_fn, [input_shape], model_path, include_intermediate_shapes=True
+    )
 
     rng = jax.random.PRNGKey(seed)
     x_example = jax.random.normal(rng, input_shape)
