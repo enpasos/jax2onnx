@@ -327,27 +327,20 @@ class InternalJaxprConverter:
         self.nodes.append(node)
 
     def _handle_linear_general(self, node_inputs, node_outputs, params):
-
         input_var = node_inputs[0]
         output_var = node_outputs[0]
         kernel_var = node_inputs[1]
         bias_var = node_inputs[2]
 
         input_name = self._get_name(input_var)
-        input_shape = input_var.aval.shape
         output_name = self._get_name(output_var)
-        output_shape = output_var.aval.shape
         kernel_name = self._get_name(kernel_var)
-        kernel_shape = kernel_var.aval.shape
         bias_name = self._get_name(bias_var)
-        bias_shape = bias_var.aval.shape
 
-        ## input, input_gemm, outout_gemm, output_shape
         shapes = _shape_linear_general(
             input_var.aval.shape, kernel_var.aval.shape, params["dimension_numbers"]
         )
         output_shape = shapes["output"]
-        dynamic_output_shape = tuple([-1] + list(output_shape[1:]))
         new_kernel_shape = shapes["new_kernel"]
         input_gemm_shape = shapes["input_gemm"]
         output_gemm_shape = shapes["output_gemm"]
@@ -1769,7 +1762,9 @@ def example4():
     model_path = "example4.onnx"
 
     jaxpr2onnx = JaxprToOnnx()
-    jaxpr2onnx.convert(linear_fn, [("B", 4, 8, 32)], model_path)
+    jaxpr2onnx.convert(
+        linear_fn, [("B", 4, 8, 32)], model_path, include_intermediate_shapes=True
+    )
 
     rng = jax.random.PRNGKey(seed)
     example_batch_size = 2
@@ -1852,8 +1847,8 @@ def example3():
 def main():
     # example()
     # example2()
-    example3()
-    # example4()
+    # example3()
+    example4()
 
 
 if __name__ == "__main__":
