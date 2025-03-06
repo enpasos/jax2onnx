@@ -326,29 +326,6 @@ class InternalJaxprConverter:
         )
         self.nodes.append(node)
 
-    def _infer_reshape_output_shape(self, input_shape, reshape_target_shape):
-        """
-        Infer the most concrete reshape output shape possible from the input_shape
-        and reshape_target_shape. Useful when reshape_target_shape contains -1.
-        """
-        # Compute the total number of elements in the input shape, ignoring symbolic dimensions
-        input_size = np.prod([s for s in input_shape if isinstance(s, int)])
-        # Collect known dimensions from the reshape target shape (excluding -1)
-        known_dims = [s for s in reshape_target_shape if s != -1]
-
-        # If exactly one dimension is unknown, infer its value
-        if reshape_target_shape.count(-1) == 1 and input_size > 0:
-            known_size = np.prod(known_dims)
-            inferred_dim = input_size // known_size
-            inferred_shape = [
-                inferred if s != -1 else inferred for s in reshape_target_shape
-            ]
-        else:
-            # If no inference needed, return target shape directly
-            inferred_shape = reshape_target_shape
-
-        return inferred_shape
-
     def _handle_linear_general(self, node_inputs, node_outputs, params):
 
         input_var = node_inputs[0]
@@ -365,29 +342,23 @@ class InternalJaxprConverter:
         bias_name = self._get_name(bias_var)
         bias_shape = bias_var.aval.shape
 
-        kernel_const = self.name_to_const[kernel_name]
-
-        ((lhs_contract, rhs_contract), _) = params["dimension_numbers"]
-
-        # Calculate input and output features based on contraction dimensions
-        in_features = np.prod([kernel_shape[i] for i in rhs_contract], dtype=np.int64)
-        out_features = np.prod(
-            [
-                kernel_shape[i]
-                for i in range(len(kernel_shape))
-                if i not in rhs_contract
-            ],
-            dtype=np.int64,
+        ## input, input_gemm, outout_gemm, output_shape
+        shapes = _shape_linear_general(
+            input_var.aval.shape, kernel_var.aval.shape, params["dimension_numbers"]
         )
+        output_shape = shapes["output"]
+        dynamic_output_shape = tuple([-1] + list(output_shape[1:]))
+        new_kernel_shape = shapes["new_kernel"]
+        input_gemm_shape = shapes["input_gemm"]
+        output_gemm_shape = shapes["output_gemm"]
 
         # Add reshaped kernel weights to ONNX initializers
-        weights_name = self._get_constant_name(
-            kernel_const.reshape(in_features, out_features)
-        )
+        kernel_const = self.name_to_const[kernel_name]
+        weights_name = self._get_constant_name(kernel_const.reshape(new_kernel_shape))
 
         # First Reshape: flatten input tensor for GEMM operation
         input_reshape_name = self._get_unique_name("input_reshape")
-        reshape_shape_input = (-1, in_features)  # Use dynamic batch size
+        reshape_shape_input = tuple([-1] + list(input_gemm_shape[1:]))
         input_reshape_node = helper.make_node(
             "Reshape",
             inputs=[
@@ -399,13 +370,7 @@ class InternalJaxprConverter:
         )
         self.nodes.append(input_reshape_node)
 
-        # Compute concrete intermediate shape if possible (dynamic otherwise)
-        batch_dims = input_shape[: -len(lhs_contract)]
-        intermediate_batch_dim = (
-            np.prod(batch_dims) if all(isinstance(d, int) for d in batch_dims) else -1
-        )
-        intermediate_input_shape = (intermediate_batch_dim, in_features)
-        self._add_intermediate_from_name(input_reshape_name, intermediate_input_shape)
+        self._add_intermediate_from_name(input_reshape_name, input_gemm_shape)
 
         # GEMM operation for linear transformation
         gemm_output_name = self._get_unique_name("gemm_output")
@@ -417,12 +382,9 @@ class InternalJaxprConverter:
         )
         self.nodes.append(gemm_node)
 
-        # Add shape information for GEMM output (batch size remains dynamic if needed)
-        gemm_output_shape = (intermediate_batch_dim, out_features)
-        self._add_intermediate_from_name(gemm_output_name, gemm_output_shape)
+        self._add_intermediate_from_name(gemm_output_name, output_gemm_shape)
 
-        output_shape = node_outputs[0].aval.shape
-        dynamic_output_shape = (-1,) + output_shape[1:]  # first dim dynamic
+        dynamic_output_shape = [-1] + list(output_shape[1:])
 
         reshape_output_node = helper.make_node(
             "Reshape",
@@ -434,6 +396,15 @@ class InternalJaxprConverter:
             name=self._get_unique_name("reshape_output"),
         )
         self.nodes.append(reshape_output_node)
+
+    def _add_intermediate_from_name(self, name, shape, dtype=np.float32):
+        """Add an intermediate value to the ONNX model."""
+        # name = self._get_var_name(var)
+        value_info = helper.make_tensor_value_info(
+            name, self._numpy_dtype_to_onnx(dtype), shape
+        )
+        self.value_info.append(value_info)
+        return name
 
     def _handle_neg(self, node_inputs, node_outputs, params):
         """Handle JAX neg primitive."""
@@ -1600,6 +1571,49 @@ class InternalJaxprConverter:
         return output_path
 
 
+def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
+
+    # for now we assume x_shape has x_batch dims on the left
+    # and x_feature_dims dimensions on the right
+
+    ((lhs_contract, rhs_contract), _) = dimension_numbers
+
+    # remove negative indices
+    lhs_contract = [d % len(x_shape) for d in lhs_contract]
+    rhs_contract = [d % len(kernel_shape) for d in rhs_contract]
+
+    x_dims = len(x_shape)
+    x_feature_dims = len(lhs_contract)
+    x_batch_dims = x_dims - x_feature_dims
+
+    x_dims_size = np.prod(x_shape).item()
+    x_feature_dims_sizes = [x_shape[d] for d in lhs_contract]
+    x_feature_dims_size = np.prod(x_feature_dims_sizes).item()
+    x_batch_dims_sizes = [
+        x_shape[d] for d in range(len(x_shape)) if d not in lhs_contract
+    ]
+    x_batch_dims_size = x_dims_size // x_feature_dims_size
+
+    kernel_dims_size = np.prod(kernel_shape).item()
+    kernel_left_dims_size = np.prod([kernel_shape[d] for d in rhs_contract]).item()
+    kernel_right_dims_size = kernel_dims_size // kernel_left_dims_size
+
+    new_kernel_dims_sizes = (kernel_left_dims_size, kernel_right_dims_size)
+
+    input_gemm_shape = (x_batch_dims_size, x_feature_dims_size)
+    output_gemm_shape = (x_batch_dims_size, kernel_right_dims_size)
+    # combine x_feature_dims_sizes and kernel_right_dims_size into the single output_shape tupel
+    output_shape = tuple(x_batch_dims_sizes + [kernel_right_dims_size])
+
+    return {
+        "input": x_shape,
+        "input_gemm": input_gemm_shape,
+        "output_gemm": output_gemm_shape,
+        "output": output_shape,
+        "new_kernel": new_kernel_dims_sizes,
+    }
+
+
 # Example usage
 import onnxruntime as ort
 
@@ -1699,58 +1713,15 @@ def example2():
     print("The outputs are the same!")
 
 
-def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
-    x_shape = x.shape
-    k_shape = kernel.shape
-
-    # Unpack dimension numbers
-    ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
-
-    # Convert negative indices to positive indices
-    lhs_contract_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_contract]
-    rhs_contract_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_contract]
-    lhs_batch_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_batch]
-    rhs_batch_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_batch]
-
-    # Verify contracting dimensions match in size
-    for lhs_dim, rhs_dim in zip(lhs_contract_pos, rhs_contract_pos):
-        assert (
-            x_shape[lhs_dim] == k_shape[rhs_dim]
-        ), f"Contracting dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
-
-    # Verify batch dimensions match in size
-    for lhs_dim, rhs_dim in zip(lhs_batch_pos, rhs_batch_pos):
-        assert (
-            x_shape[lhs_dim] == k_shape[rhs_dim]
-        ), f"Batch dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
-
-    # Compute output shape:
-    # 1. Batch dimensions (from lhs)
-    # 2. Non-contracting, non-batch dimensions from lhs
-    # 3. Non-contracting, non-batch dimensions from rhs
-    lhs_remaining = [
-        i
-        for i in range(len(x_shape))
-        if i not in lhs_contract_pos and i not in lhs_batch_pos
-    ]
-    rhs_remaining = [
-        i
-        for i in range(len(k_shape))
-        if i not in rhs_contract_pos and i not in rhs_batch_pos
-    ]
-
-    out_shape = (
-        tuple(x_shape[i] for i in lhs_batch_pos)
-        + tuple(x_shape[i] for i in lhs_remaining)
-        + tuple(k_shape[i] for i in rhs_remaining)
-    )
-
-    return core.ShapedArray(out_shape, x.dtype)
-
-
 import jax
 from jax import core
 from jax.interpreters import ad, xla
+
+
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
+    return core.ShapedArray(shapes["output"], x.dtype)
+
 
 linear_general_p = Primitive("linear_general")
 linear_general_p.multiple_results = False  # Our operation has one output
@@ -1823,7 +1794,7 @@ def example3():
     )
 
     model_path = "example3.onnx"
-    input_shape = (7, 8, 32)
+    input_shape = (3, 7, 8, 32)
 
     jaxpr2onnx = JaxprToOnnx()
     jaxpr2onnx.convert(
