@@ -1564,6 +1564,23 @@ class InternalJaxprConverter:
         return output_path
 
 
+def calculate_batch_size(x_batch_dims_sizes):
+    """
+    Calculates the product of x_batch_dims_sizes entries.
+    If any entry is a string, returns -1.
+    """
+    if not x_batch_dims_sizes:
+        return -1
+
+    try:
+        # Attempt to calculate the product
+        x_batch_dims_size = np.prod(x_batch_dims_sizes).item()
+        return x_batch_dims_size
+    except TypeError:
+        # If a TypeError occurs (due to a string), return -1
+        return -1
+
+
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
 
     # for now we assume x_shape has x_batch dims on the left
@@ -1579,13 +1596,14 @@ def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
     x_feature_dims = len(lhs_contract)
     x_batch_dims = x_dims - x_feature_dims
 
-    x_dims_size = np.prod(x_shape).item()
+    # x_dims_size = np.prod(x_shape).item()
     x_feature_dims_sizes = [x_shape[d] for d in lhs_contract]
     x_feature_dims_size = np.prod(x_feature_dims_sizes).item()
     x_batch_dims_sizes = [
         x_shape[d] for d in range(len(x_shape)) if d not in lhs_contract
     ]
-    x_batch_dims_size = x_dims_size // x_feature_dims_size
+
+    x_batch_dims_size = calculate_batch_size(x_batch_dims_sizes)
 
     kernel_dims_size = np.prod(kernel_shape).item()
     kernel_left_dims_size = np.prod([kernel_shape[d] for d in rhs_contract]).item()
