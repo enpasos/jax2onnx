@@ -74,10 +74,10 @@ Examples
 
 Versions of Major Dependencies
 
-| Library       | jax2onnx v0.1.0 | 
+| Library       | jax2onnx v0.2.0 | 
 |:--------------|:----------------| 
-| `JAX`         | v0.5.1          | 
-| `Flax`        | v0.10.5         | 
+| `JAX`         | v0.5.2          | 
+| `Flax`        | v0.10.4         | 
 | `onnx`        | v1.17.0         |  
 | `onnxruntime` | v1.20.1         |  
 
@@ -92,32 +92,9 @@ Import the `jax2onnx` module, implement the `to_onnx` function to your Module cl
 function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
 
-Example of an MLP with the `to_onnx` function implemented:
 
-```py
-class MLP(nnx.Module):
-    def __init__(self, din, dmid, dout, *, rngs=nnx.Rngs(0)):
-        self.layers: list[Supports2Onnx] = [
-            nnx.Linear(din, dmid, rngs=rngs),
-            nnx.BatchNorm(dmid, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            PartialWithOnnx(nnx.gelu, approximate=False),
-            nnx.Linear(dmid, dout, rngs=rngs),
-        ]
-    def __call__(self, x, deterministic = True):
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                x = layer(x, deterministic=deterministic)
-            else:
-                x = layer(x)
-        return x
-    def to_onnx(self, z, **params):
-        for layer in self.layers:
-            z = layer.to_onnx(z, **params)
-        return z
-```
 
-To export the model to ONNX format, use the `to_onnx` function:
+To export the model or function (a callable) to ONNX format, use the `to_onnx` function:
 ```py
 from jax2onnx import to_onnx
 to_onnx(
