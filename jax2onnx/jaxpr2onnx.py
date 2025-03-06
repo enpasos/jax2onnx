@@ -1665,22 +1665,6 @@ linear_general_p.multiple_results = False  # Our operation has one output
 linear_general_p.def_abstract_eval(linear_general_abstract_eval)
 
 
-def linear_general(x, kernel, bias, dimension_numbers):
-    return linear_general_p.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
-
-
-# --- Monkey-patching __call__ ---
-
-# def patched_linear_general_call(self, x):
-#     contracting_dims = (self.axis, tuple(range(len(self.in_features))))
-#     batch_dims = ((), ())
-#     dimension_numbers = (contracting_dims, batch_dims)
-#     # Use the custom linear_general function
-#     return linear_general(x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers)
-
-# Apply the monkey-patch:
-# nnx.LinearGeneral.__call__ = patched_linear_general_call
-
 ## From here down a temporary monkey patch
 import contextlib
 
@@ -1689,6 +1673,11 @@ import contextlib
 def temporary_linear_general_patch():
     """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
     original_call = nnx.LinearGeneral.__call__  # Store the original method
+
+    def linear_general(x, kernel, bias, dimension_numbers):
+        return linear_general_p.bind(
+            x, kernel, bias, dimension_numbers=dimension_numbers
+        )
 
     def patched_linear_general_call(self, x):
         contracting_dims = (self.axis, tuple(range(len(self.in_features))))
@@ -1720,10 +1709,10 @@ def example3():
 
     # Use the context manager for temporary patching
     with temporary_linear_general_patch():
-        closed_jaxpr = jax.make_jaxpr(fn)(x)
-        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
-        print("JAXPR (inside context manager):")
-        print(jaxpr)
+        # closed_jaxpr = jax.make_jaxpr(fn)(x)
+        # jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
+        # print("JAXPR (inside context manager):")
+        # print(jaxpr)
         converter = JaxprToOnnx()
         model_path = converter.convert(fn, (x,), "example_model3.onnx")
         print(f"ONNX model saved to: {model_path}")
