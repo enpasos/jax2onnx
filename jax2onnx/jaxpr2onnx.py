@@ -1460,7 +1460,8 @@ class JaxprToOnnx:
         self.name_to_const = {}
 
         # Get JAXPR from the function
-        closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+        with temporary_linear_general_patch():
+            closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
         self._process_jaxpr(jaxpr, consts)
@@ -1479,6 +1480,7 @@ class JaxprToOnnx:
         Returns:
             Path to the saved ONNX model
         """
+
         self.trace_jaxpr(fn, example_args)
 
         # Remove unused initializers
@@ -1707,26 +1709,17 @@ def example3():
     rng = jax.random.PRNGKey(seed)
     x = jax.random.normal(rng, (2, 4, 8, 32))
 
-    # Use the context manager for temporary patching
-    with temporary_linear_general_patch():
-        # closed_jaxpr = jax.make_jaxpr(fn)(x)
-        # jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
-        # print("JAXPR (inside context manager):")
-        # print(jaxpr)
-        converter = JaxprToOnnx()
-        model_path = converter.convert(fn, (x,), "example_model3.onnx")
-        print(f"ONNX model saved to: {model_path}")
+    converter = JaxprToOnnx()
+    model_path = converter.convert(fn, (x,), "example_model3.onnx")
+    print(f"ONNX model saved to: {model_path}")
 
     # Test JAX function *outside* the context manager (original behavior)
     jax_output_original = fn(x)
 
     onnx_inputs = {"var_0": np.array(x)}
-    session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+    session = ort.InferenceSession(model_path)
     onnx_output = session.run(None, onnx_inputs)[0]
     jax_output_patched = fn(x)
-    # assert np.allclose(
-    #     onnx_output, jax_output_patched
-    # ), "Outputs differ!"
 
     assert np.allclose(onnx_output, jax_output_patched, rtol=1e-3, atol=1e-5)
 
