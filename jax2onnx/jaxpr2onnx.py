@@ -6,19 +6,56 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Set, Optional
 
 
+def create_example_args_with_dynamic_batch(input_shapes):
+    """
+    Creates example arguments for JAX functions, handling dynamic batch dimensions.
+
+    Args:
+        input_shapes: A list of shape tuples, where 'B' represents a dynamic batch dimension.
+
+    Returns:
+        A list of jax.ShapeDtypeStruct objects representing the example arguments.
+    """
+    example_args = []
+    for shape_tuple in input_shapes:
+        shape = []
+        for dim in shape_tuple:
+            if dim == "B":
+                shape.append(None)  # Use None for dynamic dimension
+            else:
+                shape.append(dim)
+
+        # Assuming float32 data type (adjust as needed)
+        dtype = jnp.float32
+
+        example_args.append(jax.ShapeDtypeStruct(tuple(shape), dtype))
+
+    return example_args
+
+
 class JaxprToOnnx:
-    def convert(
+    def save_onnx(
         self,
         fn,
         input_shapes,
         output_path="model.onnx",
         model_name="jax_model",
-        include_intermediate_shapes=False,
+        include_intermediate_shapes=True,
     ):
+
+        # if input_shapes have dynamic batch dimensions then include_intermediate_shapes must be False
+        if any("B" in shape for shape in input_shapes):
+            include_intermediate_shapes = False
+            print(
+                "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
+            )
+
         self._validate_input_shapes(input_shapes=input_shapes)
         example_args = [
             jax.numpy.zeros(self._shape_with_example_batch(s)) for s in input_shapes
         ]
+
+        # example_args = create_example_args_with_dynamic_batch(input_shapes)
 
         with temporary_linear_general_patch():
             jaxpr = jax.make_jaxpr(fn)(*example_args)
@@ -1564,21 +1601,21 @@ class InternalJaxprConverter:
         return output_path
 
 
-def calculate_batch_size(x_batch_dims_sizes):
-    """
-    Calculates the product of x_batch_dims_sizes entries.
-    If any entry is a string, returns -1.
-    """
-    if not x_batch_dims_sizes:
-        return -1
+# def calculate_batch_size(x_batch_dims_sizes):
+#     """
+#     Calculates the product of x_batch_dims_sizes entries.
+#     If any entry is a string, returns -1.
+#     """
+#     if not x_batch_dims_sizes:
+#         return -1
 
-    try:
-        # Attempt to calculate the product
-        x_batch_dims_size = np.prod(x_batch_dims_sizes).item()
-        return x_batch_dims_size
-    except TypeError:
-        # If a TypeError occurs (due to a string), return -1
-        return -1
+#     try:
+#         # Attempt to calculate the product
+#         x_batch_dims_size = np.prod(x_batch_dims_sizes).item()
+#         return x_batch_dims_size
+#     except TypeError:
+#         # If a TypeError occurs (due to a string), return -1
+#         return -1
 
 
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
@@ -1603,7 +1640,7 @@ def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
         x_shape[d] for d in range(len(x_shape)) if d not in lhs_contract
     ]
 
-    x_batch_dims_size = calculate_batch_size(x_batch_dims_sizes)
+    x_batch_dims_size = np.prod(x_batch_dims_sizes).item()
 
     kernel_dims_size = np.prod(kernel_shape).item()
     kernel_left_dims_size = np.prod([kernel_shape[d] for d in rhs_contract]).item()
@@ -1641,7 +1678,7 @@ def example():
 
     # Convert to ONNX
     converter = JaxprToOnnx()
-    model_path = converter.convert(example_fn, (x, y), "example_model.onnx")
+    model_path = converter.save_onnx(example_fn, (x, y), "example_model.onnx")
     print(f"ONNX model saved to: {model_path}")
 
     # Test the ONNX model
@@ -1708,7 +1745,7 @@ def example2():
 
     # Convert to ONNX
     converter = JaxprToOnnx()
-    model_path = converter.convert(example_fn, (x,), "example_model2.onnx")
+    model_path = converter.save_onnx(example_fn, (x,), "example_model2.onnx")
     print(f"ONNX model saved to: {model_path}")
 
     # Test the ONNX model
@@ -1780,7 +1817,7 @@ def example4():
     model_path = "example4.onnx"
 
     jaxpr2onnx = JaxprToOnnx()
-    jaxpr2onnx.convert(
+    jaxpr2onnx.save_onnx(
         linear_fn, [("B", 4, 8, 32)], model_path, include_intermediate_shapes=True
     )
 
@@ -1810,7 +1847,7 @@ def example3():
     input_shape = (3, 7, 8, 32)
 
     jaxpr2onnx = JaxprToOnnx()
-    jaxpr2onnx.convert(
+    jaxpr2onnx.save_onnx(
         linear_fn, [input_shape], model_path, include_intermediate_shapes=True
     )
 
