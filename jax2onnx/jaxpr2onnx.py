@@ -7,6 +7,64 @@ from typing import Dict, List, Tuple, Any, Set, Optional
 
 
 class JaxprToOnnx:
+    def convert(
+        self, fn, input_shapes, output_path="model.onnx", model_name="jax_model"
+    ):
+        self._validate_input_shapes(input_shapes=input_shapes)
+        example_args = [
+            jax.numpy.zeros(self._shape_with_example_batch(s)) for s in input_shapes
+        ]
+
+        converter = InternalJaxprConverter()
+        converter.trace_jaxpr(fn, example_args)
+
+        # Set symbolic batch dimension 'B' only on corresponding input tensors
+        for tensor, input_shape in zip(converter.inputs, input_shapes):
+            tensor_shape = tensor.type.tensor_type.shape.dim
+            for idx, dim in enumerate(input_shape):
+                if dim == "B":
+                    tensor_shape[idx].dim_param = "B"
+
+        # Set symbolic batch dimension 'B' on outputs if it's set on any input
+        batch_dims = {
+            idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
+        }
+        for tensor in converter.outputs:
+            tensor_shape = tensor.type.tensor_type.shape.dim
+            for idx in batch_dims:
+                if idx < len(tensor_shape):
+                    tensor_shape[idx].dim_param = "B"
+
+        # Remove unused initializers
+        used_initializers = {i for node in converter.nodes for i in node.input}
+        converter.initializers = [
+            init for init in converter.initializers if init.name in used_initializers
+        ]
+
+        graph = helper.make_graph(
+            nodes=converter.nodes,
+            name=model_name,
+            inputs=converter.inputs,
+            outputs=converter.outputs,
+            initializer=converter.initializers,
+        )
+
+        onnx_model = helper.make_model(
+            graph, opset_imports=[helper.make_opsetid("", 21)]
+        )
+        onnx.save_model(onnx_model, output_path)
+
+        return output_path
+
+    def _validate_input_shapes(self, input_shapes):
+        for shape in input_shapes:
+            assert isinstance(shape, tuple), "Each input shape must be a tuple"
+
+    def _shape_with_example_batch(self, shape, example_batch=2):
+        return tuple(example_batch if d == "B" else d for d in shape)
+
+
+class InternalJaxprConverter:
     """
     A translator that converts JAX's JAXPR representation to ONNX format.
     """
@@ -257,54 +315,36 @@ class JaxprToOnnx:
         self.nodes.append(node)
 
     def _handle_linear_general(self, node_inputs, node_outputs, params):
-        """Handle the custom linear_general primitive."""
-        # Get the input name
         input_name = self._get_name(node_inputs[0])
         output_name = self._get_var_name(node_outputs[0])
 
         # Extract dimension numbers
         dimension_numbers = params["dimension_numbers"]
-        ((lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch)) = dimension_numbers
+        ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
 
-        # Get shapes from the inputs
         x_aval = node_inputs[0].aval
         kernel_aval = node_inputs[1].aval
-        bias_aval = node_inputs[2].aval
-
         bias_name = self.var_to_name[node_inputs[2]]
-
         kernel_name = self.var_to_name[node_inputs[1]]
         kernel_const = self.name_to_const[kernel_name]
 
-        # reshape kernel to (in_features, out_features)
         in_features = np.prod(
-            [kernel_aval.shape[i] for i in rhs_contracting], dtype=np.int64
+            [kernel_aval.shape[i] for i in rhs_contract], dtype=np.int64
         )
         out_features = np.prod(
             [
                 kernel_aval.shape[i]
                 for i in range(len(kernel_aval.shape))
-                if i not in rhs_contracting and i not in rhs_batch
+                if i not in rhs_contract and i not in rhs_batch
             ],
             dtype=np.int64,
         )
         kernel_value = np.reshape(kernel_const, (in_features, out_features))
-        # Create weights constant for ONNX
         weights_name = self._get_constant_name(kernel_value)
 
-        # Define batch_size[
-        size = np.prod(
-            [x_aval.shape[i] for i in range(len(x_aval.shape))], dtype=np.int64
-        )
-        feature_size = np.prod(
-            [x_aval.shape[i] for i in lhs_contracting], dtype=np.int64
-        )
-        batch_size = size // feature_size
+        # Fix for dynamic batch:
+        reshape_shape = [-1, in_features]  # explicitly dynamic here (-1)
 
-        # Calculate the correct reshape shape
-        reshape_shape = [batch_size] + [in_features]
-
-        # First Reshape: Flatten the input to (batch_size, in_features)
         input_reshape_name = self._get_unique_name("input_reshape")
         input_reshape_node = helper.make_node(
             "Reshape",
@@ -317,28 +357,24 @@ class JaxprToOnnx:
         )
         self.nodes.append(input_reshape_node)
 
-        # Perform Gemm operation with the reshaped weights
         gemm_output_name = self._get_unique_name("gemm_output")
         gemm_node = helper.make_node(
             "Gemm",
             inputs=[input_reshape_name, weights_name, bias_name],
             outputs=[gemm_output_name],
             name=self._get_unique_name("gemm"),
-            alpha=1.0,
-            beta=1.0,
-            transB=0,  # No transpose needed since we pre-shaped the weights
         )
         self.nodes.append(gemm_node)
 
-        # Define output_shape
+        # Fix output reshape dynamically:
         output_shape = node_outputs[0].aval.shape
+        dynamic_output_shape = (-1,) + output_shape[1:]  # first dim dynamic
 
-        # Final Reshape: Restore the output shape
         reshape_output_node = helper.make_node(
             "Reshape",
             inputs=[
                 gemm_output_name,
-                self._get_constant_name(np.array(output_shape, dtype=np.int64)),
+                self._get_constant_name(np.array(dynamic_output_shape, dtype=np.int64)),
             ],
             outputs=[output_name],
             name=self._get_unique_name("reshape_output"),
@@ -1698,36 +1734,99 @@ def temporary_linear_general_patch():
         nnx.LinearGeneral.__call__ = original_call  # Restore the original method
 
 
-def example3():
+def example4():
     seed = 1001
 
-    fn = nnx.LinearGeneral(
+    linear_fn = nnx.LinearGeneral(
         in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
     )
 
-    # Create inputs
+    model_path = "example4.onnx"
+
+    jaxpr2onnx = JaxprToOnnx()
+    jaxpr2onnx.convert(linear_fn, [("B", 4, 8, 32)], model_path)
+
     rng = jax.random.PRNGKey(seed)
-    x = jax.random.normal(rng, (2, 4, 8, 32))
+    example_batch_size = 2
+    x_example = jax.random.normal(rng, (example_batch_size, 4, 8, 32))
 
-    converter = JaxprToOnnx()
-    model_path = converter.convert(fn, (x,), "example_model3.onnx")
-    print(f"ONNX model saved to: {model_path}")
-
-    # Test JAX function *outside* the context manager (original behavior)
-    jax_output_original = fn(x)
-
-    onnx_inputs = {"var_0": np.array(x)}
+    # Test ONNX and JAX outputs
     session = ort.InferenceSession(model_path)
-    onnx_output = session.run(None, onnx_inputs)[0]
-    jax_output_patched = fn(x)
+    onnx_output = session.run(None, {"var_0": np.array(x_example)})[0]
+    jax_output = linear_fn(x_example)
 
-    assert np.allclose(onnx_output, jax_output_patched, rtol=1e-3, atol=1e-5)
+    # Verify outputs match
+    assert np.allclose(
+        onnx_output, jax_output, rtol=1e-3, atol=1e-5
+    ), "ONNX and JAX outputs do not match."
+
+
+def example3():
+    seed = 1001
+
+    linear_fn = nnx.LinearGeneral(
+        in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
+    )
+
+    model_path = "example3.onnx"
+    input_shape = (7, 4, 8, 32)
+
+    jaxpr2onnx = JaxprToOnnx()
+    jaxpr2onnx.convert(linear_fn, [input_shape], model_path)
+
+    rng = jax.random.PRNGKey(seed)
+    x_example = jax.random.normal(rng, input_shape)
+
+    # Test ONNX and JAX outputs
+    session = ort.InferenceSession(model_path)
+    onnx_output = session.run(None, {"var_0": np.array(x_example)})[0]
+    jax_output = linear_fn(x_example)
+
+    # Verify outputs match
+    assert np.allclose(
+        onnx_output, jax_output, rtol=1e-3, atol=1e-5
+    ), "ONNX and JAX outputs do not match."
+
+
+# def example3():
+#     seed = 1001
+
+#     # Initialize LinearGeneral module
+#     linear_fn = nnx.LinearGeneral(
+#         in_features=(8, 32),
+#         out_features=(256,),
+#         axis=(-2, -1),
+#         rngs=nnx.Rngs(seed)
+#     )
+
+#     # Generate input tensor
+#     rng = jax.random.PRNGKey(seed)
+#     x = jax.random.normal(rng, (2, 4, 8, 32))
+
+#     # Convert JAX model to ONNX
+#     converter = JaxprToOnnx()
+#     model_path = converter.convert(linear_fn, (x,), "example_model3.onnx")
+#     print(f"ONNX model saved to: {model_path}")
+
+#     # Run original JAX function
+#     jax_output_original = linear_fn(x)
+
+#     # Run inference using ONNX
+#     session = ort.InferenceSession(model_path)
+#     onnx_output = session.run(None, {"var_0": np.array(x)})[0]
+
+#     # Verify outputs match
+#     assert np.allclose(onnx_output, jax_output_original, rtol=1e-3, atol=1e-5), \
+#         "ONNX and JAX outputs do not match."
+
+#     print("ONNX output matches JAX output successfully.")
 
 
 def main():
     # example()
     # example2()
     example3()
+    # example4()
 
 
 if __name__ == "__main__":
