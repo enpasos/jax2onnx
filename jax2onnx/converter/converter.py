@@ -86,7 +86,7 @@ class JaxprToOnnx:
         with temporary_monkey_patches():
             jaxpr = jax.make_jaxpr(fn)(*example_args)
 
-        converter = InternalJaxprConverter()
+        converter = Jaxpr2OnnxConverter()
         converter.trace_jaxpr(fn, example_args)
 
         # Set symbolic batch dimension 'B' only on corresponding input tensors
@@ -141,7 +141,7 @@ class JaxprToOnnx:
         return tuple(example_batch if d == "B" else d for d in shape)
 
 
-class InternalJaxprConverter:
+class Jaxpr2OnnxConverter:
     """
     A translator that converts JAX's JAXPR representation to ONNX format.
     """
