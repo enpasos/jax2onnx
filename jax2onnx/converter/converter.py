@@ -6,6 +6,7 @@ import onnx
 from onnx import helper, TensorProto
 import numpy as np
 from typing import Dict, Any
+from jax2onnx.converter.primitives.jax.random import random_gamma
 from jax2onnx.converter.primitives.flax.nnx import linear_general
 from jax2onnx.converter.primitives.jax.lax import (
     neg,
@@ -247,7 +248,7 @@ class Jaxpr2OnnxConverter:
                 self
             ),
             device_put.get_primitive(): device_put.get_handler(self),
-            jax.random.random_gamma_p: self._handle_random_gamma,
+            random_gamma.get_primitive(): random_gamma.get_handler(self),
         }
 
     def add_node(self, node):
