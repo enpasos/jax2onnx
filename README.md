@@ -3,7 +3,24 @@
 
 ![img.png](https://enpasos.github.io/jax2onnx/images/img1.png)
 
-`jax2onnx` converts your JAX/Flax model directly into the ONNX format.  
+`jax2onnx` converts your JAX/Flax model directly to ONNX format.  
+
+### **how ...**
+
+To save any model or function to ONNX format, use the `save_onnx` function:
+
+```py
+from jax2onnx import save_onnx
+
+my_module = CoolTransformerModel(...)  # your JAX module or function
+save_onnx(
+    callable=my_module,
+    input_shapes=[('B', 30)],   # input shapes with batch dimension 'B'
+    model_file_name="my_module.onnx"
+)
+```
+
+
 
 ### **Approach**
 Components can be easily added as plugins, including their test cases, which are automatically picked up by **pytest**. Each test case sends random input tensors through the JAX/Flax model and compares the output with the ONNX model to ensure correctness.
@@ -87,22 +104,7 @@ Note: for more details look into the `pyproject.toml` file
 The onnx graph is composed in memory and then saved to disk. This may lead to memory issues for large models.
 
 
-### **Usage**
-Import the `jax2onnx` module, implement the `to_onnx` function to your Module class and use the `jax2onnx.to_onnx.to_onnx`
-function to convert your model to ONNX format. See at the examples provided in the `examples` directory.
 
-
-
-
-To export the model or function (a callable) to ONNX format, use the `to_onnx` function:
-```py
-from jax2onnx import to_onnx
-to_onnx(
-    model_file_name="mlp.onnx",
-    component=MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
-    input_shapes=[(1, 30)]
-)
-```
 ### **Supported Configurations**
  
  

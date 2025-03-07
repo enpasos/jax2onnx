@@ -1,1 +1,1 @@
-from .convert import to_onnx  # noqa: F401
+from converter.converter import save_onnx  # noqa: F401
