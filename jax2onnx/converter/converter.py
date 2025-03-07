@@ -7,7 +7,21 @@ from onnx import helper, TensorProto
 import numpy as np
 from typing import Dict, Any
 from jax2onnx.converter.primitives.flax.nnx import linear_general
-from jax2onnx.converter.primitives.jax.lax import neg
+from jax2onnx.converter.primitives.jax.lax import (
+    neg,
+    add,
+    mul,
+    sub,
+    div,
+    not_,
+    eq,
+    ne,
+    lt,
+    gt,
+    max,
+    min,
+    select_n,
+)
 
 import jax.random
 
@@ -15,31 +29,31 @@ import contextlib
 from jax2onnx.onnx_builder import OnnxBuilder
 
 
-def create_example_args_with_dynamic_batch(input_shapes):
-    """
-    Creates example arguments for JAX functions, handling dynamic batch dimensions.
+# def create_example_args_with_dynamic_batch(input_shapes):
+#     """
+#     Creates example arguments for JAX functions, handling dynamic batch dimensions.
 
-    Args:
-        input_shapes: A list of shape tuples, where 'B' represents a dynamic batch dimension.
+#     Args:
+#         input_shapes: A list of shape tuples, where 'B' represents a dynamic batch dimension.
 
-    Returns:
-        A list of jax.ShapeDtypeStruct objects representing the example arguments.
-    """
-    example_args = []
-    for shape_tuple in input_shapes:
-        shape = []
-        for dim in shape_tuple:
-            if dim == "B":
-                shape.append(None)  # Use None for dynamic dimension
-            else:
-                shape.append(dim)
+#     Returns:
+#         A list of jax.ShapeDtypeStruct objects representing the example arguments.
+#     """
+#     example_args = []
+#     for shape_tuple in input_shapes:
+#         shape = []
+#         for dim in shape_tuple:
+#             if dim == "B":
+#                 shape.append(None)  # Use None for dynamic dimension
+#             else:
+#                 shape.append(dim)
 
-        # Assuming float32 data type (adjust as needed)
-        dtype = jnp.float32
+#         # Assuming float32 data type (adjust as needed)
+#         dtype = jnp.float32
 
-        example_args.append(jax.ShapeDtypeStruct(tuple(shape), dtype))
+#         example_args.append(jax.ShapeDtypeStruct(tuple(shape), dtype))
 
-    return example_args
+#     return example_args
 
 
 def save_onnx(
@@ -155,22 +169,22 @@ class Jaxpr2OnnxConverter:
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {
             linear_general.get_primitive(): linear_general.get_handler(self),
+            add.get_primitive(): add.get_handler(self),
+            mul.get_primitive(): mul.get_handler(self),
             neg.get_primitive(): neg.get_handler(self),
-            jax.lax.not_p: self._handle_not,
-            jax.lax.add_p: self._handle_add,
-            jax.lax.mul_p: self._handle_mul,
-            jax.lax.sub_p: self._handle_sub,
-            jax.lax.div_p: self._handle_div,
+            sub.get_primitive(): sub.get_handler(self),
+            div.get_primitive(): div.get_handler(self),
+            not_.get_primitive(): not_.get_handler(self),
+            eq.get_primitive(): eq.get_handler(self),
+            ne.get_primitive(): ne.get_handler(self),
+            lt.get_primitive(): lt.get_handler(self),
+            gt.get_primitive(): gt.get_handler(self),
+            max.get_primitive(): max.get_handler(self),
+            min.get_primitive(): min.get_handler(self),
+            select_n.get_primitive(): select_n.get_handler(self),
             jax.lax.and_p: self._handle_and,
             jax.lax.or_p: self._handle_or,
             jax.lax.xor_p: self._handle_xor,
-            jax.lax.eq_p: self._handle_eq,
-            jax.lax.ne_p: self._handle_ne,
-            jax.lax.lt_p: self._handle_lt,
-            jax.lax.gt_p: self._handle_gt,
-            jax.lax.max_p: self._handle_max,
-            jax.lax.min_p: self._handle_min,
-            jax.lax.select_n_p: self._handle_select_n,
             jax.lax.dot_general_p: self._handle_dot_general,
             jax.lax.reduce_sum_p: self._handle_reduce_sum,
             jax.lax.reduce_max_p: self._handle_reduce_max,
