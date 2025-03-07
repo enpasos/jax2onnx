@@ -6,9 +6,10 @@ import onnx
 from onnx import helper, TensorProto
 import numpy as np
 from typing import Dict, Any
-from jax2onnx.converter.primitives.jax.random import random_gamma
-from jax2onnx.converter.primitives.flax.nnx import linear_general
-from jax2onnx.converter.primitives.jax.lax import (
+from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
+from jax2onnx.converter.plugins.jax.random import random_gamma
+from jax2onnx.converter.plugins.flax.nnx import linear_general
+from jax2onnx.converter.plugins.jax.lax import (
     neg,
     add,
     mul,
@@ -59,17 +60,17 @@ from jax2onnx.converter.primitives.jax.lax import (
 import jax.random
 
 import contextlib
-from jax2onnx.converter.primitives.jax.nn import sigmoid
+from jax2onnx.converter.plugins.jax.nn import sigmoid
 from jax2onnx.onnx_builder import OnnxBuilder
 
 
 def save_onnx(
-    fn,
-    input_shapes,
-    output_path="model.onnx",
-    model_name="jax_model",
-    include_intermediate_shapes=True,
-):
+    fn: Any,
+    input_shapes: Any,
+    output_path: str = "model.onnx",
+    model_name: str = "jax_model",
+    include_intermediate_shapes: bool = True,
+) -> str:
     jaxpr2onnx = JaxprToOnnx()
     return jaxpr2onnx.save_onnx(
         fn,
@@ -83,12 +84,12 @@ def save_onnx(
 class JaxprToOnnx:
     def save_onnx(
         self,
-        fn,
-        input_shapes,
-        output_path="model.onnx",
-        model_name="jax_model",
-        include_intermediate_shapes=True,
-    ):
+        fn: Any,
+        input_shapes: Any,
+        output_path: str = "model.onnx",
+        model_name: str = "jax_model",
+        include_intermediate_shapes: bool = True,
+    ) -> str:
 
         # if input_shapes have dynamic batch dimensions then include_intermediate_shapes must be False
         if any("B" in shape for shape in input_shapes):
@@ -174,55 +175,59 @@ class Jaxpr2OnnxConverter:
         # Other converter state
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
-        self.primitive_handlers = {
-            linear_general.get_primitive(): linear_general.get_handler(self),
-            add.get_primitive(): add.get_handler(self),
-            mul.get_primitive(): mul.get_handler(self),
-            neg.get_primitive(): neg.get_handler(self),
-            sub.get_primitive(): sub.get_handler(self),
-            div.get_primitive(): div.get_handler(self),
-            not_.get_primitive(): not_.get_handler(self),
-            eq.get_primitive(): eq.get_handler(self),
-            ne.get_primitive(): ne.get_handler(self),
-            lt.get_primitive(): lt.get_handler(self),
-            gt.get_primitive(): gt.get_handler(self),
-            max.get_primitive(): max.get_handler(self),
-            min.get_primitive(): min.get_handler(self),
-            select_n.get_primitive(): select_n.get_handler(self),
-            xor.get_primitive(): xor.get_handler(self),
-            dot_general.get_primitive(): dot_general.get_handler(self),
-            reduce_sum.get_primitive(): reduce_sum.get_handler(self),
-            reduce_max.get_primitive(): reduce_max.get_handler(self),
-            reduce_min.get_primitive(): reduce_min.get_handler(self),
-            and_.get_primitive(): and_.get_handler(self),
-            or_.get_primitive(): or_.get_handler(self),
-            gather.get_primitive(): gather.get_handler(self),
-            scatter_add.get_primitive(): scatter_add.get_handler(self),
-            argmax.get_primitive(): argmax.get_handler(self),
-            argmin.get_primitive(): argmin.get_handler(self),
-            square.get_primitive(): square.get_handler(self),
-            integer_pow.get_primitive(): integer_pow.get_handler(self),
-            sqrt.get_primitive(): sqrt.get_handler(self),
-            exp.get_primitive(): exp.get_handler(self),
-            log.get_primitive(): log.get_handler(self),
-            tanh.get_primitive(): tanh.get_handler(self),
-            #  sigmoid.get_primitive(): sigmoid.get_handler(self),
-            iota.get_primitive(): iota.get_handler(self),
-            reshape.get_primitive(): reshape.get_handler(self),
-            conv.get_primitive(): conv.get_handler(self),
-            sort.get_primitive(): sort.get_handler(self),
-            stop_gradient.get_primitive(): stop_gradient.get_handler(self),
-            transpose.get_primitive(): transpose.get_handler(self),
-            squeeze.get_primitive(): squeeze.get_handler(self),
-            broadcast_in_dim.get_primitive(): broadcast_in_dim.get_handler(self),
-            slice.get_primitive(): slice.get_handler(self),
-            concatenate.get_primitive(): concatenate.get_handler(self),
-            convert_element_type.get_primitive(): convert_element_type.get_handler(
-                self
-            ),
-            device_put.get_primitive(): device_put.get_handler(self),
-            random_gamma.get_primitive(): random_gamma.get_handler(self),
-        }
+        self.primitive_handlers = {}
+        for primitive, plugin in get_all_plugins().items():
+            handler = plugin.get_handler(self)
+            self.primitive_handlers[primitive] = handler
+        # self.primitive_handlers = {
+        #     linear_general.get_primitive(): linear_general.get_handler(self),
+        #     add.get_primitive(): add.get_handler(self),
+        #     mul.get_primitive(): mul.get_handler(self),
+        #     neg.get_primitive(): neg.get_handler(self),
+        #     sub.get_primitive(): sub.get_handler(self),
+        #     div.get_primitive(): div.get_handler(self),
+        #     not_.get_primitive(): not_.get_handler(self),
+        #     eq.get_primitive(): eq.get_handler(self),
+        #     ne.get_primitive(): ne.get_handler(self),
+        #     lt.get_primitive(): lt.get_handler(self),
+        #     gt.get_primitive(): gt.get_handler(self),
+        #     max.get_primitive(): max.get_handler(self),
+        #     min.get_primitive(): min.get_handler(self),
+        #     select_n.get_primitive(): select_n.get_handler(self),
+        #     xor.get_primitive(): xor.get_handler(self),
+        #     dot_general.get_primitive(): dot_general.get_handler(self),
+        #     reduce_sum.get_primitive(): reduce_sum.get_handler(self),
+        #     reduce_max.get_primitive(): reduce_max.get_handler(self),
+        #     reduce_min.get_primitive(): reduce_min.get_handler(self),
+        #     and_.get_primitive(): and_.get_handler(self),
+        #     or_.get_primitive(): or_.get_handler(self),
+        #     gather.get_primitive(): gather.get_handler(self),
+        #     scatter_add.get_primitive(): scatter_add.get_handler(self),
+        #     argmax.get_primitive(): argmax.get_handler(self),
+        #     argmin.get_primitive(): argmin.get_handler(self),
+        #     square.get_primitive(): square.get_handler(self),
+        #     integer_pow.get_primitive(): integer_pow.get_handler(self),
+        #     sqrt.get_primitive(): sqrt.get_handler(self),
+        #     exp.get_primitive(): exp.get_handler(self),
+        #     log.get_primitive(): log.get_handler(self),
+        #     tanh.get_primitive(): tanh.get_handler(self),
+        #     #  sigmoid.get_primitive(): sigmoid.get_handler(self),
+        #     iota.get_primitive(): iota.get_handler(self),
+        #     reshape.get_primitive(): reshape.get_handler(self),
+        #     conv.get_primitive(): conv.get_handler(self),
+        #     sort.get_primitive(): sort.get_handler(self),
+        #     stop_gradient.get_primitive(): stop_gradient.get_handler(self),
+        #     transpose.get_primitive(): transpose.get_handler(self),
+        #     squeeze.get_primitive(): squeeze.get_handler(self),
+        #     broadcast_in_dim.get_primitive(): broadcast_in_dim.get_handler(self),
+        #     slice.get_primitive(): slice.get_handler(self),
+        #     concatenate.get_primitive(): concatenate.get_handler(self),
+        #     convert_element_type.get_primitive(): convert_element_type.get_handler(
+        #         self
+        #     ),
+        #     device_put.get_primitive(): device_put.get_handler(self),
+        #     random_gamma.get_primitive(): random_gamma.get_handler(self),
+        # }
 
     def add_node(self, node):
         self.builder.add_node(node)
@@ -455,12 +460,12 @@ class Jaxpr2OnnxConverter:
             primitive = jaxpr.primitive
             if primitive.name == "pjit":
                 self._process_pjit(jaxpr)
-            elif primitive in self.primitive_handlers:
-                self.primitive_handlers[primitive](
+            elif primitive.name in self.primitive_handlers:
+                self.primitive_handlers[primitive.name](
                     jaxpr.invars, jaxpr.outvars, jaxpr.params
                 )
             else:
-                raise NotImplementedError(f"Primitive {primitive} not implemented")
+                raise NotImplementedError(f"Primitive {primitive.name} not implemented")
         else:
             # Handle call primitives or other special cases
             raise NotImplementedError(f"Non-primitive equation: {jaxpr}")
