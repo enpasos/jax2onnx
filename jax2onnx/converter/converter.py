@@ -1619,12 +1619,8 @@ import contextlib
 
 @contextlib.contextmanager
 def temporary_monkey_patches():
-    """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
-    original_call = nnx.LinearGeneral.__call__  # Store the original method
+    with contextlib.ExitStack() as stack:
+        # Enter the monkey patch from linear_general
+        stack.enter_context(linear_general.temporary_patch())
 
-    nnx.LinearGeneral.__call__ = linear_general.get_monkey_patched()  # Apply the patch
-
-    try:
-        yield  # This is where the code using the patched function will run
-    finally:
-        nnx.LinearGeneral.__call__ = original_call  # Restore the original method
+        yield

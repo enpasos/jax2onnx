@@ -4,6 +4,8 @@ import numpy as np
 from jax import core
 from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
 from onnx import helper
+import contextlib
+from flax import nnx
 
 
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
@@ -57,7 +59,7 @@ def get_primitive():
     return linear_general_p
 
 
-def get_monkey_patched():
+def _get_monkey_patch():
     def linear_general(x, kernel, bias, dimension_numbers):
 
         def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
@@ -80,6 +82,16 @@ def get_monkey_patched():
         )
 
     return patched_linear_general_call
+
+
+@contextlib.contextmanager
+def temporary_patch():
+    original_call = nnx.LinearGeneral.__call__
+    nnx.LinearGeneral.__call__ = _get_monkey_patch()
+    try:
+        yield
+    finally:
+        nnx.LinearGeneral.__call__ = original_call
 
 
 def get_handler(s):  # def get_handler(s: JaxprToOnnx):
