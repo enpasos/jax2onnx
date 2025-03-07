@@ -7,7 +7,8 @@ if TYPE_CHECKING:
 
 
 def get_primitive():
-    return jax.lax.sigmoid_p
+    pass
+    # return jax.nn.sigmoid_p
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
