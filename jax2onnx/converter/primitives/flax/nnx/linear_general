@@ -1,0 +1,327 @@
+# jax2onnx/converter/primitives/flax/nnx/linear_general.py
+
+import jax
+from jax import core
+import jax.numpy as jnp
+import numpy as np
+
+import flax.nnx as nnx
+import contextlib
+
+###############################################################################
+# Step 1) Define the linear_general_p JAX primitive
+###############################################################################
+
+linear_general_p = core.Primitive("linear_general")
+linear_general_p.multiple_results = False
+
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    """
+    A minimal abstract evaluation for demonstration: 
+    it just returns a shaped array of the appropriate dimension. 
+    In practice, you'd parse dimension_numbers properly.
+    """
+    # For example4, let's assume shape is (B,4,8,32)->(B,4,256) if out_features=(256,)
+    # But let's keep it simple:
+    out_shape = (x.shape[0],) + (kernel.shape[0],)
+    return core.ShapedArray(out_shape, x.dtype)
+
+linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+
+###############################################################################
+# Step 2) Provide the JAXPR -> ONNX handler for linear_general_p
+###############################################################################
+
+def handle_linear_general(invars, outvars, params):
+    """
+    The code that translates linear_general_p into ONNX nodes.
+    For now, we just do a 'print' to show that we've arrived here.
+    In a real version, you'd create Gemm, Reshape, etc. 
+    and add them to the converter's node list.
+    """
+    print("handle_linear_general: Creating ONNX nodes for linear_general_p")
+    # Example: 
+    # converter.nodes.append(some ONNX node)
+    # ...
+    pass
+
+###############################################################################
+# Step 3) A monkey-patch context manager for nnx.LinearGeneral.__call__
+###############################################################################
+
+@contextlib.contextmanager
+def temporary_linear_general_patch(converter):
+    """
+    This context manager:
+    - Patches nnx.LinearGeneral.__call__ to bind our linear_general_p
+    - Registers the handle_linear_general in the converter.primitive_handlers
+    - Then reverts everything afterwards.
+    """
+    original_call = nnx.LinearGeneral.__call__
+
+    def patched_linear_general_call(self, x):
+        contracting_dims = (self.axis, tuple(range(len(self.in_features))))
+        batch_dims = ((), ())
+        dimension_numbers = (contracting_dims, batch_dims)
+        return linear_general_p.bind(
+            x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
+        )
+
+    nnx.LinearGeneral.__call__ = patched_linear_general_call
+    converter.primitive_handlers[linear_general_p] = handle_linear_general
+
+    try:
+        yield
+    finally:
+        nnx.LinearGeneral.__call__ = original_call
+
+
+
+
+# from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
+# import flax.nnx as nnx 
+
+
+# def get_primitive(): 
+#     linear_general_p = Primitive("linear_general")
+#     linear_general_p.multiple_results = False  # Our operation has one output
+
+#     # essentialy the output shape
+#     def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+#         x_shape = x.shape
+#         k_shape = kernel.shape
+
+#         # Unpack dimension numbers
+#         ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
+
+#         # Convert negative indices to positive indices
+#         lhs_contract_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_contract]
+#         rhs_contract_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_contract]
+#         lhs_batch_pos = [d if d >= 0 else len(x_shape) + d for d in lhs_batch]
+#         rhs_batch_pos = [d if d >= 0 else len(k_shape) + d for d in rhs_batch]
+
+#         # Verify contracting dimensions match in size
+#         for lhs_dim, rhs_dim in zip(lhs_contract_pos, rhs_contract_pos):
+#             assert (
+#                 x_shape[lhs_dim] == k_shape[rhs_dim]
+#             ), f"Contracting dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
+
+#         # Verify batch dimensions match in size
+#         for lhs_dim, rhs_dim in zip(lhs_batch_pos, rhs_batch_pos):
+#             assert (
+#                 x_shape[lhs_dim] == k_shape[rhs_dim]
+#             ), f"Batch dimensions must match: {x_shape[lhs_dim]} != {k_shape[rhs_dim]}"
+
+#         # Compute output shape:
+#         # 1. Batch dimensions (from lhs)
+#         # 2. Non-contracting, non-batch dimensions from lhs
+#         # 3. Non-contracting, non-batch dimensions from rhs
+#         lhs_remaining = [
+#             i
+#             for i in range(len(x_shape))
+#             if i not in lhs_contract_pos and i not in lhs_batch_pos
+#         ]
+#         rhs_remaining = [
+#             i
+#             for i in range(len(k_shape))
+#             if i not in rhs_contract_pos and i not in rhs_batch_pos
+#         ]
+
+#         out_shape = (
+#             tuple(x_shape[i] for i in lhs_batch_pos)
+#             + tuple(x_shape[i] for i in lhs_remaining)
+#             + tuple(k_shape[i] for i in rhs_remaining)
+#         )
+
+#         return core.ShapedArray(out_shape, x.dtype)
+
+#     linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+
+#     return linear_general_p
+
+
+
+# # while doing the onnx export we need to patch the LinearGeneral __call__ method temporarily
+# @contextlib.contextmanager
+# def temporary_linear_general_patch(primitive : Primitive):
+#     """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
+#     original_call = nnx.LinearGeneral.__call__  # Store the original method
+
+#     def linear_general(x, kernel, bias, dimension_numbers):
+#         return primitive.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
+
+#     def patched_linear_general_call(self, x):
+#         contracting_dims = (self.axis, tuple(range(len(self.in_features))))
+#         batch_dims = ((), ())
+#         dimension_numbers = (contracting_dims, batch_dims)
+#         # Use the custom linear_general function
+#         return linear_general(
+#             x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
+#         )
+
+#     nnx.LinearGeneral.__call__ = patched_linear_general_call  # Apply the patch
+
+#     try:
+#         yield  # This is where the code using the patched function will run
+#     finally:
+#         nnx.LinearGeneral.__call__ = original_call  # Restore the original method
+
+
+
+
+# def handle(self, node_inputs, node_outputs, params):
+#     """Handle the custom linear_general primitive."""
+#     # Get the input name
+#     input_name = self._get_name(node_inputs[0])
+#     output_name = self._get_var_name(node_outputs[0])
+
+#     # Extract dimension numbers
+#     dimension_numbers = params["dimension_numbers"]
+#     ((lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch)) = dimension_numbers
+
+#     # Get shapes from the inputs
+#     x_aval = node_inputs[0].aval
+#     kernel_aval = node_inputs[1].aval
+#     bias_aval = node_inputs[2].aval
+
+#     bias_name = self.var_to_name[node_inputs[2]]
+
+#     kernel_name = self.var_to_name[node_inputs[1]]
+#     kernel_const = self.name_to_const[kernel_name]
+
+#     # reshape kernel to (in_features, out_features)
+#     in_features = np.prod(
+#         [kernel_aval.shape[i] for i in rhs_contracting], dtype=np.int64
+#     )
+#     out_features = np.prod(
+#         [
+#             kernel_aval.shape[i]
+#             for i in range(len(kernel_aval.shape))
+#             if i not in rhs_contracting and i not in rhs_batch
+#         ],
+#         dtype=np.int64,
+#     )
+#     kernel_value = np.reshape(kernel_const, (in_features, out_features))
+#     # Create weights constant for ONNX
+#     weights_name = self._get_constant_name(kernel_value)
+
+#     # Define batch_size[
+#     size = np.prod(
+#         [x_aval.shape[i] for i in range(len(x_aval.shape))], dtype=np.int64
+#     )
+#     feature_size = np.prod(
+#         [x_aval.shape[i] for i in lhs_contracting], dtype=np.int64
+#     )
+#     batch_size = size // feature_size
+
+#     # Calculate the correct reshape shape
+#     reshape_shape = [batch_size] + [in_features]
+
+#     # First Reshape: Flatten the input to (batch_size, in_features)
+#     input_reshape_name = self._get_unique_name("input_reshape")
+#     input_reshape_node = helper.make_node(
+#         "Reshape",
+#         inputs=[
+#             input_name,
+#             self._get_constant_name(np.array(reshape_shape, dtype=np.int64)),
+#         ],
+#         outputs=[input_reshape_name],
+#         name=self._get_unique_name("reshape_input"),
+#     )
+#     self.nodes.append(input_reshape_node)
+
+#     # Perform Gemm operation with the reshaped weights
+#     gemm_output_name = self._get_unique_name("gemm_output")
+#     gemm_node = helper.make_node(
+#         "Gemm",
+#         inputs=[input_reshape_name, weights_name, bias_name],
+#         outputs=[gemm_output_name],
+#         name=self._get_unique_name("gemm"),
+#         alpha=1.0,
+#         beta=1.0,
+#         transB=0,  # No transpose needed since we pre-shaped the weights
+#     )
+#     self.nodes.append(gemm_node)
+
+#     # Define output_shape
+#     output_shape = node_outputs[0].aval.shape
+
+#     # Final Reshape: Restore the output shape
+#     reshape_output_node = helper.make_node(
+#         "Reshape",
+#         inputs=[
+#             gemm_output_name,
+#             self._get_constant_name(np.array(output_shape, dtype=np.int64)),
+#         ],
+#         outputs=[output_name],
+#         name=self._get_unique_name("reshape_output"),
+#     )
+#     self.nodes.append(reshape_output_node)
+
+
+
+# def get_metadata() -> list:
+#     """Return test parameters for verifying the ONNX conversion of `nnx.LinearGeneral`."""
+#     return [
+#         {
+#             "jaxpr_primitive": "jax.lax.dot_general",
+#             "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
+#             "onnx": [
+#                 {
+#                     "component": "Gemm",
+#                     "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
+#                 },
+#                 {
+#                     "component": "Reshape",
+#                     "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+#                 },
+#             ],
+#             "since": "v0.2.0",
+#             "testcases": [
+#                 {
+#                     "testcase": "linear_general",
+#                     "callable": nnx.LinearGeneral(
+#                         in_features=(8, 32),
+#                         out_features=(256,),
+#                         axis=(-2, -1),
+#                         rngs=nnx.Rngs(0),
+#                     ),
+#                     "input_shapes": [(2, 4, 8, 32)],
+#                 },
+#                 # {
+#                 #     "testcase": "linear_general_2",
+#                 #     "component": nnx.LinearGeneral(
+#                 #         in_features=(256,),
+#                 #         out_features=(8, 32),
+#                 #         axis=(-1,),
+#                 #         rngs=nnx.Rngs(0),
+#                 #     ),
+#                 #     "input_shapes": [(2, 4, 256)],
+#                 # },
+#                 # {
+#                 #     "testcase": "linear_general_mha_projection",
+#                 #     "component": nnx.LinearGeneral(
+#                 #         in_features=(8, 32),
+#                 #         out_features=(256,),
+#                 #         axis=(-2, -1),
+#                 #         rngs=nnx.Rngs(0),
+#                 #     ),
+#                 #     "input_shapes": [(8, 8, 32)],
+#                 # },
+#                 # {
+#                 #     "testcase": "linear_general_mha_projection2",
+#                 #     "component": nnx.LinearGeneral(
+#                 #         in_features=(256),
+#                 #         out_features=(256,),
+#                 #         axis=(-1),
+#                 #         rngs=nnx.Rngs(0),
+#                 #     ),
+#                 #     "input_shapes": [(8, 256)],
+#                 # },
+#             ],
+#         }
+#     ]
+
+
+
+
