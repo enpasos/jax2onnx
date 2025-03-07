@@ -38,13 +38,20 @@ from jax2onnx.converter.primitives.jax.lax import (
     exp,
     log,
     tanh,
-    sigmoid,
     iota,
+    reshape,
+    conv,
+    sort,
+    stop_gradient,
 )
 
+# from jax2onnx.converter.primitives.jax.nn import (
+#     sigmoid
+# )
 import jax.random
 
 import contextlib
+from jax2onnx.converter.primitives.jax.nn import sigmoid
 from jax2onnx.onnx_builder import OnnxBuilder
 
 
@@ -218,22 +225,17 @@ class Jaxpr2OnnxConverter:
             exp.get_primitive(): exp.get_handler(self),
             log.get_primitive(): log.get_handler(self),
             tanh.get_primitive(): tanh.get_handler(self),
-            sigmoid.get_primitive(): sigmoid.get_handler(self),
+            #  sigmoid.get_primitive(): sigmoid.get_handler(self),
             iota.get_primitive(): iota.get_handler(self),
             reshape.get_primitive(): reshape.get_handler(self),
+            conv.get_primitive(): conv.get_handler(self),
+            sort.get_primitive(): sort.get_handler(self),
+            stop_gradient.get_primitive(): stop_gradient.get_handler(self),
             jax.lax.transpose_p: self._handle_transpose,
             jax.lax.squeeze_p: self._handle_squeeze,
             jax.lax.broadcast_in_dim_p: self._handle_broadcast_in_dim,
             jax.lax.slice_p: self._handle_slice,
             jax.lax.concatenate_p: self._handle_concatenate,
-            jax.lax.conv_general_dilated_p: self._handle_conv,
-            jax.lax.sort_p: self._handle_sort,
-            jax.lax.stop_gradient_p: self._handle_stop_gradient,
-            jax._src.prng.random_seed_p: self._handle_random_seed,
-            jax._src.prng.random_wrap_p: self._handle_random_wrap,
-            jax._src.prng.random_split_p: self._handle_random_split,
-            jax._src.prng.random_unwrap_p: self._handle_random_unwrap,
-            jax._src.prng.random_fold_in_p: self._handle_random_fold_in,
             jax.lax.convert_element_type_p: self._handle_convert_element_type,  # TODO: CHANGE
             jax.lax.device_put_p: self._handle_device_put,
             jax.random.random_gamma_p: self._handle_random_gamma,
