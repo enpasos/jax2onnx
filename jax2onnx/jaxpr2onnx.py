@@ -1807,6 +1807,31 @@ def temporary_linear_general_patch():
         nnx.LinearGeneral.__call__ = original_call  # Restore the original method
 
 
+from tester import allclose
+
+
+def example5():
+    seed = 1001
+
+    fn = nnx.LinearGeneral(
+        in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
+    )
+
+    model_path = "example5.onnx"
+
+    jaxpr2onnx = JaxprToOnnx()
+    jaxpr2onnx.save_onnx(
+        fn, [("B", 4, 8, 32)], model_path, include_intermediate_shapes=True
+    )
+
+    rng = jax.random.PRNGKey(seed)
+    example_batch_size = 2
+    x = jax.random.normal(rng, (example_batch_size, 4, 8, 32))
+
+    # Verify outputs match
+    assert allclose(fn, model_path, x)
+
+
 def example4():
     seed = 1001
 
@@ -1903,7 +1928,8 @@ def main():
     # example()
     # example2()
     # example3()
-    example4()
+    # example4()
+    example5()
 
 
 if __name__ == "__main__":
