@@ -36,6 +36,10 @@ from jax2onnx.converter.primitives.jax.lax import (
     integer_pow,
     sqrt,
     exp,
+    log,
+    tanh,
+    sigmoid,
+    iota,
 )
 
 import jax.random
@@ -212,10 +216,11 @@ class Jaxpr2OnnxConverter:
             integer_pow.get_primitive(): integer_pow.get_handler(self),
             sqrt.get_primitive(): sqrt.get_handler(self),
             exp.get_primitive(): exp.get_handler(self),
-            jax.lax.log_p: self._handle_log,
-            jax.lax.tanh_p: self._handle_tanh,
-            jax.lax.iota_p: self._handle_iota,
-            jax.lax.reshape_p: self._handle_reshape,
+            log.get_primitive(): log.get_handler(self),
+            tanh.get_primitive(): tanh.get_handler(self),
+            sigmoid.get_primitive(): sigmoid.get_handler(self),
+            iota.get_primitive(): iota.get_handler(self),
+            reshape.get_primitive(): reshape.get_handler(self),
             jax.lax.transpose_p: self._handle_transpose,
             jax.lax.squeeze_p: self._handle_squeeze,
             jax.lax.broadcast_in_dim_p: self._handle_broadcast_in_dim,
