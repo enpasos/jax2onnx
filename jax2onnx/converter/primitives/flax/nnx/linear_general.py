@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import InternalJaxprConverter
+    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
@@ -99,7 +99,7 @@ def temporary_patch():
         nnx.LinearGeneral.__call__ = original_call
 
 
-def get_handler(s: "InternalJaxprConverter"):
+def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_linear_general(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
