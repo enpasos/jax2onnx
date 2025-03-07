@@ -6,6 +6,11 @@ from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitiv
 from onnx import helper
 import contextlib
 from flax import nnx
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from jax2onnx.converter.converter import JaxprToOnnx
 
 
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
@@ -94,7 +99,7 @@ def temporary_patch():
         nnx.LinearGeneral.__call__ = original_call
 
 
-def get_handler(s):  # def get_handler(s: JaxprToOnnx):
+def get_handler(s: "JaxprToOnnx"):  # : JaxprToOnnx
     def handle_linear_general(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]

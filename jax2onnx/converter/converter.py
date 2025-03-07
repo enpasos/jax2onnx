@@ -7,6 +7,19 @@ from onnx import helper, TensorProto, numpy_helper
 import numpy as np
 from typing import Dict, List, Tuple, Any, Set, Optional
 from jax2onnx.converter.primitives.flax.nnx import linear_general
+from jax2onnx.converter.primitives.jax.lax import neg
+
+import flax.nnx as nnx
+import jax.random
+
+
+from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
+
+from jax import core
+from jax.interpreters import ad, xla
+
+
+import contextlib
 
 
 def create_example_args_with_dynamic_batch(input_shapes):
@@ -149,10 +162,9 @@ class InternalJaxprConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {
-            linear_general.get_primitive(): linear_general.get_handler(
-                self
-            ),  # Add the custom primitive
-            jax.lax.neg_p: self._handle_neg,
+            linear_general.get_primitive(): linear_general.get_handler(self),
+            neg.get_primitive(): neg.get_handler(self),
+            # jax.lax.neg_p: self._handle_neg,
             jax.lax.not_p: self._handle_not,
             jax.lax.add_p: self._handle_add,
             jax.lax.mul_p: self._handle_mul,
@@ -394,17 +406,17 @@ class InternalJaxprConverter:
         self.value_info.append(value_info)
         return name
 
-    def _handle_neg(self, node_inputs, node_outputs, params):
-        """Handle JAX neg primitive."""
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Neg",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("neg"),
-        )
-        self.nodes.append(node)
+    # def _handle_neg(self, node_inputs, node_outputs, params):
+    #     """Handle JAX neg primitive."""
+    #     input_names = [self._get_name(inp) for inp in node_inputs]
+    #     output_name = self._get_var_name(node_outputs[0])
+    #     node = helper.make_node(
+    #         "Neg",
+    #         inputs=input_names,
+    #         outputs=[output_name],
+    #         name=self._get_unique_name("neg"),
+    #     )
+    #     self.nodes.append(node)
 
     def _handle_not(self, node_inputs, node_outputs, params):
         """Handle JAX not primitive."""
@@ -1599,22 +1611,6 @@ def gamma(key, alpha):
 def gamma_log(key, alpha):
     x = gamma(key, alpha)
     return jnp.log(x)
-
-
-import flax.nnx as nnx
-import jax.random
-
-
-from jax.extend.core import Jaxpr, JaxprEqn, Var, Literal, ClosedJaxpr, Primitive
-
-
-import jax
-from jax import core
-from jax.interpreters import ad, xla
-
-
-## From here down a temporary monkey patch
-import contextlib
 
 
 @contextlib.contextmanager
