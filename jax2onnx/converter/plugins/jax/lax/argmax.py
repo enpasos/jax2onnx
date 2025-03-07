@@ -42,10 +42,27 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return {}
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "argmax",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.argmax.html",
+        "onnx": [
+            {
+                "component": "ArgMax",
+                "doc": "https://onnx.ai/onnx/operators/onnx__ArgMax.html",
+            }
+        ],
+        "since": "v0.1.0",
+        "testcases": [
+            {
+                "testcase": "argmax_test1",
+                "callable": lambda x: jax.lax.argmax(x, axis=0),
+                "input_shapes": [(3, 3)],
+            },
+            {
+                "testcase": "argmax_test2",
+                "callable": lambda x: jax.lax.argmax(x, axis=1),
+                "input_shapes": [(3, 3)],
+            },
+        ],
+    }
