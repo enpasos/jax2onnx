@@ -21,6 +21,11 @@ from jax2onnx.converter.primitives.jax.lax import (
     max,
     min,
     select_n,
+    xor,
+    dot_general,
+    reduce_sum,
+    reduce_max,
+    reduce_min,
 )
 
 import jax.random
@@ -182,13 +187,13 @@ class Jaxpr2OnnxConverter:
             max.get_primitive(): max.get_handler(self),
             min.get_primitive(): min.get_handler(self),
             select_n.get_primitive(): select_n.get_handler(self),
+            xor.get_primitive(): xor.get_handler(self),
+            dot_general.get_primitive(): dot_general.get_handler(self),
+            reduce_sum.get_primitive(): reduce_sum.get_handler(self),
+            reduce_max.get_primitive(): reduce_max.get_handler(self),
+            reduce_min.get_primitive(): reduce_min.get_handler(self),
             jax.lax.and_p: self._handle_and,
             jax.lax.or_p: self._handle_or,
-            jax.lax.xor_p: self._handle_xor,
-            jax.lax.dot_general_p: self._handle_dot_general,
-            jax.lax.reduce_sum_p: self._handle_reduce_sum,
-            jax.lax.reduce_max_p: self._handle_reduce_max,
-            jax.lax.reduce_min_p: self._handle_reduce_min,
             jax.lax.gather_p: self._handle_gather,
             jax.lax.scatter_add_p: self._handle_scatter_add,  # TODO: CHANGE
             jax.lax.argmax_p: self._handle_argmax,
