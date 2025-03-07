@@ -61,7 +61,7 @@ import jax.random
 
 import contextlib
 from jax2onnx.converter.plugins.jax.nn import sigmoid
-from jax2onnx.onnx_builder import OnnxBuilder
+from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 
 def save_onnx(
