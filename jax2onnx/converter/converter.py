@@ -43,6 +43,13 @@ from jax2onnx.converter.primitives.jax.lax import (
     conv,
     sort,
     stop_gradient,
+    transpose,
+    squeeze,
+    broadcast_in_dim,
+    slice,
+    concatenate,
+    convert_element_type,
+    device_put,
 )
 
 # from jax2onnx.converter.primitives.jax.nn import (
@@ -231,13 +238,15 @@ class Jaxpr2OnnxConverter:
             conv.get_primitive(): conv.get_handler(self),
             sort.get_primitive(): sort.get_handler(self),
             stop_gradient.get_primitive(): stop_gradient.get_handler(self),
-            jax.lax.transpose_p: self._handle_transpose,
-            jax.lax.squeeze_p: self._handle_squeeze,
-            jax.lax.broadcast_in_dim_p: self._handle_broadcast_in_dim,
-            jax.lax.slice_p: self._handle_slice,
-            jax.lax.concatenate_p: self._handle_concatenate,
-            jax.lax.convert_element_type_p: self._handle_convert_element_type,  # TODO: CHANGE
-            jax.lax.device_put_p: self._handle_device_put,
+            transpose.get_primitive(): transpose.get_handler(self),
+            squeeze.get_primitive(): squeeze.get_handler(self),
+            broadcast_in_dim.get_primitive(): broadcast_in_dim.get_handler(self),
+            slice.get_primitive(): slice.get_handler(self),
+            concatenate.get_primitive(): concatenate.get_handler(self),
+            convert_element_type.get_primitive(): convert_element_type.get_handler(
+                self
+            ),
+            device_put.get_primitive(): device_put.get_handler(self),
             jax.random.random_gamma_p: self._handle_random_gamma,
         }
 
