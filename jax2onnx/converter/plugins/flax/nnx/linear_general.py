@@ -182,7 +182,7 @@ def get_metadata() -> dict:
                 "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
             },
         ],
-        "since": "v0.2.0",
+        "since": "v0.1.0",
         "testcases": [
             {
                 "testcase": "linear_general",

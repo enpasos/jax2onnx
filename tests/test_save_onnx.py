@@ -139,43 +139,23 @@ def test_onnx_export_from_metadata(test_params: dict) -> None:
     # Convert the JAX model to an ONNX model
     save_onnx(callable, input_shapes, model_path, include_intermediate_shapes=True)
 
-    # Load the exported ONNX model
-    ort_session = ort.InferenceSession(model_path)
+    if testcase_name.endswith("_dynamic"):
+        # Process input shapes: replace any symbolic dims (like 'B') with a concrete value (e.g., 2)
+        # for dummy input generation
+        for concrete_value in [2, 3]:
+            processed_input_shapes = []
+            for shape in input_shapes:
+                processed_shape = [
+                    concrete_value if isinstance(dim, str) and dim == "B" else dim
+                    for dim in shape
+                ]
+                processed_input_shapes.append(processed_shape)
 
-    # Process input shapes: replace any symbolic dims (like 'B') with a concrete value (e.g., 2)
-    # for dummy input generation
-    processed_input_shapes = []
-    for shape in input_shapes:
-        processed_shape = [
-            2 if isinstance(dim, str) and dim == "B" else dim for dim in shape
-        ]
-        processed_input_shapes.append(processed_shape)
+            xs = [jax.random.normal(rng, shape) for shape in processed_input_shapes]
+            np.testing.assert_(allclose(callable, model_path, *xs))
 
-    # Create dummy inputs using JAX random data
-    xs = [jax.random.normal(rng, shape) for shape in processed_input_shapes]
-
-    # Use the provided helper to check outputs
-    np.testing.assert_(allclose(callable, model_path, *xs))
+    else:
+        xs = [jax.random.normal(rng, shape) for shape in input_shapes]
+        np.testing.assert_(allclose(callable, model_path, *xs))
 
     print(f"Test for {testcase_name} passed!")
-
-    # def test_example():
-    # seed = 1001
-
-    # fn = nnx.LinearGeneral(
-    #     in_features=(8, 32), out_features=(256,), axis=(-2, -1), rngs=nnx.Rngs(seed)
-    # )
-
-    # dir = "docs/onnx"
-    # os.makedirs(dir, exist_ok=True)
-
-    # model_path = dir + "/example5.onnx"
-
-    # save_onnx(fn, [("B", 4, 8, 32)], model_path, include_intermediate_shapes=True)
-
-    # rng = jax.random.PRNGKey(seed)
-    # example_batch_size = 2
-    # x = jax.random.normal(rng, (example_batch_size, 4, 8, 32))
-
-    # # Verify outputs match
-    # assert allclose(fn, model_path, x)
