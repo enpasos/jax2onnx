@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import JaxprToOnnx
+    from jax2onnx.converter.converter import InternalJaxprConverter
 
 
 def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
@@ -99,17 +99,17 @@ def temporary_patch():
         nnx.LinearGeneral.__call__ = original_call
 
 
-def get_handler(s: "JaxprToOnnx"):  # : JaxprToOnnx
+def get_handler(s: "InternalJaxprConverter"):
     def handle_linear_general(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
         kernel_var = node_inputs[1]
         bias_var = node_inputs[2]
 
-        input_name = s._get_name(input_var)
-        output_name = s._get_name(output_var)
-        kernel_name = s._get_name(kernel_var)
-        bias_name = s._get_name(bias_var)
+        input_name = s.get_name(input_var)
+        output_name = s.get_name(output_var)
+        kernel_name = s.get_name(kernel_var)
+        bias_name = s.get_name(bias_var)
 
         shapes = _shape_linear_general(
             input_var.aval.shape, kernel_var.aval.shape, params["dimension_numbers"]
@@ -121,35 +121,35 @@ def get_handler(s: "JaxprToOnnx"):  # : JaxprToOnnx
 
         # Add reshaped kernel weights to ONNX initializers
         kernel_const = s.name_to_const[kernel_name]
-        weights_name = s._get_constant_name(kernel_const.reshape(new_kernel_shape))
+        weights_name = s.get_constant_name(kernel_const.reshape(new_kernel_shape))
 
         # First Reshape: flatten input tensor for GEMM operation
-        input_reshape_name = s._get_unique_name("input_reshape")
+        input_reshape_name = s.get_unique_name("input_reshape")
         reshape_shape_input = tuple([-1] + list(input_gemm_shape[1:]))
         input_reshape_node = helper.make_node(
             "Reshape",
             inputs=[
                 input_name,
-                s._get_constant_name(np.array(reshape_shape_input, dtype=np.int64)),
+                s.get_constant_name(np.array(reshape_shape_input, dtype=np.int64)),
             ],
             outputs=[input_reshape_name],
-            name=s._get_unique_name("reshape_input"),
+            name=s.get_unique_name("reshape_input"),
         )
-        s.nodes.append(input_reshape_node)
+        s.add_node(input_reshape_node)
 
-        s._add_intermediate_from_name(input_reshape_name, input_gemm_shape)
+        s.add_intermediate_from_name(input_reshape_name, input_gemm_shape)
 
         # GEMM operation for linear transformation
-        gemm_output_name = s._get_unique_name("gemm_output")
+        gemm_output_name = s.get_unique_name("gemm_output")
         gemm_node = helper.make_node(
             "Gemm",
             inputs=[input_reshape_name, weights_name, bias_name],
             outputs=[gemm_output_name],
-            name=s._get_unique_name("gemm"),
+            name=s.get_unique_name("gemm"),
         )
-        s.nodes.append(gemm_node)
+        s.add_node(gemm_node)
 
-        s._add_intermediate_from_name(gemm_output_name, output_gemm_shape)
+        s.add_intermediate_from_name(gemm_output_name, output_gemm_shape)
 
         dynamic_output_shape = [-1] + list(output_shape[1:])
 
@@ -157,12 +157,12 @@ def get_handler(s: "JaxprToOnnx"):  # : JaxprToOnnx
             "Reshape",
             inputs=[
                 gemm_output_name,
-                s._get_constant_name(np.array(dynamic_output_shape, dtype=np.int64)),
+                s.get_constant_name(np.array(dynamic_output_shape, dtype=np.int64)),
             ],
             outputs=[output_name],
-            name=s._get_unique_name("reshape_output"),
+            name=s.get_unique_name("reshape_output"),
         )
-        s.nodes.append(reshape_output_node)
+        s.add_node(reshape_output_node)
 
     return handle_linear_general
 
