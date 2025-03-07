@@ -31,6 +31,11 @@ from jax2onnx.converter.primitives.jax.lax import (
     gather,
     scatter_add,
     argmax,
+    argmin,
+    square,
+    integer_pow,
+    sqrt,
+    exp,
 )
 
 import jax.random
@@ -202,11 +207,11 @@ class Jaxpr2OnnxConverter:
             gather.get_primitive(): gather.get_handler(self),
             scatter_add.get_primitive(): scatter_add.get_handler(self),
             argmax.get_primitive(): argmax.get_handler(self),
-            jax.lax.argmin_p: self._handle_argmin,
-            jax.lax.square_p: self._handle_square,
-            jax.lax.integer_pow_p: self._handle_integer_pow,
-            jax.lax.sqrt_p: self._handle_sqrt,
-            jax.lax.exp_p: self._handle_exp,
+            argmin.get_primitive(): argmin.get_handler(self),
+            square.get_primitive(): square.get_handler(self),
+            integer_pow.get_primitive(): integer_pow.get_handler(self),
+            sqrt.get_primitive(): sqrt.get_handler(self),
+            exp.get_primitive(): exp.get_handler(self),
             jax.lax.log_p: self._handle_log,
             jax.lax.tanh_p: self._handle_tanh,
             jax.lax.iota_p: self._handle_iota,
