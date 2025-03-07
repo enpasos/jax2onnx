@@ -26,11 +26,11 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
     return _handle_add
 
 
-def get_metadata() -> List[Dict[str, Any]]:
+def get_metadata() -> dict:
     """
     Return metadata describing the plugin.
 
     This could include documentation links, test cases, version information, etc.
     For now, we return an empty list.
     """
-    return []
+    return {}

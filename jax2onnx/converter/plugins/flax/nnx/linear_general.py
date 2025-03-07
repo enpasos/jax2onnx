@@ -167,28 +167,32 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
     return handle_linear_general
 
 
-def get_metadata() -> List[dict]:
+def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
-    return [
-        {
-            "jaxpr_primitive": "linear_general",
-            "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
-            "onnx": [
-                {
-                    "component": "Gemm",
-                    "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
-                },
-                {
-                    "component": "Reshape",
-                    "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
-                },
-            ],
-            "since": "v0.2.0",
-            "testcases": [
-                {
-                    "testcase": "linear_general",
-                    "input_shapes": [(2, 4, 8, 32)],
-                }
-            ],
-        }
-    ]
+    return {
+        "jaxpr_primitive": "linear_general",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
+        "onnx": [
+            {
+                "component": "Gemm",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
+            },
+            {
+                "component": "Reshape",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+            },
+        ],
+        "since": "v0.2.0",
+        "testcases": [
+            {
+                "testcase": "linear_general",
+                "callable": nnx.LinearGeneral(
+                    in_features=(8, 32),
+                    out_features=(256,),
+                    axis=(-2, -1),
+                    rngs=nnx.Rngs(0),
+                ),
+                "input_shapes": [("B", 4, 8, 32)],
+            }
+        ],
+    }
