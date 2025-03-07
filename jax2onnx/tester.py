@@ -3,7 +3,7 @@ import numpy as np
 import onnxruntime as ort
 
 
-def test(callable, onnx_model_path, x):
+def allclose(callable, onnx_model_path, x):
 
     # Test ONNX and JAX outputs
     session = ort.InferenceSession(onnx_model_path)
