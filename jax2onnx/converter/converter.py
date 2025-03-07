@@ -6,6 +6,7 @@ import onnx
 from onnx import helper, TensorProto, numpy_helper
 import numpy as np
 from typing import Dict, List, Tuple, Any, Set, Optional
+from jax2onnx.converter.primitives.flax.nnx import linear_general
 
 
 def create_example_args_with_dynamic_batch(input_shapes):
@@ -76,7 +77,7 @@ class JaxprToOnnx:
 
         # example_args = create_example_args_with_dynamic_batch(input_shapes)
 
-        with temporary_linear_general_patch():
+        with temporary_monkey_patches():
             jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         converter = InternalJaxprConverter()
@@ -148,7 +149,9 @@ class InternalJaxprConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {
-            linear_general_p: self._handle_linear_general,  # Add the custom primitive
+            linear_general.get_primitive(): linear_general.get_handler(
+                self
+            ),  # Add the custom primitive
             jax.lax.neg_p: self._handle_neg,
             jax.lax.not_p: self._handle_not,
             jax.lax.add_p: self._handle_add,
@@ -381,70 +384,6 @@ class InternalJaxprConverter:
             name=self._get_unique_name("random_fold_in"),
         )
         self.nodes.append(node)
-
-    def _handle_linear_general(self, node_inputs, node_outputs, params):
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
-        kernel_var = node_inputs[1]
-        bias_var = node_inputs[2]
-
-        input_name = self._get_name(input_var)
-        output_name = self._get_name(output_var)
-        kernel_name = self._get_name(kernel_var)
-        bias_name = self._get_name(bias_var)
-
-        shapes = _shape_linear_general(
-            input_var.aval.shape, kernel_var.aval.shape, params["dimension_numbers"]
-        )
-        output_shape = shapes["output"]
-        new_kernel_shape = shapes["new_kernel"]
-        input_gemm_shape = shapes["input_gemm"]
-        output_gemm_shape = shapes["output_gemm"]
-
-        # Add reshaped kernel weights to ONNX initializers
-        kernel_const = self.name_to_const[kernel_name]
-        weights_name = self._get_constant_name(kernel_const.reshape(new_kernel_shape))
-
-        # First Reshape: flatten input tensor for GEMM operation
-        input_reshape_name = self._get_unique_name("input_reshape")
-        reshape_shape_input = tuple([-1] + list(input_gemm_shape[1:]))
-        input_reshape_node = helper.make_node(
-            "Reshape",
-            inputs=[
-                input_name,
-                self._get_constant_name(np.array(reshape_shape_input, dtype=np.int64)),
-            ],
-            outputs=[input_reshape_name],
-            name=self._get_unique_name("reshape_input"),
-        )
-        self.nodes.append(input_reshape_node)
-
-        self._add_intermediate_from_name(input_reshape_name, input_gemm_shape)
-
-        # GEMM operation for linear transformation
-        gemm_output_name = self._get_unique_name("gemm_output")
-        gemm_node = helper.make_node(
-            "Gemm",
-            inputs=[input_reshape_name, weights_name, bias_name],
-            outputs=[gemm_output_name],
-            name=self._get_unique_name("gemm"),
-        )
-        self.nodes.append(gemm_node)
-
-        self._add_intermediate_from_name(gemm_output_name, output_gemm_shape)
-
-        dynamic_output_shape = [-1] + list(output_shape[1:])
-
-        reshape_output_node = helper.make_node(
-            "Reshape",
-            inputs=[
-                gemm_output_name,
-                self._get_constant_name(np.array(dynamic_output_shape, dtype=np.int64)),
-            ],
-            outputs=[output_name],
-            name=self._get_unique_name("reshape_output"),
-        )
-        self.nodes.append(reshape_output_node)
 
     def _add_intermediate_from_name(self, name, shape, dtype=np.float32):
         """Add an intermediate value to the ONNX model."""
@@ -1570,7 +1509,7 @@ class InternalJaxprConverter:
         self.name_to_const = {}
 
         # Get JAXPR from the function
-        with temporary_linear_general_patch():
+        with temporary_monkey_patches():
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
@@ -1637,50 +1576,6 @@ class InternalJaxprConverter:
 #         return -1
 
 
-def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
-
-    # for now we assume x_shape has x_batch dims on the left
-    # and x_feature_dims dimensions on the right
-
-    ((lhs_contract, rhs_contract), _) = dimension_numbers
-
-    # remove negative indices
-    lhs_contract = [d % len(x_shape) for d in lhs_contract]
-    rhs_contract = [d % len(kernel_shape) for d in rhs_contract]
-
-    x_dims = len(x_shape)
-    x_feature_dims = len(lhs_contract)
-    x_batch_dims = x_dims - x_feature_dims
-
-    # x_dims_size = np.prod(x_shape).item()
-    x_feature_dims_sizes = [x_shape[d] for d in lhs_contract]
-    x_feature_dims_size = np.prod(x_feature_dims_sizes).item()
-    x_batch_dims_sizes = [
-        x_shape[d] for d in range(len(x_shape)) if d not in lhs_contract
-    ]
-
-    x_batch_dims_size = np.prod(x_batch_dims_sizes).item()
-
-    kernel_dims_size = np.prod(kernel_shape).item()
-    kernel_left_dims_size = np.prod([kernel_shape[d] for d in rhs_contract]).item()
-    kernel_right_dims_size = kernel_dims_size // kernel_left_dims_size
-
-    new_kernel_dims_sizes = (kernel_left_dims_size, kernel_right_dims_size)
-
-    input_gemm_shape = (x_batch_dims_size, x_feature_dims_size)
-    output_gemm_shape = (x_batch_dims_size, kernel_right_dims_size)
-    # combine x_feature_dims_sizes and kernel_right_dims_size into the single output_shape tupel
-    output_shape = tuple(x_batch_dims_sizes + [kernel_right_dims_size])
-
-    return {
-        "input": x_shape,
-        "input_gemm": input_gemm_shape,
-        "output_gemm": output_gemm_shape,
-        "output": output_shape,
-        "new_kernel": new_kernel_dims_sizes,
-    }
-
-
 def gamma(key, alpha):
     d = alpha - 1 / 3
     c = 1 / jnp.sqrt(9 * d)
@@ -1718,40 +1613,16 @@ from jax import core
 from jax.interpreters import ad, xla
 
 
-def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
-    shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
-    return core.ShapedArray(shapes["output"], x.dtype)
-
-
-linear_general_p = Primitive("linear_general")
-linear_general_p.multiple_results = False  # Our operation has one output
-linear_general_p.def_abstract_eval(linear_general_abstract_eval)
-
-
 ## From here down a temporary monkey patch
 import contextlib
 
 
 @contextlib.contextmanager
-def temporary_linear_general_patch():
+def temporary_monkey_patches():
     """Temporarily patches nnx.LinearGeneral.__call__ for ONNX export."""
     original_call = nnx.LinearGeneral.__call__  # Store the original method
 
-    def linear_general(x, kernel, bias, dimension_numbers):
-        return linear_general_p.bind(
-            x, kernel, bias, dimension_numbers=dimension_numbers
-        )
-
-    def patched_linear_general_call(self, x):
-        contracting_dims = (self.axis, tuple(range(len(self.in_features))))
-        batch_dims = ((), ())
-        dimension_numbers = (contracting_dims, batch_dims)
-        # Use the custom linear_general function
-        return linear_general(
-            x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
-        )
-
-    nnx.LinearGeneral.__call__ = patched_linear_general_call  # Apply the patch
+    nnx.LinearGeneral.__call__ = linear_general.get_monkey_patched()  # Apply the patch
 
     try:
         yield  # This is where the code using the patched function will run
