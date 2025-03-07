@@ -20,7 +20,7 @@ class Plugin(Protocol[T]):
         """
 
     @staticmethod
-    def get_metadata() -> List[dict]:
+    def get_metadata() -> dict:
         """
-        Return a list of metadata dictionaries for this plugin.
+        Return the metadata dictionaries for this plugin.
         """

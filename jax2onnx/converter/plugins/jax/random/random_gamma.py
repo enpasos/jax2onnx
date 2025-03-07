@@ -89,3 +89,13 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             s.add_node(id_node)
 
     return _handle_random_gamma
+
+
+def get_metadata() -> dict:
+    """
+    Return metadata describing the plugin.
+
+    This could include documentation links, test cases, version information, etc.
+    For now, we return an empty list.
+    """
+    return {}

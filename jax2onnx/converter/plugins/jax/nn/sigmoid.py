@@ -25,3 +25,13 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_node(node)
 
     return _handle_sigmoid
+
+
+def get_metadata() -> dict:
+    """
+    Return metadata describing the plugin.
+
+    This could include documentation links, test cases, version information, etc.
+    For now, we return an empty list.
+    """
+    return {}
