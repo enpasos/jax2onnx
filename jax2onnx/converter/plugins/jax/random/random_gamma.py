@@ -92,10 +92,18 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """
-    Return metadata describing the plugin.
+    """Return metadata describing this plugin and its test cases."""
 
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return {}
+    return {
+        "jaxpr_primitive": "random_gamma",
+        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.random.gamma.html",
+        "onnx": [],
+        "since": "v0.2.0",
+        "testcases": [
+            # {
+            #     "testcase": "random_gamma_test1",
+            #     "callable": lambda alpha: jax.random.gamma(jax.random.PRNGKey(0), alpha),
+            #     "input_shapes": [(3,)],
+            # }
+        ],
+    }
