@@ -3,64 +3,13 @@
 import jax
 import jax.numpy as jnp
 import onnx
-from onnx import helper, TensorProto
+from onnx import helper
 import numpy as np
 from typing import Dict, Any
 from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
-from jax2onnx.converter.plugins.jax.random import random_gamma
 from jax2onnx.converter.plugins.flax.nnx import linear_general
-from jax2onnx.converter.plugins.jax.lax import (
-    neg,
-    add,
-    mul,
-    sub,
-    div,
-    not_,
-    eq,
-    ne,
-    lt,
-    gt,
-    max,
-    min,
-    select_n,
-    xor,
-    dot_general,
-    reduce_sum,
-    reduce_max,
-    reduce_min,
-    and_,
-    or_,
-    gather,
-    scatter_add,
-    argmax,
-    argmin,
-    square,
-    integer_pow,
-    sqrt,
-    exp,
-    log,
-    tanh,
-    iota,
-    reshape,
-    conv,
-    sort,
-    stop_gradient,
-    transpose,
-    squeeze,
-    broadcast_in_dim,
-    slice,
-    concatenate,
-    convert_element_type,
-    device_put,
-)
-
-# from jax2onnx.converter.primitives.jax.nn import (
-#     sigmoid
-# )
 import jax.random
-
 import contextlib
-from jax2onnx.converter.plugins.jax.nn import sigmoid
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 
@@ -106,7 +55,7 @@ class JaxprToOnnx:
         # example_args = create_example_args_with_dynamic_batch(input_shapes)
 
         with temporary_monkey_patches():
-            jaxpr = jax.make_jaxpr(fn)(*example_args)
+            jax.make_jaxpr(fn)(*example_args)
 
         converter = Jaxpr2OnnxConverter()
         converter.trace_jaxpr(fn, example_args)

@@ -52,16 +52,20 @@ def get_metadata() -> dict:
                 "doc": "https://onnx.ai/onnx/operators/onnx__ArgMax.html",
             }
         ],
-        "since": "v0.1.0",
+        "since": "v0.2.0",
         "testcases": [
             {
                 "testcase": "argmax_test1",
-                "callable": lambda x: jax.lax.argmax(x, axis=0),
+                "callable": lambda x: jax.lax.argmax(
+                    x, axis=0, index_dtype=jax.numpy.int32
+                ),
                 "input_shapes": [(3, 3)],
             },
             {
                 "testcase": "argmax_test2",
-                "callable": lambda x: jax.lax.argmax(x, axis=1),
+                "callable": lambda x: jax.lax.argmax(
+                    x, axis=1, index_dtype=jax.numpy.int32
+                ),
                 "input_shapes": [(3, 3)],
             },
         ],
