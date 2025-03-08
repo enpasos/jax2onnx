@@ -8,6 +8,7 @@ import numpy as np
 from typing import Dict, Any
 from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
 from jax2onnx.converter.plugins.flax.nnx import linear_general
+from jax2onnx.converter.plugins.flax.nnx import sigmoid
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -128,55 +129,14 @@ class Jaxpr2OnnxConverter:
         for primitive, plugin in get_all_plugins().items():
             handler = plugin.get_handler(self)
             self.primitive_handlers[primitive] = handler
-        # self.primitive_handlers = {
-        #     linear_general.get_primitive(): linear_general.get_handler(self),
-        #     add.get_primitive(): add.get_handler(self),
-        #     mul.get_primitive(): mul.get_handler(self),
-        #     neg.get_primitive(): neg.get_handler(self),
-        #     sub.get_primitive(): sub.get_handler(self),
-        #     div.get_primitive(): div.get_handler(self),
-        #     not_.get_primitive(): not_.get_handler(self),
-        #     eq.get_primitive(): eq.get_handler(self),
-        #     ne.get_primitive(): ne.get_handler(self),
-        #     lt.get_primitive(): lt.get_handler(self),
-        #     gt.get_primitive(): gt.get_handler(self),
-        #     max.get_primitive(): max.get_handler(self),
-        #     min.get_primitive(): min.get_handler(self),
-        #     select_n.get_primitive(): select_n.get_handler(self),
-        #     xor.get_primitive(): xor.get_handler(self),
-        #     dot_general.get_primitive(): dot_general.get_handler(self),
-        #     reduce_sum.get_primitive(): reduce_sum.get_handler(self),
-        #     reduce_max.get_primitive(): reduce_max.get_handler(self),
-        #     reduce_min.get_primitive(): reduce_min.get_handler(self),
-        #     and_.get_primitive(): and_.get_handler(self),
-        #     or_.get_primitive(): or_.get_handler(self),
-        #     gather.get_primitive(): gather.get_handler(self),
-        #     scatter_add.get_primitive(): scatter_add.get_handler(self),
-        #     argmax.get_primitive(): argmax.get_handler(self),
-        #     argmin.get_primitive(): argmin.get_handler(self),
-        #     square.get_primitive(): square.get_handler(self),
-        #     integer_pow.get_primitive(): integer_pow.get_handler(self),
-        #     sqrt.get_primitive(): sqrt.get_handler(self),
-        #     exp.get_primitive(): exp.get_handler(self),
-        #     log.get_primitive(): log.get_handler(self),
-        #     tanh.get_primitive(): tanh.get_handler(self),
-        #     #  sigmoid.get_primitive(): sigmoid.get_handler(self),
-        #     iota.get_primitive(): iota.get_handler(self),
-        #     reshape.get_primitive(): reshape.get_handler(self),
-        #     conv.get_primitive(): conv.get_handler(self),
-        #     sort.get_primitive(): sort.get_handler(self),
-        #     stop_gradient.get_primitive(): stop_gradient.get_handler(self),
-        #     transpose.get_primitive(): transpose.get_handler(self),
-        #     squeeze.get_primitive(): squeeze.get_handler(self),
-        #     broadcast_in_dim.get_primitive(): broadcast_in_dim.get_handler(self),
-        #     slice.get_primitive(): slice.get_handler(self),
-        #     concatenate.get_primitive(): concatenate.get_handler(self),
-        #     convert_element_type.get_primitive(): convert_element_type.get_handler(
-        #         self
-        #     ),
-        #     device_put.get_primitive(): device_put.get_handler(self),
-        #     random_gamma.get_primitive(): random_gamma.get_handler(self),
-        # }
+        self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
+        self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
+        self.primitive_handlers[jax._src.prng.random_split_p] = (
+            self._handle_random_split
+        )
+        self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
+            self._handle_random_unwrap
+        )
 
     def add_node(self, node):
         self.builder.add_node(node)
@@ -220,6 +180,68 @@ class Jaxpr2OnnxConverter:
         onnx.save_model(onnx_model, output_path)
         return output_path
 
+    def _handle_random_seed(self, node_inputs, node_outputs, params):
+        input_names = [self._get_name(inp) for inp in node_inputs]
+        output_name = self._get_var_name(node_outputs[0])
+
+        node = helper.make_node(
+            "Identity",
+            inputs=input_names,
+            outputs=[output_name],
+            name=self._get_unique_name("random_seed"),
+        )
+        self.nodes.append(node)
+
+    def _handle_random_wrap(self, node_inputs, node_outputs, params):
+        input_names = [self._get_name(inp) for inp in node_inputs]
+        output_name = self._get_var_name(node_outputs[0])
+
+        node = helper.make_node(
+            "Identity",
+            inputs=input_names,
+            outputs=[output_name],
+            name=self._get_unique_name("random_wrap"),
+        )
+        self.nodes.append(node)
+
+    def _handle_random_split(self, node_inputs, node_outputs, params):
+        input_name = self._get_name(node_inputs[0])
+        intermediate = self._get_unique_name("random_split:x")
+        output_name = self._get_var_name(node_outputs[0])
+
+        reshape = self._get_constant_name(np.array([1, 2], dtype=np.int64))
+
+        num = params["shape"][0]
+        repeat = self._get_constant_name(np.array([num, 1], dtype=np.int64))
+
+        node_1 = helper.make_node(
+            "Reshape",
+            inputs=[input_name, reshape],
+            outputs=[intermediate],
+            name=self._get_unique_name("random_split:reshape"),
+        )
+        self.nodes.append(node_1)
+
+        node_2 = helper.make_node(
+            "Tile",
+            inputs=[intermediate, repeat],
+            outputs=[output_name],
+            name=self._get_unique_name("random_split:tile"),
+        )
+        self.nodes.append(node_2)
+
+    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
+        input_names = [self._get_name(inp) for inp in node_inputs]
+        output_name = self._get_var_name(node_outputs[0])
+
+        node = helper.make_node(
+            "Identity",
+            inputs=input_names,
+            outputs=[output_name],
+            name=self._get_unique_name("random_wrap"),
+        )
+        self.nodes.append(node)
+
     def _handle_random_uniform(self, node_inputs, node_outputs, params):
         output_name = self.get_var_name(node_outputs[0])
         shape = node_outputs[0].aval.shape
@@ -247,76 +269,6 @@ class Jaxpr2OnnxConverter:
             shape=shape,
         )
         self.builder.add_node(node)
-
-    def _handle_random_gamma(self, node_inputs, node_outputs, params):
-        """
-        Handle JAX gamma primitive
-
-        between Marsaglia-Tang and Cheng, we decided on the former due to the low rejection rate
-        https://kth.diva-portal.org/smash/get/diva2:1935824/FULLTEXT02.pdf
-
-        d = α - 1/3
-        c = 1/sqrt(9d)
-
-        repeat
-            sample Z ~ Normal(0,1)
-            V = (1 + cZ)^3
-            sample U ~ Uniform(0,1)
-            X = dV
-            if V > 0 and log(U) < 1/2 Z^2 + d - dV + dlog(V) then
-                accept X
-            endif
-
-        until X is accepted
-        return X
-        """
-        # Create a jaxpr and run JaxprToOnnx to build the CG
-
-        shape = node_inputs[1].aval.shape
-        key = jax.random.key(0)
-        alpha = jnp.zeros(shape)
-
-        # TODO: Case 0 < alpha <= 1/3 not handled
-        subconverter = JaxprToOnnx(self.name_counter + 1)
-        if "log_space" in params and params["log_space"]:
-            subconverter.trace_jaxpr(gamma_log, (key, alpha))
-        else:
-            subconverter.trace_jaxpr(gamma, (key, alpha))
-
-        # connect inputs/outputs to outer jaxpr
-        nodes = subconverter.nodes
-        initializers = subconverter.initializers
-        inputs = subconverter.inputs
-        outputs = subconverter.outputs
-
-        assert len(node_inputs) == len(inputs)
-        assert len(node_outputs) == len(outputs)
-
-        for o_invar, i_invar in zip(node_inputs, inputs):
-            o_invar_name = self.get_name(o_invar)
-            i_invar_name = i_invar.name
-            node = self.builder.create_node(
-                "Identity",
-                [o_invar_name],
-                [i_invar_name],
-                name=self.get_unique_name("gamma_input"),
-            )
-            self.builder.add_node(node)
-
-        self.builder.add_nodes(nodes)
-        self.builder.add_initializers(initializers)
-        self.name_counter += subconverter.name_counter - subconverter._name_counter_init
-
-        for o_outvar, i_outvar in zip(node_outputs, outputs):
-            o_outvar_name = self.get_name(o_outvar)
-            i_outvar_name = i_outvar.name
-            node = self.builder.create_node(
-                "Identity",
-                [i_outvar_name],
-                [o_outvar_name],
-                name=self.get_unique_name("gamma_output"),
-            )
-            self.builder.add_node(node)
 
     def _handle_convert_element_type(self, node_inputs, node_outputs, params):
         input_names = [self.get_name(inp) for inp in node_inputs]
@@ -537,5 +489,5 @@ def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
         # Enter the monkey patch from linear_general
         stack.enter_context(linear_general.temporary_patch())
-
+        stack.enter_context(sigmoid.temporary_patch())
         yield
