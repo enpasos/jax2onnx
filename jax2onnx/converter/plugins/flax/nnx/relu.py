@@ -1,5 +1,3 @@
-# file: jax2onnx/converter/primitives/flax/nnx/linear_general.py
-
 from jax import core, numpy as jnp
 from jax.core import Primitive
 from flax import nnx
@@ -10,74 +8,73 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-
-sigmoid_p = Primitive("sigmoid")
+relu_p = Primitive("relu")
 
 
 def get_primitive():
-    return sigmoid_p
+    return relu_p
 
 
 def _get_monkey_patch():
-    def sigmoid(x):
-        def sigmoid_abstract_eval(x):
+    def relu(x):
+        def relu_abstract_eval(x):
             return core.ShapedArray(x.shape, x.dtype)
 
-        sigmoid_p.multiple_results = False
-        sigmoid_p.def_abstract_eval(sigmoid_abstract_eval)
-        return sigmoid_p.bind(x)
+        relu_p.multiple_results = False
+        relu_p.def_abstract_eval(relu_abstract_eval)
+        return relu_p.bind(x)
 
-    return sigmoid
+    return relu
 
 
 @contextlib.contextmanager
 def temporary_patch():
     # Save the original function
-    original_fn = nnx.sigmoid
+    original_fn = nnx.relu
     # Patch the function by replacing it in the module namespace.
-    nnx.sigmoid = _get_monkey_patch()
+    nnx.relu = _get_monkey_patch()
     try:
         yield
     finally:
         # Restore the original function
-        nnx.sigmoid = original_fn
+        nnx.relu = original_fn
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
-    def handle_sigmoid(node_inputs, node_outputs, params):
+    def handle_relu(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
 
-        sigmoid_node = helper.make_node(
-            "Sigmoid",
+        relu_node = helper.make_node(
+            "Relu",
             inputs=[input_name],
             outputs=[output_name],
-            name=s.get_unique_name("sigmoid"),
+            name=s.get_unique_name("relu"),
         )
-        s.add_node(sigmoid_node)
+        s.add_node(relu_node)
 
-    return handle_sigmoid
+    return handle_relu
 
 
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "sigmoid",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nnx.sigmoid.html",
+        "jaxpr_primitive": "relu",
+        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.relu.html",
         "onnx": [
             {
-                "component": "Sigmoid",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
+                "component": "Relu",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Relu.html",
             }
         ],
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "sigmoid",
-                "callable": lambda x: nnx.sigmoid(x),
+                "testcase": "relu",
+                "callable": lambda x: nnx.relu(x),
                 "input_shapes": [(3,)],
             }
         ],

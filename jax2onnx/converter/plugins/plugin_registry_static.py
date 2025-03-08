@@ -1,7 +1,9 @@
 # This file is auto-generated. Do not modify manually.
 plugin_registry = {
     "linear_general": "jax2onnx.converter.plugins.flax.nnx.linear_general",
-    "sigmoid": "jax2onnx.converter.plugins.flax.nnx.sigmoid",
+    "relu": "jax2onnx.converter.plugins.flax.nnx.relu",
+    "sigmoid": "jax2onnx.converter.plugins.flax.nnx.tanh",
+    "softmax": "jax2onnx.converter.plugins.flax.nnx.softmax",
     "add": "jax2onnx.converter.plugins.jax.lax.add",
     "and": "jax2onnx.converter.plugins.jax.lax.and_",
     "argmax": "jax2onnx.converter.plugins.jax.lax.argmax",

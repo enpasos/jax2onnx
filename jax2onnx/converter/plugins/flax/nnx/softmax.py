@@ -1,5 +1,3 @@
-# file: jax2onnx/converter/primitives/flax/nnx/linear_general.py
-
 from jax import core, numpy as jnp
 from jax.core import Primitive
 from flax import nnx
@@ -10,74 +8,78 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-
-sigmoid_p = Primitive("sigmoid")
+softmax_p = Primitive("softmax")
 
 
 def get_primitive():
-    return sigmoid_p
+    return softmax_p
 
 
 def _get_monkey_patch():
-    def sigmoid(x):
-        def sigmoid_abstract_eval(x):
+    def softmax(x, axis=-1):
+        def softmax_abstract_eval(x, axis=-1):
+            # The output shape is the same as the input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        sigmoid_p.multiple_results = False
-        sigmoid_p.def_abstract_eval(sigmoid_abstract_eval)
-        return sigmoid_p.bind(x)
+        softmax_p.multiple_results = False
+        softmax_p.def_abstract_eval(softmax_abstract_eval)
+        return softmax_p.bind(x, axis=axis)
 
-    return sigmoid
+    return softmax
 
 
 @contextlib.contextmanager
 def temporary_patch():
     # Save the original function
-    original_fn = nnx.sigmoid
+    original_fn = nnx.softmax
     # Patch the function by replacing it in the module namespace.
-    nnx.sigmoid = _get_monkey_patch()
+    nnx.softmax = _get_monkey_patch()
     try:
         yield
     finally:
         # Restore the original function
-        nnx.sigmoid = original_fn
+        nnx.softmax = original_fn
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
-    def handle_sigmoid(node_inputs, node_outputs, params):
+    def handle_softmax(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
 
-        sigmoid_node = helper.make_node(
-            "Sigmoid",
+        # Retrieve the axis parameter (defaulting to -1 if not provided)
+        axis = params.get("axis", -1)
+
+        softmax_node = helper.make_node(
+            "Softmax",
             inputs=[input_name],
             outputs=[output_name],
-            name=s.get_unique_name("sigmoid"),
+            name=s.get_unique_name("softmax"),
+            axis=axis,
         )
-        s.add_node(sigmoid_node)
+        s.add_node(softmax_node)
 
-    return handle_sigmoid
+    return handle_softmax
 
 
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "sigmoid",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nnx.sigmoid.html",
+        "jaxpr_primitive": "softmax",
+        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
         "onnx": [
             {
-                "component": "Sigmoid",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
+                "component": "Softmax",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
             }
         ],
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "sigmoid",
-                "callable": lambda x: nnx.sigmoid(x),
+                "testcase": "softmax",
+                "callable": lambda x: nnx.softmax(x),
                 "input_shapes": [(3,)],
             }
         ],
