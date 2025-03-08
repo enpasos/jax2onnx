@@ -1,7 +1,6 @@
 # jax2onnx/converter/converter.py
 
 import jax
-import jax.numpy as jnp
 import onnx
 from onnx import helper
 import numpy as np
@@ -487,7 +486,10 @@ class Jaxpr2OnnxConverter:
 @contextlib.contextmanager
 def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
-        # Enter the monkey patch from linear_general
-        stack.enter_context(linear_general.temporary_patch())
-        stack.enter_context(sigmoid.temporary_patch())
+        # Iterate over all registered plugins.
+        for plugin in get_all_plugins().values():
+            # Check if the plugin module defines a temporary_patch.
+            temporary_patch = getattr(plugin, "temporary_patch", None)
+            if callable(temporary_patch):
+                stack.enter_context(temporary_patch())
         yield
