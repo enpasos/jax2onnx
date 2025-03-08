@@ -1,9 +1,14 @@
 # This file is auto-generated. Do not modify manually.
 plugin_registry = {
+    "elu": "jax2onnx.converter.plugins.flax.nnx.elu",
+    "gelu": "jax2onnx.converter.plugins.flax.nnx.gelu",
+    "leaky_relu": "jax2onnx.converter.plugins.flax.nnx.leaky_relu",
     "linear_general": "jax2onnx.converter.plugins.flax.nnx.linear_general",
+    "log_softmax": "jax2onnx.converter.plugins.flax.nnx.log_softmax",
     "relu": "jax2onnx.converter.plugins.flax.nnx.relu",
     "sigmoid": "jax2onnx.converter.plugins.flax.nnx.tanh",
     "softmax": "jax2onnx.converter.plugins.flax.nnx.softmax",
+    "softplus": "jax2onnx.converter.plugins.flax.nnx.softplus",
     "add": "jax2onnx.converter.plugins.jax.lax.add",
     "and": "jax2onnx.converter.plugins.jax.lax.and_",
     "argmax": "jax2onnx.converter.plugins.jax.lax.argmax",
