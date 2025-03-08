@@ -28,8 +28,14 @@ class OnnxBuilder:
         self.name_counter += 1
         return name
 
-    def get_constant_name(self, val: Any) -> str:
+    def get_constant_name(self, val):
         name = self.get_unique_name("const")
+        # Unwrap a JAX Literal to get its Python value.
+        from jax.core import Literal
+
+        if isinstance(val, Literal):
+            val = val.val
+        # Continue with conversion, for example converting to numpy if needed:
         np_val = np.array(val)
         if np_val.dtype == np.float64:
             np_val = np_val.astype(np.float32)
