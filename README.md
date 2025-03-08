@@ -43,7 +43,7 @@ Components can be easily added as plugins, including their test cases, which are
 
 This library follows a **test-driven and demand-driven** approach, giving you **full control** over how JAX/Flax components are mapped to ONNX—**no hidden magic, no black-box abstraction**. While it may not cover every use case out of the box, you can **extend it by adding your own plugins** and contribute them back to the project. 🚀
 
-### **Supported JAX/ONNX Components (representating the state of v0.1.0)**
+### **Supported JAX/ONNX Components (representing the state of v0.1.0)**
 
 
  
