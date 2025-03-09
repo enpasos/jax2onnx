@@ -137,7 +137,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(input_reshape_node)
 
-        s.add_intermediate_from_name(input_reshape_name, input_gemm_shape)
+        s.add_shape_info(input_reshape_name, input_gemm_shape)
 
         # GEMM operation for linear transformation
         gemm_output_name = s.get_unique_name("gemm_output")
@@ -149,7 +149,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(gemm_node)
 
-        s.add_intermediate_from_name(gemm_output_name, output_gemm_shape)
+        s.add_shape_info(gemm_output_name, output_gemm_shape)
 
         dynamic_output_shape = [-1] + list(output_shape[1:])
 

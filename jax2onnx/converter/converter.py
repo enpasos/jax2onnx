@@ -161,7 +161,7 @@ class Jaxpr2OnnxConverter:
         self.builder.add_output(name, shape, dtype)
         return name
 
-    def add_intermediate_from_name(self, name, shape, dtype=np.float32):
+    def add_shape_info(self, name, shape, dtype=np.float32):
         self.builder.add_value_info(name, shape, dtype)
         return name
 
