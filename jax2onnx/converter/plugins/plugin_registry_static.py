@@ -5,6 +5,7 @@ plugin_registry = {
     "conv": "jax2onnx.converter.plugins.flax.nnx.conv",
     "elu": "jax2onnx.converter.plugins.flax.nnx.elu",
     "gelu": "jax2onnx.converter.plugins.flax.nnx.gelu",
+    "layer_norm": "jax2onnx.converter.plugins.flax.nnx.layer_norm",
     "leaky_relu": "jax2onnx.converter.plugins.flax.nnx.leaky_relu",
     "linear_general": "jax2onnx.converter.plugins.flax.nnx.linear_general",
     "log_softmax": "jax2onnx.converter.plugins.flax.nnx.log_softmax",
