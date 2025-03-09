@@ -55,5 +55,7 @@ plugin_registry = {
     "tanh": "jax2onnx.converter.plugins.jax.lax.tanh",
     "transpose": "jax2onnx.converter.plugins.jax.lax.transpose",
     "xor": "jax2onnx.converter.plugins.jax.lax.xor",
+    "jnp.add": "jax2onnx.converter.plugins.jax.numpy.add",
+    "jnp.concat": "jax2onnx.converter.plugins.jax.numpy.concat",
     "random_gamma": "jax2onnx.converter.plugins.jax.random.random_gamma",
 }
