@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/plugins/flax/nnx/max_pool.py
+# file: jax2onnx/converter/plugins/flax/nnx/avg_pool.py
 
 import numpy as np
 from jax import core, numpy as jnp
@@ -11,19 +11,19 @@ from typing import TYPE_CHECKING, Tuple, Sequence
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-max_pool_p = Primitive("max_pool")
+avg_pool_p = Primitive("avg_pool")
 
 
 def get_primitive():
-    return max_pool_p
+    return avg_pool_p
 
 
-def _compute_max_pool_output_shape(
+def _compute_avg_pool_output_shape(
     x_shape: Tuple[int, ...],
     window_shape: Sequence[int],
     strides: Sequence[int],
     padding: str,
-    input_format: str = "NHWC",  # Add input format parameter
+    input_format: str = "NHWC",
 ) -> Tuple[int, ...]:
     # Compute the output shape for the spatial dimensions.
     if input_format == "NHWC":
@@ -49,53 +49,48 @@ def _compute_max_pool_output_shape(
 
     if input_format == "NHWC":
         return (batch_dim,) + tuple(out_dims) + (channel_dim,)
-    else:  # input_format == "NCHW":
+    else:  # input_format == "NCHW"
         return (batch_dim, channel_dim) + tuple(out_dims)
 
 
 def _get_monkey_patch():
-    def max_pool(x, window_shape, strides, padding):
-        def max_pool_abstract_eval(x, window_shape, strides, padding):
-            out_shape = _compute_max_pool_output_shape(
-                x.shape,
-                window_shape,
-                strides,
-                padding,
-                input_format="NHWC",  # Input is NHWC
+    def avg_pool(x, window_shape, strides, padding):
+        def avg_pool_abstract_eval(x, window_shape, strides, padding):
+            out_shape = _compute_avg_pool_output_shape(
+                x.shape, window_shape, strides, padding, input_format="NHWC"
             )
             return core.ShapedArray(out_shape, x.dtype)
 
-        max_pool_p.multiple_results = False
-        max_pool_p.def_abstract_eval(max_pool_abstract_eval)
-        return max_pool_p.bind(
+        avg_pool_p.multiple_results = False
+        avg_pool_p.def_abstract_eval(avg_pool_abstract_eval)
+        return avg_pool_p.bind(
             x, window_shape=window_shape, strides=strides, padding=padding
         )
 
-    return max_pool
+    return avg_pool
 
 
 @contextlib.contextmanager
 def temporary_patch():
-    original_fn = nnx.max_pool
-    nnx.max_pool = _get_monkey_patch()
+    original_fn = nnx.avg_pool
+    nnx.avg_pool = _get_monkey_patch()
     try:
         yield
     finally:
-        nnx.max_pool = original_fn
+        nnx.avg_pool = original_fn
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
-    def handle_max_pool(node_inputs, node_outputs, params):
+    def handle_avg_pool(node_inputs, node_outputs, params):
         # Expect node_inputs: [input]
         input_var = node_inputs[0]
         input_name = s.get_name(input_var)
         final_output_name = s.get_name(node_outputs[0])
 
-        window_shape = params.get("window_shape")  # e.g. (2, 2)
-        strides = params.get("strides")  # e.g. (2, 2)
-        padding = params.get("padding")  # e.g. "VALID"
+        window_shape = params.get("window_shape")
+        strides = params.get("strides")
+        padding = params.get("padding")
 
-        # The JAX input is in NHWC, e.g. (1, 32, 32, 3)
         jax_input_shape = input_var.aval.shape
 
         # === Pre-Transpose: NHWC -> NCHW ===
@@ -108,7 +103,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             perm=[0, 3, 1, 2],  # NHWC -> NCHW
         )
         s.add_node(pre_transpose_node)
-        # Compute and record the pre-transposed shape: (B, C, H, W)
         pre_transposed_shape = (
             jax_input_shape[0],
             jax_input_shape[3],
@@ -117,45 +111,39 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_shape_info(pre_transpose_name, pre_transposed_shape)
 
-        # === MaxPool Node in ONNX (operates in NCHW) ===
-        pool_out_name = s.get_unique_name("max_pool_output")
+        # === AveragePool Node in ONNX (operates in NCHW) ===
+        pool_out_name = s.get_unique_name("avg_pool_output")
 
-        # Handle padding.  ONNX MaxPool 'pads' attribute takes [x1_begin, x2_begin, ..., x1_end, x2_end,...]
         if padding.upper() == "SAME":
-            # Calculate pads for SAME padding.  This simulates the JAX behavior.
             pads = []
             for i in range(len(window_shape)):
-                in_dim = pre_transposed_shape[2 + i]  # NCHW
-                out_dim = -(-in_dim // strides[i])  #  ceil(in_dim / strides[i])
+                in_dim = pre_transposed_shape[2 + i]
+                out_dim = -(-in_dim // strides[i])
                 total_pad = max(
                     0, (out_dim - 1) * strides[i] + window_shape[i] - in_dim
                 )
                 pad_before = total_pad // 2
                 pad_after = total_pad - pad_before
                 pads.extend([pad_before, pad_after])
-        else:  # padding == "VALID" or anything else (already checked in _compute_max_pool_output_shape)
-            pads = [0] * (2 * len(window_shape))  # [0, 0, 0, 0] for 2D
+        else:
+            pads = [0] * (2 * len(window_shape))
 
-        max_pool_node = helper.make_node(
-            "MaxPool",
+        avg_pool_node = helper.make_node(
+            "AveragePool",  # Use AveragePool instead of MaxPool
             inputs=[pre_transpose_name],
             outputs=[pool_out_name],
-            name=s.get_unique_name("max_pool"),
+            name=s.get_unique_name("avg_pool"),
             kernel_shape=window_shape,
             strides=strides,
-            pads=pads,  # Explicitly set pads
+            pads=pads,
+            count_include_pad=0,  #  Do not include padding in the averaging calculation
         )
-        s.add_node(max_pool_node)
+        s.add_node(avg_pool_node)
 
-        # Compute the ONNX output shape in NCHW.
-        maxpool_output_shape_nchw = _compute_max_pool_output_shape(
-            pre_transposed_shape,
-            window_shape,
-            strides,
-            padding,
-            input_format="NCHW",  # ONNX is NCHW
+        avgpool_output_shape_nchw = _compute_avg_pool_output_shape(
+            pre_transposed_shape, window_shape, strides, padding, input_format="NCHW"
         )
-        s.add_shape_info(pool_out_name, maxpool_output_shape_nchw)
+        s.add_shape_info(pool_out_name, avgpool_output_shape_nchw)
 
         # === Post-Transpose: NCHW -> NHWC ===
         post_transpose_name = s.get_unique_name("post_transpose")
@@ -168,27 +156,22 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(post_transpose_node)
 
-        # Final output shape (NHWC) - Use the common shape calculation.
-        final_output_shape = _compute_max_pool_output_shape(
-            jax_input_shape,
-            window_shape,
-            strides,
-            padding,
-            input_format="NHWC",  # Output is NHWC
+        final_output_shape = _compute_avg_pool_output_shape(
+            jax_input_shape, window_shape, strides, padding, input_format="NHWC"
         )
         s.add_shape_info(final_output_name, final_output_shape)
 
-    return handle_max_pool
+    return handle_avg_pool
 
 
 def get_metadata() -> dict:
     return {
-        "jaxpr_primitive": "max_pool",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.max_pool.html",
+        "jaxpr_primitive": "avg_pool",
+        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.avg_pool.html",  # Update doc link
         "onnx": [
             {
-                "component": "MaxPool",
-                "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
+                "component": "AveragePool",  # Use AveragePool
+                "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",  # Update doc link
             },
             {
                 "component": "Transpose",
@@ -198,15 +181,15 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "max_pool",
-                "callable": lambda x: nnx.max_pool(
+                "testcase": "avg_pool",
+                "callable": lambda x: nnx.avg_pool(
                     x, window_shape=(2, 2), strides=(2, 2), padding="VALID"
                 ),
                 "input_shapes": [(1, 32, 32, 3)],
             },
             {
-                "testcase": "max_pool_same_padding",
-                "callable": lambda x: nnx.max_pool(
+                "testcase": "avg_pool_same_padding",
+                "callable": lambda x: nnx.avg_pool(
                     x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
                 ),
                 "input_shapes": [(1, 32, 32, 3)],

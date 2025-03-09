@@ -112,7 +112,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         final_output_name = s.get_name(node_outputs[0])
         bias_name = s.get_name(bias_var) if bias_var is not None else None
 
-        # Pre-transpose: Convert input from NHWC -> NCHW (perm: [0, 3, 1, 2])
+        # Pre-Transpose: Convert input from NHWC -> NCHW.
         pre_transpose_name = s.get_unique_name("pre_transpose")
         pre_transpose_node = helper.make_node(
             "Transpose",
@@ -122,11 +122,16 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             perm=[0, 3, 1, 2],
         )
         s.add_node(pre_transpose_node)
+        # Compute the pre-transposed shape.
+        jax_input_shape = input_var.aval.shape  # e.g. (B, H, W, C)
+        pre_transposed_shape = tuple(
+            jax_input_shape[i] for i in [0, 3, 1, 2]
+        )  # (B, C, H, W)
+        s.add_shape_info(pre_transpose_name, pre_transposed_shape)
 
         # Convert kernel constant: from HWIO to OIHW.
         kernel_name = s.get_name(kernel_var)
         kernel_const = s.name_to_const[kernel_name]
-        # Transpose: from (H, W, I, O) to (O, I, H, W)
         transposed_kernel = np.transpose(kernel_const, [3, 2, 0, 1])
         weights_name = s.get_constant_name(transposed_kernel)
 
@@ -145,7 +150,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 name=s.get_unique_name("conv"),
                 strides=strides,
                 dilations=dilations,
-                # For VALID padding, pads are zeros; for SAME, compute pads.
                 pads=[0, 0, 0, 0] if padding.upper() == "VALID" else None,
             )
         else:
@@ -174,8 +178,16 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 pads.extend([pad_begin, pad_end])
             conv_node.attribute.append(helper.make_attribute("pads", pads))
         s.add_node(conv_node)
+        # Compute the conv node’s intermediate output shape (in NCHW):
+        # First, get the expected final output shape in JAX (NHWC) using your helper:
+        jax_output_shape = _compute_conv_output_shape(
+            jax_input_shape, kernel_const.shape, strides, padding
+        )
+        # Then, compute the intermediate shape by transposing NHWC -> NCHW.
+        conv_output_shape_NCHW = tuple(jax_output_shape[i] for i in [0, 3, 1, 2])
+        s.add_shape_info(conv_out_name, conv_output_shape_NCHW)
 
-        # Post-transpose: Convert Conv output from NCHW -> NHWC (perm: [0, 2, 3, 1])
+        # Post-Transpose: Convert Conv output from NCHW -> NHWC.
         post_transpose_node = helper.make_node(
             "Transpose",
             inputs=[conv_out_name],
@@ -184,6 +196,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             perm=[0, 2, 3, 1],
         )
         s.add_node(post_transpose_node)
+        # The final output shape should match the JAX output shape.
+        s.add_shape_info(final_output_name, jax_output_shape)
 
     return handle_conv
 
@@ -205,7 +219,7 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "conv_concrete",
+                "testcase": "conv",
                 # Note: Supply both in_features and out_features.
                 "callable": nnx.Conv(
                     in_features=3,
