@@ -3,6 +3,7 @@ plugin_registry = {
     "avg_pool": "jax2onnx.converter.plugins.flax.nnx.avg_pool",
     "batch_norm": "jax2onnx.converter.plugins.flax.nnx.batch_norm",
     "conv": "jax2onnx.converter.plugins.flax.nnx.conv",
+    "dropout": "jax2onnx.converter.plugins.flax.nnx.dropout",
     "elu": "jax2onnx.converter.plugins.flax.nnx.elu",
     "gelu": "jax2onnx.converter.plugins.flax.nnx.gelu",
     "layer_norm": "jax2onnx.converter.plugins.flax.nnx.layer_norm",
