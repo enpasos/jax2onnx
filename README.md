@@ -32,7 +32,7 @@ my_module = CoolTransformerModel(...)  # your JAX module or function
 save_onnx(
     my_module,  # callable
     [('B', 30)],   # input shapes, optionally with batch dimension 'B'
-    "my_module.onnx"  # path where to store the produces onnx model
+    "my_module.onnx"  # path where to store the produced ONNX model
 )
 ```
 
