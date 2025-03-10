@@ -28,8 +28,7 @@ def get_metadata() -> dict:
             {
                 "testcase": "mlp",
                 "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
-                "input_shapes": [(2, 30)],
-                # "input_shapes": [('B', 30)],
+                "input_shapes": [("B", 30)],
             }
         ],
     }
