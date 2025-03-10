@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-gelu_p = Primitive("gelu")
+nnx.gelu_p = Primitive("nnx.gelu")
 
 
 def get_primitive():
-    return gelu_p
+    return nnx.gelu_p
 
 
 def _get_monkey_patch():
@@ -21,9 +21,9 @@ def _get_monkey_patch():
             # The output shape and dtype remain the same as the input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        gelu_p.multiple_results = False
-        gelu_p.def_abstract_eval(gelu_abstract_eval)
-        return gelu_p.bind(x, approximate=approximate)
+        nnx.gelu_p.multiple_results = False
+        nnx.gelu_p.def_abstract_eval(gelu_abstract_eval)
+        return nnx.gelu_p.bind(x, approximate=approximate)
 
     return gelu
 
@@ -60,7 +60,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             inputs=[input_name],
             outputs=[output_name],
             name=s.get_unique_name("gelu"),
-            approximation=approximation,
+            approximate=approximation,
         )
         s.add_node(gelu_node)
 
@@ -70,7 +70,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "gelu",
+        "jaxpr_primitive": "nnx.gelu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html",
         "onnx": [
             {
@@ -81,10 +81,24 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "gelu",
-                "callable": nnx.gelu,
+                "testcase": "nnx.gelu",
+                "callable": lambda x: nnx.gelu(x, approximate=False),
                 "input_shapes": [(1,)],
-                "parameters": {"approximate": False},
-            }
+            },
+            {
+                "testcase": "nnx.gelu_1",
+                "callable": lambda x: nnx.gelu(x, approximate=False),
+                "input_shapes": [(1, 10)],
+            },
+            {
+                "testcase": "nnx.gelu_2",
+                "callable": lambda x: nnx.gelu(x, approximate=True),
+                "input_shapes": [(1,)],
+            },
+            {
+                "testcase": "nnx.gelu_3",
+                "callable": lambda x: nnx.gelu(x, approximate=True),
+                "input_shapes": [(1, 10)],
+            },
         ],
     }
