@@ -143,15 +143,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         shape_tensor_name = s.get_unique_name("reshape_shape")
         onnx_shape = list(concrete_shape)
 
-        # Append the tensor to s.builder.initializers.
-        s.builder.initializers.append(
-            helper.make_tensor(
-                name=shape_tensor_name,
-                data_type=helper.TensorProto.INT64,
-                dims=[len(onnx_shape)],
-                vals=onnx_shape,
-            )
-        )
+        # Use the new add_initializer method instead of directly accessing builder.initializers
+        s.add_initializer(name=shape_tensor_name, vals=onnx_shape)
 
         reshape_node = helper.make_node(
             "Reshape",

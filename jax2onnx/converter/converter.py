@@ -482,6 +482,32 @@ class Jaxpr2OnnxConverter:
         onnx.save_model(onnx_model, output_path)
         return output_path
 
+    def add_initializer(
+        self, name, vals, data_type=helper.TensorProto.INT64, dims=None
+    ):
+        """Add a tensor initializer to the model.
+
+        Args:
+            name: The name of the initializer
+            vals: The values to initialize with
+            data_type: The data type of the tensor (default: INT64)
+            dims: The dimensions of the tensor (default: [len(vals)])
+
+        Returns:
+            The name of the created initializer
+        """
+        if dims is None:
+            dims = [len(vals)]
+
+        tensor = helper.make_tensor(
+            name=name,
+            data_type=data_type,
+            dims=dims,
+            vals=vals,
+        )
+        self.builder.initializers.append(tensor)
+        return name
+
 
 @contextlib.contextmanager
 def temporary_monkey_patches():

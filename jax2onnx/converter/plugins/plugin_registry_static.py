@@ -61,6 +61,7 @@ plugin_registry = {
     "jnp.matmul": "jax2onnx.converter.plugins.jax.numpy.matmul",
     "jnp.reshape": "jax2onnx.converter.plugins.jax.numpy.reshape",
     "jnp.squeeze": "jax2onnx.converter.plugins.jax.numpy.squeeze",
+    "jnp.tile": "jax2onnx.converter.plugins.jax.numpy.tile",
     "jnp.transpose": "jax2onnx.converter.plugins.jax.numpy.transpose",
     "random_gamma": "jax2onnx.converter.plugins.jax.random.random_gamma",
 }

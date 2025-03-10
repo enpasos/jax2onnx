@@ -91,14 +91,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
         # Create an initializer for the axes (ONNX expects these as a tensor).
         axes_name = s.get_unique_name("squeeze_axes")
-        s.builder.initializers.append(
-            helper.make_tensor(
-                name=axes_name,
-                data_type=helper.TensorProto.INT64,
-                dims=[len(valid_axes)],
-                vals=valid_axes,
-            )
-        )
+        s.add_initializer(name=axes_name, vals=valid_axes)
 
         squeeze_node = helper.make_node(
             "Squeeze",
