@@ -28,11 +28,12 @@ To save any model or function to ONNX format, use the `save_onnx` function:
 ```py
 from jax2onnx import save_onnx
 
-my_module = CoolTransformerModel(...)  # your JAX module or function
+# any JAX callable, e.g. and MLP from https://github.com/google/flax/blob/main/README.md
+my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))  
 save_onnx(
-    my_module,  # callable
+    my_callable,  
     [('B', 30)],   # input shapes, optionally with batch dimension 'B'
-    "my_module.onnx"  # path where to store the produced ONNX model
+    "my_callable.onnx"  # path where to store the produced ONNX model
 )
 ```
 
