@@ -17,10 +17,14 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_var_name(node_outputs[0])
         dims = params["dimensions"]
-        axes = s.get_constant_name(np.array(dims, dtype=np.int64))
+
+        # Use the new add_initializer method
+        axes_name = s.get_unique_name("squeeze_axes")
+        s.add_initializer(name=axes_name, vals=dims)
+
         node = helper.make_node(
             "Squeeze",
-            inputs=[input_name, axes],
+            inputs=[input_name, axes_name],
             outputs=[output_name],
             name=s.get_unique_name("squeeze"),
         )

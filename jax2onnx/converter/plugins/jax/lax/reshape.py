@@ -22,7 +22,11 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         if len(new_shape) == 2 and new_shape[0] == 1 and input_shape == (new_shape[1],):
             s.var_to_name[node_outputs[0]] = input_name
             return
-        shape_name = s.get_constant_name(np.array(new_shape, dtype=np.int64))
+
+        # Use the new add_initializer method
+        shape_name = s.get_unique_name("reshape_shape")
+        s.add_initializer(name=shape_name, vals=new_shape)
+
         node = helper.make_node(
             "Reshape",
             inputs=[input_name, shape_name],
