@@ -28,7 +28,7 @@ To save any model or function to ONNX format, use the `save_onnx` function:
 ```py
 from jax2onnx import save_onnx
 
-# any JAX callable, e.g. and MLP from https://github.com/google/flax/blob/main/README.md
+# any JAX callable, e.g. an MLP from https://github.com/google/flax/blob/main/README.md
 my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))  
 save_onnx(
     my_callable,  
