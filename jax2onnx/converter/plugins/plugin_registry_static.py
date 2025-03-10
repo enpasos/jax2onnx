@@ -59,5 +59,6 @@ plugin_registry = {
     "jnp.concat": "jax2onnx.converter.plugins.jax.numpy.concat",
     "jnp.einsum": "jax2onnx.converter.plugins.jax.numpy.einsum",
     "jnp.matmul": "jax2onnx.converter.plugins.jax.numpy.matmul",
+    "jnp.reshape": "jax2onnx.converter.plugins.jax.numpy.reshape",
     "random_gamma": "jax2onnx.converter.plugins.jax.random.random_gamma",
 }
