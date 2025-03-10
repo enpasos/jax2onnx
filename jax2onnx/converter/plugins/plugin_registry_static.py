@@ -57,5 +57,6 @@ plugin_registry = {
     "xor": "jax2onnx.converter.plugins.jax.lax.xor",
     "jnp.add": "jax2onnx.converter.plugins.jax.numpy.add",
     "jnp.concat": "jax2onnx.converter.plugins.jax.numpy.concat",
+    "jnp.einsum": "jax2onnx.converter.plugins.jax.numpy.einsum",
     "random_gamma": "jax2onnx.converter.plugins.jax.random.random_gamma",
 }
