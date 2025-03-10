@@ -18,21 +18,33 @@ def get_primitive():
 
 
 def _squeeze_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
-    # If no axes are provided, squeeze all dimensions of size 1.
+    """
+    Compute the output shape for squeeze.
+    If no axes are provided, squeeze all dimensions that are 1.
+    If axes are provided, only remove those axes for which the dimension
+    is concrete and equal to 1; if the dimension is dynamic (a string), skip
+    the check.
+    """
+    x_shape = list(x.shape)
     if axes is None:
-        new_shape = tuple(dim for dim in x.shape if dim != 1)
+        # Squeeze all dimensions that are known to be 1 (skip dynamic ones).
+        new_shape = tuple(
+            dim for dim in x_shape if not (isinstance(dim, int) and dim == 1)
+        )
     else:
         # Normalize negative axes.
-        normalized_axes = [axis if axis >= 0 else axis + len(x.shape) for axis in axes]
+        normalized_axes = [axis if axis >= 0 else axis + len(x_shape) for axis in axes]
+        # Check that concrete dimensions are 1.
         for axis in normalized_axes:
-            if axis >= len(x.shape):
-                raise ValueError(f"Invalid axis {axis} for shape {list(x.shape)}")
-            if x.shape[axis] != 1:
+            if axis >= len(x_shape):
+                raise ValueError(f"Invalid axis {axis} for shape {x_shape}")
+            # Only check if the dimension is a concrete integer.
+            if isinstance(x_shape[axis], int) and x_shape[axis] != 1:
                 raise ValueError(
-                    f"Cannot squeeze dimension {axis} of shape {list(x.shape)}: size is not 1."
+                    f"Cannot squeeze dimension {axis} of shape {x_shape}: size is not 1."
                 )
         new_shape = tuple(
-            dim for i, dim in enumerate(x.shape) if i not in normalized_axes
+            dim for i, dim in enumerate(x_shape) if i not in normalized_axes
         )
     return core.ShapedArray(new_shape, x.dtype)
 
@@ -44,7 +56,9 @@ jnp.squeeze_p.multiple_results = False
 def _get_monkey_patch():
     def squeeze(a, axis: Optional[Union[int, Tuple[int, ...]]] = None):
         if axis is None:
-            axes = tuple(i for i, dim in enumerate(a.shape) if dim == 1)
+            axes = tuple(
+                i for i, dim in enumerate(a.shape) if isinstance(dim, int) and dim == 1
+            )
         elif isinstance(axis, int):
             axes = (axis,)
         else:
@@ -66,15 +80,16 @@ def temporary_patch():
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_squeeze(node_inputs, node_outputs, params):
+        # Retrieve the axes parameter (should be provided as a tuple of ints).
         axes = params["axes"]
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
         input_shape = node_inputs[0].aval.shape
 
-        # Normalize axes (handle negative values).
+        # Normalize axes: convert any negative axes to positive.
         valid_axes = [axis if axis >= 0 else axis + len(input_shape) for axis in axes]
 
-        # ONNX requires axes to be provided as an initializer.
+        # Create an initializer for the axes (ONNX expects these as a tensor).
         axes_name = s.get_unique_name("squeeze_axes")
         s.builder.initializers.append(
             helper.make_tensor(
@@ -93,7 +108,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(squeeze_node)
 
-        # Compute output shape by removing squeezed axes.
+        # Compute output shape for shape inference by removing squeezed axes.
         output_shape = tuple(
             dim for i, dim in enumerate(input_shape) if i not in valid_axes
         )
@@ -132,11 +147,11 @@ def get_metadata() -> dict:
             {
                 "testcase": "squeeze_dynamic_batch",
                 "callable": lambda a: jnp.squeeze(a, axis=1),
-                "input_shapes": [["B", 1, 10]],
+                "input_shapes": [("B", 1, 10)],
             },
             {
                 "testcase": "squeeze_all_dims",
-                "callable": lambda a: jnp.squeeze(a),  # No axis specified.
+                "callable": lambda a: jnp.squeeze(a),
                 "input_shapes": [(1, 1, 1)],
             },
             {
@@ -152,7 +167,7 @@ def get_metadata() -> dict:
             {
                 "testcase": "squeeze_dynamic_and_negative_axis",
                 "callable": lambda a: jnp.squeeze(a, axis=(-1, -3)),
-                "input_shapes": [("B", 1, 1)],
+                "input_shapes": [(1, "B", 1)],
             },
         ],
     }
