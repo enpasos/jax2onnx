@@ -10,11 +10,11 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 # Define a new JAX primitive for convolution.
-conv_p = Primitive("conv")
+nnx.conv_p = Primitive("nnx.conv")
 
 
 def get_primitive():
-    return conv_p
+    return nnx.conv_p
 
 
 def _compute_conv_output_shape(
@@ -53,10 +53,10 @@ def _get_monkey_patch():
             )
             return core.ShapedArray(out_shape, x.dtype)
 
-        conv_p.multiple_results = False
-        conv_p.def_abstract_eval(conv_abstract_eval)
+        nnx.conv_p.multiple_results = False
+        nnx.conv_p.def_abstract_eval(conv_abstract_eval)
         if bias is None:
-            return conv_p.bind(
+            return nnx.conv_p.bind(
                 x,
                 kernel,
                 strides=strides,
@@ -65,7 +65,7 @@ def _get_monkey_patch():
                 dimension_numbers=dimension_numbers,
             )
         else:
-            return conv_p.bind(
+            return nnx.conv_p.bind(
                 x,
                 kernel,
                 bias,
@@ -204,7 +204,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 def get_metadata() -> dict:
     return {
-        "jaxpr_primitive": "conv",
+        "jaxpr_primitive": "nnx.conv",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.conv_general_dilated.html",
         "onnx": [
             {
@@ -219,7 +219,7 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "conv",
+                "testcase": "nnx.conv",
                 # Note: Supply both in_features and out_features.
                 "callable": nnx.Conv(
                     in_features=3,

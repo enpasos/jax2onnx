@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Tuple, Sequence
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-avg_pool_p = Primitive("avg_pool")
+nnx.avg_pool_p = Primitive("nnx.avg_pool")
 
 
 def get_primitive():
-    return avg_pool_p
+    return nnx.avg_pool_p
 
 
 def _compute_avg_pool_output_shape(
@@ -61,9 +61,9 @@ def _get_monkey_patch():
             )
             return core.ShapedArray(out_shape, x.dtype)
 
-        avg_pool_p.multiple_results = False
-        avg_pool_p.def_abstract_eval(avg_pool_abstract_eval)
-        return avg_pool_p.bind(
+        nnx.avg_pool_p.multiple_results = False
+        nnx.avg_pool_p.def_abstract_eval(avg_pool_abstract_eval)
+        return nnx.avg_pool_p.bind(
             x, window_shape=window_shape, strides=strides, padding=padding
         )
 

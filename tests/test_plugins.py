@@ -1,4 +1,4 @@
-# jax2onnx/tests/test_save_onnx.py
+# jax2onnx/tests/test_plugins.py
 
 import os
 import importlib.util
@@ -127,10 +127,6 @@ def test_onnx_export_from_metadata(test_params: dict) -> None:
     internal_shape_info = test_params.get("internal_shape_info", True)
     testcase_name = test_params.get("testcase", "unknown")
 
-    # Set up a reproducible random seed
-    seed = 1001
-    rng = jax.random.PRNGKey(seed)
-
     # Determine output file name and model path (e.g., in a docs folder)
     onnx_model_file_name = f"{testcase_name}.onnx"
     model_path = os.path.join("docs", "onnx", onnx_model_file_name)
@@ -138,6 +134,9 @@ def test_onnx_export_from_metadata(test_params: dict) -> None:
 
     # Convert the JAX model to an ONNX model
     save_onnx(callable, input_shapes, model_path, include_intermediate_shapes=True)
+
+    seed = 1001
+    rng = jax.random.PRNGKey(seed)
 
     if testcase_name.endswith("_dynamic"):
         # Process input shapes: replace any symbolic dims (like 'B') with a concrete value (e.g., 2)

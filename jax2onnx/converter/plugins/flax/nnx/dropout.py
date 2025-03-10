@@ -13,11 +13,11 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 # Define the new primitive for dropout.
-dropout_p = Primitive("dropout")
+nnx.dropout_p = Primitive("nnx.dropout")
 
 
 def get_primitive():
-    return dropout_p
+    return nnx.dropout_p
 
 
 def _get_monkey_patch():
@@ -27,9 +27,9 @@ def _get_monkey_patch():
             # Dropout does not change the shape.
             return core.ShapedArray(x.shape, x.dtype)
 
-        dropout_p.multiple_results = False
-        dropout_p.def_abstract_eval(dropout_abstract_eval)
-        return dropout_p.bind(x, rate=rate, deterministic=deterministic)
+        nnx.dropout_p.multiple_results = False
+        nnx.dropout_p.def_abstract_eval(dropout_abstract_eval)
+        return nnx.dropout_p.bind(x, rate=rate, deterministic=deterministic)
 
     # The patched __call__ method extracts parameters from the instance.
     def patched_dropout_call(self, x, deterministic=None):
@@ -81,7 +81,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 def get_metadata() -> dict:
     return {
-        "jaxpr_primitive": "dropout",
+        "jaxpr_primitive": "nnx.dropout",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/dropout.html",
         "onnx": [
             {
@@ -92,12 +92,12 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "dropout_inference",
+                "testcase": "nnx.dropout_inference",
                 "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(0)),
                 "input_shapes": [(5, 10)],
             },
             {
-                "testcase": "dropout_training",
+                "testcase": "nnx.dropout_training",
                 "callable": nnx.Dropout(
                     rate=0.5, deterministic=False, rngs=nnx.Rngs(0)
                 ),
