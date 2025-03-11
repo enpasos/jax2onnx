@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Tuple, Sequence
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Create a new primitive for avg_pool.
 nnx.avg_pool_p = Primitive("nnx.avg_pool")
 
 
@@ -54,20 +55,39 @@ def _compute_avg_pool_output_shape(
 
 
 def _get_monkey_patch():
-    def avg_pool(x, window_shape, strides, padding):
-        def avg_pool_abstract_eval(x, window_shape, strides, padding):
+    def avg_pool(
+        inputs, window_shape, strides=None, padding="VALID", count_include_pad=True
+    ):
+        def avg_pool_abstract_eval(
+            inputs, window_shape, strides, padding, count_include_pad
+        ):
             out_shape = _compute_avg_pool_output_shape(
-                x.shape, window_shape, strides, padding, input_format="NHWC"
+                inputs.shape, window_shape, strides, padding, input_format="NHWC"
             )
-            return core.ShapedArray(out_shape, x.dtype)
+            return core.ShapedArray(out_shape, inputs.dtype)
 
         nnx.avg_pool_p.multiple_results = False
         nnx.avg_pool_p.def_abstract_eval(avg_pool_abstract_eval)
+        if strides is None:
+            strides = (1, 1)
+        # Pass the static parameters as keyword arguments.
         return nnx.avg_pool_p.bind(
-            x, window_shape=window_shape, strides=strides, padding=padding
+            inputs,
+            window_shape=window_shape,
+            strides=strides,
+            padding=padding,
+            count_include_pad=count_include_pad,
         )
 
-    return avg_pool
+    # Since nnx.avg_pool is a plain function, our patched version does not include a 'self' parameter.
+    def patched_avg_pool_call(
+        inputs, window_shape, strides=None, padding="VALID", count_include_pad=True
+    ):
+        if strides is None:
+            strides = (1, 1)
+        return avg_pool(inputs, window_shape, strides, padding, count_include_pad)
+
+    return patched_avg_pool_call
 
 
 @contextlib.contextmanager
@@ -136,7 +156,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             kernel_shape=window_shape,
             strides=strides,
             pads=pads,
-            count_include_pad=0,  #  Do not include padding in the averaging calculation
+            count_include_pad=0,  # Do not include padding in the averaging calculation
         )
         s.add_node(avg_pool_node)
 
@@ -167,11 +187,11 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     return {
         "jaxpr_primitive": "avg_pool",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.avg_pool.html",  # Update doc link
+        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.avg_pool.html",
         "onnx": [
             {
-                "component": "AveragePool",  # Use AveragePool
-                "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",  # Update doc link
+                "component": "AveragePool",
+                "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",
             },
             {
                 "component": "Transpose",
@@ -191,6 +211,13 @@ def get_metadata() -> dict:
                 "testcase": "avg_pool_same_padding",
                 "callable": lambda x: nnx.avg_pool(
                     x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
+                ),
+                "input_shapes": [(1, 32, 32, 3)],
+            },
+            {
+                "testcase": "avg_pool_default_padding",
+                "callable": lambda x: nnx.avg_pool(
+                    x, window_shape=(2, 2), strides=(2, 2)
                 ),
                 "input_shapes": [(1, 32, 32, 3)],
             },

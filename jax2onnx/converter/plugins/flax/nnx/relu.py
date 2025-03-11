@@ -76,6 +76,11 @@ def get_metadata() -> dict:
                 "testcase": "relu",
                 "callable": lambda x: nnx.relu(x),
                 "input_shapes": [(3,)],
-            }
+            },
+            {
+                "testcase": "relu_2",
+                "callable": lambda x: nnx.relu(x),
+                "input_shapes": [(2, 28, 28, 32)],
+            },
         ],
     }
