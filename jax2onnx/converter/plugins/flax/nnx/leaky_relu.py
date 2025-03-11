@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-leaky_relu_p = Primitive("leaky_relu")
+nnx.leaky_relu_p = Primitive("nnx.leaky_relu")
 
 
 def get_primitive():
-    return leaky_relu_p
+    return nnx.leaky_relu_p
 
 
 def _get_monkey_patch():
@@ -21,9 +21,9 @@ def _get_monkey_patch():
             # The output shape and dtype remain the same as the input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        leaky_relu_p.multiple_results = False
-        leaky_relu_p.def_abstract_eval(leaky_relu_abstract_eval)
-        return leaky_relu_p.bind(x, negative_slope=negative_slope)
+        nnx.leaky_relu_p.multiple_results = False
+        nnx.leaky_relu_p.def_abstract_eval(leaky_relu_abstract_eval)
+        return nnx.leaky_relu_p.bind(x, negative_slope=negative_slope)
 
     return leaky_relu
 
@@ -67,7 +67,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "leaky_relu",
+        "jaxpr_primitive": "nnx.leaky_relu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.leaky_relu.html",
         "onnx": [
             {
@@ -76,6 +76,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "leaky_relu",

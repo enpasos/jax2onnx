@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-softmax_p = Primitive("softmax")
+nnx.softmax_p = Primitive("nnx.softmax")
 
 
 def get_primitive():
-    return softmax_p
+    return nnx.softmax_p
 
 
 def _get_monkey_patch():
@@ -21,9 +21,9 @@ def _get_monkey_patch():
             # The output shape is the same as the input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        softmax_p.multiple_results = False
-        softmax_p.def_abstract_eval(softmax_abstract_eval)
-        return softmax_p.bind(x, axis=axis)
+        nnx.softmax_p.multiple_results = False
+        nnx.softmax_p.def_abstract_eval(softmax_abstract_eval)
+        return nnx.softmax_p.bind(x, axis=axis)
 
     return softmax
 
@@ -67,7 +67,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "softmax",
+        "jaxpr_primitive": "nnx.softmax",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
         "onnx": [
             {
@@ -76,6 +76,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "softmax",

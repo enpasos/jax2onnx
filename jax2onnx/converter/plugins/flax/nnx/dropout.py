@@ -90,14 +90,15 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.dropout_inference",
+                "testcase": "dropout_inference",
                 "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(0)),
                 "input_shapes": [(5, 10)],
             },
             {
-                "testcase": "nnx.dropout_training",
+                "testcase": "dropout_training",
                 "callable": nnx.Dropout(
                     rate=0.5, deterministic=False, rngs=nnx.Rngs(0)
                 ),

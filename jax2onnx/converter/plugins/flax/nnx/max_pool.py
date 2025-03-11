@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Tuple, Sequence
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-max_pool_p = Primitive("max_pool")
+nnx.max_pool_p = Primitive("nnx.max_pool")
 
 
 def get_primitive():
-    return max_pool_p
+    return nnx.max_pool_p
 
 
 def _compute_max_pool_output_shape(
@@ -65,9 +65,9 @@ def _get_monkey_patch():
             )
             return core.ShapedArray(out_shape, x.dtype)
 
-        max_pool_p.multiple_results = False
-        max_pool_p.def_abstract_eval(max_pool_abstract_eval)
-        return max_pool_p.bind(
+        nnx.max_pool_p.multiple_results = False
+        nnx.max_pool_p.def_abstract_eval(max_pool_abstract_eval)
+        return nnx.max_pool_p.bind(
             x, window_shape=window_shape, strides=strides, padding=padding
         )
 
@@ -183,7 +183,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 def get_metadata() -> dict:
     return {
-        "jaxpr_primitive": "max_pool",
+        "jaxpr_primitive": "nnx.max_pool",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.max_pool.html",
         "onnx": [
             {
@@ -196,6 +196,7 @@ def get_metadata() -> dict:
             },
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "max_pool",

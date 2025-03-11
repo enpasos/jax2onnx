@@ -11,11 +11,11 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-sigmoid_p = Primitive("sigmoid")
+nnx.sigmoid_p = Primitive("nnx.sigmoid")
 
 
 def get_primitive():
-    return sigmoid_p
+    return nnx.sigmoid_p
 
 
 def _get_monkey_patch():
@@ -23,9 +23,9 @@ def _get_monkey_patch():
         def sigmoid_abstract_eval(x):
             return core.ShapedArray(x.shape, x.dtype)
 
-        sigmoid_p.multiple_results = False
-        sigmoid_p.def_abstract_eval(sigmoid_abstract_eval)
-        return sigmoid_p.bind(x)
+        nnx.sigmoid_p.multiple_results = False
+        nnx.sigmoid_p.def_abstract_eval(sigmoid_abstract_eval)
+        return nnx.sigmoid_p.bind(x)
 
     return sigmoid
 
@@ -65,7 +65,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "sigmoid",
+        "jaxpr_primitive": "nnx.sigmoid",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nnx.sigmoid.html",
         "onnx": [
             {
@@ -74,6 +74,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "sigmoid",

@@ -51,6 +51,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.2.0",
+        "context": "plugins.lax",
         "testcases": [
             {
                 "testcase": "argmin_test1",

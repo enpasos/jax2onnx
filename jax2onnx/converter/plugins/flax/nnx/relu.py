@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-relu_p = Primitive("relu")
+nnx.relu_p = Primitive("nnx.relu")
 
 
 def get_primitive():
-    return relu_p
+    return nnx.relu_p
 
 
 def _get_monkey_patch():
@@ -20,9 +20,9 @@ def _get_monkey_patch():
         def relu_abstract_eval(x):
             return core.ShapedArray(x.shape, x.dtype)
 
-        relu_p.multiple_results = False
-        relu_p.def_abstract_eval(relu_abstract_eval)
-        return relu_p.bind(x)
+        nnx.relu_p.multiple_results = False
+        nnx.relu_p.def_abstract_eval(relu_abstract_eval)
+        return nnx.relu_p.bind(x)
 
     return relu
 
@@ -71,6 +71,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "relu",

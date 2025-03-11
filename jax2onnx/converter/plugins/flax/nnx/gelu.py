@@ -79,14 +79,15 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.gelu",
+                "testcase": "gelu",
                 "callable": lambda x: nnx.gelu(x, approximate=False),
                 "input_shapes": [(1,)],
             },
             {
-                "testcase": "nnx.gelu_1",
+                "testcase": "gelu_1",
                 "callable": lambda x: nnx.gelu(x, approximate=False),
                 "input_shapes": [(1, 10)],
             },
@@ -96,7 +97,7 @@ def get_metadata() -> dict:
                 "input_shapes": [(1,)],
             },
             {
-                "testcase": "nnx.gelu_3",
+                "testcase": "gelu_3",
                 "callable": lambda x: nnx.gelu(x, approximate=True),
                 "input_shapes": [(1, 10)],
             },

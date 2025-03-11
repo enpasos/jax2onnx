@@ -99,6 +99,7 @@ def get_metadata() -> dict:
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.random.gamma.html",
         "onnx": [],
         "since": "v0.2.0",
+        "context": "plugins.random",
         "testcases": [
             # {
             #     "testcase": "random_gamma_test1",

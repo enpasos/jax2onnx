@@ -240,9 +240,10 @@ def get_metadata() -> dict:
             },
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.linear_2d",
+                "testcase": "linear_2d",
                 "callable": nnx.Linear(
                     in_features=128,
                     out_features=64,
@@ -253,7 +254,7 @@ def get_metadata() -> dict:
                 ],  # Higher-rank input with batch dims (32,10)
             },
             {
-                "testcase": "nnx.linear",
+                "testcase": "linear",
                 "callable": nnx.Linear(
                     in_features=128,
                     out_features=64,

@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-softplus_p = Primitive("softplus")
+nnx.softplus_p = Primitive("nnx.softplus")
 
 
 def get_primitive():
-    return softplus_p
+    return nnx.softplus_p
 
 
 def _get_monkey_patch():
@@ -21,9 +21,9 @@ def _get_monkey_patch():
             # The output shape and dtype are the same as the input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        softplus_p.multiple_results = False
-        softplus_p.def_abstract_eval(softplus_abstract_eval)
-        return softplus_p.bind(x)
+        nnx.softplus_p.multiple_results = False
+        nnx.softplus_p.def_abstract_eval(softplus_abstract_eval)
+        return nnx.softplus_p.bind(x)
 
     return softplus
 
@@ -63,7 +63,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "softplus",
+        "jaxpr_primitive": "nnx.softplus",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softplus.html",
         "onnx": [
             {
@@ -72,6 +72,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "softplus",

@@ -26,6 +26,7 @@ def get_metadata() -> dict:
         "component": "CNN",
         "description": "A simple convolutional neural network (CNN).",
         "since": "v0.1.0",
+        "context": "examples.nnx",
         "testcases": [
             {
                 "testcase": "cnn",

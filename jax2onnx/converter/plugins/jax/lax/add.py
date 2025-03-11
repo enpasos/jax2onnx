@@ -38,6 +38,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.lax",
         "testcases": [
             {
                 "testcase": "add_test1",

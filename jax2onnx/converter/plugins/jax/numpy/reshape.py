@@ -170,6 +170,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.jnp",
         "testcases": [
             {
                 "testcase": "jnp.reshape_static",
