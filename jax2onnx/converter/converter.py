@@ -361,9 +361,15 @@ class Jaxpr2OnnxConverter:
             if primitive.name == "pjit":
                 self._process_pjit(jaxpr)
             elif primitive.name in self.primitive_handlers:
+
                 self.primitive_handlers[primitive.name](
                     jaxpr.invars, jaxpr.outvars, jaxpr.params
                 )
+                # for all jaxpr.outvars, add shape info
+                for outvar in jaxpr.outvars:
+                    output_name = self.get_name(outvar)
+                    self.add_shape_info(output_name, outvar.aval.shape)
+
             else:
                 raise NotImplementedError(f"Primitive {primitive.name} not implemented")
         else:

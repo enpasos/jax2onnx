@@ -201,7 +201,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(post_transpose_node)
         # The final output shape should match the JAX output shape.
-        s.add_shape_info(final_output_name, jax_output_shape)
+        # s.add_shape_info(final_output_name, jax_output_shape)
 
     return handle_conv
 

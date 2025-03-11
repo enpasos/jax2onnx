@@ -87,7 +87,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(ln_node)
         # LayerNormalization does not change the shape.
-        s.add_shape_info(output_name, node_inputs[0].aval.shape)
+        # s.add_shape_info(output_name, node_inputs[0].aval.shape)
 
     return handle_layer_norm
 

@@ -179,7 +179,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         final_output_shape = _compute_avg_pool_output_shape(
             jax_input_shape, window_shape, strides, padding, input_format="NHWC"
         )
-        s.add_shape_info(final_output_name, final_output_shape)
+        # s.add_shape_info(final_output_name, final_output_shape)
 
     return handle_avg_pool
 
