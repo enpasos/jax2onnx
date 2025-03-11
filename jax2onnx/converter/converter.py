@@ -11,7 +11,7 @@ from jax2onnx.converter.plugins.flax.nnx import sigmoid
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.optimize_transpose import remove_redundant_transpose_pairs
+from jax2onnx.converter.optimize_onnx_graph import remove_redundant_transpose_pairs
 
 
 def save_onnx(
