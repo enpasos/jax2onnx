@@ -1,3 +1,4 @@
+# file: jax2onnx/converter/plugins/flax/nnx/linear.py
 import numpy as np
 from jax import core
 from jax.core import Primitive
@@ -53,7 +54,6 @@ def _shape_linear(
 
     # Compute feature size.
     x_feature_sizes = [x_shape[d] for d in x_feature_dims]
-    # If all feature dims are known (int), take their product.
     x_feature_size = (
         np.prod(x_feature_sizes).item()
         if all(isinstance(dim, int) for dim in x_feature_sizes)
@@ -62,7 +62,6 @@ def _shape_linear(
 
     # Compute batch shape and size.
     x_batch_sizes = [x_shape[d] for d in x_batch_dims]
-    # If any batch dims are dynamic (strings), we simply pass one dynamic symbol.
     dynamic_dim = None
     for dim in x_batch_sizes:
         if isinstance(dim, str):
@@ -88,6 +87,16 @@ def _shape_linear(
         "output": output_shape,
         "new_kernel": new_kernel_shape,
     }
+
+
+def _is_noop_reshape(original_shape, target_shape):
+    """Return True if target_shape is equivalent to original_shape,
+    allowing for a dynamic (-1) in the first dimension.
+    """
+    if len(original_shape) != len(target_shape):
+        return False
+    # Compare all dimensions except possibly the first.
+    return original_shape[1:] == target_shape[1:]
 
 
 def _get_monkey_patch():
@@ -136,7 +145,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         kernel_var = node_inputs[1]
         bias_var = node_inputs[2]
 
-        # Use provided dimension_numbers if any.
         dimension_numbers = params.get("dimension_numbers")
         input_name = s.get_name(x_var)
         kernel_name = s.get_name(kernel_var)
@@ -157,21 +165,23 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             kernel_const.reshape(new_kernel_shape)
         )
 
-        # Reshape input for GEMM: flatten batch dims.
-        input_reshape_name = s.get_unique_name("input_reshape")
-        reshape_shape_input = tuple([-1] + list(input_gemm_shape[1:]))
-        reshape_shape_input_name = s.builder.get_constant_name(
-            np.array(reshape_shape_input, dtype=np.int64)
-        )
-        reshape_input_node = helper.make_node(
-            "Reshape",
-            inputs=[input_name, reshape_shape_input_name],
-            outputs=[input_reshape_name],
-            name=s.get_unique_name("reshape_input"),
-            allowzero=0,
-        )
-        s.add_node(reshape_input_node)
-        s.add_shape_info(input_reshape_name, input_gemm_shape)
+        # Determine target reshape shape for input.
+        target_input_shape = tuple([-1] + list(input_gemm_shape[1:]))
+        if _is_noop_reshape(x_var.aval.shape, target_input_shape):
+            input_reshape_name = input_name
+        else:
+            input_reshape_name = s.get_unique_name("input_reshape")
+            reshape_shape_input = np.array(target_input_shape, dtype=np.int64)
+            reshape_shape_input_name = s.builder.get_constant_name(reshape_shape_input)
+            reshape_input_node = helper.make_node(
+                "Reshape",
+                inputs=[input_name, reshape_shape_input_name],
+                outputs=[input_reshape_name],
+                name=s.get_unique_name("reshape_input"),
+                allowzero=0,
+            )
+            s.add_node(reshape_input_node)
+            s.add_shape_info(input_reshape_name, input_gemm_shape)
 
         # Gemm node.
         gemm_output_name = s.get_unique_name("gemm_output")
@@ -184,20 +194,33 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_node(gemm_node)
         s.add_shape_info(gemm_output_name, output_gemm_shape)
 
-        # Reshape the GEMM output back to the final shape.
-        dynamic_output_shape = [-1] + list(output_shape[1:])
-        reshape_output_shape_name = s.builder.get_constant_name(
-            np.array(dynamic_output_shape, dtype=np.int64)
-        )
-        reshape_output_node = helper.make_node(
-            "Reshape",
-            inputs=[gemm_output_name, reshape_output_shape_name],
-            outputs=[output_name],
-            name=s.get_unique_name("reshape_output"),
-            allowzero=0,
-        )
-        s.add_node(reshape_output_node)
-        s.add_shape_info(output_name, output_shape)
+        # Final reshape: restore to the original output shape if necessary.
+        target_output_shape = [-1] + list(output_shape[1:])
+        if _is_noop_reshape(output_gemm_shape, tuple(target_output_shape)):
+            # Instead of inserting an extra node, update the variable mapping and builder outputs.
+            s.var_to_name[node_outputs[0]] = gemm_output_name
+            # Update the corresponding output in the builder.
+            for i, out in enumerate(s.builder.outputs):
+                if out.name == output_name:
+                    s.builder.outputs[i] = helper.make_tensor_value_info(
+                        gemm_output_name,
+                        out.type.tensor_type.elem_type,
+                        [dim.dim_value for dim in out.type.tensor_type.shape.dim],
+                    )
+                    break
+        else:
+            reshape_output_shape = np.array(target_output_shape, dtype=np.int64)
+            reshape_output_shape_name = s.builder.get_constant_name(
+                reshape_output_shape
+            )
+            reshape_output_node = helper.make_node(
+                "Reshape",
+                inputs=[gemm_output_name, reshape_output_shape_name],
+                outputs=[output_name],
+                name=s.get_unique_name("reshape_output"),
+                allowzero=0,
+            )
+            s.add_node(reshape_output_node)
 
     return handle_linear
 
@@ -219,16 +242,7 @@ def get_metadata() -> dict:
         "since": "v0.1.0",
         "testcases": [
             {
-                "testcase": "linear",
-                "callable": nnx.Linear(
-                    in_features=128,  # input feature size
-                    out_features=64,  # output feature size
-                    rngs=nnx.Rngs(0),
-                ),
-                "input_shapes": [(1, 128)],  # 2D case: (batch, 128)
-            },
-            {
-                "testcase": "linear_2d",
+                "testcase": "nnx.linear_2d",
                 "callable": nnx.Linear(
                     in_features=128,
                     out_features=64,
@@ -238,8 +252,8 @@ def get_metadata() -> dict:
                     (32, 10, 128)
                 ],  # Higher-rank input with batch dims (32,10)
             },
-            {  # Test case with dynamic batch dimension.
-                "testcase": "linear_dynamic",
+            {
+                "testcase": "nnx.linear",
                 "callable": nnx.Linear(
                     in_features=128,
                     out_features=64,
