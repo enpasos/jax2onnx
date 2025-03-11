@@ -20,7 +20,7 @@ def get_primitive():
 def _compute_conv_output_shape(
     x_shape: Tuple[int, ...],
     kernel_shape: Tuple[int, ...],
-    strides: Sequence[int],
+    strides: Sequence[int] | int,  # Allow strides to be a sequence or an integer
     padding: str,
 ) -> Tuple[int, ...]:
     """
@@ -29,6 +29,8 @@ def _compute_conv_output_shape(
       - Input is in NHWC format: (N, H, W, C)
       - Kernel is in HWIO format: (filter_height, filter_width, in_channels, out_channels)
     """
+    if isinstance(strides, int):
+        strides = (strides, strides)
     N, H, W, _ = x_shape
     filter_height, filter_width, _, out_channels = kernel_shape
     if padding.upper() == "VALID":
@@ -137,6 +139,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
         # Determine convolution parameters.
         strides = params.get("strides", (1, 1))
+        if isinstance(strides, int):
+            strides = (strides, strides)
         padding = params.get("padding", "VALID")
         dilations = params.get("dilations", (1, 1))
 
@@ -231,11 +235,11 @@ def get_metadata() -> dict:
                     rngs=nnx.Rngs(0),
                 ),
                 "input_shapes": [("B", 28, 28, 3)],
-                "parameters": {
-                    "strides": (1, 1),
-                    "padding": "SAME",
-                    "dilations": (1, 1),
-                },
-            }
+            },
+            {
+                "testcase": "nnx.conv_2",
+                "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
+                "input_shapes": [(2, 28, 28, 1)],
+            },
         ],
     }
