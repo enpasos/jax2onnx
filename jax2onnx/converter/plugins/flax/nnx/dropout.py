@@ -74,7 +74,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(dropout_node)
         # Dropout does not change the shape.
-        s.add_shape_info(output_name, node_inputs[0].aval.shape)
+        # s.add_shape_info(output_name, node_inputs[0].aval.shape)
 
     return handle_dropout
 

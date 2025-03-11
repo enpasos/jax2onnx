@@ -132,7 +132,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 pre_transposed_shape[3],
                 pre_transposed_shape[1],
             )
-            s.add_shape_info(final_output_name, final_shape)
+            # s.add_shape_info(final_output_name, final_shape)
         else:
             # For inputs that are not 4D, no transposition is needed.
             batch_norm_node = helper.make_node(
@@ -143,7 +143,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 epsilon=epsilon,
             )
             s.add_node(batch_norm_node)
-            s.add_shape_info(final_output_name, jax_shape)
+            # s.add_shape_info(final_output_name, jax_shape)
 
     return handle_batch_norm
 
