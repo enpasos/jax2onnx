@@ -13,11 +13,11 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 # Define the new primitive for layer norm.
-layer_norm_p = Primitive("layer_norm")
+nnx.layer_norm_p = Primitive("nnx.layer_norm")
 
 
 def get_primitive():
-    return layer_norm_p
+    return nnx.layer_norm_p
 
 
 def _get_monkey_patch():
@@ -25,9 +25,9 @@ def _get_monkey_patch():
         def layer_norm_abstract_eval(x, scale, bias, epsilon, axis):
             return core.ShapedArray(x.shape, x.dtype)
 
-        layer_norm_p.multiple_results = False
-        layer_norm_p.def_abstract_eval(layer_norm_abstract_eval)
-        return layer_norm_p.bind(
+        nnx.layer_norm_p.multiple_results = False
+        nnx.layer_norm_p.def_abstract_eval(layer_norm_abstract_eval)
+        return nnx.layer_norm_p.bind(
             x,
             scale,
             bias,
@@ -94,7 +94,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 def get_metadata() -> dict:
     return {
-        "jaxpr_primitive": "layer_norm",
+        "jaxpr_primitive": "nnx.layer_norm",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/layer_norm.html",
         "onnx": [
             {
@@ -103,6 +103,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "layer_norm",

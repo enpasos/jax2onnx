@@ -53,3 +53,11 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "plugins_nnx: Tests from the plugins.nnx (flax) context.",
+    "plugins_lax: Tests from the plugins.lax context.",
+    "plugins_jnp: Tests from the plugins.jnp (numpy) context.",
+    "plugins_random: Tests from the plugins.random context.",
+    "default: Default group of tests.",
+    "examples_nnx: Test form the examples.nnx (flax) context."
+]

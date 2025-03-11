@@ -191,9 +191,10 @@ def get_metadata() -> dict:
             },
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.linear_general",
+                "testcase": "linear_general",
                 "callable": nnx.LinearGeneral(
                     in_features=(8, 32),
                     out_features=(256,),
@@ -203,7 +204,7 @@ def get_metadata() -> dict:
                 "input_shapes": [("B", 4, 8, 32)],
             },
             {
-                "testcase": "nnx.linear_general_2",
+                "testcase": "linear_general_2",
                 "callable": nnx.LinearGeneral(
                     in_features=(30,),
                     out_features=(20,),

@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-log_softmax_p = Primitive("log_softmax")
+nnx.log_softmax_p = Primitive("nnx.log_softmax")
 
 
 def get_primitive():
-    return log_softmax_p
+    return nnx.log_softmax_p
 
 
 def _get_monkey_patch():
@@ -21,9 +21,9 @@ def _get_monkey_patch():
             # Output shape and type remain the same as input.
             return core.ShapedArray(x.shape, x.dtype)
 
-        log_softmax_p.multiple_results = False
-        log_softmax_p.def_abstract_eval(log_softmax_abstract_eval)
-        return log_softmax_p.bind(x, axis=axis)
+        nnx.log_softmax_p.multiple_results = False
+        nnx.log_softmax_p.def_abstract_eval(log_softmax_abstract_eval)
+        return nnx.log_softmax_p.bind(x, axis=axis)
 
     return log_softmax
 
@@ -67,7 +67,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "log_softmax",
+        "jaxpr_primitive": "nnx.log_softmax",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.log_softmax.html",
         "onnx": [
             {
@@ -76,6 +76,7 @@ def get_metadata() -> dict:
             }
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
                 "testcase": "log_softmax",

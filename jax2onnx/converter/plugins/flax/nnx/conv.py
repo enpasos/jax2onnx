@@ -221,9 +221,10 @@ def get_metadata() -> dict:
             },
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.conv",
+                "testcase": "conv",
                 # Note: Supply both in_features and out_features.
                 "callable": nnx.Conv(
                     in_features=3,
@@ -237,7 +238,7 @@ def get_metadata() -> dict:
                 "input_shapes": [("B", 28, 28, 3)],
             },
             {
-                "testcase": "nnx.conv_2",
+                "testcase": "conv_2",
                 "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
                 "input_shapes": [(2, 28, 28, 1)],
             },

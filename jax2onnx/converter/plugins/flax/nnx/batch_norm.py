@@ -159,16 +159,17 @@ def get_metadata() -> dict:
             },
         ],
         "since": "v0.1.0",
+        "context": "plugins.nnx",
         "testcases": [
             {
-                "testcase": "nnx.batch_norm",
+                "testcase": "batch_norm",
                 "callable": nnx.BatchNorm(
                     num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
                 ),
                 "input_shapes": [(11, 2, 2, 64)],
             },
             {
-                "testcase": "nnx.batch_norm_2",
+                "testcase": "batch_norm_2",
                 "callable": nnx.BatchNorm(num_features=20, rngs=nnx.Rngs(0)),
                 "input_shapes": [(2, 20)],
             },
