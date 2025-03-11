@@ -92,7 +92,7 @@ def get_metadata() -> dict:
                 "input_shapes": [(1, 10)],
             },
             {
-                "testcase": "nnx.gelu_2",
+                "testcase": "gelu_2",
                 "callable": lambda x: nnx.gelu(x, approximate=True),
                 "input_shapes": [(1,)],
             },

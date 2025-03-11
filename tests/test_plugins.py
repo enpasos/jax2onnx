@@ -115,7 +115,10 @@ for context, tests in get_tests_by_context().items():
                 # Determine a valid model path for the ONNX model.
                 testcase_name = tp.get("testcase", "unknown")
                 onnx_model_file_name = f"{testcase_name}.onnx"
-                model_path = os.path.join("docs", "onnx", onnx_model_file_name)
+                context_path = tp.get("context", "default").split(".")
+                model_path = os.path.join(
+                    "docs", "onnx", *context_path, onnx_model_file_name
+                )
                 os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
                 # Convert the JAX model to an ONNX model.
