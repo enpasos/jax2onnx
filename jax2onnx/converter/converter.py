@@ -11,6 +11,7 @@ from jax2onnx.converter.plugins.flax.nnx import sigmoid
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.converter.optimize_transpose import remove_redundant_transpose_pairs
 
 
 def save_onnx(
@@ -100,6 +101,9 @@ class JaxprToOnnx:
         onnx_model = helper.make_model(
             graph, opset_imports=[helper.make_opsetid("", 21)]
         )
+
+        remove_redundant_transpose_pairs(onnx_model)
+
         onnx.save_model(onnx_model, output_path)
 
         return output_path
