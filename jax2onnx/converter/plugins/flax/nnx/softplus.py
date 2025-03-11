@@ -1,5 +1,5 @@
 from jax import core
-from jax.core import Primitive
+from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 import contextlib
