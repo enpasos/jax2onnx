@@ -1,5 +1,5 @@
 from jax import core, numpy as jnp
-from jax.core import Primitive
+from jax.extend.core import Primitive
 from onnx import helper
 import contextlib
 from typing import TYPE_CHECKING

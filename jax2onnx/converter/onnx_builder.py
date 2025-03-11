@@ -3,6 +3,7 @@
 from onnx import helper, TensorProto, NodeProto, ValueInfoProto, ModelProto, GraphProto
 import numpy as np
 from typing import List, Any, Tuple
+from jax.extend.core import Literal
 
 
 class OnnxBuilder:
@@ -31,7 +32,6 @@ class OnnxBuilder:
     def get_constant_name(self, val):
         name = self.get_unique_name("const")
         # Unwrap a JAX Literal to get its Python value.
-        from jax.core import Literal
 
         if isinstance(val, Literal):
             val = val.val

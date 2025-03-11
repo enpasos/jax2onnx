@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import jax
 from flax import nnx
-from jax.core import Primitive
+from jax.extend.core import Primitive
 from onnx import helper
 from jax import numpy as jnp  # Import jnp
 from jax import core
