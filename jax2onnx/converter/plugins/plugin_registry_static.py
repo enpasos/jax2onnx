@@ -9,7 +9,7 @@ plugin_registry = {
     "layer_norm": "jax2onnx.converter.plugins.flax.nnx.layer_norm",
     "leaky_relu": "jax2onnx.converter.plugins.flax.nnx.leaky_relu",
     "nnx.linear": "jax2onnx.converter.plugins.flax.nnx.linear",
-    "linear_general": "jax2onnx.converter.plugins.flax.nnx.linear_general",
+    "nnx.linear_general": "jax2onnx.converter.plugins.flax.nnx.linear_general",
     "log_softmax": "jax2onnx.converter.plugins.flax.nnx.log_softmax",
     "max_pool": "jax2onnx.converter.plugins.flax.nnx.max_pool",
     "relu": "jax2onnx.converter.plugins.flax.nnx.relu",
