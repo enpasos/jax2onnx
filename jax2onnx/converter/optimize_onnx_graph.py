@@ -2,8 +2,90 @@
 
 
 import onnx
-from onnx import helper
+from onnx import helper, TensorProto, shape_inference
 from typing import Dict, List
+
+
+def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
+    """
+    Remove Cast nodes that cast a tensor to its own type.
+
+    This function first runs shape inference to populate type information in the graph,
+    then examines each Cast node. If the input tensor's element type is the same as
+    the "to" attribute of the Cast node, the node is redundant and is removed,
+    with its consumers rewired to the original input.
+
+    Args:
+        onnx_model: The input ONNX model.
+
+    Returns:
+        The optimized ONNX model with redundant Cast nodes removed.
+    """
+    # Run shape inference to obtain type information.
+    inferred_model = shape_inference.infer_shapes(onnx_model)
+    graph = inferred_model.graph
+
+    # Build a mapping from tensor name to its element type.
+    type_dict: Dict[str, int] = {}
+
+    def update_type_info(values):
+        for value in values:
+            # value.type.tensor_type.elem_type is an int corresponding to TensorProto enum.
+            type_dict[value.name] = value.type.tensor_type.elem_type
+
+    update_type_info(graph.input)
+    update_type_info(graph.value_info)
+    update_type_info(graph.output)
+    for init in graph.initializer:
+        type_dict[init.name] = init.data_type
+
+    nodes_to_remove: List[onnx.NodeProto] = []
+
+    # Iterate over nodes to find redundant Casts.
+    for node in graph.node:
+        if node.op_type != "Cast":
+            continue
+
+        # Get the "to" attribute from the node.
+        to_attr = None
+        for attr in node.attribute:
+            if attr.name == "to":
+                to_attr = attr.i
+                break
+        if to_attr is None:
+            continue
+
+        # The Cast node should have one input.
+        cast_inp = node.input[0]
+        # Check if we know the element type for the input.
+        if cast_inp not in type_dict:
+            continue
+
+        input_elem_type = type_dict[cast_inp]
+        # If the target type equals the input's type, the cast is redundant.
+        if input_elem_type != to_attr:
+            continue
+
+        # Rewire: for all nodes consuming the output of this Cast, replace with cast_inp.
+        cast_out = node.output[0]
+        for n in graph.node:
+            for idx, inp in enumerate(n.input):
+                if inp == cast_out:
+                    n.input[idx] = cast_inp
+
+        # Also update graph outputs if needed.
+        for out in graph.output:
+            if out.name == cast_out:
+                out.name = cast_inp
+
+        nodes_to_remove.append(node)
+
+    # Remove the redundant Cast nodes.
+    new_nodes = [n for n in graph.node if n not in nodes_to_remove]
+    del graph.node[:]
+    graph.node.extend(new_nodes)
+    return inferred_model
+
 
 # Define the set of allowed elementwise operations.
 ALLOWED_ELEMENTWISE_OPS = {"Elu", "Gelu", "Relu", "Sigmoid", "Tanh"}

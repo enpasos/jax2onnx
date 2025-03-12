@@ -4,14 +4,17 @@ import jax
 import onnx
 from onnx import helper
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
 from jax2onnx.converter.plugins.flax.nnx import linear_general
 from jax2onnx.converter.plugins.flax.nnx import sigmoid
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.optimize_onnx_graph import remove_redundant_transpose_pairs
+from jax2onnx.converter.optimize_onnx_graph import (
+    remove_redundant_transpose_pairs,
+    remove_redundant_casts,
+)
 
 
 def save_onnx(
@@ -102,7 +105,9 @@ class JaxprToOnnx:
             graph, opset_imports=[helper.make_opsetid("", 21)]
         )
 
-        remove_redundant_transpose_pairs(onnx_model)
+        onnx_model = remove_redundant_transpose_pairs(
+            remove_redundant_casts(onnx_model)
+        )
 
         onnx.save_model(onnx_model, output_path)
 
@@ -139,6 +144,11 @@ class Jaxpr2OnnxConverter:
         )
         self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
             self._handle_random_unwrap
+        )
+
+    def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
+        return jax.core.Var(
+            self.builder.get_unique_name(""), jax.core.ShapedArray(shape, dtype)
         )
 
     def add_node(self, node):

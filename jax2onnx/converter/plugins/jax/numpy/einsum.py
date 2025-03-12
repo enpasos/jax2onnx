@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/plugins/flax/nnx/einsum.py
+import numpy as np
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
@@ -31,11 +33,11 @@ def _get_dynamic_output_shape(
     """Calculates the output shape, correctly handling dynamic dimensions.
 
     Args:
-        input_shapes: List of input shapes (tuples).  Can contain ints or strs.
+        input_shapes: List of input shapes (tuples). Can contain ints or strs.
         equation: The einsum equation string (e.g., "bij,bjk->bik").
 
     Returns:
-        The output shape, as a tuple.  May contain ints or strs.
+        The output shape, as a tuple. May contain ints or strs.
     """
     import numpy as np
 
@@ -57,13 +59,11 @@ def _get_dynamic_output_shape(
     for term, shape in zip(input_terms, input_shapes):
         for i, label in enumerate(term):
             if label not in index_to_label:
-                # Find the corresponding dimension in the shape.
                 try:
-                    dim_index = term.index(label)
-                    dim_value = shape[dim_index]
+                    dim_value = shape[i]
                     index_to_label[label] = dim_value
-                except ValueError:
-                    index_to_label[label] = -1  # Invalid. Should not happen
+                except IndexError:
+                    index_to_label[label] = -1
 
     # 3b. Substitute dynamic labels into the output shape.
     for i, label in enumerate(output_term):
@@ -74,16 +74,15 @@ def _get_dynamic_output_shape(
 
 
 def _get_monkey_patch():
-    def einsum(equation, *operands):
-        def einsum_abstract_eval(*operands, equation):
-            # Calculate shape during abstract evaluation (for tracing).
+    def einsum(equation, *operands, precision=None):
+        def einsum_abstract_eval(*operands, equation, precision):
             input_shapes = [op.shape for op in operands]
             output_shape = _get_dynamic_output_shape(input_shapes, equation)
             return core.ShapedArray(output_shape, operands[0].dtype)
 
         jnp.einsum_p.multiple_results = False
         jnp.einsum_p.def_abstract_eval(einsum_abstract_eval)
-        return jnp.einsum_p.bind(*operands, equation=equation)
+        return jnp.einsum_p.bind(*operands, equation=equation, precision=precision)
 
     return einsum
 
@@ -117,12 +116,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         input_names = [s.get_name(var) for var in node_inputs]
         output_name = s.get_name(node_outputs[0])
         processed_equation = _process_einsum_equation(equation, len(node_inputs))
-
-        # Get input shapes (including dynamic dimensions).
         input_shapes = [inp.aval.shape for inp in node_inputs]
-        # Calculate the output shape.
         output_shape = _get_dynamic_output_shape(input_shapes, equation)
-
         einsum_node = helper.make_node(
             "Einsum",
             inputs=input_names,
@@ -151,42 +146,48 @@ def get_metadata() -> dict:
         "testcases": [
             {
                 "testcase": "jnp.einsum",  # Matrix-vector multiplication
-                "callable": lambda a, b: jnp.einsum("ij,j->i", a, b),
+                "callable": lambda a, b: jnp.einsum("ij,j->i", a, b, precision=None),
                 "input_shapes": [(3, 3), (3,)],
             },
             {
                 "testcase": "jnp.einsum_matmul",  # Matrix multiplication
-                "callable": lambda a, b: jnp.einsum("ij,jk->ik", a, b),
+                "callable": lambda a, b: jnp.einsum("ij,jk->ik", a, b, precision=None),
                 "input_shapes": [(4, 3), (3, 5)],
             },
             {
                 "testcase": "jnp.einsum_dynamic",  # Dynamic dimension test
-                "callable": lambda a, b: jnp.einsum("ij,j->i", a, b),
-                "input_shapes": [("B", 3), (3,)],  # Dynamic batch size
+                "callable": lambda a, b: jnp.einsum("ij,j->i", a, b, precision=None),
+                "input_shapes": [("B", 3), (3,)],
             },
             {
                 "testcase": "jnp.einsum_dynamic_matmul",  # Dynamic batch, matrix multiplication
-                "callable": lambda a, b: jnp.einsum("bij,jk->bik", a, b),
+                "callable": lambda a, b: jnp.einsum(
+                    "bij,jk->bik", a, b, precision=None
+                ),
                 "input_shapes": [("B", 5, 3), (3, 4)],
             },
             {
                 "testcase": "jnp.einsum_transpose",  # Simple transpose
-                "callable": lambda a: jnp.einsum("ij->ji", a),
+                "callable": lambda a: jnp.einsum("ij->ji", a, precision=None),
                 "input_shapes": [(2, 3)],
             },
             {
                 "testcase": "jnp.einsum_dynamic_transpose",  # Dynamic transpose
-                "callable": lambda a: jnp.einsum("bij->bji", a),
+                "callable": lambda a: jnp.einsum("bij->bji", a, precision=None),
                 "input_shapes": [("B", 2, 3)],
             },
             {
                 "testcase": "jnp.einsum_dynamic_matmul2",  # different dynamic dim
-                "callable": lambda a, b: jnp.einsum("bij,jk->bik", a, b),
+                "callable": lambda a, b: jnp.einsum(
+                    "bij,jk->bik", a, b, precision=None
+                ),
                 "input_shapes": [("B", 5, 3), (3, 4)],
             },
             {
                 "testcase": "jnp.einsum_dynamic_matmul3",  # different dynamic dim
-                "callable": lambda a, b: jnp.einsum("bij,bjk->bik", a, b),
+                "callable": lambda a, b: jnp.einsum(
+                    "bij,bjk->bik", a, b, precision=None
+                ),
                 "input_shapes": [("B", 5, 3), ("B", 3, 4)],
             },
         ],
