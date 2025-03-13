@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/plugins/flax/nnx/conv.py
+
 import numpy as np
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
@@ -168,22 +170,30 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             )
         if padding.upper() == "SAME":
             # Compute symmetric padding for height and width.
+            # ONNX expects pads in the order: [pad_top, pad_left, pad_bottom, pad_right]
             input_shape = input_var.aval.shape  # (B, H, W, C)
             filter_shape = kernel_const.shape  # (H, W, I, O)
-            pads = []
-            for i in range(2):  # height and width
-                in_dim = input_shape[i + 1]
-                filt_dim = filter_shape[i]
-                stride = strides[i]
-                out_dim = -(-in_dim // stride)
-                pad_total = max((out_dim - 1) * stride + filt_dim - in_dim, 0)
-                pad_begin = pad_total // 2
-                pad_end = pad_total - pad_begin
-                pads.extend([pad_begin, pad_end])
+            # Height padding.
+            in_h = input_shape[1]
+            filt_h = filter_shape[0]
+            stride_h = strides[0]
+            out_h = -(-in_h // stride_h)  # Ceiling division
+            pad_total_h = max((out_h - 1) * stride_h + filt_h - in_h, 0)
+            pad_top = pad_total_h // 2
+            pad_bottom = pad_total_h - pad_top
+            # Width padding.
+            in_w = input_shape[2]
+            filt_w = filter_shape[1]
+            stride_w = strides[1]
+            out_w = -(-in_w // stride_w)
+            pad_total_w = max((out_w - 1) * stride_w + filt_w - in_w, 0)
+            pad_left = pad_total_w // 2
+            pad_right = pad_total_w - pad_left
+            pads = [pad_top, pad_left, pad_bottom, pad_right]
             conv_node.attribute.append(helper.make_attribute("pads", pads))
         s.add_node(conv_node)
-        # Compute the conv node’s intermediate output shape (in NCHW):
-        # First, get the expected final output shape in JAX (NHWC) using your helper:
+        # Compute the conv node's intermediate output shape (in NCHW):
+        # First, get the expected final output shape in JAX (NHWC) using our helper:
         jax_output_shape = _compute_conv_output_shape(
             jax_input_shape, kernel_const.shape, strides, padding
         )
@@ -225,7 +235,6 @@ def get_metadata() -> dict:
         "testcases": [
             {
                 "testcase": "conv",
-                # Note: Supply both in_features and out_features.
                 "callable": nnx.Conv(
                     in_features=3,
                     out_features=16,
@@ -241,6 +250,32 @@ def get_metadata() -> dict:
                 "testcase": "conv_2",
                 "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
                 "input_shapes": [(2, 28, 28, 1)],
+            },
+            {
+                "testcase": "conv_3",
+                "callable": nnx.Conv(
+                    in_features=1,
+                    out_features=32,
+                    kernel_size=(3, 3),
+                    strides=(1, 1),
+                    padding="SAME",
+                    use_bias=True,
+                    rngs=nnx.Rngs(0),
+                ),
+                "input_shapes": [(3, 28, 28, 1)],
+            },
+            {
+                "testcase": "conv_4",
+                "callable": nnx.Conv(
+                    in_features=32,
+                    out_features=64,
+                    kernel_size=(3, 3),
+                    strides=(2, 2),
+                    padding="SAME",
+                    use_bias=True,
+                    rngs=nnx.Rngs(0),
+                ),
+                "input_shapes": [(3, 28, 28, 32)],
             },
         ],
     }
