@@ -30,13 +30,18 @@ def load_example_metadata() -> list:
                 spec.loader.exec_module(module)
                 if hasattr(module, "get_metadata"):
                     md = module.get_metadata()
-                    if isinstance(md, dict):
-                        if "testcases" in md and isinstance(md["testcases"], list):
-                            for testcase in md["testcases"]:
+                    md = [md] if not isinstance(md, list) else md
+                    for entry in md:
+                        if "testcases" in entry and isinstance(
+                            entry["testcases"], list
+                        ):
+                            for testcase in entry["testcases"]:
                                 if isinstance(testcase, dict):
                                     testcase["source"] = module_name
                                     # Pass the context along (e.g. "plugins.nnx")
-                                    testcase["context"] = md.get("context", "default")
+                                    testcase["context"] = entry.get(
+                                        "context", "default"
+                                    )
                                     metadata_list.append(testcase)
     return metadata_list
 
