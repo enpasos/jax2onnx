@@ -51,7 +51,6 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "plugins_nnx: Tests from the plugins.nnx (flax) context.",

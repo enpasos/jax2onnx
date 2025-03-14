@@ -31,10 +31,23 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return {}
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "reduce_sum",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
+        "onnx": [
+            {
+                "component": "ReduceSum",
+                "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "reduce_sum",
+                "callable": lambda x: jax.lax.reduce_sum(x, axes=(0,)),
+                "input_shapes": [(3, 3)],
+            }
+        ],
+    }

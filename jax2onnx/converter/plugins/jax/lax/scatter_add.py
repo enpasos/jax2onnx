@@ -38,10 +38,25 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return {}
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "scatter_add",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter_add.html",
+        "onnx": [
+            {
+                "component": "ScatterElements",
+                "doc": "https://onnx.ai/onnx/operators/onnx__ScatterElements.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "scatter_add",
+                "callable": lambda x, indices, updates: jax.lax.scatter_add(
+                    x, indices, updates
+                ),
+                "input_shapes": [(3, 3), (3,), (3,)],
+            }
+        ],
+    }

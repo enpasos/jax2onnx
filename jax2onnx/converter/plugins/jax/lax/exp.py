@@ -27,10 +27,23 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return {}
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "exp",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.exp.html",
+        "onnx": [
+            {
+                "component": "Exp",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "exp",
+                "callable": lambda x: jax.lax.exp(x),
+                "input_shapes": [(3,)],
+            }
+        ],
+    }

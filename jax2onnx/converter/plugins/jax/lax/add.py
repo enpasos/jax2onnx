@@ -37,11 +37,11 @@ def get_metadata() -> dict:
                 "doc": "https://onnx.ai/onnx/operators/onnx__Add.html",
             }
         ],
-        "since": "v0.1.0",
+        "since": "v0.2.0",
         "context": "plugins.lax",
         "testcases": [
             {
-                "testcase": "add_test1",
+                "testcase": "add",
                 "callable": lambda x1, x2: x1 + x2,
                 "input_shapes": [(3,), (3,)],
             }

@@ -30,11 +30,24 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
     return _handle_integer_pow
 
 
-def get_metadata() -> List[Dict[str, Any]]:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return []
+def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "integer_pow",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.integer_pow.html",
+        "onnx": [
+            {
+                "component": "Pow",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "integer_pow",
+                "callable": lambda x: jax.lax.integer_pow(x, 2),
+                "input_shapes": [(3,)],
+            }
+        ],
+    }
