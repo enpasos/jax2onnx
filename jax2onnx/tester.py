@@ -25,7 +25,13 @@ def allclose(callable, onnx_model_path, *xs):
     if not isinstance(onnx_output, list):
         onnx_output = [onnx_output]
 
+    isOk = np.allclose(onnx_output, jax_output, rtol=1e-3, atol=1e-5)
+
     return (
-        np.allclose(onnx_output, jax_output, rtol=1e-3, atol=1e-5),
-        "ONNX and JAX outputs do not match.",
+        isOk,
+        (
+            "ONNX and JAX outputs match :-)"
+            if isOk
+            else "ONNX and JAX outputs do not match :-("
+        ),
     )
