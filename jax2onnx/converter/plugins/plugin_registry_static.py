@@ -25,7 +25,6 @@ plugin_registry = {
     "concatenate": "jax2onnx.converter.plugins.jax.lax.concatenate",
     "conv_general_dilated": "jax2onnx.converter.plugins.jax.lax.conv",
     "convert_element_type": "jax2onnx.converter.plugins.jax.lax.convert_element_type",
-    "device_put": "jax2onnx.converter.plugins.jax.lax.device_put",
     "div": "jax2onnx.converter.plugins.jax.lax.div",
     "dot_general": "jax2onnx.converter.plugins.jax.lax.dot_general",
     "dynamic_slice": "jax2onnx.converter.plugins.jax.lax.dynamic_slice",
