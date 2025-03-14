@@ -43,9 +43,9 @@ def get_metadata() -> dict:
         "context": "plugins.lax",
         "testcases": [
             {
-                "testcase": "transpose",
-                "callable": lambda x, perm: jax.lax.transpose(x, perm),
-                "input_shapes": [(3, 3), (2,)],
+                "testcase": "transpose_basic",
+                "callable": lambda x: jax.lax.transpose(x, (1, 0)),
+                "input_shapes": [(2, 3)],
             }
         ],
     }
