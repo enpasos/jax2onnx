@@ -34,11 +34,24 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
     return _handle_iota
 
 
-def get_metadata() -> List[Dict[str, Any]]:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return []
+def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "iota",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.iota.html",
+        "onnx": [
+            {
+                "component": "Range",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "iota",
+                "callable": lambda dtype, size: jax.lax.iota(dtype, size),
+                "input_shapes": [(), ()],
+            }
+        ],
+    }

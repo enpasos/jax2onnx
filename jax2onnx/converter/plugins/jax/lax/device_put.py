@@ -34,3 +34,26 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_node(node)
 
     return _handle_device_put
+
+
+def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "device_put",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.device_put.html",
+        "onnx": [
+            {
+                "component": "Identity",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "device_put",
+                "callable": lambda x: jax.device_put(x),
+                "input_shapes": [(3,)],
+            }
+        ],
+    }

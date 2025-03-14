@@ -26,11 +26,24 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
     return _handle_eq
 
 
-def get_metadata() -> List[Dict[str, Any]]:
-    """
-    Return metadata describing the plugin.
-
-    This could include documentation links, test cases, version information, etc.
-    For now, we return an empty list.
-    """
-    return []
+def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
+    return {
+        "jaxpr_primitive": "eq",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.eq.html",
+        "onnx": [
+            {
+                "component": "Equal",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+            }
+        ],
+        "since": "v0.2.0",
+        "context": "plugins.lax",
+        "testcases": [
+            {
+                "testcase": "eq",
+                "callable": lambda x1, x2: x1 == x2,
+                "input_shapes": [(3,), (3,)],
+            }
+        ],
+    }

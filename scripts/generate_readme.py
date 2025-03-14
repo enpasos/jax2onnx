@@ -1,5 +1,4 @@
 # file: scripts/generate_readme.py
-
 import os
 import time
 import importlib
@@ -12,8 +11,9 @@ import json
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # Paths
-PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "../jax2onnx/plugins")
+PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "../jax2onnx/converter/plugins")
 EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "../jax2onnx/examples")
+TESTS_DIR = os.path.join(os.path.dirname(__file__), "../tests")  # Add tests directory
 README_PATH = os.path.join(os.path.dirname(__file__), "../README.md")
 
 # Markers for the auto-generated sections
@@ -34,32 +34,44 @@ def run_pytest():
         ["pytest", "--json-report", "--json-report-file=output/pytest_report.json"],
         capture_output=True,
         text=True,
+        check=True,  # Raise an exception if pytest fails
     )
 
     test_results = {}
 
     # Read the JSON report
-    report_path = "output/pytest_report.json"
+    report_path = "output/pytest_report.json"  # Corrected relative path
     if os.path.exists(report_path):
         with open(report_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         for test in data.get("tests", []):
-            if "test_onnx_export[" in test["nodeid"]:
-                testcase_raw = test["nodeid"].split("[")[-1].rstrip("]")
+            #  test_plugins.py::Test_plugins_nnx_conv::test_conv_concrete
+            parts = test["nodeid"].split("::")
+            if len(parts) == 3 and parts[0] == "tests/test_plugins.py":
+                class_part = parts[1]  # Test_plugins_nnx_conv
+                test_part = parts[2]  # test_conv_concrete
+                # Convert from class name back to a context and plugin
+                class_parts = class_part.split(
+                    "_"
+                )  # ['Test', 'plugins', 'nnx', 'conv']
+                if len(class_parts) >= 3 and class_parts[0] == "Test":
+                    context = class_parts[1:3]  # ['plugins', 'nnx']
+                    plugin = class_parts[3:]  # conv
 
-                # Normalize test case names by removing (Plugin) and (Example) suffixes
-                testcase = testcase_raw.replace(" (Plugin)", "").replace(
-                    " (Example)", ""
-                )
-                parts = testcase.split("_")
-                variant = parts[-1]  # e.g. "10"
-                base_name = "_".join(parts[:-1])  # e.g. "conv_3x3_1"
+                    # Extract test case name from the test function name
+                    testcase_name = test_part.replace("test_", "")
 
-                status = "✅" if test["outcome"] == "passed" else "❌"
-                test_results[f"{base_name}_{variant}"] = status
+                    status = "✅" if test["outcome"] == "passed" else "❌"
+                    key = (".".join(context), "_".join(plugin), testcase_name)
+                    test_results[key] = status
 
-    logging.info(f"✅ {len(test_results)} tests completed.")
+    logging.info(f"✅ Tests completed. {len(test_results)} results captured.")
+
+    # nice print of test results
+    for key, value in test_results.items():
+        print(f"{key}: {value}")
+
     return test_results
 
 
@@ -68,16 +80,45 @@ def extract_metadata(base_path, source_type):
     logging.info(f"📡 Extracting metadata from {source_type.lower()}s...")
 
     metadata_list = []
-    for _, name, _ in pkgutil.walk_packages(
-        [base_path], prefix=f"jax2onnx.{source_type.lower()}."
-    ):
-        module = importlib.import_module(name)
-        if hasattr(module, "get_test_params"):
-            for entry in module.get_test_params():
-                entry["testcases"] = {
-                    tc["testcase"]: "➖" for tc in entry.get("testcases", [])
-                }
-                metadata_list.append(entry)
+
+    if source_type.lower() == "plugins":
+        for _, name, _ in pkgutil.walk_packages(
+            [base_path], prefix=f"jax2onnx.converter.{source_type.lower()}."
+        ):
+            module = importlib.import_module(name)
+            if hasattr(module, "get_metadata"):
+                md = module.get_metadata()
+                # Standardize metadata format to match example's format
+                if isinstance(md, dict):  # For plugins
+                    entry = {
+                        "jax_component": md.get("jaxpr_primitive", "Unknown"),
+                        "jax_doc": md.get("jax_doc", ""),
+                        "onnx": md.get("onnx", []),
+                        "since": md.get("since", ""),
+                        "testcases": {
+                            tc.get("testcase", ""): "➖"
+                            for tc in md.get(
+                                "testcases", []
+                            )  # Initial state before test results
+                        },
+                        "context": md.get(
+                            "context", "default"
+                        ),  # Store context for result parsing.
+                    }
+                    metadata_list.append(entry)
+
+    elif source_type.lower() == "examples":  # Corrected string comparison
+        for _, name, _ in pkgutil.walk_packages(
+            [base_path], prefix=f"jax2onnx.{source_type.lower()}."
+        ):
+            module = importlib.import_module(name)
+            if hasattr(module, "get_test_params"):
+                for entry in module.get_test_params():  # type: ignore
+                    # Ensure that 'testcases' is a dictionary with initial values
+                    entry["testcases"] = {
+                        tc["testcase"]: "➖" for tc in entry.get("testcases", [])
+                    }
+                    metadata_list.append(entry)
 
     logging.info(f"✅ {len(metadata_list)} {source_type.lower()} components found.")
     return metadata_list
@@ -102,14 +143,6 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     metadata_plugins = sorted(metadata_plugins, key=lambda x: x["jax_component"])
     metadata_examples = sorted(metadata_examples, key=lambda x: x["component"])
 
-    # Define the mapping of variants to tooltips
-    tooltips = {
-        "00": "static batch dim",
-        "10": "static batch dim + more shape info",
-        "01": "dynamic batch dim",
-        "11": "dynamic batch dim + more shape info",
-    }
-
     # Generate plugins table
     plugin_rows = []
     for entry in metadata_plugins:
@@ -117,27 +150,26 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
             [f"[{op['component']}]({op['doc']})" for op in entry["onnx"]]
         )
 
-        # Prepare testcases with multiple variants
         testcases_column = []
-        base_names = set(tc for tc in entry.get("testcases", {}).keys())
+        for base_name in sorted(entry.get("testcases", {}).keys()):
+            context = entry.get("context", "default")  # Retrieve context
+            plugin = get_plugin_from_source(entry.get("jax_component", "default"))
+            status = test_results.get((context, plugin, base_name), "➖")
+            # Construct URL for Netron, handling dynamic/concrete suffixes.
+            parts = base_name.split("_")
+            if parts[-1] in ("dynamic", "concrete"):
+                testcase_name = "_".join(parts[:-1])  # remove dynamic, concrete
+                variant = parts[-1]
+            else:
+                testcase_name = base_name
+                variant = ""  # no variant
 
-        for base_name in sorted(base_names):
-            urls = {
-                variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
-                for variant in tooltips
-                if f"{base_name}_{variant}" in test_results
-            }
+            url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{testcase_name}{'_' + variant if variant else ''}.onnx"
 
-            # Use pass/fail status for the icons
-            testcase_row = f"`{base_name}` " + " ".join(
-                f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
-                for variant in tooltips
-                if f"{base_name}_{variant}" in test_results
-            )
+            testcase_row = f"`{base_name}` [{status}]({url})"
             testcases_column.append(testcase_row)
 
         testcases_column = "<br>".join(testcases_column) if testcases_column else "➖"
-
         plugin_rows.append(
             f"| [{entry['jax_component']}]({entry['jax_doc']}) "
             f"| {onnx_links} "
@@ -150,25 +182,17 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     for entry in metadata_examples:
         children_list = "<br>".join(entry["children"])
 
-        base_names = set(tc for tc in entry.get("testcases", {}).keys())
         testcases_column = []
+        for base_name in sorted(entry.get("testcases", {}).keys()):
+            # Construct URL for Netron.
+            url = f"{NETRON_BASE_URL}examples/{base_name}.onnx"
 
-        for base_name in sorted(base_names):
-            urls = {
-                variant: f"https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/{base_name}_{variant}.onnx"
-                for variant in tooltips
-                if f"{base_name}_{variant}" in test_results
-            }
-
-            testcase_row = f"`{base_name}` " + " ".join(
-                f"[{test_results.get(f'{base_name}_{variant}', '❌')}]({urls[variant]} \"{tooltips[variant]}\")"
-                for variant in tooltips
-                if f"{base_name}_{variant}" in test_results
-            )
+            # Status is simpler for examples, as they are grouped under Test_examples
+            status = test_results.get(("examples", "examples", base_name), "➖")  # type: ignore
+            testcase_row = f"`{base_name}` [{status}]({url})"
             testcases_column.append(testcase_row)
 
         testcases_column = "<br>".join(testcases_column) if testcases_column else "➖"
-
         example_rows.append(
             f"| {entry['component']} "
             f"| {entry['description']} "
@@ -215,10 +239,16 @@ def update_readme(metadata_plugins, metadata_examples, test_results):
     logging.info("✅ README.md updated successfully!")
 
 
+def get_plugin_from_source(source: str) -> str:
+    if "." not in source:
+        return source
+    return source.split(".")[-1]
+
+
 if __name__ == "__main__":
     start_time = time.time()
 
-    test_results = run_pytest()  # Run full tests to capture pass/fail results
+    test_results = run_pytest()  # Run full tests and capture pass/fail
     metadata_plugins = extract_metadata(PLUGIN_DIR, "plugins")
     metadata_examples = extract_metadata(EXAMPLES_DIR, "examples")
     update_readme(metadata_plugins, metadata_examples, test_results)
