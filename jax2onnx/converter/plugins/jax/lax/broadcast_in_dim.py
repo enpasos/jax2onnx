@@ -70,8 +70,10 @@ def get_metadata() -> dict:
         "testcases": [
             {
                 "testcase": "broadcast_in_dim",
-                "callable": lambda x, shape: jax.lax.broadcast_in_dim(x, shape),
-                "input_shapes": [(3,), (3,)],
+                "callable": lambda x: jax.lax.broadcast_in_dim(
+                    x, (3,), broadcast_dimensions=(0,)
+                ),
+                "input_shapes": [(3,)],
             }
         ],
     }

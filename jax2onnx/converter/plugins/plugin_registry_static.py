@@ -47,7 +47,6 @@ plugin_registry = {
     "reduce_sum": "jax2onnx.converter.plugins.jax.lax.reduce_sum",
     "reshape": "jax2onnx.converter.plugins.jax.lax.reshape",
     "scatter-add": "jax2onnx.converter.plugins.jax.lax.scatter_add",
-    "select_n": "jax2onnx.converter.plugins.jax.lax.select_n",
     "slice": "jax2onnx.converter.plugins.jax.lax.slice",
     "sort": "jax2onnx.converter.plugins.jax.lax.sort",
     "sqrt": "jax2onnx.converter.plugins.jax.lax.sqrt",
