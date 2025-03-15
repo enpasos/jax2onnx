@@ -23,6 +23,7 @@ def save_onnx(
     output_path: str = "model.onnx",
     model_name: str = "jax_model",
     include_intermediate_shapes: bool = True,
+    opset: int = 21,
 ) -> str:
     jaxpr2onnx = JaxprToOnnx()
     return jaxpr2onnx.save_onnx(
@@ -31,6 +32,7 @@ def save_onnx(
         output_path=output_path,
         model_name=model_name,
         include_intermediate_shapes=include_intermediate_shapes,
+        opset=opset,
     )
 
 
@@ -42,6 +44,7 @@ class JaxprToOnnx:
         output_path: str = "model.onnx",
         model_name: str = "jax_model",
         include_intermediate_shapes: bool = True,
+        opset: int = 21,
     ) -> str:
 
         # if input_shapes have dynamic batch dimensions then include_intermediate_shapes must be False
@@ -102,7 +105,7 @@ class JaxprToOnnx:
         )
 
         onnx_model = helper.make_model(
-            graph, opset_imports=[helper.make_opsetid("", 21)]
+            graph, opset_imports=[helper.make_opsetid("", opset)]
         )
 
         onnx_model = remove_redundant_transpose_pairs(
