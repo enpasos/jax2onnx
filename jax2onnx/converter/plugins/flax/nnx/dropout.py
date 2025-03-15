@@ -65,6 +65,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         dropout_attrs = {}
         if ratio != 0.0:
             dropout_attrs["ratio"] = ratio
+            dropout_attrs["training_mode"] = not deterministic
         dropout_node = helper.make_node(
             "Dropout",
             inputs=[input_name],
@@ -97,12 +98,13 @@ def get_metadata() -> dict:
                 "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(0)),
                 "input_shapes": [(5, 10)],
             },
-            {
-                "testcase": "dropout_training",
-                "callable": nnx.Dropout(
-                    rate=0.5, deterministic=False, rngs=nnx.Rngs(0)
-                ),
-                "input_shapes": [(5, 10)],
-            },
+            # comparison with training mode is not possible due to the random nature of dropout
+            # {
+            #     "testcase": "dropout_training",
+            #     "callable": nnx.Dropout(
+            #         rate=0.5, deterministic=False, rngs=nnx.Rngs(0)
+            #     ),
+            #     "input_shapes": [(5, 10)],
+            # },
         ],
     }
