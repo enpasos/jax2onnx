@@ -104,21 +104,46 @@ def load_all_test_params() -> List[Dict[str, Any]]:
     return params
 
 
-# --- Organizing Tests ---
+# --- Organizing Tests (and caching groupings) ---
 
 
-def organize_tests_by_context_and_component():
-    plugins_group: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-    examples_group: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-    for param in load_all_test_params():
-        source = param["source"]
+def organize_tests_by_context_and_component_from_params(
+    params: List[Dict[str, Any]]
+) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    grouping: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for param in params:
         context = param.get("context", "default")
         component = param.get("component", "default")
-        if "converter.plugins" in source:
-            plugins_group.setdefault((context, component), []).append(param)
-        else:
-            examples_group.setdefault((context, component), []).append(param)
-    return plugins_group, examples_group
+        grouping.setdefault((context, component), []).append(param)
+    return grouping
+
+
+_GLOBAL_PLUGIN_GROUPING = None
+_GLOBAL_EXAMPLE_GROUPING = None
+
+
+def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    global _GLOBAL_PLUGIN_GROUPING
+    if _GLOBAL_PLUGIN_GROUPING is None:
+        plugin_params = []
+        for md in load_plugin_metadata():
+            plugin_params.extend(generate_test_params(md))
+        _GLOBAL_PLUGIN_GROUPING = organize_tests_by_context_and_component_from_params(
+            plugin_params
+        )
+    return _GLOBAL_PLUGIN_GROUPING
+
+
+def get_example_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    global _GLOBAL_EXAMPLE_GROUPING
+    if _GLOBAL_EXAMPLE_GROUPING is None:
+        example_params = []
+        for md in load_example_metadata():
+            example_params.extend(generate_test_params(md))
+        _GLOBAL_EXAMPLE_GROUPING = organize_tests_by_context_and_component_from_params(
+            example_params
+        )
+    return _GLOBAL_EXAMPLE_GROUPING
 
 
 # --- Test Function Creation ---
@@ -140,7 +165,11 @@ def make_test_function(tp: Dict[str, Any]):
             callable_obj.eval()
 
         save_onnx(
-            callable_obj, input_shapes, model_path, include_intermediate_shapes=True
+            callable_obj,
+            input_shapes,
+            model_path,
+            include_intermediate_shapes=True,
+            opset=21,
         )
 
         if any("B" in shape for shape in input_shapes):
@@ -161,11 +190,12 @@ def make_test_function(tp: Dict[str, Any]):
 
 
 def generate_test_class(context: str, component: str, namespace: dict):
-    # Retrieve both plugins and examples groupings.
-    plugins_group, examples_group = organize_tests_by_context_and_component()
-    testcases = plugins_group.get((context, component))
-    if testcases is None:
-        testcases = examples_group.get((context, component), [])
+    # Select grouping based on context prefix.
+    if context.startswith("plugins"):
+        grouping = get_plugin_grouping()
+    else:
+        grouping = get_example_grouping()
+    testcases = grouping.get((context, component), [])
     class_name = f"Test_{context.replace('.', '_')}_{component}"
     attrs = {}
     for tp in testcases:
@@ -181,12 +211,10 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
     filename = os.path.join(directory, f"test_{context.split('.')[-1]}.py")
     with open(filename, "w") as f:
         f.write("from tests.t_generator import generate_test_class\n\n")
-        # f.write("def generate_tests():\n")
         for component in components:
             f.write(
                 f"generate_test_class({repr(context)}, {repr(component)}, globals())\n"
             )
-        # f.write("\ngenerate_tests()\n")
     print(f"Generated minimal test file: {filename}")
 
 
@@ -195,18 +223,19 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
 
 def generate_all_tests():
     clean_generated_test_dirs()
-    plugins_group, examples_group = organize_tests_by_context_and_component()
+    plugin_grouping = get_plugin_grouping()
+    example_grouping = get_example_grouping()
 
-    # Generate plugin test files.
+    # For plugins: group by context.
     plugin_context_components: Dict[str, List[str]] = {}
-    for context, component in plugins_group.keys():
+    for context, component in plugin_grouping.keys():
         plugin_context_components.setdefault(context, []).append(component)
     for context, components in plugin_context_components.items():
         create_minimal_test_file(GENERATED_PLUGINS_TESTS_DIR, context, components)
 
-    # Generate example test files.
+    # For examples: group by context.
     example_context_components: Dict[str, List[str]] = {}
-    for context, component in examples_group.keys():
+    for context, component in example_grouping.keys():
         example_context_components.setdefault(context, []).append(component)
     for context, components in example_context_components.items():
         create_minimal_test_file(GENERATED_EXAMPLES_TESTS_DIR, context, components)
