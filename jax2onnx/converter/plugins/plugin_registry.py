@@ -13,7 +13,7 @@ else:
     except ModuleNotFoundError:
         raise ModuleNotFoundError(
             "The static plugin registry file was not found. "
-            "Please run `generate_plugin_registry.py` before running the tests."
+            "Please run `generate_registry_and_tests.py` before running the tests."
         )
 
 
