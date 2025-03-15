@@ -3,4 +3,6 @@ output
 .idea
 dist
 **/__pycache__/
+tests/plugins
+tests/examples
 .vscode
