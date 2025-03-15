@@ -2,6 +2,8 @@ import pkgutil
 import importlib
 import os
 from typing import Dict, Any
+from tests.t_generator import generate_all_tests
+
 
 # Set the environment flag so that plugin_registry.py doesn't try to load a static file.
 os.environ["GENERATE_PLUGIN_REGISTRY"] = "1"
@@ -63,3 +65,6 @@ if __name__ == "__main__":
 
     write_registry_file(registry, output_path)
     print(f"Plugin registry generated and written to {output_path}")
+
+    print(f"Generating tests for all plugins...")
+    generate_all_tests()
