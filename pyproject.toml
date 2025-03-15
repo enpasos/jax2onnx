@@ -61,3 +61,6 @@ markers = [
     "default: Default group of tests.",
     "examples_nnx: Test form the examples.nnx (flax) context."
 ]
+addopts = [
+    "--import-mode=importlib",
+]
