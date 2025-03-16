@@ -7,7 +7,7 @@
 - **JAXPR-Based Conversion:** Uses JAX's built-in `jaxpr` as the foundation for conversion.
 - **Flexible Plugin System:** Easy-to-write Python plugins to handle specific JAX primitives or examples. Plugin registration and testing is automated.
 
-![img.png](https://enpasos.github.io/jax2onnx/images/img1.png)
+![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
 
 ---
 
