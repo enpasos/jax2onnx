@@ -83,7 +83,7 @@ def get_metadata() -> dict:
         "context": "plugins.jnp",
         "testcases": [
             {
-                "testcase": "jnp.concat",
+                "testcase": "concat",
                 "callable": lambda a, b: jnp.concat((a, b), axis=0),
                 "input_shapes": [(3,), (3,)],
             }

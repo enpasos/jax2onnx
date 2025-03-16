@@ -145,46 +145,46 @@ def get_metadata() -> dict:
         "context": "plugins.jnp",
         "testcases": [
             {
-                "testcase": "jnp.einsum",  # Matrix-vector multiplication
+                "testcase": "einsum",  # Matrix-vector multiplication
                 "callable": lambda a, b: jnp.einsum("ij,j->i", a, b, precision=None),
                 "input_shapes": [(3, 3), (3,)],
             },
             {
-                "testcase": "jnp.einsum_matmul",  # Matrix multiplication
+                "testcase": "einsum_matmul",  # Matrix multiplication
                 "callable": lambda a, b: jnp.einsum("ij,jk->ik", a, b, precision=None),
                 "input_shapes": [(4, 3), (3, 5)],
             },
             {
-                "testcase": "jnp.einsum_dynamic",  # Dynamic dimension test
+                "testcase": "einsum_dynamic",  # Dynamic dimension test
                 "callable": lambda a, b: jnp.einsum("ij,j->i", a, b, precision=None),
                 "input_shapes": [("B", 3), (3,)],
             },
             {
-                "testcase": "jnp.einsum_dynamic_matmul",  # Dynamic batch, matrix multiplication
+                "testcase": "einsum_dynamic_matmul",  # Dynamic batch, matrix multiplication
                 "callable": lambda a, b: jnp.einsum(
                     "bij,jk->bik", a, b, precision=None
                 ),
                 "input_shapes": [("B", 5, 3), (3, 4)],
             },
             {
-                "testcase": "jnp.einsum_transpose",  # Simple transpose
+                "testcase": "einsum_transpose",  # Simple transpose
                 "callable": lambda a: jnp.einsum("ij->ji", a, precision=None),
                 "input_shapes": [(2, 3)],
             },
             {
-                "testcase": "jnp.einsum_dynamic_transpose",  # Dynamic transpose
+                "testcase": "einsum_dynamic_transpose",  # Dynamic transpose
                 "callable": lambda a: jnp.einsum("bij->bji", a, precision=None),
                 "input_shapes": [("B", 2, 3)],
             },
             {
-                "testcase": "jnp.einsum_dynamic_matmul2",  # different dynamic dim
+                "testcase": "einsum_dynamic_matmul2",  # different dynamic dim
                 "callable": lambda a, b: jnp.einsum(
                     "bij,jk->bik", a, b, precision=None
                 ),
                 "input_shapes": [("B", 5, 3), (3, 4)],
             },
             {
-                "testcase": "jnp.einsum_dynamic_matmul3",  # different dynamic dim
+                "testcase": "einsum_dynamic_matmul3",  # different dynamic dim
                 "callable": lambda a, b: jnp.einsum(
                     "bij,bjk->bik", a, b, precision=None
                 ),

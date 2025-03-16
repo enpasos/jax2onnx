@@ -149,42 +149,42 @@ def get_metadata() -> dict:
         "context": "plugins.jnp",
         "testcases": [
             {
-                "testcase": "jnp.matmul_2d",  # 2D matrix multiplication
+                "testcase": "matmul_2d",  # 2D matrix multiplication
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(3, 4), (4, 5)],
             },
             {
-                "testcase": "jnp.matmul_1d_2d",  # Vector-matrix multiplication
+                "testcase": "matmul_1d_2d",  # Vector-matrix multiplication
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(4,), (4, 5)],
             },
             {
-                "testcase": "jnp.matmul_2d_1d",  # Matrix-vector multiplication
+                "testcase": "matmul_2d_1d",  # Matrix-vector multiplication
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(3, 4), (4,)],
             },
             {
-                "testcase": "jnp.matmul_dynamic",  # Dynamic batch size
+                "testcase": "matmul_dynamic",  # Dynamic batch size
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [("B", 3, 4), ("B", 4, 5)],
             },
             {
-                "testcase": "jnp.matmul_dynamic_a",
+                "testcase": "matmul_dynamic_a",
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [("B", 3), (3, 4)],
             },
             {
-                "testcase": "jnp.matmul_dynamic_b",
+                "testcase": "matmul_dynamic_b",
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(3, "B"), ("B", 4)],
             },
             {
-                "testcase": "jnp.matmul_1d",  # 1D vector x 1D vector
+                "testcase": "matmul_1d",  # 1D vector x 1D vector
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(4,), (4,)],
             },
             {
-                "testcase": "jnp.matmul_3d",
+                "testcase": "matmul_3d",
                 "callable": lambda a, b: jnp.matmul(a, b),
                 "input_shapes": [(2, 3, 4), (2, 4, 5)],
             },

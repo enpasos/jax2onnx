@@ -76,7 +76,7 @@ def get_metadata() -> dict:
         "context": "plugins.jnp",
         "testcases": [
             {
-                "testcase": "jnp.add",
+                "testcase": "add",
                 "callable": lambda x, y: jnp.add(x, y),
                 "input_shapes": [(3,), (3,)],
             }
