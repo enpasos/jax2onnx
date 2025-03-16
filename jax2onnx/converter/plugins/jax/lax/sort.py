@@ -47,17 +47,39 @@ def get_metadata() -> dict:
         "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.sort.html",
         "onnx": [
             {
-                "component": "Sort",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Sort.html",
+                "component": "TopK",
+                "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html",
             }
         ],
         "since": "v0.2.0",
         "context": "plugins.lax",
         "testcases": [
             {
-                "testcase": "sort",
+                "testcase": "sort_1d",
                 "callable": lambda x: jax.lax.sort(x),
                 "input_shapes": [(3,)],
-            }
+            },
+            {
+                "testcase": "sort_1d_empty",
+                "callable": lambda x: jax.lax.sort(x),
+                "input_shapes": [(0,)],  # Empty array
+            },
+            {
+                "testcase": "sort_1d_single",
+                "callable": lambda x: jax.lax.sort(x),
+                "input_shapes": [(1,)],  # Single-element array
+            },
+            {
+                "testcase": "sort_1d_larger",
+                "callable": lambda x: jax.lax.sort(x),
+                "input_shapes": [(10,)],
+            },
+            {
+                "testcase": "sort_1d_specific_values",
+                "callable": lambda x: jax.lax.sort(x),
+                "input_shapes": [(5,)],
+                "input_data": [([5, 2, 1, 4, 3],)],  # Specific input data
+                "expected_output": [([1, 2, 3, 4, 5],)],  # Expected output
+            },
         ],
     }
