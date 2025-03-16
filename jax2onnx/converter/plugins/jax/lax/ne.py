@@ -41,9 +41,13 @@ def get_metadata() -> dict:
         "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.ne.html",
         "onnx": [
             {
-                "component": "NotEqual",
-                "doc": "https://onnx.ai/onnx/operators/onnx__NotEqual.html",
-            }
+                "component": "Equal",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+            },
+            {
+                "component": "Not",
+                "doc": "https://onnx.ai/onnx/operators/onnx__Not.html",
+            },
         ],
         "since": "v0.2.0",
         "context": "plugins.lax",
