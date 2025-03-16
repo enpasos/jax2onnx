@@ -81,12 +81,12 @@ def run_pytest() -> Dict:
     os.makedirs(report_dir, exist_ok=True)
     report_path = os.path.join(report_dir, "pytest_report.json")
 
-    subprocess.run(
-        ["pytest", "--json-report", f"--json-report-file={report_path}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    # subprocess.run(
+    #     ["pytest", "--json-report", f"--json-report-file={report_path}"],
+    #     capture_output=True,
+    #     text=True,
+    #     check=True,
+    # )
 
     test_results = {}
     if os.path.exists(report_path):
@@ -107,6 +107,7 @@ def run_pytest() -> Dict:
                     key = (context, plugin, testcase_name)
                     test_results[key] = status
     logging.info(f"✅ Tests completed. {len(test_results)} results captured.")
+
     return test_results
 
 
@@ -152,9 +153,8 @@ def aggregate_metadata(
         key = (context, component)
         if key not in grouped:
             grouped[key] = {
-                "jax_component": entry.get(
-                    "jax_component", entry.get("component", "Unknown")
-                ),
+                "component": entry.get("component", entry.get("component", "Unknown")),
+                "source": entry.get("source", "#"),
                 "jax_doc": entry.get("jax_doc", "#"),
                 "onnx": set(),
                 "since": entry.get("since", ""),
@@ -209,7 +209,7 @@ def update_readme(
     # Build table rows for plugins.
     plugin_rows = []
     for (context, component), data in sorted(plugins_grouped.items()):
-        jax_comp = f"[{data['jax_component']}]({data['jax_doc']})"
+        jax_comp = f"[{data['component']}]({data['jax_doc']})"
         onnx_components = "<br>".join(sorted(data["onnx"])) if data["onnx"] else "➖"
         testcases_str = (
             "<br>".join(sorted(data["testcases"].values()))
@@ -290,5 +290,11 @@ if __name__ == "__main__":
     test_results = run_pytest()
     metadata_plugins = extract_metadata(PLUGIN_DIR, "plugins")
     metadata_examples = extract_metadata(EXAMPLES_DIR, "examples")
+
+    # remove test_results, metadata_plugins, metadata_examples not including testcase with "linear_general"
+    # test_results = {k: v for k, v in test_results.items() if "linear_general" in k}
+    # metadata_plugins = [entry for entry in metadata_plugins if "testcase" in entry and "linear_general" in entry["testcase"].lower()]
+    # metadata_examples = [entry for entry in metadata_examples if "testcase" in entry and "linear_general" in entry["testcase"].lower()]
+
     update_readme(metadata_plugins, metadata_examples, test_results)
     logging.info(f"⏳ Total execution time: {time.time() - start_time:.2f}s")
