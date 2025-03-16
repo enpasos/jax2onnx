@@ -181,11 +181,22 @@ def merge_test_results(
     """
     for (context, component), data in grouped.items():
         # Use plugin from jax_component (or component) to lookup test result.
-        plugin = get_plugin_from_source(data.get("jax_component", component))
-        for tc in data["testcases"]:
-            status = test_results.get((context, plugin, tc), "➖")
-            url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc}.onnx"
-            data["testcases"][tc] = f"`{tc}` [{status}]({url})"
+        plugin = get_plugin_from_source(data.get("component", component))
+
+        # make a copy of data["testcases"] to avoid changing the original dict while iterating
+        copy = data["testcases"].copy()
+        for tc_ in copy:
+            candidates = []
+            if (context, plugin, tc_ + "_dynamic") in test_results:
+                candidates.append(tc_ + "_dynamic")
+                candidates.append(tc_ + "_concrete")
+            else:
+                candidates.append(tc_)
+            for tc in candidates:
+                if tc_ == tc or (context, plugin, tc) in test_results:
+                    status = test_results.get((context, plugin, tc), "➖")
+                    url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc}.onnx"
+                    data["testcases"][tc] = f"`{tc}` [{status}]({url})"
     return grouped
 
 
@@ -209,7 +220,15 @@ def update_readme(
     # Build table rows for plugins.
     plugin_rows = []
     for (context, component), data in sorted(plugins_grouped.items()):
-        jax_comp = f"[{data['component']}]({data['jax_doc']})"
+
+        comp_name = data["component"]
+        # Prepend context to the component name if it's not default
+        if context != "default":
+            comp_name = f"{context}.{comp_name}"
+        # Remove "plugin." prefix from the component name
+        comp_name = comp_name.removeprefix("plugins.")
+
+        jax_comp = f"[{comp_name}]({data['jax_doc']})"
         onnx_components = "<br>".join(sorted(data["onnx"])) if data["onnx"] else "➖"
         testcases_str = (
             "<br>".join(sorted(data["testcases"].values()))
