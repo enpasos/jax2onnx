@@ -158,6 +158,8 @@ def aggregate_metadata(
                 "jax_doc": entry.get("jax_doc", "#"),
                 "onnx": set(),
                 "since": entry.get("since", ""),
+                "description": entry.get("description", ""),
+                "children": entry.get("children", []),
                 "testcases": {},
             }
         # For plugins, accumulate ONNX operator links if available.
@@ -190,13 +192,15 @@ def merge_test_results(
             if (context, plugin, tc_ + "_dynamic") in test_results:
                 candidates.append(tc_ + "_dynamic")
                 candidates.append(tc_ + "_concrete")
+                # remove the original testcase from the dict
+                del data["testcases"][tc_]
             else:
                 candidates.append(tc_)
             for tc in candidates:
                 if tc_ == tc or (context, plugin, tc) in test_results:
                     status = test_results.get((context, plugin, tc), "➖")
                     url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc}.onnx"
-                    data["testcases"][tc] = f"`{tc}` [{status}]({url})"
+                    data["testcases"][tc] = f"[`{tc}`]({url}) {status}"
     return grouped
 
 
@@ -311,9 +315,10 @@ if __name__ == "__main__":
     metadata_examples = extract_metadata(EXAMPLES_DIR, "examples")
 
     # remove test_results, metadata_plugins, metadata_examples not including testcase with "linear_general"
-    # test_results = {k: v for k, v in test_results.items() if "linear_general" in k}
-    # metadata_plugins = [entry for entry in metadata_plugins if "testcase" in entry and "linear_general" in entry["testcase"].lower()]
-    # metadata_examples = [entry for entry in metadata_examples if "testcase" in entry and "linear_general" in entry["testcase"].lower()]
+    # test = "autoencoder"
+    # test_results = {k: v for k, v in test_results.items() if test in k}
+    # metadata_plugins = [entry for entry in metadata_plugins if "testcase" in entry and test in entry["testcase"].lower()]
+    # metadata_examples = [entry for entry in metadata_examples if "testcase" in entry and test in entry["testcase"].lower()]
 
     update_readme(metadata_plugins, metadata_examples, test_results)
     logging.info(f"⏳ Total execution time: {time.time() - start_time:.2f}s")

@@ -25,6 +25,7 @@ def get_metadata() -> dict:
         "description": "A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation.",
         "since": "v0.1.0",
         "context": "examples.nnx",
+        "children": ["nnx.Linear", "nnx.Dropout", "nnx.BatchNorm", "nnx.gelu"],
         "testcases": [
             {
                 "testcase": "mlp",

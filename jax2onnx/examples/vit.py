@@ -284,6 +284,13 @@ def get_metadata():
             "description": "A MNIST Vision Transformer (ViT) model with configurable convolutional or patch embedding.",
             "since": "v0.1.0",
             "context": "examples.nnx",
+            "children": [
+                "PatchEmbedding",
+                "ConvEmbedding",
+                "TransformerBlock",
+                "nnx.Linear",
+                "nnx.LayerNorm",
+            ],
             "testcases": [
                 {
                     "testcase": "mnist_vit_conv",

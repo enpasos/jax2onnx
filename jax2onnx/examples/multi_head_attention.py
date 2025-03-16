@@ -1,16 +1,15 @@
 # file: jax2onnx/examples/multi_head_attention.py
 
 from flax import nnx
-import jax
-from flax.nnx import Linear, Dropout, BatchNorm
 
 
 def get_metadata() -> dict:
     return {
         "component": "MultiHeadAttention",
-        "description": "...",
+        "description": "This is a multi-head attention module implementes by Flax/nnx that has no ONNX correspondant on the same granularity.",
         "since": "v0.2.0",
         "context": "examples.nnx",
+        "children": ["nnx.GeneralLinear", "nnx.dot_product_attention"],
         "testcases": [
             {
                 "testcase": "multihead_attention",
