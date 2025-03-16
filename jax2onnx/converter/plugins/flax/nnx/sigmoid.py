@@ -66,7 +66,7 @@ def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.sigmoid",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nnx.sigmoid.html",
+        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.sigmoid",
         "onnx": [
             {
                 "component": "Sigmoid",

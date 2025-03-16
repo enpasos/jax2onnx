@@ -83,7 +83,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     return {
         "jaxpr_primitive": "nnx.dropout",
-        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/dropout.html",
+        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
         "onnx": [
             {
                 "component": "Dropout",
