@@ -184,7 +184,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     return {
         "jaxpr_primitive": "nnx.max_pool",
-        "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.max_pool.html",
+        "jax_doc": "https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool",
         "onnx": [
             {
                 "component": "MaxPool",
