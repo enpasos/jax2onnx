@@ -40,6 +40,8 @@ save_onnx(
     "my_callable.onnx"    # Output path
 )
 ```
+The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_callable.onnx)
+
 
 ---
 
