@@ -52,11 +52,11 @@ If conversion doesn't work out of the box, it could be due to:
   JAXPR-based conversion requires function references to be resolved dynamically at call-time.  
   **Solution:** Wrap your function call inside a lambda to enforce dynamic resolution:
   ```python
-  my_dynamic_callable = lambda x: original_callable(x)
+  my_dynamic_callable_function = lambda x: original_function(x)
   ```
 
 - **Unsupported primitives:**  
-  The callable may use a primitive not yet supported by `jax2onnx`.  
+  The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](#how-to-contribute) to handle the unsupported function (this is straightforward!).
 
 ---
