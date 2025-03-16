@@ -17,8 +17,7 @@ Here's how simple it is to convert your JAX callable to ONNX:
 
 ```python
 from jax2onnx import save_onnx
-from flax import nnx
-import jax.numpy as jnp
+from flax import nnx 
 
 # Example: A minimal MLP (from Flax documentation)
 class MLP(nnx.Module):
