@@ -95,7 +95,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     return {
         "jaxpr_primitive": "nnx.layer_norm",
-        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/layer_norm.html",
+        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
         "onnx": [
             {
                 "component": "LayerNormalization",
