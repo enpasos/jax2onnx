@@ -1,4 +1,0 @@
-#!/bin/sh
-cd "/home/enpasos/projects/jax2onnx"
-. "/home/enpasos/.cache/pypoetry/virtualenvs/jax2onnx-MixY3GtB-py3.12/bin/activate"
-exec python3 "$@"
