@@ -173,32 +173,32 @@ def get_metadata() -> dict:
         "context": "plugins.jnp",
         "testcases": [
             {
-                "testcase": "jnp.reshape_1",
+                "testcase": "reshape_1",
                 "callable": lambda a: jnp.reshape(a, (2, 6)),
                 "input_shapes": [(3, 4)],
             },
             {
-                "testcase": "jnp.reshape_2",
+                "testcase": "reshape_2",
                 "callable": lambda a: jnp.reshape(a, (-1, 2)),
                 "input_shapes": [(3, 4)],
             },
             {
-                "testcase": "jnp.reshape_3",
+                "testcase": "reshape_3",
                 "callable": lambda a: jnp.reshape(a, (2, -1)),
                 "input_shapes": [(3, 4)],
             },
             {
-                "testcase": "jnp.reshape_4",
+                "testcase": "reshape_4",
                 "callable": lambda a: jnp.reshape(a, (-1, 4)),
                 "input_shapes": [("B", 3, 4)],
             },
             {
-                "testcase": "jnp.reshape_to_scalar",
+                "testcase": "reshape_to_scalar",
                 "callable": lambda a: jnp.reshape(a, ()),
                 "input_shapes": [(1,)],
             },
             {  # Edge case
-                "testcase": "jnp.reshape_from_scalar",
+                "testcase": "reshape_from_scalar",
                 "callable": lambda a: jnp.reshape(a, (1,)),
                 "input_shapes": [()],
             },
