@@ -2,12 +2,14 @@
 
 `jax2onnx` converts your JAX/Flax functions directly into the ONNX format.
 
+![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
+
 **Key features:**
 
 - **JAXPR-Based Conversion:** Uses JAX's built-in `jaxpr` as the foundation for conversion.
 - **Flexible Plugin System:** Easy-to-write Python plugins to handle specific JAX primitives or examples. Plugin registration and testing is automated.
 
-![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
+
 
 ---
 
