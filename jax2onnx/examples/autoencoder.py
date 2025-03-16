@@ -28,6 +28,7 @@ def get_metadata() -> dict:
         "description": "A simple autoencoder example.",
         "since": "v0.2.0",
         "context": "examples.nnx",
+        "children": ["Encoder", "Decoder"],
         "testcases": [
             {
                 "testcase": "autoencoder",

@@ -27,6 +27,13 @@ def get_metadata() -> dict:
         "description": "A simple convolutional neural network (CNN).",
         "since": "v0.1.0",
         "context": "examples.nnx",
+        "children": [
+            "nnx.Conv",
+            "nnx.Linear",
+            "nnx.avg_pool",
+            "nnx.relu",
+            "lax.reshape",
+        ],
         "testcases": [
             {
                 "testcase": "cnn",
