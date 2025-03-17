@@ -165,7 +165,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_shape_info(pool_out_name, avgpool_output_shape_nchw)
 
         # === Post-Transpose: NCHW -> NHWC ===
-        post_transpose_name = s.get_unique_name("post_transpose")
+        s.get_unique_name("post_transpose")
         post_transpose_node = helper.make_node(
             "Transpose",
             inputs=[pool_out_name],
@@ -175,7 +175,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(post_transpose_node)
 
-        final_output_shape = _compute_avg_pool_output_shape(
+        _compute_avg_pool_output_shape(
             jax_input_shape, window_shape, strides, padding, input_format="NHWC"
         )
         # s.add_shape_info(final_output_name, final_output_shape)

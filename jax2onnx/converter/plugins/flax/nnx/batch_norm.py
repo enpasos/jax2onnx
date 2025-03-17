@@ -71,8 +71,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         variance_name = s.get_name(node_inputs[4])
         final_output_name = s.get_name(node_outputs[0])
         epsilon = params.get("epsilon")
-        use_running_average = params.get("use_running_average")
-        momentum = params.get("momentum")
+        params.get("use_running_average")
+        params.get("momentum")
 
         jax_shape = node_inputs[0].aval.shape  # e.g. (11, 2, 2, 64) or (2,20)
 
@@ -123,7 +123,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 perm=[0, 2, 3, 1],  # NCHW -> NHWC
             )
             s.add_node(post_transpose_node)
-            final_shape = (
+            (
                 pre_transposed_shape[0],
                 pre_transposed_shape[2],
                 pre_transposed_shape[3],

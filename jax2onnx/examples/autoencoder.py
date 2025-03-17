@@ -4,8 +4,12 @@ import jax
 
 
 # from https://github.com/google/flax/blob/main/README.md
-Encoder = lambda rngs: nnx.Linear(2, 10, rngs=rngs)
-Decoder = lambda rngs: nnx.Linear(10, 2, rngs=rngs)
+def Encoder(rngs):
+    return nnx.Linear(2, 10, rngs=rngs)
+
+
+def Decoder(rngs):
+    return nnx.Linear(10, 2, rngs=rngs)
 
 
 class AutoEncoder(nnx.Module):
