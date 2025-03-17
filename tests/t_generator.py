@@ -115,7 +115,7 @@ def load_all_test_params() -> List[Dict[str, Any]]:
 
 
 def organize_tests_by_context_and_component_from_params(
-    params: List[Dict[str, Any]]
+    params: List[Dict[str, Any]],
 ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     grouping: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for param in params:

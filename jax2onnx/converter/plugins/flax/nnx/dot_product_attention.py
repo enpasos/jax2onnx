@@ -2,7 +2,7 @@
 
 import numpy as np
 from jax import core
-from jax.core import Primitive
+from jax.extend.core import Primitive
 from onnx import helper
 import contextlib
 from flax import nnx

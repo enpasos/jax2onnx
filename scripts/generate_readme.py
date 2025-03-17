@@ -140,7 +140,7 @@ def extract_metadata(base_path: str, source_type: str) -> List[Dict[str, Any]]:
 
 
 def aggregate_metadata(
-    entries: List[Dict[str, Any]]
+    entries: List[Dict[str, Any]],
 ) -> Dict[Tuple[str, str], Dict[str, Any]]:
     """
     Group individual test case metadata entries by (context, component)

@@ -44,7 +44,7 @@ def get_metadata() -> dict:
         "testcases": [
             {
                 "testcase": "convert_element_type",
-                "callable": lambda x: x.astype(np.int64),
+                "callable": lambda x: x.astype(np.int16),
                 "input_shapes": [(3,)],
             }
         ],
