@@ -157,7 +157,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_shape_info(pool_out_name, maxpool_output_shape_nchw)
 
         # === Post-Transpose: NCHW -> NHWC ===
-        post_transpose_name = s.get_unique_name("post_transpose")
+        s.get_unique_name("post_transpose")
         post_transpose_node = helper.make_node(
             "Transpose",
             inputs=[pool_out_name],

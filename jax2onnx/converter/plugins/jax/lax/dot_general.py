@@ -27,9 +27,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         output_shape = node_outputs[0].aval.shape
 
         # Compute batch and feature dimensions
-        batch_size = np.prod(
-            lhs_shape[: len(lhs_shape) - len(lhs_contract)], dtype=np.int64
-        )
+        np.prod(lhs_shape[: len(lhs_shape) - len(lhs_contract)], dtype=np.int64)
         feature_size = np.prod(
             lhs_shape[len(lhs_shape) - len(lhs_contract) :], dtype=np.int64
         )

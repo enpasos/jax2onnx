@@ -58,8 +58,6 @@ def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str,
                                 testcase["component"] = entry.get(
                                     "component", file[:-3]
                                 )
-                                if testcase["component"] == "AutoEncoder":
-                                    i = 42
                                 testcase["jax_doc"] = entry.get("jax_doc", "")
                                 testcase["onnx"] = entry.get("onnx", "")
                                 testcase["since"] = entry.get("since", "")

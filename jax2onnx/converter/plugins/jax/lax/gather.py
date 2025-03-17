@@ -19,7 +19,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
         # Extract parameters from the JAX gather node
         dimension_numbers = params["dimension_numbers"]
-        slice_sizes = params["slice_sizes"]
+        params["slice_sizes"]
 
         # Determine the axis to gather along based on dimension_numbers
         # This is a simplification; a more robust solution might be required
