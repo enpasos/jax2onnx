@@ -47,6 +47,19 @@ The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.
 
 ---
 
+## 📅 Roadmap and Releases
+
+### **Planned Version**
+- **0.3.0** *(Upcoming)*: Simplifying the plugin mechanism.
+
+### **Current Productive Version**
+- **0.2.0** *(Released on PyPI)*: Rebased the implementation on `jaxpr`, improving usability and adding low-level `lax` components.
+
+### **Past Versions**
+- **0.1.0** *(Initial Approach, Not Released to PyPI)*: Produced ONNX exports for some `nnx` components and `nnx`-based examples, including a VisualTransformer.
+
+---
+
 ## ❓ Troubleshooting
 
 If conversion doesn't work out of the box, it could be due to:
@@ -200,13 +213,13 @@ We warmly welcome contributions!
 
 ## 💾 Installation
 
-Install from PyPI (soon...):
+Install from PyPI:
 
 ```bash
 pip install jax2onnx  
 ```
 
-Meanwhile, install the latest development version from TestPyPI:
+Or get the latest development version from TestPyPI:
 
 ```bash
 pip install -i https://test.pypi.org/simple/ jax2onnx
