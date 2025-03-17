@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper
 

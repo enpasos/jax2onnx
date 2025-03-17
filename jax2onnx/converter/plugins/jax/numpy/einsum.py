@@ -39,7 +39,6 @@ def _get_dynamic_output_shape(
     Returns:
         The output shape, as a tuple. May contain ints or strs.
     """
-    import numpy as np
 
     # 1. Create dummy inputs (replace dynamic dims with 1).
     dummy_inputs = [

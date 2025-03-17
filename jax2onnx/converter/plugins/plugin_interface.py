@@ -1,5 +1,5 @@
 # plugin_interface.py
-from typing import Protocol, Callable, Any, List, TypeVar
+from typing import Protocol, Callable, Any, TypeVar
 
 # Let T be the type of the converter; you can later import the actual type.
 T = TypeVar("T", contravariant=True)

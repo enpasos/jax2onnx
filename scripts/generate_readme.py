@@ -2,7 +2,6 @@
 
 import os
 import time
-import pkgutil
 import logging
 import subprocess
 import json

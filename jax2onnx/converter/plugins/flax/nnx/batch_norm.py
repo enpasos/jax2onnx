@@ -2,13 +2,10 @@
 import contextlib
 from typing import TYPE_CHECKING
 
-import jax
 from flax import nnx
 from jax.extend.core import Primitive
 from onnx import helper
-from jax import numpy as jnp  # Import jnp
 from jax import core
-import numpy as np
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
