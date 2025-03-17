@@ -6,8 +6,6 @@ from onnx import helper
 import numpy as np
 from typing import Dict, Any, Tuple
 from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
-from jax2onnx.converter.plugins.flax.nnx import linear_general
-from jax2onnx.converter.plugins.flax.nnx import sigmoid
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -162,7 +160,7 @@ class Jaxpr2OnnxConverter:
 
     def get_var_name(self, var):
         if var not in self.var_to_name:
-            self.var_to_name[var] = self.get_unique_name(f"var")
+            self.var_to_name[var] = self.get_unique_name("var")
         return self.var_to_name[var]
 
     def get_constant_name(self, val):

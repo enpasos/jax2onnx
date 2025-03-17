@@ -66,5 +66,5 @@ if __name__ == "__main__":
     write_registry_file(registry, output_path)
     print(f"Plugin registry generated and written to {output_path}")
 
-    print(f"Generating tests for all plugins...")
+    print("Generating tests for all plugins...")
     generate_all_tests()

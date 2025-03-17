@@ -5,7 +5,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 import contextlib
 from flax import nnx
-from typing import TYPE_CHECKING, List, Tuple
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

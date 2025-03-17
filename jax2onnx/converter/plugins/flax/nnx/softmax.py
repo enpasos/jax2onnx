@@ -1,4 +1,4 @@
-from jax import core, numpy as jnp
+from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper

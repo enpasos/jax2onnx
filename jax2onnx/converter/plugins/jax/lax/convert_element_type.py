@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 from typing import TYPE_CHECKING
-from onnx import helper, TensorProto
+from onnx import helper
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

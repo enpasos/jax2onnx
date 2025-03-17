@@ -2,7 +2,7 @@
 
 
 import onnx
-from onnx import helper, TensorProto, shape_inference
+from onnx import shape_inference
 from typing import Dict, List
 
 

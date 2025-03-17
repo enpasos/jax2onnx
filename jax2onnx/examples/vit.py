@@ -3,11 +3,8 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-import onnx
-import onnx.helper as oh
 
-from typing import List, Tuple, Optional, Union, Sequence
-import numpy as np
+from typing import List
 
 
 # ---------------------------------------------------------------------------
