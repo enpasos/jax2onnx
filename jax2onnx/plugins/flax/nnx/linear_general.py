@@ -289,7 +289,20 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
     def linear_general(x, kernel, bias, dimension_numbers):
-        """Defines the primitive binding for linear_general."""
+        """Defines the primitive binding for linear_general.
+
+        This function creates the binding between the JAX primitive and its implementation,
+        ensuring that calls to LinearGeneral are intercepted and processed correctly.
+
+        Args:
+            x: Input tensor
+            kernel: Weight matrix
+            bias: Optional bias tensor
+            dimension_numbers: Specifies which dimensions to contract
+
+        Returns:
+            Result of the linear general operation
+        """
         nnx.linear_general_p.multiple_results = False
         return nnx.linear_general_p.bind(
             x, kernel, bias, dimension_numbers=dimension_numbers
@@ -297,9 +310,19 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
     def get_monkey_patch():
-        """Returns a patched version of LinearGeneral's call method."""
+        """Returns a patched version of LinearGeneral's call method.
+
+        This function creates a replacement for the LinearGeneral.__call__ method
+        that redirects to our primitive implementation, allowing us to capture and
+        convert these operations during the ONNX conversion process.
+
+        Returns:
+            Function to replace the original LinearGeneral.__call__ method
+        """
 
         def patched_linear_general_call(self, x):
+            """Patched implementation of LinearGeneral.__call__."""
+            # Convert axis to the format expected by dimension_numbers
             contracting_dims = (
                 (self.axis,) if isinstance(self.axis, int) else self.axis,
                 tuple(range(len(self.in_features))),
@@ -316,6 +339,11 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
     def patch_info():
+        """Provides information about what needs to be monkey patched.
+
+        Returns:
+            Dictionary with targets to patch and the function to apply
+        """
         return {
             "patch_targets": [nnx.LinearGeneral],
             "patch_function": lambda _: LinearGeneralPlugin.get_monkey_patch(),
