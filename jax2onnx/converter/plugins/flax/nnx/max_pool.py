@@ -1,20 +1,47 @@
-# file: jax2onnx/converter/plugins/flax/nnx/max_pool.py
-
 from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING, Tuple, Sequence
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the MaxPool primitive
 nnx.max_pool_p = Primitive("nnx.max_pool")
 
 
 def get_primitive():
+    """Returns the nnx.max_pool primitive."""
     return nnx.max_pool_p
+
+
+def max_pool_abstract_eval(x, window_shape, strides, padding):
+    """Abstract evaluation function for MaxPool."""
+    out_shape = _compute_max_pool_output_shape(
+        x.shape, window_shape, strides, padding, input_format="NHWC"
+    )
+    return core.ShapedArray(out_shape, x.dtype)
+
+
+# Register abstract evaluation function
+nnx.max_pool_p.def_abstract_eval(max_pool_abstract_eval)
+
+
+def max_pool(x, window_shape, strides, padding):
+    """Defines the primitive binding for MaxPool."""
+    return nnx.max_pool_p.bind(
+        x, window_shape=window_shape, strides=strides, padding=padding
+    )
+
+
+def patch_info():
+    """Provides patching information for MaxPool."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: max_pool,
+        "target_attribute": "max_pool",
+    }
 
 
 def _compute_max_pool_output_shape(
@@ -22,9 +49,9 @@ def _compute_max_pool_output_shape(
     window_shape: Sequence[int],
     strides: Sequence[int],
     padding: str,
-    input_format: str = "NHWC",  # Add input format parameter
+    input_format: str = "NHWC",
 ) -> Tuple[int, ...]:
-    # Compute the output shape for the spatial dimensions.
+    """Compute output shape for MaxPool operation."""
     if input_format == "NHWC":
         spatial_dims = x_shape[1:-1]  # Extract H, W from NHWC
         batch_dim = x_shape[0]
@@ -46,55 +73,23 @@ def _compute_max_pool_output_shape(
             raise ValueError("Unsupported padding: " + padding)
         out_dims.append(out_dim)
 
-    if input_format == "NHWC":
-        return (batch_dim,) + tuple(out_dims) + (channel_dim,)
-    else:  # input_format == "NCHW":
-        return (batch_dim, channel_dim) + tuple(out_dims)
-
-
-def _get_monkey_patch():
-    def max_pool(x, window_shape, strides, padding):
-        def max_pool_abstract_eval(x, window_shape, strides, padding):
-            out_shape = _compute_max_pool_output_shape(
-                x.shape,
-                window_shape,
-                strides,
-                padding,
-                input_format="NHWC",  # Input is NHWC
-            )
-            return core.ShapedArray(out_shape, x.dtype)
-
-        nnx.max_pool_p.multiple_results = False
-        nnx.max_pool_p.def_abstract_eval(max_pool_abstract_eval)
-        return nnx.max_pool_p.bind(
-            x, window_shape=window_shape, strides=strides, padding=padding
-        )
-
-    return max_pool
-
-
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = nnx.max_pool
-    nnx.max_pool = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.max_pool = original_fn
+    return (
+        (batch_dim, *out_dims, channel_dim)
+        if input_format == "NHWC"
+        else (batch_dim, channel_dim, *out_dims)
+    )
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_max_pool(node_inputs, node_outputs, params):
-        # Expect node_inputs: [input]
         input_var = node_inputs[0]
         input_name = s.get_name(input_var)
         final_output_name = s.get_name(node_outputs[0])
 
-        window_shape = params.get("window_shape")  # e.g. (2, 2)
-        strides = params.get("strides")  # e.g. (2, 2)
-        padding = params.get("padding")  # e.g. "VALID"
+        window_shape = params.get("window_shape")
+        strides = params.get("strides")
+        padding = params.get("padding")
 
-        # The JAX input is in NHWC, e.g. (1, 32, 32, 3)
         jax_input_shape = input_var.aval.shape
 
         # === Pre-Transpose: NHWC -> NCHW ===
@@ -107,7 +102,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             perm=[0, 3, 1, 2],  # NHWC -> NCHW
         )
         s.add_node(pre_transpose_node)
-        # Compute and record the pre-transposed shape: (B, C, H, W)
         pre_transposed_shape = (
             jax_input_shape[0],
             jax_input_shape[3],
@@ -119,20 +113,18 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         # === MaxPool Node in ONNX (operates in NCHW) ===
         pool_out_name = s.get_unique_name("max_pool_output")
 
-        # Handle padding.  ONNX MaxPool 'pads' attribute takes [x1_begin, x2_begin, ..., x1_end, x2_end,...]
         if padding.upper() == "SAME":
-            # Calculate pads for SAME padding.  This simulates the JAX behavior.
             pads = []
             for i in range(len(window_shape)):
                 in_dim = pre_transposed_shape[2 + i]  # NCHW
-                out_dim = -(-in_dim // strides[i])  #  ceil(in_dim / strides[i])
+                out_dim = -(-in_dim // strides[i])  # ceil(in_dim / strides[i])
                 total_pad = max(
                     0, (out_dim - 1) * strides[i] + window_shape[i] - in_dim
                 )
                 pad_before = total_pad // 2
                 pad_after = total_pad - pad_before
                 pads.extend([pad_before, pad_after])
-        else:  # padding == "VALID" or anything else (already checked in _compute_max_pool_output_shape)
+        else:
             pads = [0] * (2 * len(window_shape))  # [0, 0, 0, 0] for 2D
 
         max_pool_node = helper.make_node(
@@ -142,22 +134,16 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             name=s.get_unique_name("max_pool"),
             kernel_shape=window_shape,
             strides=strides,
-            pads=pads,  # Explicitly set pads
+            pads=pads,
         )
         s.add_node(max_pool_node)
 
-        # Compute the ONNX output shape in NCHW.
         maxpool_output_shape_nchw = _compute_max_pool_output_shape(
-            pre_transposed_shape,
-            window_shape,
-            strides,
-            padding,
-            input_format="NCHW",  # ONNX is NCHW
+            pre_transposed_shape, window_shape, strides, padding, input_format="NCHW"
         )
         s.add_shape_info(pool_out_name, maxpool_output_shape_nchw)
 
         # === Post-Transpose: NCHW -> NHWC ===
-        s.get_unique_name("post_transpose")
         post_transpose_node = helper.make_node(
             "Transpose",
             inputs=[pool_out_name],
@@ -167,13 +153,8 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(post_transpose_node)
 
-        # Final output shape (NHWC) - Use the common shape calculation.
         final_output_shape = _compute_max_pool_output_shape(
-            jax_input_shape,
-            window_shape,
-            strides,
-            padding,
-            input_format="NHWC",  # Output is NHWC
+            jax_input_shape, window_shape, strides, padding, input_format="NHWC"
         )
         s.add_shape_info(final_output_name, final_output_shape)
 
@@ -181,6 +162,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.max_pool",
         "jax_doc": "https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool",
