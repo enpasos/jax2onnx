@@ -138,7 +138,20 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
     def abstract_eval(x, kernel, bias, dimension_numbers):
-        """Abstract evaluation function for linear_general."""
+        """Abstract evaluation function for linear_general.
+
+        This method is called during JAX's abstract interpretation phase to determine
+        the shape and dtype of the output without performing the actual computation.
+
+        Args:
+            x: ShapedArray representing the input tensor
+            kernel: ShapedArray representing the weight matrix
+            bias: ShapedArray representing the optional bias tensor or None
+            dimension_numbers: Tuple specifying which dimensions to contract
+
+        Returns:
+            ShapedArray representing the output of the linear_general operation
+        """
         shapes = LinearGeneralPlugin._shape_linear_general(
             x.shape, kernel.shape, dimension_numbers
         )
