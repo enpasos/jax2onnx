@@ -2,46 +2,47 @@ from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-nnx_elu_p = Primitive("nnx.elu")
+# Define the ELU primitive
+nnx.elu_p = Primitive("nnx.elu")
+nnx.elu_p.multiple_results = False  # ✅ Set at initialization
 
 
 def get_primitive():
-    return nnx_elu_p
+    """Returns the nnx.elu primitive."""
+    return nnx.elu_p
 
 
-def _get_monkey_patch():
-    def elu(x, alpha=1.0):
-        def elu_abstract_eval(x, alpha=1.0):
-            # The output shape and type remain the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx_elu_p.multiple_results = False
-        nnx_elu_p.def_abstract_eval(elu_abstract_eval)
-        return nnx_elu_p.bind(x, alpha=alpha)
-
-    return elu
+def elu_abstract_eval(x, alpha=1.0):
+    """Abstract evaluation function for ELU."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function
-    original_fn = nnx.elu
-    # Patch the function by replacing it in the module namespace.
-    nnx.elu = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function
-        nnx.elu = original_fn
+# Register abstract evaluation function
+nnx.elu_p.def_abstract_eval(elu_abstract_eval)
+
+
+def elu(x, alpha=1.0):
+    """Defines the primitive binding for ELU."""
+    return nnx.elu_p.bind(x, alpha=alpha)
+
+
+def patch_info():
+    """Provides patching information for ELU."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: elu,
+        "target_attribute": "elu",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of ELU to ONNX format."""
+
     def handle_elu(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
@@ -65,10 +66,9 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.elu",
-        # "jaxpr_primitive": "nnx.elu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.elu.html",
         "onnx": [
             {
