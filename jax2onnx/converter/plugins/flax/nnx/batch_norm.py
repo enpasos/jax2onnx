@@ -1,7 +1,5 @@
-# file: jax2onnx/converter/plugins/flax/nnx/batch_norm.py
 import contextlib
 from typing import TYPE_CHECKING
-
 from flax import nnx
 from jax.extend.core import Primitive
 from onnx import helper
@@ -11,41 +9,57 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 # Define a new primitive for batch norm.
-batch_norm_p = Primitive("nnx.batch_norm")
+nnx.batch_norm_p = Primitive("nnx.batch_norm")
+nnx.batch_norm_p.multiple_results = False  # ✅ Set once at initialization
 
 
 def get_primitive():
-    return batch_norm_p.name
+    """Returns the nnx.batch_norm primitive."""
+    return nnx.batch_norm_p
+
+
+def batch_norm_abstract_eval(x, scale, bias, mean, var, *args, **kwargs):
+    """Abstract evaluation function for batch_norm."""
+    return core.ShapedArray(x.shape, x.dtype)
+
+
+# Register abstract evaluation function
+nnx.batch_norm_p.def_abstract_eval(batch_norm_abstract_eval)
+
+
+def batch_norm(x, scale, bias, mean, var, epsilon, use_running_average, momentum):
+    """Defines the primitive binding for batch_norm."""
+    return nnx.batch_norm_p.bind(
+        x,
+        scale,
+        bias,
+        mean,
+        var,
+        epsilon=epsilon,
+        use_running_average=use_running_average,
+        momentum=momentum,
+    )
+
+
+def patch_info():
+    """Provides patching information for batch_norm."""
+    return {
+        "patch_targets": [nnx.BatchNorm],
+        "patch_function": lambda _: _get_monkey_patch(),
+        "target_attribute": "__call__",  # ✅ Patching __call__ method
+    }
 
 
 def _get_monkey_patch():
+    """Returns a patched version of BatchNorm's call method."""
+
     def patched_batch_norm_call(self, x):
-        def batch_norm(
-            x, scale, bias, mean, var, epsilon, use_running_average, momentum
-        ):
-            batch_norm_p.multiple_results = False
-
-            def batch_norm_abstract_eval(x, scale, bias, mean, var, *args, **kwargs):
-                return core.ShapedArray(x.shape, x.dtype)
-
-            batch_norm_p.def_abstract_eval(batch_norm_abstract_eval)
-            return batch_norm_p.bind(
-                x,
-                scale,
-                bias,
-                mean,
-                var,
-                epsilon=epsilon,
-                use_running_average=use_running_average,
-                momentum=momentum,
-            )
-
         return batch_norm(
             x,
             self.scale.value,
             self.bias.value,
             self.mean.value,
-            self.var.value,  # using self.var.value as per your API
+            self.var.value,
             epsilon=self.epsilon,
             use_running_average=self.use_running_average,
             momentum=self.momentum,
@@ -54,19 +68,10 @@ def _get_monkey_patch():
     return patched_batch_norm_call
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.BatchNorm.__call__
-    nnx.BatchNorm.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.BatchNorm.__call__ = original_call
-
-
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of batch_norm to ONNX format."""
+
     def handle_batch_norm(node_inputs, node_outputs, params):
-        # Expect node_inputs: [x, scale, bias, mean, var]
         input_name = s.get_name(node_inputs[0])
         scale_name = s.get_name(node_inputs[1])
         bias_name = s.get_name(node_inputs[2])
@@ -74,8 +79,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         variance_name = s.get_name(node_inputs[4])
         final_output_name = s.get_name(node_outputs[0])
         epsilon = params.get("epsilon")
-        params.get("use_running_average")
-        params.get("momentum")
 
         jax_shape = node_inputs[0].aval.shape  # e.g. (11, 2, 2, 64) or (2,20)
 
@@ -126,15 +129,9 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 perm=[0, 2, 3, 1],  # NCHW -> NHWC
             )
             s.add_node(post_transpose_node)
-            (
-                pre_transposed_shape[0],
-                pre_transposed_shape[2],
-                pre_transposed_shape[3],
-                pre_transposed_shape[1],
-            )
-            # s.add_shape_info(final_output_name, final_shape)
+
         else:
-            # For inputs that are not 4D, no transposition is needed.
+            # For non-4D inputs, no transposition is needed.
             batch_norm_node = helper.make_node(
                 "BatchNormalization",
                 inputs=[input_name, scale_name, bias_name, mean_name, variance_name],
@@ -143,12 +140,12 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                 epsilon=epsilon,
             )
             s.add_node(batch_norm_node)
-            # s.add_shape_info(final_output_name, jax_shape)
 
     return handle_batch_norm
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.batch_norm",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm",
