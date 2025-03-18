@@ -2,9 +2,12 @@
 import pkgutil
 import importlib
 import os
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 
 PLUGIN_REGISTRY = {}
+
+if TYPE_CHECKING:
+    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
 class PrimitivePlugin:
@@ -14,9 +17,10 @@ class PrimitivePlugin:
     metadata: Dict[str, Any]
     patch_info: Optional[Callable] = None  # Method returning patch details
 
-    def abstract_eval(self, *args, **kwargs):
-        """Handles shape inference; must be overridden."""
-        raise NotImplementedError
+    def get_handler(self, converter):
+        return lambda node_inputs, node_outputs, params: self.to_onnx(
+            converter, node_inputs, node_outputs, params
+        )
 
     def to_onnx(self, converter, node_inputs, node_outputs, params):
         """Handles JAX to ONNX conversion; must be overridden."""

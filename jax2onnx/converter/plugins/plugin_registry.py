@@ -3,6 +3,7 @@ import os
 import importlib
 from typing import Dict, Any
 
+
 # The static registry is a mapping from a primitive name (str) to its module path (str)
 plugin_registry: Dict[str, str]
 if os.getenv("GENERATE_PLUGIN_REGISTRY") == "1":
@@ -21,6 +22,7 @@ def get_all_plugins() -> Dict[str, Any]:
     """
     Load and return a mapping from a plugin's primitive name to its plugin module.
     """
+
     plugins: Dict[str, Any] = {}
     for prim_name, mod_path in plugin_registry.items():
         try:
@@ -34,6 +36,14 @@ def get_all_plugins() -> Dict[str, Any]:
             print(
                 f"Error loading plugin for primitive {prim_name} from {mod_path}: {e}"
             )
+
+    # we also need to import the plugins from PLUGIN_REGISTRY
+    # for plugin in PLUGIN_REGISTRY.values():
+    #     if hasattr(plugin, "primitive"):
+    #         name = plugin.primitive
+    #         if name not in plugins:
+    #             plugins[name] = plugin
+
     return plugins
 
 

@@ -122,6 +122,12 @@ class JaxprToOnnx:
         return tuple(example_batch if d == "B" else d for d in shape)
 
 
+from jax2onnx.plugin_system import (
+    PLUGIN_REGISTRY,
+    import_all_plugins,
+)
+
+
 class Jaxpr2OnnxConverter:
     """
     A translator that converts JAX's JAXPR representation to ONNX format.
@@ -146,6 +152,11 @@ class Jaxpr2OnnxConverter:
         self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
             self._handle_random_unwrap
         )
+
+        import_all_plugins()
+        for key in PLUGIN_REGISTRY:
+            plugin = PLUGIN_REGISTRY[key]
+            self.primitive_handlers[key] = plugin.get_handler(self)
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -468,6 +479,8 @@ class Jaxpr2OnnxConverter:
         with temporary_monkey_patches():
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
+        print(closed_jaxpr)
+
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
         self._process_jaxpr(jaxpr, consts)
 
@@ -541,6 +554,13 @@ def temporary_monkey_patches():
                 patch_func = patch_info["patch_function"]
                 attr = patch_info.get("target_attribute", "__call__")
                 stack.enter_context(_temporary_patch(target, attr, patch_func))
+        for key in PLUGIN_REGISTRY:
+            plugin = PLUGIN_REGISTRY[key]
+            patch_info = plugin.patch_info()
+            target = patch_info["patch_targets"][0]
+            patch_func = patch_info["patch_function"]
+            attr = patch_info.get("target_attribute", "__call__")
+            stack.enter_context(_temporary_patch(target, attr, patch_func))
         yield
 
 
