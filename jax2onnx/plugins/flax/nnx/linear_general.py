@@ -78,12 +78,18 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
 class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
-    def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
+    def _normalize_contracting_dims(dimension_numbers, x_shape, kernel_shape):
+        """Normalize the contracting dimensions to positive indices."""
         ((lhs_contract, rhs_contract), _) = dimension_numbers
-
         lhs_contract = [d % len(x_shape) for d in lhs_contract]
         rhs_contract = [d % len(kernel_shape) for d in rhs_contract]
+        return lhs_contract, rhs_contract
 
+    @staticmethod
+    def _compute_batch_and_output_dims(
+        x_shape, kernel_shape, lhs_contract, rhs_contract
+    ):
+        """Compute batch dimensions from input and output dimensions from kernel."""
         x_batch_dims = [i for i in range(len(x_shape)) if i not in lhs_contract]
         x_batch_dims_sizes = [x_shape[i] for i in x_batch_dims]
 
@@ -92,13 +98,30 @@ class LinearGeneralPlugin(PrimitivePlugin):
         ]
         kernel_out_dims = [kernel_shape[i] for i in kernel_noncontract_dims]
 
+        return x_batch_dims_sizes, kernel_out_dims
+
+    @staticmethod
+    def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
+        """Calculate shapes for linear general operation transformation."""
+        lhs_contract, rhs_contract = LinearGeneralPlugin._normalize_contracting_dims(
+            dimension_numbers, x_shape, kernel_shape
+        )
+
+        x_batch_dims_sizes, kernel_out_dims = (
+            LinearGeneralPlugin._compute_batch_and_output_dims(
+                x_shape, kernel_shape, lhs_contract, rhs_contract
+            )
+        )
+
         output_shape = tuple(x_batch_dims_sizes + kernel_out_dims)
 
+        # Calculate reshaped kernel dimensions for Gemm operation
         new_kernel_dims_sizes = (
             np.prod([kernel_shape[i] for i in rhs_contract]).item(),
             np.prod(kernel_out_dims).item(),
         )
 
+        # Calculate input and output shapes for Gemm operation
         input_gemm_shape = (
             np.prod(x_batch_dims_sizes).item(),
             np.prod([x_shape[i] for i in lhs_contract]).item(),
