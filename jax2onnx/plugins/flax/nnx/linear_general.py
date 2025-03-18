@@ -17,7 +17,8 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
 @register_plugin(
     primitive="nnx.linear_general",
     metadata={
-        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
+        "jaxpr_primitive": "nnx.linear_general",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
         "onnx": [
             {
                 "component": "Gemm",
@@ -121,14 +122,13 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
     @staticmethod
     def abstract_eval(x, kernel, bias, dimension_numbers):
-        """Computes output shape based on input, kernel, and dimensions."""
+        """Abstract evaluation function for linear_general."""
         shapes = LinearGeneralPlugin._shape_linear_general(
             x.shape, kernel.shape, dimension_numbers
         )
         return core.ShapedArray(shapes["output"], x.dtype)
 
-    @staticmethod
-    def to_onnx(s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         input_var, kernel_var, bias_var = node_inputs[:3]
         output_var = node_outputs[0]
 
@@ -248,7 +248,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
     def patch_info():
         return {
             "patch_targets": [nnx.LinearGeneral],
-            "patch_function": LinearGeneralPlugin._get_monkey_patch(),
+            "patch_function": lambda _: LinearGeneralPlugin._get_monkey_patch(),
         }
 
 

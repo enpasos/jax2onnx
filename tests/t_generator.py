@@ -149,7 +149,9 @@ def load_plugin_metadata() -> List[Dict[str, Any]]:
             # metadata_entry["context"] = metadata_entry.get("context", "plugins.nnx")
             # new_plugins.append(metadata_entry)
 
-    return extract_from_metadata(old_mds)  # + new_md  # Merge old and new metadata
+    return extract_from_metadata(
+        old_mds + new_md
+    )  # + new_md  # Merge old and new metadata
 
 
 EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
