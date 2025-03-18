@@ -1,47 +1,50 @@
-from jax import core
-from jax.extend.core import Primitive
-from flax import nnx
-from onnx import helper
 import contextlib
 from typing import TYPE_CHECKING
+
+from flax import nnx
+from jax import core
+from jax.extend.core import Primitive
+from onnx import helper
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the LeakyReLU primitive
 nnx.leaky_relu_p = Primitive("nnx.leaky_relu")
+nnx.leaky_relu_p.multiple_results = False  # ✅ Set at initialization
 
 
 def get_primitive():
+    """Returns the nnx.leaky_relu primitive."""
     return nnx.leaky_relu_p
 
 
-def _get_monkey_patch():
-    def leaky_relu(x, negative_slope=0.01):
-        def leaky_relu_abstract_eval(x, negative_slope=0.01):
-            # The output shape and dtype remain the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.leaky_relu_p.multiple_results = False
-        nnx.leaky_relu_p.def_abstract_eval(leaky_relu_abstract_eval)
-        return nnx.leaky_relu_p.bind(x, negative_slope=negative_slope)
-
-    return leaky_relu
+def leaky_relu_abstract_eval(x, negative_slope=0.01):
+    """Abstract evaluation function for LeakyReLU."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function.
-    original_fn = nnx.leaky_relu
-    # Patch the function by replacing it in the module namespace.
-    nnx.leaky_relu = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function.
-        nnx.leaky_relu = original_fn
+# Register abstract evaluation function
+nnx.leaky_relu_p.def_abstract_eval(leaky_relu_abstract_eval)
+
+
+def leaky_relu(x, negative_slope=0.01):
+    """Defines the primitive binding for LeakyReLU."""
+    return nnx.leaky_relu_p.bind(x, negative_slope=negative_slope)
+
+
+def patch_info():
+    """Provides patching information for LeakyReLU."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: leaky_relu,
+        "target_attribute": "leaky_relu",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of LeakyReLU to ONNX format."""
+
     def handle_leaky_relu(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
@@ -65,7 +68,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.leaky_relu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.leaky_relu.html",
