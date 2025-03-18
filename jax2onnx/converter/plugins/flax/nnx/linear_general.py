@@ -67,14 +67,16 @@ def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
     return core.ShapedArray(shapes["output"], x.dtype)
 
 
-def _get_monkey_patch():
-    def linear_general(x, kernel, bias, dimension_numbers):
-        nnx.linear_general_p.multiple_results = False
-        nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
-        return nnx.linear_general_p.bind(
-            x, kernel, bias, dimension_numbers=dimension_numbers
-        )
+def linear_general(x, kernel, bias, dimension_numbers):
+    """Defines the primitive binding for linear_general."""
+    nnx.linear_general_p.multiple_results = False
+    nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+    return nnx.linear_general_p.bind(
+        x, kernel, bias, dimension_numbers=dimension_numbers
+    )
 
+
+def _get_monkey_patch():
     def patched_linear_general_call(self, x):
         contracting_dims = (
             self.axis if isinstance(self.axis, tuple) else (self.axis,),
