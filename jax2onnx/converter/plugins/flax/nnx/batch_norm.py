@@ -11,32 +11,35 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 # Define a new primitive for batch norm.
-nnx.batch_norm_p = Primitive("nnx.batch_norm")
+batch_norm_p = Primitive("nnx.batch_norm")
 
 
 def get_primitive():
-    return nnx.batch_norm_p
+    return batch_norm_p.name
 
 
 def _get_monkey_patch():
-    def batch_norm(x, scale, bias, mean, var, epsilon, use_running_average, momentum):
-        def batch_norm_abstract_eval(x, scale, bias, mean, var, *args, **kwargs):
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.batch_norm_p.multiple_results = False
-        nnx.batch_norm_p.def_abstract_eval(batch_norm_abstract_eval)
-        return nnx.batch_norm_p.bind(
-            x,
-            scale,
-            bias,
-            mean,
-            var,
-            epsilon=epsilon,
-            use_running_average=use_running_average,
-            momentum=momentum,
-        )
-
     def patched_batch_norm_call(self, x):
+        def batch_norm(
+            x, scale, bias, mean, var, epsilon, use_running_average, momentum
+        ):
+            batch_norm_p.multiple_results = False
+
+            def batch_norm_abstract_eval(x, scale, bias, mean, var, *args, **kwargs):
+                return core.ShapedArray(x.shape, x.dtype)
+
+            batch_norm_p.def_abstract_eval(batch_norm_abstract_eval)
+            return batch_norm_p.bind(
+                x,
+                scale,
+                bias,
+                mean,
+                var,
+                epsilon=epsilon,
+                use_running_average=use_running_average,
+                momentum=momentum,
+            )
+
         return batch_norm(
             x,
             self.scale.value,

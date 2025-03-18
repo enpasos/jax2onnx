@@ -26,8 +26,10 @@ def get_all_plugins() -> Dict[str, Any]:
         try:
             module = importlib.import_module(mod_path)
             primitive = module.get_primitive()
+            # if primitive is str then name = primitive
+            name = primitive if isinstance(primitive, str) else primitive.name
             # Use the primitive's name (which should match prim_name) as the key.
-            plugins[primitive.name] = module
+            plugins[name] = module
         except Exception as e:
             print(
                 f"Error loading plugin for primitive {prim_name} from {mod_path}: {e}"
