@@ -1,11 +1,8 @@
-# file: jax2onnx/converter/plugins/flax/nnx/conv.py
-
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING, Tuple, Sequence
 
 if TYPE_CHECKING:
@@ -13,16 +10,67 @@ if TYPE_CHECKING:
 
 # Define a new JAX primitive for convolution.
 nnx.conv_p = Primitive("nnx.conv")
+nnx.conv_p.multiple_results = False  # ✅ Set at initialization
 
 
 def get_primitive():
+    """Returns the nnx.conv primitive."""
     return nnx.conv_p
+
+
+def conv_abstract_eval(x, kernel, bias, strides, padding, dilations, dimension_numbers):
+    """Abstract evaluation function for conv."""
+    out_shape = _compute_conv_output_shape(x.shape, kernel.shape, strides, padding)
+    return core.ShapedArray(out_shape, x.dtype)
+
+
+# Register abstract evaluation function
+nnx.conv_p.def_abstract_eval(conv_abstract_eval)
+
+
+def conv(x, kernel, bias, strides, padding, dilations, dimension_numbers):
+    """Defines the primitive binding for conv."""
+    return nnx.conv_p.bind(
+        x,
+        kernel,
+        bias,
+        strides=strides,
+        padding=padding,
+        dilations=dilations,
+        dimension_numbers=dimension_numbers,
+    )
+
+
+def patch_info():
+    """Provides patching information for conv."""
+    return {
+        "patch_targets": [nnx.Conv],
+        "patch_function": lambda _: _get_monkey_patch(),
+        "target_attribute": "__call__",
+    }
+
+
+def _get_monkey_patch():
+    """Returns a patched version of Conv's call method."""
+
+    def patched_conv_call(self, x):
+        return conv(
+            x,
+            self.kernel.value,
+            self.bias.value if self.bias else None,
+            self.strides,
+            self.padding,
+            getattr(self, "dilations", (1, 1)),
+            getattr(self, "dimension_numbers", None),
+        )
+
+    return patched_conv_call
 
 
 def _compute_conv_output_shape(
     x_shape: Tuple[int, ...],
     kernel_shape: Tuple[int, ...],
-    strides: Sequence[int] | int,  # Allow strides to be a sequence or an integer
+    strides: Sequence[int] | int,
     padding: str,
 ) -> Tuple[int, ...]:
     """
@@ -47,64 +95,9 @@ def _compute_conv_output_shape(
     return (N, out_H, out_W, out_channels)
 
 
-def _get_monkey_patch():
-    def conv(x, kernel, bias, strides, padding, dilations, dimension_numbers):
-        def conv_abstract_eval(
-            x, kernel, bias, strides, padding, dilations, dimension_numbers
-        ):
-            out_shape = _compute_conv_output_shape(
-                x.shape, kernel.shape, strides, padding
-            )
-            return core.ShapedArray(out_shape, x.dtype)
-
-        nnx.conv_p.multiple_results = False
-        nnx.conv_p.def_abstract_eval(conv_abstract_eval)
-        if bias is None:
-            return nnx.conv_p.bind(
-                x,
-                kernel,
-                strides=strides,
-                padding=padding,
-                dilations=dilations,
-                dimension_numbers=dimension_numbers,
-            )
-        else:
-            return nnx.conv_p.bind(
-                x,
-                kernel,
-                bias,
-                strides=strides,
-                padding=padding,
-                dilations=dilations,
-                dimension_numbers=dimension_numbers,
-            )
-
-    def patched_conv_call(self, x):
-        # Extract convolution parameters from the instance.
-        strides = self.strides
-        padding = self.padding
-        dilations = getattr(self, "dilations", (1, 1))
-        dimension_numbers = getattr(self, "dimension_numbers", None)
-        kernel = self.kernel.value
-        bias = (
-            self.bias.value if hasattr(self, "bias") and self.bias is not None else None
-        )
-        return conv(x, kernel, bias, strides, padding, dilations, dimension_numbers)
-
-    return patched_conv_call
-
-
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.Conv.__call__
-    nnx.Conv.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.Conv.__call__ = original_call
-
-
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of conv to ONNX format."""
+
     def handle_conv(node_inputs, node_outputs, params):
         # Expected node_inputs: [input, kernel, (optional) bias]
         input_var = node_inputs[0]
