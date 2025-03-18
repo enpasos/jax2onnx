@@ -47,32 +47,38 @@ def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
     }
 
 
+def _is_noop_reshape(original_shape, target_shape):
+    return (
+        len(original_shape) == len(target_shape)
+        and original_shape[1:] == target_shape[1:]
+    )
+
+
 nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
 def get_primitive():
-    """Returns the nnx.linear_general primitive."""
-    return nnx.linear_general_p
+    return nnx.linear_general_p.name
 
 
-def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+def _linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
     """Abstract evaluation function for linear_general."""
     shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
     return core.ShapedArray(shapes["output"], x.dtype)
 
 
 # Register abstract evaluation function
-nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+nnx.linear_general_p.def_abstract_eval(_linear_general_abstract_eval)
 
 
-def patch_info():  # pragma: no cover
+def patch_info():
     return {
         "patch_targets": [nnx.LinearGeneral],
         "patch_function": _get_monkey_patch,
     }
 
 
-def linear_general(x, kernel, bias, dimension_numbers):
+def _linear_general(x, kernel, bias, dimension_numbers):
     """Defines the primitive binding for linear_general."""
     nnx.linear_general_p.multiple_results = False
     return nnx.linear_general_p.bind(
@@ -89,7 +95,7 @@ def _get_monkey_patch():
             tuple(range(len(self.in_features))),
         )
         dimension_numbers = (contracting_dims, ((), ()))
-        return linear_general(
+        return _linear_general(
             x,
             self.kernel.value,
             self.bias.value if self.bias else None,
@@ -97,13 +103,6 @@ def _get_monkey_patch():
         )
 
     return patched_linear_general_call
-
-
-def _is_noop_reshape(original_shape, target_shape):
-    return (
-        len(original_shape) == len(target_shape)
-        and original_shape[1:] == target_shape[1:]
-    )
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
