@@ -22,8 +22,7 @@ class PrimitivePlugin:
             converter, node_inputs, node_outputs, params
         )
 
-    @staticmethod
-    def to_onnx(converter, node_inputs, node_outputs, params):
+    def to_onnx(self, converter, node_inputs, node_outputs, params):
         """Handles JAX to ONNX conversion; must be overridden."""
         raise NotImplementedError
 

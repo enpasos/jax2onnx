@@ -30,7 +30,7 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
 
 @register_plugin(
     jaxpr_primitive=nnx.linear_general_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
+    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
