@@ -2,43 +2,50 @@ from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the LogSoftmax primitive
 nnx.log_softmax_p = Primitive("nnx.log_softmax")
 
 
 def get_primitive():
+    """Returns the nnx.log_softmax primitive."""
     return nnx.log_softmax_p
 
 
+def log_softmax_abstract_eval(x, axis=-1):
+    """Abstract evaluation function for LogSoftmax."""
+    return core.ShapedArray(x.shape, x.dtype)
+
+
+# Register abstract evaluation function
+nnx.log_softmax_p.def_abstract_eval(log_softmax_abstract_eval)
+
+
+def log_softmax(x, axis=-1):
+    """Defines the primitive binding for LogSoftmax."""
+    return nnx.log_softmax_p.bind(x, axis=axis)
+
+
+def patch_info():
+    """Provides patching information for LogSoftmax."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: log_softmax,
+        "target_attribute": "log_softmax",
+    }
+
+
 def _get_monkey_patch():
-    def log_softmax(x, axis=-1):
-        def log_softmax_abstract_eval(x, axis=-1):
-            # Output shape and type remain the same as input.
-            return core.ShapedArray(x.shape, x.dtype)
+    """Returns a patched version of LogSoftmax's call method."""
 
-        nnx.log_softmax_p.multiple_results = False
-        nnx.log_softmax_p.def_abstract_eval(log_softmax_abstract_eval)
-        return nnx.log_softmax_p.bind(x, axis=axis)
+    def patched_log_softmax_call(self, x):
+        return log_softmax(x, axis=self.axis if hasattr(self, "axis") else -1)
 
-    return log_softmax
-
-
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function.
-    original_fn = nnx.log_softmax
-    # Replace the function in the module namespace with our patched version.
-    nnx.log_softmax = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function.
-        nnx.log_softmax = original_fn
+    return patched_log_softmax_call
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
