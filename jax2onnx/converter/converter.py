@@ -533,10 +533,7 @@ class Jaxpr2OnnxConverter:
 @contextlib.contextmanager
 def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
-        # Iterate over all registered plugins.
         for plugin in get_all_plugins().values():
-            # Check if the plugin module defines a temporary_patch.
-
             temporary_patch = getattr(plugin, "temporary_patch", None)
             if callable(temporary_patch):
                 stack.enter_context(temporary_patch())
@@ -545,11 +542,11 @@ def temporary_monkey_patches():
             if callable(patch_info):
                 patch_info = patch_info()
                 target = patch_info["patch_targets"][0]
-                patch_func = patch_info["patch_function"]()
-                stack.enter_context(
-                    _temporary_patch(target, "__call__", lambda orig: patch_func)
-                )
-
+                patch_func = patch_info["patch_function"]
+                attr = patch_info.get(
+                    "target_attribute", "__call__"
+                )  # <-- this line fixes it
+                stack.enter_context(_temporary_patch(target, attr, patch_func))
         yield
 
 

@@ -8,40 +8,37 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+
+# Define the GELU primitive
 nnx.gelu_p = Primitive("nnx.gelu")
+nnx.gelu_p.multiple_results = False
+nnx.gelu_p.def_abstract_eval(
+    lambda x, approximate=True: core.ShapedArray(x.shape, x.dtype)
+)
 
 
 def get_primitive():
+    """Returns the nnx.gelu primitive."""
     return nnx.gelu_p
 
 
-def _get_monkey_patch():
-    def gelu(x, approximate=True):
-        def gelu_abstract_eval(x, approximate=True):
-            # The output shape and dtype remain the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.gelu_p.multiple_results = False
-        nnx.gelu_p.def_abstract_eval(gelu_abstract_eval)
-        return nnx.gelu_p.bind(x, approximate=approximate)
-
-    return gelu
+def gelu(x, approximate=True):
+    """Defines the primitive binding for GELU."""
+    return nnx.gelu_p.bind(x, approximate=approximate)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function.
-    original_fn = nnx.gelu
-    # Patch the function by replacing it in the module namespace.
-    nnx.gelu = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function.
-        nnx.gelu = original_fn
+def patch_info():
+    """Provides patching information for GELU."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: gelu,
+        "target_attribute": "gelu",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of GELU to ONNX format."""
+
     def handle_gelu(node_inputs, node_outputs, params):
         input_var = node_inputs[0]
         output_var = node_outputs[0]
@@ -51,8 +48,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
         # Retrieve the approximate parameter (defaulting to True if not provided)
         approximate = params.get("approximate", True)
-        # ONNX Gelu operator expects an 'approximation' attribute:
-        # "tanh" for approximate GELU, "none" for the exact version.
         approximation = "tanh" if approximate else "none"
 
         gelu_node = helper.make_node(
@@ -68,7 +63,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.gelu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html",
