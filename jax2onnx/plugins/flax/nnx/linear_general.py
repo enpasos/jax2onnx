@@ -1,15 +1,21 @@
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 import numpy as np
 from jax import core
-from onnx import helper
 from flax import nnx
+from onnx import helper
+from jax.extend.core import Primitive
+from typing import TYPE_CHECKING
+from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+
+if TYPE_CHECKING:
+    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+
+nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
 @register_plugin(
-    primitive="nnx.linear_general",  # consistent unique primitive
+    primitive="nnx.linear_general",
     metadata={
-        "doc": "Linear general operation",
-        "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
+        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
         "onnx": [
             {
                 "component": "Gemm",
@@ -26,158 +32,149 @@ from flax import nnx
             {
                 "testcase": "linear_general",
                 "callable": nnx.LinearGeneral(
-                    in_features=(8, 32),
-                    out_features=(256,),
-                    axis=(-2, -1),
-                    rngs=nnx.Rngs(0),
+                    (8, 32), (256,), axis=(-2, -1), rngs=nnx.Rngs(0)
                 ),
                 "input_shapes": [("B", 4, 8, 32)],
             },
             {
                 "testcase": "linear_general_2",
                 "callable": nnx.LinearGeneral(
-                    in_features=(30,),
-                    out_features=(20,),
-                    axis=(-1,),
-                    rngs=nnx.Rngs(0),
+                    (30,), (20,), axis=(-1,), rngs=nnx.Rngs(0)
                 ),
                 "input_shapes": [(3, 30)],
             },
             {
                 "testcase": "linear_general_3",
                 "callable": nnx.LinearGeneral(
-                    in_features=(256,),
-                    out_features=(8, 32),
-                    axis=(-1,),
-                    rngs=nnx.Rngs(0),
+                    (256,), (8, 32), axis=(-1,), rngs=nnx.Rngs(0)
                 ),
                 "input_shapes": [(2, 4, 256)],
             },
             {
                 "testcase": "linear_general_4",
                 "callable": nnx.LinearGeneral(
-                    in_features=(8, 32),
-                    out_features=(256,),
-                    axis=(-2, -1),
-                    rngs=nnx.Rngs(0),
+                    (8, 32), (256,), axis=(-2, -1), rngs=nnx.Rngs(0)
                 ),
                 "input_shapes": [(2, 4, 8, 32)],
             },
         ],
     },
 )
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.LinearGeneral.__call__
-    nnx.LinearGeneral.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.LinearGeneral.__call__ = original_call
-
-
 class LinearGeneralPlugin(PrimitivePlugin):
-    def abstract_eval(self, x, kernel, bias, dimension_numbers):
-        """Computes output shape based on input, kernel, and dimensions."""
+    @staticmethod
+    def abstract_eval(x, kernel, bias, dimension_numbers):
         ((lhs_contract, rhs_contract), _) = dimension_numbers
 
         lhs_contract = [d % len(x.shape) for d in lhs_contract]
         rhs_contract = [d % len(kernel.shape) for d in rhs_contract]
 
         x_batch_dims = [i for i in range(len(x.shape)) if i not in lhs_contract]
-        x_batch_dims_sizes = [x.shape[i] for i in x_batch_dims]
-
-        kernel_noncontract_dims = [
-            i for i in range(len(kernel.shape)) if i not in rhs_contract
+        kernel_out_dims = [
+            kernel.shape[i] for i in range(len(kernel.shape)) if i not in rhs_contract
         ]
-        kernel_out_dims = [kernel.shape[i] for i in kernel_noncontract_dims]
 
-        output_shape = tuple(x_batch_dims_sizes + kernel_out_dims)
+        output_shape = tuple([x.shape[i] for i in x_batch_dims] + kernel_out_dims)
         return core.ShapedArray(output_shape, x.dtype)
 
-    def to_onnx(self, node, graph, inputs, outputs):
-        """Converts linear_general JAX op to ONNX Gemm op."""
-        input_var, kernel_var, bias_var = inputs[:3]
-        output_var = outputs[0]
+    @staticmethod
+    def patch_info():
+        def patched_linear_general_call(self, x):
+            contracting_dims = (
+                (self.axis,) if isinstance(self.axis, int) else self.axis,
+                tuple(range(len(self.in_features))),
+            )
+            dimension_numbers = (contracting_dims, ((), ()))
+            return nnx.linear_general_p.bind(
+                x,
+                self.kernel.value,
+                self.bias.value if self.bias else None,
+                dimension_numbers=dimension_numbers,
+            )
 
-        input_name = graph.get_name(input_var)
-        output_name = graph.get_name(output_var)
-        kernel_name = graph.get_name(kernel_var)
-        bias_name = graph.get_name(bias_var) if bias_var else None
+        return {
+            "patch_targets": [nnx.LinearGeneral],
+            "patch_function": lambda _: patched_linear_general_call,
+            "target_attribute": "__call__",
+        }
 
-        shapes = self.abstract_eval(
-            input_var, kernel_var, bias_var, node.params["dimension_numbers"]
+    @staticmethod
+    def to_onnx(s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+        input_var, kernel_var, bias_var = node_inputs[:3]
+        output_var = node_outputs[0]
+
+        input_name = s.get_name(input_var)
+        output_name = s.get_name(output_var)
+        kernel_name = s.get_name(kernel_var)
+        bias_name = s.get_name(bias_var) if bias_var else None
+
+        ((lhs_contract, rhs_contract), _) = params["dimension_numbers"]
+
+        # Compute shapes
+        batch_dims = [
+            d for d in range(len(input_var.aval.shape)) if d not in lhs_contract
+        ]
+        input_batch_size = np.prod([input_var.aval.shape[i] for i in batch_dims])
+        input_feature_size = np.prod([input_var.aval.shape[i] for i in lhs_contract])
+
+        kernel_contract_size = np.prod([kernel_var.aval.shape[i] for i in rhs_contract])
+        kernel_out_size = np.prod(
+            [
+                kernel_var.aval.shape[i]
+                for i in range(len(kernel_var.aval.shape))
+                if i not in rhs_contract
+            ]
         )
-        output_shape = shapes.shape
-
-        lhs_contract, rhs_contract = node.params["dimension_numbers"][0]
-
-        # Reshape kernel to 2D (for Gemm)
-        new_kernel_shape = (
-            np.prod([kernel_var.shape[i] for i in rhs_contract]),
-            np.prod(
-                [
-                    kernel_var.shape[i]
-                    for i in range(kernel_var.ndim)
-                    if i not in rhs_contract
-                ]
-            ),
-        )
-        weights_name = graph.get_constant_name(kernel_var.reshape(new_kernel_shape))
-
-        # Reshape input to 2D (batch_dim, feature_dim)
-        batch_dims = [i for i in range(input_var.ndim) if i not in lhs_contract]
-        input_batch_size = np.prod([input_var.shape[i] for i in batch_dims])
-        input_feature_size = np.prod([input_var.shape[i] for i in lhs_contract])
 
         reshaped_input_shape = (-1, input_feature_size)
-        reshaped_input_name = graph.get_unique_name("input_reshape")
-        graph.add_node(
+        reshaped_kernel_shape = (kernel_contract_size, kernel_out_size)
+
+        # Reshape input if necessary
+        reshaped_input_name = s.get_unique_name("input_reshape")
+        s.add_node(
             helper.make_node(
                 "Reshape",
                 inputs=[
                     input_name,
-                    graph.get_constant_name(
-                        np.array(reshaped_input_shape, dtype=np.int64)
-                    ),
+                    s.get_constant_name(np.array(reshaped_input_shape, dtype=np.int64)),
                 ],
                 outputs=[reshaped_input_name],
-                name=graph.get_unique_name("reshape_input"),
+                name=s.get_unique_name("reshape_input"),
             )
         )
 
-        # Ensure bias is correctly shaped
-        if bias_name:
-            bias_name = graph.get_constant_name(
-                bias_var.reshape((new_kernel_shape[1],))
-            )
+        # Reshape kernel
+        kernel_const = s.name_to_const[kernel_name]
+        weights_name = s.get_constant_name(kernel_const.reshape(reshaped_kernel_shape))
 
-        gemm_output_name = graph.get_unique_name("gemm_output")
-        gemm_inputs = [reshaped_input_name, weights_name]
+        # Handle bias
         if bias_name:
-            gemm_inputs.append(bias_name)
+            bias_const = s.name_to_const[bias_name]
+            bias_name = s.get_constant_name(bias_const.reshape((kernel_out_size,)))
+        else:
+            bias_const = np.zeros((kernel_out_size,), dtype=input_var.aval.dtype)
+            bias_name = s.get_constant_name(bias_const)
 
-        graph.add_node(
+        # GEMM node
+        gemm_output_name = s.get_unique_name("gemm_output")
+        s.add_node(
             helper.make_node(
                 "Gemm",
-                inputs=gemm_inputs,
+                inputs=[reshaped_input_name, weights_name, bias_name],
                 outputs=[gemm_output_name],
-                name=graph.get_unique_name("gemm"),
+                name=s.get_unique_name("gemm"),
             )
         )
 
-        # Reshape back to original output shape
-        final_output_shape = [-1] + list(output_shape[1:])
-        graph.add_node(
+        # Final reshape to original output shape
+        final_output_shape = (-1,) + tuple(output_var.aval.shape[1:])
+        s.add_node(
             helper.make_node(
                 "Reshape",
                 inputs=[
                     gemm_output_name,
-                    graph.get_constant_name(
-                        np.array(final_output_shape, dtype=np.int64)
-                    ),
+                    s.get_constant_name(np.array(final_output_shape, dtype=np.int64)),
                 ],
                 outputs=[output_name],
-                name=graph.get_unique_name("reshape_output"),
+                name=s.get_unique_name("reshape_output"),
             )
         )
