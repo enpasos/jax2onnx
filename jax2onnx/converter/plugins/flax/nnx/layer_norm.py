@@ -9,28 +9,47 @@ from jax import core
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-# Define the new primitive for layer norm.
+# Define the LayerNorm primitive
 nnx.layer_norm_p = Primitive("nnx.layer_norm")
+nnx.layer_norm_p.multiple_results = False  # ✅ Set at initialization
 
 
 def get_primitive():
+    """Returns the nnx.layer_norm primitive."""
     return nnx.layer_norm_p
 
 
-def _get_monkey_patch():
-    def layer_norm(x, scale, bias, epsilon, axis):
-        def layer_norm_abstract_eval(x, scale, bias, epsilon, axis):
-            return core.ShapedArray(x.shape, x.dtype)
+def layer_norm_abstract_eval(x, scale, bias, epsilon, axis):
+    """Abstract evaluation function for LayerNorm."""
+    return core.ShapedArray(x.shape, x.dtype)
 
-        nnx.layer_norm_p.multiple_results = False
-        nnx.layer_norm_p.def_abstract_eval(layer_norm_abstract_eval)
-        return nnx.layer_norm_p.bind(
-            x,
-            scale,
-            bias,
-            epsilon=epsilon,
-            axis=axis,
-        )
+
+# Register abstract evaluation function
+nnx.layer_norm_p.def_abstract_eval(layer_norm_abstract_eval)
+
+
+def layer_norm(x, scale, bias, epsilon, axis):
+    """Defines the primitive binding for LayerNorm."""
+    return nnx.layer_norm_p.bind(
+        x,
+        scale,
+        bias,
+        epsilon=epsilon,
+        axis=axis,
+    )
+
+
+def patch_info():
+    """Provides patching information for LayerNorm."""
+    return {
+        "patch_targets": [nnx.LayerNorm],
+        "patch_function": lambda _: _get_monkey_patch(),
+        "target_attribute": "__call__",
+    }
+
+
+def _get_monkey_patch():
+    """Returns a patched version of LayerNorm's call method."""
 
     def patched_layer_norm_call(self, x):
         # Default to axis=-1 if no reduction_axes are provided.
@@ -52,17 +71,9 @@ def _get_monkey_patch():
     return patched_layer_norm_call
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.LayerNorm.__call__
-    nnx.LayerNorm.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.LayerNorm.__call__ = original_call
-
-
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of LayerNorm to ONNX format."""
+
     def handle_layer_norm(node_inputs, node_outputs, params):
         # Expect node_inputs: [x, scale, bias]
         input_name = s.get_name(node_inputs[0])
@@ -83,13 +94,12 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             epsilon=epsilon,
         )
         s.add_node(ln_node)
-        # LayerNormalization does not change the shape.
-        # s.add_shape_info(output_name, node_inputs[0].aval.shape)
 
     return handle_layer_norm
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.layer_norm",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
