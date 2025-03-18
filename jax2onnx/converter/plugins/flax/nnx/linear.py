@@ -1,21 +1,56 @@
-# file: jax2onnx/converter/plugins/flax/nnx/linear.py
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from flax import nnx
 from typing import TYPE_CHECKING, Tuple, Union
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-# Define a new primitive for linear.
+# Define the Linear primitive
 nnx.linear_p = Primitive("nnx.linear")
 
 
 def get_primitive():
+    """Returns the nnx.linear primitive."""
     return nnx.linear_p
+
+
+def linear_abstract_eval(x, kernel, bias, dimension_numbers=None):
+    """Abstract evaluation function for Linear."""
+    shapes = _shape_linear(x.shape, kernel.shape, dimension_numbers)
+    return core.ShapedArray(shapes["output"], x.dtype)
+
+
+# Register abstract evaluation function
+nnx.linear_p.def_abstract_eval(linear_abstract_eval)
+
+
+def linear(x, kernel, bias, dimension_numbers=None):
+    """Defines the primitive binding for Linear."""
+    return nnx.linear_p.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
+
+
+def patch_info():
+    """Provides patching information for Linear."""
+    return {
+        "patch_targets": [nnx.Linear],
+        "patch_function": lambda _: _get_monkey_patch(),
+        "target_attribute": "__call__",
+    }
+
+
+def _get_monkey_patch():
+    """Returns a patched version of Linear's call method."""
+
+    def patched_linear_call(self, x):
+        dimension_numbers = ((-1,), (0,))  # Standard contraction for Linear layer
+        return linear(
+            x, self.kernel.value, self.bias.value, dimension_numbers=dimension_numbers
+        )
+
+    return patched_linear_call
 
 
 def _shape_linear(
@@ -128,16 +163,6 @@ def _get_monkey_patch():
     return patched_linear_call
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.Linear.__call__
-    nnx.Linear.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.Linear.__call__ = original_call
-
-
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_linear(node_inputs, node_outputs, params):
         # node_inputs: [x, kernel, bias]
@@ -226,8 +251,9 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "linear",
+        "jaxpr_primitive": "nnx.linear",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html",
         "onnx": [
             {
