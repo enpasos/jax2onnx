@@ -50,18 +50,19 @@ def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
 nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
+def get_primitive():
+    """Returns the nnx.linear_general primitive."""
+    return nnx.linear_general_p
+
+
 def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
     """Abstract evaluation function for linear_general."""
     shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
     return core.ShapedArray(shapes["output"], x.dtype)
 
 
-# Register abstract evaluation function (moved from bottom)
+# Register abstract evaluation function
 nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
-
-
-def get_primitive():
-    return nnx.linear_general_p
 
 
 def patch_info():  # pragma: no cover
@@ -74,7 +75,6 @@ def patch_info():  # pragma: no cover
 def linear_general(x, kernel, bias, dimension_numbers):
     """Defines the primitive binding for linear_general."""
     nnx.linear_general_p.multiple_results = False
-    nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
     return nnx.linear_general_p.bind(
         x, kernel, bias, dimension_numbers=dimension_numbers
     )
