@@ -1,16 +1,34 @@
-# file: jax2onnx/plugins/flax/nnx/linear_general.py
+"""Linear General Plugin for JAX to ONNX conversion.
 
+This plugin enables conversion of flax.nnx.LinearGeneral layers to ONNX format.
+It handles the transformation of JAX's linear_general operations (which are similar
+to dot_general but specialized for linear layers) to ONNX's Gemm operator with
+appropriate reshaping operations.
+
+The plugin implements:
+1. Shape calculation and transformation for linear_general operations
+2. Abstract evaluation for JAX's tracing system
+3. ONNX conversion using Gemm and Reshape operators
+4. Monkey-patching mechanism to intercept LinearGeneral calls
+"""
+
+# Standard library imports
+from typing import TYPE_CHECKING, Dict, List, Tuple, Any
+
+# Third-party imports
 import numpy as np
 from jax import core
+from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-from jax.extend.core import Primitive
-from typing import TYPE_CHECKING
+
+# Local imports
 from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the primitive that will represent nnx.linear_general operations
 nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
@@ -76,6 +94,19 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
     },
 )
 class LinearGeneralPlugin(PrimitivePlugin):
+    """Plugin for converting flax.nnx.LinearGeneral to ONNX.
+
+    This plugin handles the conversion of LinearGeneral layers from JAX/Flax to ONNX format.
+    LinearGeneral is a generalized linear transformation that supports contracting over
+    arbitrary input dimensions and producing arbitrary output dimensions, making it more
+    flexible than standard linear layers.
+
+    The conversion process involves:
+    1. Reshaping the input tensor to a 2D matrix
+    2. Reshaping the kernel weights to a 2D matrix
+    3. Using ONNX's Gemm operator for the matrix multiplication
+    4. Reshaping the result back to the expected output dimensions
+    """
 
     @staticmethod
     def _normalize_contracting_dims(dimension_numbers, x_shape, kernel_shape):
