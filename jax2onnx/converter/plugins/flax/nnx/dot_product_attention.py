@@ -1,54 +1,55 @@
-# file: jax2onnx/converter/plugins/flax/nnx/dot_product_attention.py
-
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from flax import nnx
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the JAX primitive for dot product attention.
 nnx.dot_product_attention_p = Primitive("nnx.dot_product_attention")
+nnx.dot_product_attention_p.multiple_results = False  # ✅ Set at initialization
 
 
 def get_primitive():
+    """Returns the nnx.dot_product_attention primitive."""
     return nnx.dot_product_attention_p
 
 
+def dot_product_attention_abstract_eval(q, k, v, axis=-1):
+    """Abstract evaluation function for dot_product_attention."""
+    output_shape = _shape_dot_product_attention(q.shape, k.shape, v.shape)
+    return core.ShapedArray(output_shape, q.dtype)
+
+
+# Register abstract evaluation function
+nnx.dot_product_attention_p.def_abstract_eval(dot_product_attention_abstract_eval)
+
+
+def dot_product_attention(q, k, v, axis=-1):
+    """Defines the primitive binding for dot_product_attention."""
+    return nnx.dot_product_attention_p.bind(q, k, v, axis=axis)
+
+
+def patch_info():
+    """Provides patching information for dot_product_attention."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: dot_product_attention,
+        "target_attribute": "dot_product_attention",
+    }
+
+
 def _shape_dot_product_attention(q_shape, k_shape, v_shape):
-    # Typically attention outputs shape equal to q_shape
+    """Computes the output shape of dot_product_attention."""
     return q_shape
 
 
-def _get_monkey_patch():
-    def dot_product_attention(q, k, v, axis=-1):
-        def dot_product_attention_abstract_eval(q, k, v, axis):
-            output_shape = _shape_dot_product_attention(q.shape, k.shape, v.shape)
-            return core.ShapedArray(output_shape, q.dtype)
-
-        nnx.dot_product_attention_p.multiple_results = False
-        nnx.dot_product_attention_p.def_abstract_eval(
-            dot_product_attention_abstract_eval
-        )
-        return nnx.dot_product_attention_p.bind(q, k, v, axis=axis)
-
-    return dot_product_attention
-
-
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = nnx.dot_product_attention
-    nnx.dot_product_attention = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.dot_product_attention = original_fn
-
-
 def get_handler(s: "Jaxpr2OnnxConverter"):
+    """Handles conversion of dot_product_attention to ONNX format."""
+
     def handle_dot_product_attention(node_inputs, node_outputs, params):
         q_var, k_var, v_var = node_inputs[:3]
         output_var = node_outputs[0]
@@ -125,6 +126,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nnx.dot_product_attention",
         "jax_doc": "https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
