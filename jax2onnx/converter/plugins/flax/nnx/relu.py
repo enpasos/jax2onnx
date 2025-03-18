@@ -2,42 +2,41 @@ from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the ReLU primitive
 nnx.relu_p = Primitive("nnx.relu")
 
 
 def get_primitive():
+    """Returns the nnx.relu primitive."""
     return nnx.relu_p
 
 
-def _get_monkey_patch():
-    def relu(x):
-        def relu_abstract_eval(x):
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.relu_p.multiple_results = False
-        nnx.relu_p.def_abstract_eval(relu_abstract_eval)
-        return nnx.relu_p.bind(x)
-
-    return relu
+def relu_abstract_eval(x):
+    """Abstract evaluation function for ReLU."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function
-    original_fn = nnx.relu
-    # Patch the function by replacing it in the module namespace.
-    nnx.relu = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function
-        nnx.relu = original_fn
+# Register abstract evaluation function
+nnx.relu_p.def_abstract_eval(relu_abstract_eval)
+
+
+def relu(x):
+    """Defines the primitive binding for ReLU."""
+    return nnx.relu_p.bind(x)
+
+
+def patch_info():
+    """Provides patching information for ReLU."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: relu,
+        "target_attribute": "relu",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
@@ -62,7 +61,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 def get_metadata() -> dict:
     """Return metadata describing this plugin and its test cases."""
     return {
-        "jaxpr_primitive": "relu",
+        "jaxpr_primitive": "nnx.relu",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.relu.html",
         "onnx": [
             {
