@@ -151,6 +151,16 @@ class LinearGeneralPlugin(PrimitivePlugin):
         node_outputs,
         dimension_params,
     ):
+        """Convert linear_general operation to ONNX format.
+
+        The conversion process:
+        1. Extract shapes and calculate transformations
+        2. Reshape inputs to format compatible with Gemm
+        3. Set up bias vector for Gemm operation
+        4. Execute Gemm (matrix multiplication)
+        5. Reshape output to final dimensions
+        """
+        # Extract inputs and outputs
         input_var, kernel_var, bias_var = node_inputs[:3]
         output_var = node_outputs[0]
 
@@ -159,7 +169,8 @@ class LinearGeneralPlugin(PrimitivePlugin):
         kernel_name = converter.get_name(kernel_var)
         bias_name = converter.get_name(bias_var) if bias_var else None
 
-        shape_info = LinearGeneralPlugin._shape_linear_general(
+        # Calculate shapes for transformation
+        shape_info = self._shape_linear_general(
             input_var.aval.shape,
             kernel_var.aval.shape,
             dimension_params["dimension_numbers"],
@@ -169,11 +180,55 @@ class LinearGeneralPlugin(PrimitivePlugin):
         input_gemm_shape = shape_info["input_gemm"]
         output_gemm_shape = shape_info["output_gemm"]
 
+        # Reshape kernel for Gemm operation
         kernel_const = converter.name_to_const[kernel_name]
         weights_name = converter.get_constant_name(
             kernel_const.reshape(new_kernel_shape)
         )
 
+        # Reshape input to 2D format for Gemm operation if needed
+        input_reshape_name = self._prepare_input_for_gemm(
+            converter, input_var, input_name, input_gemm_shape
+        )
+
+        # Prepare bias for Gemm operation
+        bias_name = self._prepare_bias_for_gemm(
+            converter, bias_var, bias_name, output_gemm_shape, input_var.aval.dtype
+        )
+
+        gemm_inputs = [input_reshape_name, weights_name, bias_name]
+
+        # Determine if we need an extra reshape after Gemm
+        gemm_output_name = (
+            output_name
+            if (
+                len(output_gemm_shape) == len(output_shape)
+                and output_gemm_shape[1:] == output_shape[1:]
+            )
+            else converter.get_unique_name("gemm_output")
+        )
+
+        # Add Gemm operation
+        converter.add_node(
+            helper.make_node(
+                "Gemm",
+                inputs=gemm_inputs,
+                outputs=[gemm_output_name],
+                name=converter.get_unique_name("gemm"),
+            )
+        )
+        converter.add_shape_info(gemm_output_name, output_gemm_shape)
+
+        # Reshape output if necessary
+        if gemm_output_name != output_name:
+            self._reshape_gemm_output(
+                converter, gemm_output_name, output_name, output_shape
+            )
+
+    def _prepare_input_for_gemm(
+        self, converter, input_var, input_name, input_gemm_shape
+    ):
+        """Reshape input tensor to 2D format required for Gemm operation."""
         target_input_shape = (-1,) + input_gemm_shape[1:]
         if not (
             len(input_var.aval.shape) == len(target_input_shape)
@@ -194,58 +249,43 @@ class LinearGeneralPlugin(PrimitivePlugin):
                 )
             )
             converter.add_shape_info(input_reshape_name, input_gemm_shape)
-        else:
-            input_reshape_name = input_name
+            return input_reshape_name
+        return input_name
 
-        # Ensure the bias is 1D with shape (output_gemm_shape[1],)
+    def _prepare_bias_for_gemm(
+        self, converter, bias_var, bias_name, output_gemm_shape, dtype
+    ):
+        """Prepare bias tensor for Gemm operation, creating zeros if needed."""
         if bias_name is not None:
             bias_const = converter.name_to_const[bias_name]
             target_bias_shape = (output_gemm_shape[1],)
             if bias_const.shape != target_bias_shape:
                 bias_const = bias_const.reshape(target_bias_shape)
                 bias_name = converter.get_constant_name(bias_const)
-            gemm_inputs = [input_reshape_name, weights_name, bias_name]
         else:
-            bias_shape = (output_gemm_shape[1],)  # Ensure 1D bias.
-            zero_bias = np.zeros(bias_shape, dtype=input_var.aval.dtype)
+            bias_shape = (output_gemm_shape[1],)
+            zero_bias = np.zeros(bias_shape, dtype=dtype)
             bias_name = converter.get_constant_name(zero_bias)
-            gemm_inputs = [input_reshape_name, weights_name, bias_name]
+        return bias_name
 
-        gemm_output_name = (
-            output_name
-            if (
-                len(output_gemm_shape) == len(output_shape)
-                and output_gemm_shape[1:] == output_shape[1:]
-            )
-            else converter.get_unique_name("gemm_output")
-        )
-
+    def _reshape_gemm_output(
+        self, converter, gemm_output_name, output_name, output_shape
+    ):
+        """Reshape Gemm output to final required dimensions."""
+        target_output_shape = [-1] + list(output_shape[1:])
         converter.add_node(
             helper.make_node(
-                "Gemm",
-                inputs=gemm_inputs,
-                outputs=[gemm_output_name],
-                name=converter.get_unique_name("gemm"),
+                "Reshape",
+                inputs=[
+                    gemm_output_name,
+                    converter.get_constant_name(
+                        np.array(target_output_shape, dtype=np.int64)
+                    ),
+                ],
+                outputs=[output_name],
+                name=converter.get_unique_name("reshape_output"),
             )
         )
-        converter.add_shape_info(gemm_output_name, output_gemm_shape)
-
-        # Use dynamic reshape target: replace the batch dimension with -1.
-        if gemm_output_name != output_name:
-            target_output_shape = [-1] + list(output_shape[1:])
-            converter.add_node(
-                helper.make_node(
-                    "Reshape",
-                    inputs=[
-                        gemm_output_name,
-                        converter.get_constant_name(
-                            np.array(target_output_shape, dtype=np.int64)
-                        ),
-                    ],
-                    outputs=[output_name],
-                    name=converter.get_unique_name("reshape_output"),
-                )
-            )
 
     @staticmethod
     def linear_general(x, kernel, bias, dimension_numbers):
