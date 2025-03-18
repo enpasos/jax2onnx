@@ -1,22 +1,22 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING, Tuple, Union, Sequence, Optional
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
-
 
 # Define a new primitive for transpose.
 jnp.transpose_p = Primitive("jnp.transpose")
 
 
 def get_primitive():
+    """Returns the jnp.transpose primitive."""
     return jnp.transpose_p
 
 
-def _transpose_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+def transpose_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+    """Computes the output shape for jnp.transpose."""
     x_shape = list(x.shape)
     if axes is None:
         axes = tuple(reversed(range(len(x_shape))))
@@ -29,39 +29,36 @@ def _transpose_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
     return core.ShapedArray(tuple(output_shape), x.dtype)
 
 
-jnp.transpose_p.def_abstract_eval(_transpose_abstract_eval)
-jnp.transpose_p.multiple_results = False
+# Register abstract evaluation function
+jnp.transpose_p.def_abstract_eval(transpose_abstract_eval)
 
 
-def _get_monkey_patch():
-    def transpose(a, axes: Optional[Union[Sequence[int], int]] = None):
-        n = len(a.shape)
-        if axes is None:
-            axes = tuple(reversed(range(n)))
-        elif isinstance(axes, int):
-            # Correctly handle the single-integer case.
-            axes = (axes,) + tuple(i for i in range(n) if i != axes)
-        else:
-            axes = tuple(axes)
-        if len(axes) != n:
-            raise ValueError(f"Axes length {len(axes)} does not match input rank {n}")
-        return jnp.transpose_p.bind(a, axes=axes)
-
-    return transpose
+def transpose(a, axes: Optional[Union[Sequence[int], int]] = None):
+    """Defines the primitive binding for Transpose."""
+    n = len(a.shape)
+    if axes is None:
+        axes = tuple(reversed(range(n)))
+    elif isinstance(axes, int):
+        axes = (axes,) + tuple(i for i in range(n) if i != axes)
+    else:
+        axes = tuple(axes)
+    if len(axes) != n:
+        raise ValueError(f"Axes length {len(axes)} does not match input rank {n}")
+    return jnp.transpose_p.bind(a, axes=axes)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = jnp.transpose
-    jnp.transpose = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        jnp.transpose = original_fn
+def patch_info():
+    """Provides patching information for Transpose."""
+    return {
+        "patch_targets": [jnp],
+        "patch_function": lambda _: transpose,
+        "target_attribute": "transpose",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_transpose(node_inputs, node_outputs, params):
+        """Handles ONNX conversion for jnp.transpose."""
         axes = params["axes"]
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
@@ -74,10 +71,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             n = len(input_shape)
             axes = (axes,) + tuple(i for i in range(n) if i != axes)
         else:
-            axes = tuple(axes)  # Ensure axes is a tuple
-
-        # Normalize negative axes. No need, it is done in the abstract eval
-        # normalized_axes = tuple(axis if axis >= 0 else axis + len(input_shape) for axis in axes)
+            axes = tuple(axes)
 
         transpose_node = helper.make_node(
             "Transpose",
@@ -89,12 +83,13 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         s.add_node(transpose_node)
 
         output_shape = tuple(input_shape[i] for i in axes)
-        s.add_shape_info(output_name, output_shape)  # Use s.builder
+        s.add_shape_info(output_name, output_shape)
 
     return handle_transpose
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "jnp.transpose",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.transpose.html",
