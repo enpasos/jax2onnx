@@ -1,62 +1,53 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-# Define a new primitive for concatenation.
+# Define the Concat primitive
 jnp.concat_p = Primitive("jnp.concat")
 
 
 def get_primitive():
+    """Returns the jnp.concat primitive."""
     return jnp.concat_p
 
 
-def _concat_abstract_eval(arrays, axis):
-    # arrays is a tuple of ShapedArray objects.
-    arrays = list(arrays)
-    base = list(arrays[0].shape)
-    # Here we assume that all inputs match except along the concatenation axis.
-    total = 0
-    for a in arrays:
-        total += a.shape[axis]
-    base[axis] = total
-    return core.ShapedArray(tuple(base), arrays[0].dtype)
+def concat_abstract_eval(*arrays, axis):
+    """Abstract evaluation function for Concat."""
+    base_shape = list(arrays[0].shape)
+    total_dim = sum(a.shape[axis] for a in arrays)
+    base_shape[axis] = total_dim
+    return core.ShapedArray(tuple(base_shape), arrays[0].dtype)
 
 
-def _get_monkey_patch():
-    def concat(arrays, axis):
-        # Define an abstract evaluation function capturing the axis.
-        def abstract_eval(*arrays, axis=axis):
-            return _concat_abstract_eval(arrays, axis)
-
-        jnp.concat_p.multiple_results = False
-        jnp.concat_p.def_abstract_eval(abstract_eval)
-        # Bind each array as an individual argument, along with the axis.
-        return jnp.concat_p.bind(*arrays, axis=axis)
-
-    return concat
+# Register abstract evaluation function
+jnp.concat_p.def_abstract_eval(concat_abstract_eval)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = jnp.concat
-    jnp.concat = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        jnp.concat = original_fn
+def concat(arrays, axis):
+    """Defines the primitive binding for Concat."""
+    return jnp.concat_p.bind(*arrays, axis=axis)
+
+
+def patch_info():
+    """Provides patching information for Concat."""
+    return {
+        "patch_targets": [jnp],
+        "patch_function": lambda _: concat,
+        "target_attribute": "concat",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_concat(node_inputs, node_outputs, params):
         # Expect node_inputs: a list of arrays to concatenate.
-        axis = params.get("axis")
+        axis = params.get("axis", 0)
         input_names = [s.get_name(var) for var in node_inputs]
         output_name = s.get_name(node_outputs[0])
+
         concat_node = helper.make_node(
             "Concat",
             inputs=input_names,
@@ -70,6 +61,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "jnp.concat",
         "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.numpy.concat.html",

@@ -1,43 +1,41 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-# Define a new primitive for addition.
+# Define the Add primitive
 jnp.add_p = Primitive("jnp.add")
 
 
 def get_primitive():
+    """Returns the jnp.add primitive."""
     return jnp.add_p
 
 
-def _get_monkey_patch():
-    def add(x, y):
-        def add_abstract_eval(x, y):
-            # For simplicity, assume x and y have the same shape.
-            # (In general, jax.numpy.add supports broadcasting.)
-            return core.ShapedArray(x.shape, x.dtype)
-
-        jnp.add_p.multiple_results = False
-        jnp.add_p.def_abstract_eval(add_abstract_eval)
-        return jnp.add_p.bind(x, y)
-
-    return add
+def add_abstract_eval(x, y):
+    """Abstract evaluation function for Add."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function from jax.numpy.
-    original_fn = jnp.add
-    jnp.add = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        jnp.add = original_fn
+# Register abstract evaluation function
+jnp.add_p.def_abstract_eval(add_abstract_eval)
+
+
+def add(x, y):
+    """Defines the primitive binding for Add."""
+    return jnp.add_p.bind(x, y)
+
+
+def patch_info():
+    """Provides patching information for Add."""
+    return {
+        "patch_targets": [jnp],
+        "patch_function": lambda _: add,
+        "target_attribute": "add",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
@@ -63,6 +61,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Return metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "jnp.add",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
