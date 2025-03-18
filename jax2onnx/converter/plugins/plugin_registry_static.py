@@ -1,6 +1,6 @@
 # This file is auto-generated. Do not modify manually.
 plugin_registry = {
-    "nnx.avg_pool": "jax2onnx.converter.plugins.flax.nnx.avg_pool",
+    # "nnx.avg_pool": "jax2onnx.converter.plugins.flax.nnx.avg_pool",
     # "nnx.batch_norm": "jax2onnx.converter.plugins.flax.nnx.batch_norm",
     # "nnx.conv": "jax2onnx.converter.plugins.flax.nnx.conv",
     "nnx.dot_product_attention": "jax2onnx.converter.plugins.flax.nnx.dot_product_attention",
