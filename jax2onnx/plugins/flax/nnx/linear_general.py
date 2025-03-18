@@ -1,4 +1,5 @@
 # file: jax2onnx/plugins/flax/nnx/linear_general.py
+# file: jax2onnx/plugins/flax/nnx/linear_general.py
 
 import numpy as np
 from jax import core
@@ -114,13 +115,6 @@ class LinearGeneralPlugin(PrimitivePlugin):
         }
 
     @staticmethod
-    def _is_noop_reshape(original_shape, target_shape):
-        return (
-            len(original_shape) == len(target_shape)
-            and original_shape[1:] == target_shape[1:]
-        )
-
-    @staticmethod
     def abstract_eval(x, kernel, bias, dimension_numbers):
         """Abstract evaluation function for linear_general."""
         shapes = LinearGeneralPlugin._shape_linear_general(
@@ -149,11 +143,10 @@ class LinearGeneralPlugin(PrimitivePlugin):
         weights_name = s.get_constant_name(kernel_const.reshape(new_kernel_shape))
 
         target_input_shape = (-1,) + input_gemm_shape[1:]
-        if LinearGeneralPlugin._is_noop_reshape(
-            input_var.aval.shape, target_input_shape
+        if not (
+            len(input_var.aval.shape) == len(target_input_shape)
+            and input_var.aval.shape[1:] == target_input_shape[1:]
         ):
-            input_reshape_name = input_name
-        else:
             input_reshape_name = s.get_unique_name("input_reshape")
             s.add_node(
                 helper.make_node(
@@ -169,6 +162,8 @@ class LinearGeneralPlugin(PrimitivePlugin):
                 )
             )
             s.add_shape_info(input_reshape_name, input_gemm_shape)
+        else:
+            input_reshape_name = input_name
 
         # Ensure the bias is 1D with shape (output_gemm_shape[1],)
         if bias_name is not None:
@@ -186,7 +181,10 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
         gemm_output_name = (
             output_name
-            if LinearGeneralPlugin._is_noop_reshape(output_gemm_shape, output_shape)
+            if (
+                len(output_gemm_shape) == len(output_shape)
+                and output_gemm_shape[1:] == output_shape[1:]
+            )
             else s.get_unique_name("gemm_output")
         )
 
@@ -218,7 +216,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
             )
 
     @staticmethod
-    def _linear_general(x, kernel, bias, dimension_numbers):
+    def linear_general(x, kernel, bias, dimension_numbers):
         """Defines the primitive binding for linear_general."""
         nnx.linear_general_p.multiple_results = False
         return nnx.linear_general_p.bind(
@@ -226,7 +224,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
         )
 
     @staticmethod
-    def _get_monkey_patch():
+    def get_monkey_patch():
         """Returns a patched version of LinearGeneral's call method."""
 
         def patched_linear_general_call(self, x):
@@ -235,7 +233,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
                 tuple(range(len(self.in_features))),
             )
             dimension_numbers = (contracting_dims, ((), ()))
-            return LinearGeneralPlugin._linear_general(
+            return LinearGeneralPlugin.linear_general(
                 x,
                 self.kernel.value,
                 self.bias.value if self.bias else None,
@@ -248,7 +246,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
     def patch_info():
         return {
             "patch_targets": [nnx.LinearGeneral],
-            "patch_function": lambda _: LinearGeneralPlugin._get_monkey_patch(),
+            "patch_function": lambda _: LinearGeneralPlugin.get_monkey_patch(),
         }
 
 
