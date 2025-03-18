@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/flax/nnx/linear_general.py
+
 """Linear General Plugin for JAX to ONNX conversion.
 
 This plugin enables conversion of flax.nnx.LinearGeneral layers to ONNX format.
@@ -33,7 +35,7 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
 @register_plugin(
-    jaxpr_primitive="nnx.linear_general",
+    jaxpr_primitive=nnx.linear_general_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
     onnx=[
         {
@@ -185,8 +187,8 @@ class LinearGeneralPlugin(PrimitivePlugin):
         )
         return core.ShapedArray(shapes["output"], x.dtype)
 
+    @staticmethod
     def to_onnx(
-        self,
         converter: "Jaxpr2OnnxConverter",
         node_inputs,
         node_outputs,
@@ -211,7 +213,7 @@ class LinearGeneralPlugin(PrimitivePlugin):
         bias_name = converter.get_name(bias_var) if bias_var else None
 
         # Calculate shapes for transformation
-        shape_info = self._shape_linear_general(
+        shape_info = LinearGeneralPlugin._shape_linear_general(
             input_var.aval.shape,
             kernel_var.aval.shape,
             dimension_params["dimension_numbers"],
@@ -228,12 +230,12 @@ class LinearGeneralPlugin(PrimitivePlugin):
         )
 
         # Reshape input to 2D format for Gemm operation if needed
-        input_reshape_name = self._prepare_input_for_gemm(
+        input_reshape_name = LinearGeneralPlugin._prepare_input_for_gemm(
             converter, input_var, input_name, input_gemm_shape
         )
 
         # Prepare bias for Gemm operation
-        bias_name = self._prepare_bias_for_gemm(
+        bias_name = LinearGeneralPlugin._prepare_bias_for_gemm(
             converter, bias_var, bias_name, output_gemm_shape, input_var.aval.dtype
         )
 
@@ -262,13 +264,12 @@ class LinearGeneralPlugin(PrimitivePlugin):
 
         # Reshape output if necessary
         if gemm_output_name != output_name:
-            self._reshape_gemm_output(
+            LinearGeneralPlugin._reshape_gemm_output(
                 converter, gemm_output_name, output_name, output_shape
             )
 
-    def _prepare_input_for_gemm(
-        self, converter, input_var, input_name, input_gemm_shape
-    ):
+    @staticmethod
+    def _prepare_input_for_gemm(converter, input_var, input_name, input_gemm_shape):
         """Reshape input tensor to 2D format required for Gemm operation."""
         target_input_shape = (-1,) + input_gemm_shape[1:]
         if not (
@@ -293,8 +294,9 @@ class LinearGeneralPlugin(PrimitivePlugin):
             return input_reshape_name
         return input_name
 
+    @staticmethod
     def _prepare_bias_for_gemm(
-        self, converter, bias_var, bias_name, output_gemm_shape, dtype
+        converter, bias_var, bias_name, output_gemm_shape, dtype
     ):
         """Prepare bias tensor for Gemm operation, creating zeros if needed."""
         if bias_name is not None:
@@ -309,9 +311,8 @@ class LinearGeneralPlugin(PrimitivePlugin):
             bias_name = converter.get_constant_name(zero_bias)
         return bias_name
 
-    def _reshape_gemm_output(
-        self, converter, gemm_output_name, output_name, output_shape
-    ):
+    @staticmethod
+    def _reshape_gemm_output(converter, gemm_output_name, output_name, output_shape):
         """Reshape Gemm output to final required dimensions."""
         target_output_shape = [-1] + list(output_shape[1:])
         converter.add_node(
