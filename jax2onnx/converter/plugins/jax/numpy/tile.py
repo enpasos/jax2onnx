@@ -1,69 +1,65 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple, Union, Sequence
+import numpy as np
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-import numpy as np
-
-# Define a new primitive for tile.
+# Define a new primitive for tile
 jnp.tile_p = Primitive("jnp.tile")
 
 
 def get_primitive():
+    """Returns the jnp.tile primitive."""
     return jnp.tile_p
 
 
-def _tile_abstract_eval(x, repeats):
+def tile_abstract_eval(x, repeats: Sequence[int]):
+    """Compute the output shape for tile."""
     x_shape = x.shape
     if len(repeats) != len(x_shape):
         if len(repeats) < len(x_shape):
             repeats = (1,) * (len(x_shape) - len(repeats)) + tuple(repeats)
         else:
             x_shape = (1,) * (len(repeats) - len(x_shape)) + x_shape
-            # raise ValueError(
-            #    f"repeats length {len(repeats)} does not match input rank {len(x_shape)}"
-            # )
+
     output_shape = tuple(s * r for s, r in zip(x_shape, repeats))
     return core.ShapedArray(output_shape, x.dtype)
 
 
-jnp.tile_p.def_abstract_eval(_tile_abstract_eval)
-jnp.tile_p.multiple_results = False
+# Register abstract evaluation function
+jnp.tile_p.def_abstract_eval(tile_abstract_eval)
 
 
-def _get_monkey_patch():
-    def tile(a, reps):
-        try:
-            tup = tuple(reps)
-        except TypeError:
-            tup = (reps,)
-        return jnp.tile_p.bind(a, repeats=tup)
-
-    return tile
-
-
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = jnp.tile
-    jnp.tile = _get_monkey_patch()
+def tile(a, reps: Union[int, Sequence[int]]):
+    """Defines the primitive binding for Tile."""
     try:
-        yield
-    finally:
-        jnp.tile = original_fn
+        tup = tuple(reps)
+    except TypeError:
+        tup = (reps,)
+    return jnp.tile_p.bind(a, repeats=tup)
+
+
+def patch_info():
+    """Provides patching information for Tile."""
+    return {
+        "patch_targets": [jnp],
+        "patch_function": lambda _: tile,
+        "target_attribute": "tile",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_tile(node_inputs, node_outputs, params):
+        """Handles ONNX conversion for jnp.tile."""
         repeats = params["repeats"]
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
         input_shape = node_inputs[0].aval.shape
 
-        # ONNX requires repeats to be an initializer.
+        # ONNX requires repeats as an initializer.
         repeats_name = s.get_unique_name("tile_repeats")
 
         # If repeats has more dimensions than input, reshape input first
@@ -117,6 +113,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "jnp.tile",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html",

@@ -2,47 +2,46 @@ from jax import core
 from jax.extend.core import Primitive
 import jax.nn as nn
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define a new primitive for softmax
 nn.softmax_p = Primitive("nn.softmax")
 
 
 def get_primitive():
+    """Returns the nn.softmax primitive."""
     return nn.softmax_p
 
 
-def _get_monkey_patch():
-    def softmax(x, axis=-1):
-        def softmax_abstract_eval(x, axis=-1):
-            # The output shape is the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nn.softmax_p.multiple_results = False
-        nn.softmax_p.def_abstract_eval(softmax_abstract_eval)
-        return nn.softmax_p.bind(x, axis=axis)
-
-    return softmax
+def softmax_abstract_eval(x, axis=-1):
+    """Computes the output shape for nn.softmax."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function
-    original_fn = nn.softmax
-    # Patch the function by replacing it in the module namespace.
-    nn.softmax = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function
-        nn.softmax = original_fn
+# Register abstract evaluation function
+nn.softmax_p.def_abstract_eval(softmax_abstract_eval)
+
+
+def softmax(x, axis=-1):
+    """Defines the primitive binding for Softmax."""
+    return nn.softmax_p.bind(x, axis=axis)
+
+
+def patch_info():
+    """Provides patching information for Softmax."""
+    return {
+        "patch_targets": [nn],
+        "patch_function": lambda _: softmax,
+        "target_attribute": "softmax",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_softmax(node_inputs, node_outputs, params):
+        """Handles ONNX conversion for nn.softmax."""
         input_var = node_inputs[0]
         output_var = node_outputs[0]
 
@@ -65,7 +64,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "nn.softmax",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
@@ -82,6 +81,16 @@ def get_metadata() -> dict:
                 "testcase": "softmax",
                 "callable": lambda x: nn.softmax(x),
                 "input_shapes": [(3,)],
-            }
+            },
+            {
+                "testcase": "softmax_2d",
+                "callable": lambda x: nn.softmax(x, axis=1),
+                "input_shapes": [(4, 5)],
+            },
+            {
+                "testcase": "softmax_3d",
+                "callable": lambda x: nn.softmax(x, axis=2),
+                "input_shapes": [(2, 3, 4)],
+            },
         ],
     }

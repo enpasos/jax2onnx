@@ -1,43 +1,37 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING, Tuple, Union, Optional
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
-
-# Define a new primitive for squeeze.
+# Define a new primitive for squeeze
 jnp.squeeze_p = Primitive("jnp.squeeze")
 
 
 def get_primitive():
+    """Returns the jnp.squeeze primitive."""
     return jnp.squeeze_p
 
 
-def _squeeze_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+def squeeze_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
     """
     Compute the output shape for squeeze.
-    If no axes are provided, squeeze all dimensions that are 1.
-    If axes are provided, only remove those axes for which the dimension
-    is concrete and equal to 1; if the dimension is dynamic (a string), skip
-    the check.
+    - If no axes are provided, squeeze all dimensions that are 1.
+    - If axes are provided, only remove dimensions that are concretely 1.
+    - Dynamic dimensions (strings) are not squeezed.
     """
     x_shape = list(x.shape)
     if axes is None:
-        # Squeeze all dimensions that are known to be 1 (skip dynamic ones).
         new_shape = tuple(
             dim for dim in x_shape if not (isinstance(dim, int) and dim == 1)
         )
     else:
-        # Normalize negative axes.
         normalized_axes = [axis if axis >= 0 else axis + len(x_shape) for axis in axes]
-        # Check that concrete dimensions are 1.
         for axis in normalized_axes:
             if axis >= len(x_shape):
                 raise ValueError(f"Invalid axis {axis} for shape {x_shape}")
-            # Only check if the dimension is a concrete integer.
             if isinstance(x_shape[axis], int) and x_shape[axis] != 1:
                 raise ValueError(
                     f"Cannot squeeze dimension {axis} of shape {x_shape}: size is not 1."
@@ -48,47 +42,43 @@ def _squeeze_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
     return core.ShapedArray(new_shape, x.dtype)
 
 
-jnp.squeeze_p.def_abstract_eval(_squeeze_abstract_eval)
-jnp.squeeze_p.multiple_results = False
+# Register abstract evaluation function
+jnp.squeeze_p.def_abstract_eval(squeeze_abstract_eval)
 
 
-def _get_monkey_patch():
-    def squeeze(a, axis: Optional[Union[int, Tuple[int, ...]]] = None):
-        if axis is None:
-            axes = tuple(
-                i for i, dim in enumerate(a.shape) if isinstance(dim, int) and dim == 1
-            )
-        elif isinstance(axis, int):
-            axes = (axis,)
-        else:
-            axes = tuple(axis)
-        return jnp.squeeze_p.bind(a, axes=axes)
-
-    return squeeze
+def squeeze(a, axis: Optional[Union[int, Tuple[int, ...]]] = None):
+    """Defines the primitive binding for Squeeze."""
+    if axis is None:
+        axes = tuple(
+            i for i, dim in enumerate(a.shape) if isinstance(dim, int) and dim == 1
+        )
+    elif isinstance(axis, int):
+        axes = (axis,)
+    else:
+        axes = tuple(axis)
+    return jnp.squeeze_p.bind(a, axes=axes)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_fn = jnp.squeeze
-    jnp.squeeze = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        jnp.squeeze = original_fn
+def patch_info():
+    """Provides patching information for Squeeze."""
+    return {
+        "patch_targets": [jnp],
+        "patch_function": lambda _: squeeze,
+        "target_attribute": "squeeze",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
     def handle_squeeze(node_inputs, node_outputs, params):
-        # Retrieve the axes parameter (should be provided as a tuple of ints).
+        """Handles ONNX conversion for jnp.squeeze."""
         axes = params["axes"]
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
         input_shape = node_inputs[0].aval.shape
 
-        # Normalize axes: convert any negative axes to positive.
         valid_axes = [axis if axis >= 0 else axis + len(input_shape) for axis in axes]
 
-        # Create an initializer for the axes (ONNX expects these as a tensor).
+        # Create an initializer for axes (ONNX expects these as a tensor)
         axes_name = s.get_unique_name("squeeze_axes")
         s.add_initializer(name=axes_name, vals=valid_axes)
 
@@ -100,7 +90,6 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
         )
         s.add_node(squeeze_node)
 
-        # Compute output shape for shape inference by removing squeezed axes.
         output_shape = tuple(
             dim for i, dim in enumerate(input_shape) if i not in valid_axes
         )
@@ -110,6 +99,7 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
 
 
 def get_metadata() -> dict:
+    """Returns metadata describing this plugin and its test cases."""
     return {
         "jaxpr_primitive": "jnp.squeeze",
         "jax_doc": "https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.squeeze.html",
