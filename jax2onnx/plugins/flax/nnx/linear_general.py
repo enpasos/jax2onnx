@@ -33,65 +33,62 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
 @register_plugin(
-    primitive="nnx.linear_general",
-    metadata={
-        "jaxpr_primitive": "nnx.linear_general",
-        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
-        "onnx": [
-            {
-                "component": "Gemm",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
-            },
-            {
-                "component": "Reshape",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
-            },
-        ],
-        "since": "v0.1.0",
-        "context": "plugins.nnx",
-        "testcases": [
-            {
-                "testcase": "linear_general",
-                "callable": nnx.LinearGeneral(
-                    in_features=(8, 32),
-                    out_features=(256,),
-                    axis=(-2, -1),
-                    rngs=nnx.Rngs(0),
-                ),
-                "input_shapes": [("B", 4, 8, 32)],
-            },
-            {
-                "testcase": "linear_general_2",
-                "callable": nnx.LinearGeneral(
-                    in_features=(30,),
-                    out_features=(20,),
-                    axis=(-1,),
-                    rngs=nnx.Rngs(0),
-                ),
-                "input_shapes": [(3, 30)],
-            },
-            {
-                "testcase": "linear_general_3",
-                "callable": nnx.LinearGeneral(
-                    in_features=(256,),
-                    out_features=(8, 32),
-                    axis=(-1,),
-                    rngs=nnx.Rngs(0),
-                ),
-                "input_shapes": [(2, 4, 256)],
-            },
-            {
-                "testcase": "linear_general_4",
-                "callable": nnx.LinearGeneral(
-                    in_features=(8, 32),
-                    out_features=(256,),
-                    axis=(-2, -1),
-                    rngs=nnx.Rngs(0),
-                ),
-                "input_shapes": [(2, 4, 8, 32)],
-            },
-        ],
-    },
+    jaxpr_primitive="nnx.linear_general",
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
+    onnx=[
+        {
+            "component": "Gemm",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
+        },
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+    ],
+    since="v0.1.0",
+    context="plugins.nnx",
+    testcases=[
+        {
+            "testcase": "linear_general",
+            "callable": nnx.LinearGeneral(
+                in_features=(8, 32),
+                out_features=(256,),
+                axis=(-2, -1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 4, 8, 32)],
+        },
+        {
+            "testcase": "linear_general_2",
+            "callable": nnx.LinearGeneral(
+                in_features=(30,),
+                out_features=(20,),
+                axis=(-1,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 30)],
+        },
+        {
+            "testcase": "linear_general_3",
+            "callable": nnx.LinearGeneral(
+                in_features=(256,),
+                out_features=(8, 32),
+                axis=(-1,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 4, 256)],
+        },
+        {
+            "testcase": "linear_general_4",
+            "callable": nnx.LinearGeneral(
+                in_features=(8, 32),
+                out_features=(256,),
+                axis=(-2, -1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 4, 8, 32)],
+        },
+    ],
 )
 class LinearGeneralPlugin(PrimitivePlugin):
     """Plugin for converting flax.nnx.LinearGeneral to ONNX.
