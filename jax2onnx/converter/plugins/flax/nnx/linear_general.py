@@ -54,6 +54,13 @@ def get_primitive():
     return nnx.linear_general_p
 
 
+def patch_info():  # pragma: no cover
+    return {
+        "patch_targets": [nnx.LinearGeneral],
+        "patch_function": _get_monkey_patch,
+    }
+
+
 def _get_monkey_patch():
     def linear_general(x, kernel, bias, dimension_numbers):
         def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
@@ -83,14 +90,14 @@ def _get_monkey_patch():
     return patched_linear_general_call
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    original_call = nnx.LinearGeneral.__call__
-    nnx.LinearGeneral.__call__ = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        nnx.LinearGeneral.__call__ = original_call
+# @contextlib.contextmanager
+# def temporary_patch():
+#     original_call = nnx.LinearGeneral.__call__
+#     nnx.LinearGeneral.__call__ = _get_monkey_patch()
+#     try:
+#         yield
+#     finally:
+#         nnx.LinearGeneral.__call__ = original_call
 
 
 def _is_noop_reshape(original_shape, target_shape):

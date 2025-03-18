@@ -536,7 +536,38 @@ def temporary_monkey_patches():
         # Iterate over all registered plugins.
         for plugin in get_all_plugins().values():
             # Check if the plugin module defines a temporary_patch.
+
             temporary_patch = getattr(plugin, "temporary_patch", None)
             if callable(temporary_patch):
                 stack.enter_context(temporary_patch())
+
+            patch_info = getattr(plugin, "patch_info", None)
+            if callable(patch_info):
+                patch_info = patch_info()
+                target = patch_info["patch_targets"][0]
+                patch_func = patch_info["patch_function"]()
+                stack.enter_context(
+                    _temporary_patch(target, "__call__", lambda orig: patch_func)
+                )
+
         yield
+
+
+import inspect
+
+
+@contextlib.contextmanager
+def _temporary_patch(target, attr, patch_func):
+    original = getattr(target, attr)
+
+    # Check if the patch function expects an argument
+    if inspect.signature(patch_func).parameters:
+        patched = patch_func(original)
+    else:
+        patched = patch_func()  # Call without arguments if none are expected
+
+    setattr(target, attr, patched)
+    try:
+        yield
+    finally:
+        setattr(target, attr, original)
