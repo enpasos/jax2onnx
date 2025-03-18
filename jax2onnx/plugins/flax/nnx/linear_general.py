@@ -1,5 +1,4 @@
 # file: jax2onnx/plugins/flax/nnx/linear_general.py
-# file: jax2onnx/plugins/flax/nnx/linear_general.py
 
 import numpy as np
 from jax import core
@@ -122,61 +121,71 @@ class LinearGeneralPlugin(PrimitivePlugin):
         )
         return core.ShapedArray(shapes["output"], x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+    def to_onnx(
+        self,
+        converter: "Jaxpr2OnnxConverter",
+        node_inputs,
+        node_outputs,
+        dimension_params,
+    ):
         input_var, kernel_var, bias_var = node_inputs[:3]
         output_var = node_outputs[0]
 
-        input_name = s.get_name(input_var)
-        output_name = s.get_name(output_var)
-        kernel_name = s.get_name(kernel_var)
-        bias_name = s.get_name(bias_var) if bias_var else None
+        input_name = converter.get_name(input_var)
+        output_name = converter.get_name(output_var)
+        kernel_name = converter.get_name(kernel_var)
+        bias_name = converter.get_name(bias_var) if bias_var else None
 
-        shapes = LinearGeneralPlugin._shape_linear_general(
-            input_var.aval.shape, kernel_var.aval.shape, params["dimension_numbers"]
+        shape_info = LinearGeneralPlugin._shape_linear_general(
+            input_var.aval.shape,
+            kernel_var.aval.shape,
+            dimension_params["dimension_numbers"],
         )
-        output_shape = shapes["output"]
-        new_kernel_shape = shapes["new_kernel"]
-        input_gemm_shape = shapes["input_gemm"]
-        output_gemm_shape = shapes["output_gemm"]
+        output_shape = shape_info["output"]
+        new_kernel_shape = shape_info["new_kernel"]
+        input_gemm_shape = shape_info["input_gemm"]
+        output_gemm_shape = shape_info["output_gemm"]
 
-        kernel_const = s.name_to_const[kernel_name]
-        weights_name = s.get_constant_name(kernel_const.reshape(new_kernel_shape))
+        kernel_const = converter.name_to_const[kernel_name]
+        weights_name = converter.get_constant_name(
+            kernel_const.reshape(new_kernel_shape)
+        )
 
         target_input_shape = (-1,) + input_gemm_shape[1:]
         if not (
             len(input_var.aval.shape) == len(target_input_shape)
             and input_var.aval.shape[1:] == target_input_shape[1:]
         ):
-            input_reshape_name = s.get_unique_name("input_reshape")
-            s.add_node(
+            input_reshape_name = converter.get_unique_name("input_reshape")
+            converter.add_node(
                 helper.make_node(
                     "Reshape",
                     inputs=[
                         input_name,
-                        s.get_constant_name(
+                        converter.get_constant_name(
                             np.array(target_input_shape, dtype=np.int64)
                         ),
                     ],
                     outputs=[input_reshape_name],
-                    name=s.get_unique_name("reshape_input"),
+                    name=converter.get_unique_name("reshape_input"),
                 )
             )
-            s.add_shape_info(input_reshape_name, input_gemm_shape)
+            converter.add_shape_info(input_reshape_name, input_gemm_shape)
         else:
             input_reshape_name = input_name
 
         # Ensure the bias is 1D with shape (output_gemm_shape[1],)
         if bias_name is not None:
-            bias_const = s.name_to_const[bias_name]
+            bias_const = converter.name_to_const[bias_name]
             target_bias_shape = (output_gemm_shape[1],)
             if bias_const.shape != target_bias_shape:
                 bias_const = bias_const.reshape(target_bias_shape)
-                bias_name = s.get_constant_name(bias_const)
+                bias_name = converter.get_constant_name(bias_const)
             gemm_inputs = [input_reshape_name, weights_name, bias_name]
         else:
             bias_shape = (output_gemm_shape[1],)  # Ensure 1D bias.
             zero_bias = np.zeros(bias_shape, dtype=input_var.aval.dtype)
-            bias_name = s.get_constant_name(zero_bias)
+            bias_name = converter.get_constant_name(zero_bias)
             gemm_inputs = [input_reshape_name, weights_name, bias_name]
 
         gemm_output_name = (
@@ -185,33 +194,33 @@ class LinearGeneralPlugin(PrimitivePlugin):
                 len(output_gemm_shape) == len(output_shape)
                 and output_gemm_shape[1:] == output_shape[1:]
             )
-            else s.get_unique_name("gemm_output")
+            else converter.get_unique_name("gemm_output")
         )
 
-        s.add_node(
+        converter.add_node(
             helper.make_node(
                 "Gemm",
                 inputs=gemm_inputs,
                 outputs=[gemm_output_name],
-                name=s.get_unique_name("gemm"),
+                name=converter.get_unique_name("gemm"),
             )
         )
-        s.add_shape_info(gemm_output_name, output_gemm_shape)
+        converter.add_shape_info(gemm_output_name, output_gemm_shape)
 
         # Use dynamic reshape target: replace the batch dimension with -1.
         if gemm_output_name != output_name:
             target_output_shape = [-1] + list(output_shape[1:])
-            s.add_node(
+            converter.add_node(
                 helper.make_node(
                     "Reshape",
                     inputs=[
                         gemm_output_name,
-                        s.get_constant_name(
+                        converter.get_constant_name(
                             np.array(target_output_shape, dtype=np.int64)
                         ),
                     ],
                     outputs=[output_name],
-                    name=s.get_unique_name("reshape_output"),
+                    name=converter.get_unique_name("reshape_output"),
                 )
             )
 
