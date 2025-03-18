@@ -61,12 +61,14 @@ def patch_info():  # pragma: no cover
     }
 
 
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    """Abstract evaluation function for linear_general."""
+    shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
+    return core.ShapedArray(shapes["output"], x.dtype)
+
+
 def _get_monkey_patch():
     def linear_general(x, kernel, bias, dimension_numbers):
-        def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
-            shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
-            return core.ShapedArray(shapes["output"], x.dtype)
-
         nnx.linear_general_p.multiple_results = False
         nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
         return nnx.linear_general_p.bind(
@@ -74,13 +76,10 @@ def _get_monkey_patch():
         )
 
     def patched_linear_general_call(self, x):
-        # Use the same dimension_numbers as the old version.
-        # Here, contracting_dims is a tuple: (self.axis, tuple(range(len(self.in_features))))
         contracting_dims = (
             self.axis if isinstance(self.axis, tuple) else (self.axis,),
             tuple(range(len(self.in_features))),
         )
-        # No batch dimensions in this case.
         dimension_numbers = (contracting_dims, ((), ()))
         bias_value = self.bias.value if self.bias is not None else None
         return linear_general(
