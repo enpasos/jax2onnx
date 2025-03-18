@@ -27,10 +27,11 @@ class PrimitivePlugin:
         raise NotImplementedError
 
 
-def register_plugin(primitive: str, metadata: Optional[Dict[str, Any]] = None):
+def register_plugin(**metadata: Optional[Dict[str, Any]]):
     """
     Decorator to register a plugin with the given primitive and metadata.
     """
+    primitive = metadata.get("jaxpr_primitive")
 
     def decorator(cls):
         if not issubclass(cls, PrimitivePlugin):
