@@ -50,6 +50,16 @@ def _shape_linear_general(x_shape, kernel_shape, dimension_numbers):
 nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
+def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
+    """Abstract evaluation function for linear_general."""
+    shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
+    return core.ShapedArray(shapes["output"], x.dtype)
+
+
+# Register abstract evaluation function (moved from bottom)
+nnx.linear_general_p.def_abstract_eval(linear_general_abstract_eval)
+
+
 def get_primitive():
     return nnx.linear_general_p
 
@@ -59,12 +69,6 @@ def patch_info():  # pragma: no cover
         "patch_targets": [nnx.LinearGeneral],
         "patch_function": _get_monkey_patch,
     }
-
-
-def linear_general_abstract_eval(x, kernel, bias, dimension_numbers):
-    """Abstract evaluation function for linear_general."""
-    shapes = _shape_linear_general(x.shape, kernel.shape, dimension_numbers)
-    return core.ShapedArray(shapes["output"], x.dtype)
 
 
 def linear_general(x, kernel, bias, dimension_numbers):
@@ -77,28 +81,22 @@ def linear_general(x, kernel, bias, dimension_numbers):
 
 
 def _get_monkey_patch():
+    """Returns a patched version of LinearGeneral's call method."""
+
     def patched_linear_general_call(self, x):
         contracting_dims = (
-            self.axis if isinstance(self.axis, tuple) else (self.axis,),
+            (self.axis,) if isinstance(self.axis, int) else self.axis,
             tuple(range(len(self.in_features))),
         )
         dimension_numbers = (contracting_dims, ((), ()))
-        bias_value = self.bias.value if self.bias is not None else None
         return linear_general(
-            x, self.kernel.value, bias_value, dimension_numbers=dimension_numbers
+            x,
+            self.kernel.value,
+            self.bias.value if self.bias else None,
+            dimension_numbers,
         )
 
     return patched_linear_general_call
-
-
-# @contextlib.contextmanager
-# def temporary_patch():
-#     original_call = nnx.LinearGeneral.__call__
-#     nnx.LinearGeneral.__call__ = _get_monkey_patch()
-#     try:
-#         yield
-#     finally:
-#         nnx.LinearGeneral.__call__ = original_call
 
 
 def _is_noop_reshape(original_shape, target_shape):
@@ -258,11 +256,3 @@ def get_metadata() -> dict:
             },
         ],
     }
-
-
-# Register abstract evaluation function
-nnx.linear_general_p.def_abstract_eval(
-    lambda x, k, b, d: core.ShapedArray(
-        _shape_linear_general(x.shape, k.shape, d)["output"], x.dtype
-    )
-)
