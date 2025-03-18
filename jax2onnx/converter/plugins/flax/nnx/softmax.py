@@ -2,43 +2,41 @@ from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the Softmax primitive
 nnx.softmax_p = Primitive("nnx.softmax")
 
 
 def get_primitive():
+    """Returns the nnx.softmax primitive."""
     return nnx.softmax_p
 
 
-def _get_monkey_patch():
-    def softmax(x, axis=-1):
-        def softmax_abstract_eval(x, axis=-1):
-            # The output shape is the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.softmax_p.multiple_results = False
-        nnx.softmax_p.def_abstract_eval(softmax_abstract_eval)
-        return nnx.softmax_p.bind(x, axis=axis)
-
-    return softmax
+def softmax_abstract_eval(x, axis=-1):
+    """Abstract evaluation function for Softmax."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function
-    original_fn = nnx.softmax
-    # Patch the function by replacing it in the module namespace.
-    nnx.softmax = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function
-        nnx.softmax = original_fn
+# Register abstract evaluation function
+nnx.softmax_p.def_abstract_eval(softmax_abstract_eval)
+
+
+def softmax(x, axis=-1):
+    """Defines the primitive binding for Softmax."""
+    return nnx.softmax_p.bind(x, axis=axis)
+
+
+def patch_info():
+    """Provides patching information for Softmax."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: softmax,
+        "target_attribute": "softmax",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):

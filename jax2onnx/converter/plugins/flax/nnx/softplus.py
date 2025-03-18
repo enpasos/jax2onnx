@@ -2,43 +2,41 @@ from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
+# Define the Softplus primitive
 nnx.softplus_p = Primitive("nnx.softplus")
 
 
 def get_primitive():
+    """Returns the nnx.softplus primitive."""
     return nnx.softplus_p
 
 
-def _get_monkey_patch():
-    def softplus(x):
-        def softplus_abstract_eval(x):
-            # The output shape and dtype are the same as the input.
-            return core.ShapedArray(x.shape, x.dtype)
-
-        nnx.softplus_p.multiple_results = False
-        nnx.softplus_p.def_abstract_eval(softplus_abstract_eval)
-        return nnx.softplus_p.bind(x)
-
-    return softplus
+def softplus_abstract_eval(x):
+    """Abstract evaluation function for Softplus."""
+    return core.ShapedArray(x.shape, x.dtype)
 
 
-@contextlib.contextmanager
-def temporary_patch():
-    # Save the original function.
-    original_fn = nnx.softplus
-    # Replace the function in the module namespace with our patched version.
-    nnx.softplus = _get_monkey_patch()
-    try:
-        yield
-    finally:
-        # Restore the original function.
-        nnx.softplus = original_fn
+# Register abstract evaluation function
+nnx.softplus_p.def_abstract_eval(softplus_abstract_eval)
+
+
+def softplus(x):
+    """Defines the primitive binding for Softplus."""
+    return nnx.softplus_p.bind(x)
+
+
+def patch_info():
+    """Provides patching information for Softplus."""
+    return {
+        "patch_targets": [nnx],
+        "patch_function": lambda _: softplus,
+        "target_attribute": "softplus",
+    }
 
 
 def get_handler(s: "Jaxpr2OnnxConverter"):
