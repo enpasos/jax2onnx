@@ -1,18 +1,40 @@
 import jax
 import numpy as np
 from typing import TYPE_CHECKING
-from onnx import helper
+from onnx import helper, TensorProto
+from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-def get_primitive():
-    return jax.lax.dot_general_p
+@register_plugin(
+    jaxpr_primitive=jax.lax.dot_general_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
+    onnx=[
+        {
+            "component": "MatMul",  # Corrected: MatMul is used, not Gemm directly
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        }
+    ],
+    since="v0.2.0",
+    context="plugins.lax",
+    testcases=[
+        {
+            "testcase": "dot_general",
+            "callable": lambda x1, x2: jax.lax.dot_general(
+                x1, x2, (((1,), (0,)), ((), ()))
+            ),
+            "input_shapes": [(3, 3), (3, 3)],
+        }
+    ],
+)
+class DotGeneralPlugin(PrimitivePlugin):
+    """
+    Plugin for converting jax.lax.dot_general to ONNX.
+    """
 
-
-def get_handler(s: "Jaxpr2OnnxConverter"):
-    def _handle_dot_general(node_inputs, node_outputs, params):
+    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handle JAX dot_general primitive with a reshape-Gemm-reshape pattern."""
         input_names = [s.get_name(inp) for inp in node_inputs]
         output_name = s.get_var_name(node_outputs[0])
@@ -80,30 +102,3 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             name=s.get_unique_name("reshape_output"),
         )
         s.add_node(reshape_output_node)
-
-    return _handle_dot_general
-
-
-def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
-    return {
-        "jaxpr_primitive": "dot_general",
-        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
-        "onnx": [
-            {
-                "component": "MatMul",
-                "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
-            }
-        ],
-        "since": "v0.2.0",
-        "context": "plugins.lax",
-        "testcases": [
-            {
-                "testcase": "dot_general",
-                "callable": lambda x1, x2: jax.lax.dot_general(
-                    x1, x2, (((1,), (0,)), ((), ()))
-                ),
-                "input_shapes": [(3, 3), (3, 3)],
-            }
-        ],
-    }
