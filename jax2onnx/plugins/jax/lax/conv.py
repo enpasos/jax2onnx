@@ -2,13 +2,10 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING, Tuple, Sequence, Dict, List
 from onnx import helper
+from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
-
-
-def get_primitive():
-    return jax.lax.conv_general_dilated_p
 
 
 def _compute_conv_output_shape(
@@ -32,11 +29,56 @@ def _compute_conv_output_shape(
     return (N, out_H, out_W, out_channels)
 
 
-def get_handler(s: "Jaxpr2OnnxConverter"):
-    def _handle_conv(node_inputs: List, node_outputs: List, params: Dict):
+def compute_same_pads(input_size, filter_size, stride):
+    out_size = int(np.ceil(float(input_size) / float(stride)))
+    pad_total = max((out_size - 1) * stride + filter_size - input_size, 0)
+    pad_before = pad_total // 2
+    pad_after = pad_total - pad_before
+    return pad_before, pad_after
+
+
+@register_plugin(
+    jaxpr_primitive=jax.lax.conv_general_dilated_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html",
+    onnx=[
+        {
+            "component": "Conv",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
+        }
+    ],
+    since="v0.2.0",
+    context="plugins.lax",
+    testcases=[
+        {
+            "testcase": "conv",  # NCHW & OIHW: no transposition needed.
+            "callable": lambda x, y: jax.lax.conv(
+                x, y, window_strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
+        },
+        {
+            "testcase": "conv2",  # NHWC & HWIO: transposition required.
+            "callable": lambda x, y: jax.lax.conv_general_dilated(
+                x,
+                y,
+                window_strides=(1, 1),
+                padding="VALID",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
+        },
+    ],
+)
+class ConvGeneralDilatedPlugin(PrimitivePlugin):
+    """
+    Plugin for converting jax.lax.conv_general_dilated to ONNX.
+    """
+
+    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+        """Handle JAX conv_general_dilated primitive."""
         input_name = s.get_name(node_inputs[0])
         filter_var = node_inputs[1]
-        output_name = s.get_var_name(node_outputs[0])
+        output_name = s.get_name(node_outputs[0])
 
         dimension_numbers = params["dimension_numbers"]
         window_strides = params["window_strides"]
@@ -157,50 +199,4 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
                         name=s.get_unique_name("Identity_output"),
                     )
                 )
-
         s.add_shape_info(output_name, node_outputs[0].aval.shape)
-
-    return _handle_conv
-
-
-def compute_same_pads(input_size, filter_size, stride):
-    out_size = int(np.ceil(float(input_size) / float(stride)))
-    pad_total = max((out_size - 1) * stride + filter_size - input_size, 0)
-    pad_before = pad_total // 2
-    pad_after = pad_total - pad_before
-    return pad_before, pad_after
-
-
-def get_metadata() -> dict:
-    return {
-        "jaxpr_primitive": "conv",
-        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html",
-        "onnx": [
-            {
-                "component": "Conv",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
-            }
-        ],
-        "since": "v0.2.0",
-        "context": "plugins.lax",
-        "testcases": [
-            {
-                "testcase": "conv",  # NCHW & OIHW: no transposition needed.
-                "callable": lambda x, y: jax.lax.conv(
-                    x, y, window_strides=(1, 1), padding="VALID"
-                ),
-                "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
-            },
-            {
-                "testcase": "conv2",  # NHWC & HWIO: transposition required.
-                "callable": lambda x, y: jax.lax.conv_general_dilated(
-                    x,
-                    y,
-                    window_strides=(1, 1),
-                    padding="VALID",
-                    dimension_numbers=("NHWC", "HWIO", "NHWC"),
-                ),
-                "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
-            },
-        ],
-    }
