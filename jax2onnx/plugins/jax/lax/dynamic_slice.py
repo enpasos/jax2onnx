@@ -2,17 +2,45 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper, TensorProto
+from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-def get_primitive():
-    return jax.lax.dynamic_slice_p
+@register_plugin(
+    jaxpr_primitive=jax.lax.dynamic_slice_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dynamic_slice.html",
+    onnx=[
+        {
+            "component": "Slice",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+        }
+    ],
+    since="v0.1.0",
+    context="plugins.lax",
+    testcases=[
+        {
+            "testcase": "dynamic_slice_test1",
+            "callable": lambda x: jax.lax.dynamic_slice(x, [1], [2]),
+            "input_shapes": [(5,)],
+        },
+        {  # Added 2D test case
+            "testcase": "dynamic_slice_2d",
+            "callable": lambda x: jax.lax.dynamic_slice(x, (1, 2), (2, 3)),
+            "input_shapes": [(4, 6)],
+        },
+        {  # Added 3D test case
+            "testcase": "dynamic_slice_3d",
+            "callable": lambda x: jax.lax.dynamic_slice(x, (1, 0, 2), (2, 3, 1)),
+            "input_shapes": [(3, 4, 5)],
+        },
+    ],
+)
+class DynamicSlicePlugin(PrimitivePlugin):
+    """Plugin for converting jax.lax.dynamic_slice to ONNX Slice."""
 
-
-def get_handler(s: "Jaxpr2OnnxConverter"):
-    def _handle_dynamic_slice(node_inputs, node_outputs, params):
+    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handle JAX dynamic slice primitive.
 
         In JAX, the dynamic slice primitive is bound as:
@@ -106,28 +134,3 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             name=s.get_unique_name("dynamic_slice"),
         )
         s.add_node(node)
-
-    return _handle_dynamic_slice
-
-
-def get_metadata() -> dict:
-    """Return metadata describing this dynamic slice plugin and its test cases."""
-    return {
-        "jaxpr_primitive": "dynamic_slice",
-        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.dynamic_slice.html",
-        "onnx": [
-            {
-                "component": "Slice",
-                "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
-            }
-        ],
-        "since": "v0.1.0",
-        "context": "plugins.lax",
-        "testcases": [
-            {
-                "testcase": "dynamic_slice_test1",
-                "callable": lambda x: jax.lax.dynamic_slice(x, [1], [2]),
-                "input_shapes": [(5,)],
-            }
-        ],
-    }
