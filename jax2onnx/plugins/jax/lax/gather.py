@@ -2,17 +2,44 @@ import jax
 from typing import TYPE_CHECKING
 from onnx import helper
 import jax.numpy as jnp
+from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-def get_primitive():
-    return jax.lax.gather_p
+@register_plugin(
+    jaxpr_primitive=jax.lax.gather_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.gather.html",
+    onnx=[
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        }
+    ],
+    since="v0.2.0",
+    context="plugins.lax",
+    testcases=[
+        {
+            "testcase": "gather",
+            "callable": lambda x: jax.lax.gather(
+                x,
+                jnp.array([[1], [0]]),
+                jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                (1, 3),
+            ),
+            "input_shapes": [(3, 3)],
+        }
+    ],
+)
+class GatherPlugin(PrimitivePlugin):
+    """Plugin for converting jax.lax.gather to ONNX Gather."""
 
-
-def get_handler(s: "Jaxpr2OnnxConverter"):
-    def _handle_gather(node_inputs, node_outputs, params):
+    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handle JAX gather primitive."""
         input_names = [s.get_name(inp) for inp in node_inputs]
         output_name = s.get_var_name(node_outputs[0])
@@ -39,39 +66,3 @@ def get_handler(s: "Jaxpr2OnnxConverter"):
             axis=axis,  # Add the axis parameter.
         )
         s.add_node(node)
-
-    return _handle_gather
-
-
-def get_metadata() -> dict:
-    """Return metadata describing this plugin and its test cases."""
-
-    start_indices = jnp.array([[1], [0]])  # Gather rows 1 and 0
-    dimension_numbers = jax.lax.GatherDimensionNumbers(
-        offset_dims=(1,),
-        collapsed_slice_dims=(0,),
-        start_index_map=(0,),
-    )
-    slice_sizes = (1, 3)
-
-    return {
-        "jaxpr_primitive": "gather",
-        "jax_doc": "https://docs.jax.dev/en/latest/_autosummary/jax.lax.gather.html",
-        "onnx": [
-            {
-                "component": "Gather",  # Updated to ONNX Gather
-                "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
-            }
-        ],
-        "since": "v0.2.0",
-        "context": "plugins.lax",
-        "testcases": [
-            {
-                "testcase": "gather",
-                "callable": lambda x: jax.lax.gather(
-                    x, start_indices, dimension_numbers, slice_sizes
-                ),
-                "input_shapes": [(3, 3)],
-            }
-        ],
-    }
