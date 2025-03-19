@@ -141,9 +141,9 @@ class Jaxpr2OnnxConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
-        for primitive, plugin in get_all_plugins().items():
-            handler = plugin.get_handler(self)
-            self.primitive_handlers[primitive] = handler
+        # for primitive, plugin in get_all_plugins().items():
+        #     handler = plugin.get_handler(self)
+        #     self.primitive_handlers[primitive] = handler
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
         self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
         self.primitive_handlers[jax._src.prng.random_split_p] = (
@@ -546,14 +546,14 @@ class Jaxpr2OnnxConverter:
 @contextlib.contextmanager
 def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
-        for plugin in get_all_plugins().values():
-            patch_info = getattr(plugin, "patch_info", None)
-            if callable(patch_info):
-                patch_info = patch_info()
-                target = patch_info["patch_targets"][0]
-                patch_func = patch_info["patch_function"]
-                attr = patch_info.get("target_attribute", "__call__")
-                stack.enter_context(_temporary_patch(target, attr, patch_func))
+        # for plugin in get_all_plugins().values():
+        #     patch_info = getattr(plugin, "patch_info", None)
+        #     if callable(patch_info):
+        #         patch_info = patch_info()
+        #         target = patch_info["patch_targets"][0]
+        #         patch_func = patch_info["patch_function"]
+        #         attr = patch_info.get("target_attribute", "__call__")
+        #         stack.enter_context(_temporary_patch(target, attr, patch_func))
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
             if plugin.patch_info is None:
