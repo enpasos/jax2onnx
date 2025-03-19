@@ -556,7 +556,10 @@ def temporary_monkey_patches():
                 stack.enter_context(_temporary_patch(target, attr, patch_func))
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
+            if plugin.patch_info is None:
+                continue
             patch_info = plugin.patch_info()
+
             target = patch_info["patch_targets"][0]
             patch_func = patch_info["patch_function"]
             attr = patch_info.get("target_attribute", "__call__")

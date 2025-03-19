@@ -17,7 +17,7 @@ plugin_registry = {
     # "nnx.softmax": "jax2onnx.converter.plugins.flax.nnx.softmax",
     # "nnx.softplus": "jax2onnx.converter.plugins.flax.nnx.softplus",
     # "nnx.tanh": "jax2onnx.converter.plugins.flax.nnx.tanh",
-    "add": "jax2onnx.converter.plugins.jax.lax.add",
+    # "add": "jax2onnx.converter.plugins.jax.lax.add",
     "argmax": "jax2onnx.converter.plugins.jax.lax.argmax",
     "argmin": "jax2onnx.converter.plugins.jax.lax.argmin",
     "broadcast_in_dim": "jax2onnx.converter.plugins.jax.lax.broadcast_in_dim",
