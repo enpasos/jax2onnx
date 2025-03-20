@@ -58,19 +58,11 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     metadata_list = []
     for entry in mds:
         testcases = entry.get("testcases", [])
-        if "component" in entry and entry["component"] == "MLP":
-            print("MLP")
         for testcase in testcases:
-            # testcase["source"] = module_name
             testcase["context"] = entry.get("context", "default")
-            # if exist entry.jaxpr_primitive then use it as component
-            # if testcase["component"] is MLP then print MLP
-
-            if "jaxpr_primitive" in entry:
-                testcase["component"] = entry["jaxpr_primitive"]
-            else:
-                testcase["component"] = entry.get("component", "default")
-
+            testcase["component"] = entry.get(
+                "jaxpr_primitive", entry.get("component", "default")
+            )
             testcase["jax_doc"] = entry.get("jax_doc", "")
             testcase["onnx"] = entry.get("onnx", "")
             testcase["source"] = entry.get("source", "")
