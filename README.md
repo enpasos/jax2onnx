@@ -49,13 +49,16 @@ The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.
 
 ## 📅 Roadmap and Releases
 
+
 ### **Planned Version**
-- **0.3.0** *(Upcoming)*: Simplifying the plugin mechanism.
+- **ongoing**: coverage extension
+- **0.4.0** *(Upcoming)*: ONNX functions.
 
 ### **Current Productive Version**
-- **0.2.0** *(Released on PyPI)*: Rebased the implementation on `jaxpr`, improving usability and adding low-level `lax` components.
+- **0.3.0** *(PyPI Release)*: Simplifying the plugin mechanism: automatic registration, simplified registration of custom primitives.
 
 ### **Past Versions**
+- **0.2.0** *(First PyPI Release)*: Rebased the implementation on `jaxpr`, improving usability and adding low-level `lax` components.
 - **0.1.0** *(Initial Approach, Not Released to PyPI)*: Produced ONNX exports for some `nnx` components and `nnx`-based examples, including a VisualTransformer.
 
 ---
