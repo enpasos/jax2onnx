@@ -27,7 +27,18 @@ class PrimitivePlugin:
         raise NotImplementedError
 
 
-def register_plugin(**metadata: Optional[Dict[str, Any]]):
+class ExamplePlugin:
+    metadata: Dict[str, Any]
+
+
+def register_example(**metadata: Optional[Dict[str, Any]]):
+    instance = ExamplePlugin()
+    instance.metadata = metadata or {}
+    PLUGIN_REGISTRY[instance.metadata["component"]] = instance
+    return instance
+
+
+def register_primitive(**metadata: Optional[Dict[str, Any]]):
     """
     Decorator to register a plugin with the given primitive and metadata.
     """

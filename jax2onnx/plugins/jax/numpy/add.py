@@ -2,7 +2,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -12,7 +12,7 @@ jnp.add_p = Primitive("jnp.add")
 jnp.add_p.multiple_results = False  # Correct initialization
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jnp.add_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
     onnx=[
@@ -22,7 +22,7 @@ jnp.add_p.multiple_results = False  # Correct initialization
         }
     ],
     since="v0.1.0",
-    context="plugins.jnp",
+    context="primitives.jnp",
     testcases=[
         {
             "testcase": "add",

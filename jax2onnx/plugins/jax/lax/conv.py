@@ -2,7 +2,7 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING, Tuple, Sequence, Dict, List
 from onnx import helper
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -37,7 +37,7 @@ def compute_same_pads(input_size, filter_size, stride):
     return pad_before, pad_after
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jax.lax.conv_general_dilated_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html",
     onnx=[
@@ -47,7 +47,7 @@ def compute_same_pads(input_size, filter_size, stride):
         }
     ],
     since="v0.2.0",
-    context="plugins.lax",
+    context="primitives.lax",
     testcases=[
         {
             "testcase": "conv",  # NCHW & OIHW: no transposition needed.

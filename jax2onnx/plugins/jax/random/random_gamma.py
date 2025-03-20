@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -29,12 +29,12 @@ def gamma_log(key, alpha):
     return jnp.log(gamma(key, alpha))
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jax.random.random_gamma_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.gamma.html",
     onnx=[],
     since="v0.2.0",
-    context="plugins.random",
+    context="primitives.random",
     testcases=[
         # {
         #     "testcase": "random_gamma_test1",

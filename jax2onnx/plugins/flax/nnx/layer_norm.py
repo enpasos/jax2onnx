@@ -3,7 +3,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -13,7 +13,7 @@ nnx.layer_norm_p = Primitive("nnx.layer_norm")
 nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=nnx.layer_norm_p.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
     onnx=[
@@ -23,7 +23,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
         }
     ],
     since="v0.1.0",
-    context="plugins.nnx",
+    context="primitives.nnx",
     testcases=[
         {
             "testcase": "layer_norm",

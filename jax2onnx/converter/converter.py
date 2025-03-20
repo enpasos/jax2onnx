@@ -124,6 +124,7 @@ class JaxprToOnnx:
 
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
+    PrimitivePlugin,
     import_all_plugins,
 )
 
@@ -154,9 +155,11 @@ class Jaxpr2OnnxConverter:
         )
 
         import_all_plugins()
+
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
-            self.primitive_handlers[key] = plugin.get_handler(self)
+            if isinstance(plugin, PrimitivePlugin):
+                self.primitive_handlers[key] = plugin.get_handler(self)
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -556,7 +559,7 @@ def temporary_monkey_patches():
         #         stack.enter_context(_temporary_patch(target, attr, patch_func))
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
-            if plugin.patch_info is None:
+            if not isinstance(plugin, PrimitivePlugin) or not plugin.patch_info:
                 continue
             patch_info = plugin.patch_info()
 

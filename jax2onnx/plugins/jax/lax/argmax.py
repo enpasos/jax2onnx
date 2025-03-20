@@ -1,14 +1,14 @@
 import jax
 from typing import TYPE_CHECKING
 from onnx import helper, TensorProto
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jax.lax.argmax_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.argmax.html",
     onnx=[
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
         }
     ],
     since="v0.2.0",
-    context="plugins.lax",
+    context="primitives.lax",
     testcases=[
         {
             "testcase": "argmax_test1",
