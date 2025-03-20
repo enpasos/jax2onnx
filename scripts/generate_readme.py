@@ -49,12 +49,12 @@ def run_pytest() -> Dict:
     os.makedirs(report_dir, exist_ok=True)
     report_path = os.path.join(report_dir, "pytest_report.json")
 
-    # subprocess.run(
-    #     ["pytest", "--json-report", f"--json-report-file={report_path}"],
-    #     capture_output=True,
-    #     text=True,
-    #     check=True,
-    # )
+    subprocess.run(
+        ["pytest", "--json-report", f"--json-report-file={report_path}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
 
     test_results = {}
     if os.path.exists(report_path):
