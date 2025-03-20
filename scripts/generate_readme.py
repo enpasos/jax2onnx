@@ -33,84 +33,11 @@ def get_plugin_from_source(source: str) -> str:
     return source.split(".")[-1]
 
 
-try:
-    from tests.t_generator import load_metadata_from_dir
-except ImportError:
-
-    def load_metadata_from_dir(
-        directory: str, exclude_files=None
-    ) -> List[Dict[str, Any]]:
-        exclude_files = exclude_files or ["__init__.py"]
-        metadata_list = []
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".py") and file not in exclude_files:
-                    module_path = os.path.join(root, file)
-                    module_name = module_path.replace(os.sep, ".").replace(".py", "")
-                    spec = importlib.util.spec_from_file_location(
-                        module_name, module_path
-                    )
-                    if spec and spec.loader:
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        if hasattr(module, "get_metadata"):
-                            md = module.get_metadata()
-                            md = md if isinstance(md, list) else [md]
-                            for entry in md:
-                                # Handle both old and new formats
-                                if "testcases" in entry:
-                                    # New format - testcases is a list of dicts or a dict
-                                    testcases = entry.get("testcases", [])
-                                    if isinstance(testcases, list):
-                                        for testcase in testcases:
-                                            # If testcase is a string, convert to dict
-                                            if isinstance(testcase, str):
-                                                tc_data = {
-                                                    "testcase": testcase,
-                                                    "source": module_name,
-                                                    "context": entry.get(
-                                                        "context", "default"
-                                                    ),
-                                                    "component": entry.get(
-                                                        "component", file[:-3]
-                                                    ),
-                                                }
-                                                metadata_list.append(tc_data)
-                                            else:
-                                                # It's already a dict
-                                                testcase["source"] = module_name
-                                                testcase["context"] = entry.get(
-                                                    "context", "default"
-                                                )
-                                                testcase["component"] = entry.get(
-                                                    "component", file[:-3]
-                                                )
-                                                metadata_list.append(testcase)
-                                    elif isinstance(testcases, dict):
-                                        # Handle testcases as dict (key: testcase name, value: status)
-                                        for tc_name, status in testcases.items():
-                                            tc_data = {
-                                                "testcase": tc_name,
-                                                "status": status,
-                                                "source": module_name,
-                                                "context": entry.get(
-                                                    "context", "default"
-                                                ),
-                                                "component": entry.get(
-                                                    "component", file[:-3]
-                                                ),
-                                            }
-                                            metadata_list.append(tc_data)
-                                else:
-                                    # Assume entry itself is a testcase entry (old format)
-                                    entry["source"] = module_name
-                                    if "context" not in entry:
-                                        entry["context"] = "default"
-                                    if "component" not in entry:
-                                        entry["component"] = file[:-3]
-                                    metadata_list.append(entry)
-        return metadata_list
-
+from tests.t_generator import (
+    load_plugin_metadata,
+    get_plugin_grouping,
+    organize_tests_by_context_and_component_from_params,
+)
 
 # --- Running Tests ---
 
@@ -163,39 +90,12 @@ def run_pytest() -> Dict:
 
 def extract_metadata(base_path: str, source_type: str) -> List[Dict[str, Any]]:
     logging.info(f"📡 Extracting metadata from {source_type.lower()}s...")
-    if source_type.lower() == "plugins":
-        exclude = [
-            "__init__.py",
-            "plugin_interface.py",
-            "plugin_registry.py",
-            "plugin_registry_static.py",
-        ]
-    else:
-        exclude = ["__init__.py"]
-    metadata_list = load_metadata_from_dir(base_path, exclude)
 
-    # Convert metadata entries to a uniform format
-    for entry in metadata_list:
-        # Make sure all entries have a testcase field
-        if "testcase" not in entry and "testcases" not in entry:
-            # If neither exists, create an empty testcases dict
-            entry["testcases"] = {}
-        elif "testcase" in entry and "testcases" not in entry:
-            # If only testcase exists, create a testcases entry from it
-            entry["testcases"] = {entry["testcase"]: "➖"}
-        elif "testcases" in entry:
-            # If testcases exists but is a list, convert to dict mapping
-            if isinstance(entry["testcases"], list):
-                if all(isinstance(tc, str) for tc in entry["testcases"]):
-                    # List of strings
-                    entry["testcases"] = {tc: "➖" for tc in entry["testcases"]}
-                else:
-                    # List of dicts, extract testcase names
-                    entry["testcases"] = {
-                        tc.get("testcase", ""): tc.get("status", "➖")
-                        for tc in entry["testcases"]
-                        if isinstance(tc, dict)
-                    }
+    if source_type.lower() == "plugins":
+        # Use the existing function that already handles metadata extraction
+        metadata_list = load_plugin_metadata()
+
+    # The existing normalization code can stay as is...
 
     logging.info(f"✅ {len(metadata_list)} {source_type.lower()} components found.")
     return metadata_list
@@ -208,45 +108,8 @@ def aggregate_metadata(
     Group individual test case metadata entries by (context, component)
     and aggregate test case statuses.
     """
-    grouped = {}
-    for entry in entries:
-        context = entry.get("context", "default")
-        component = entry.get("component", "Unknown")
-        key = (context, component)
-        if key not in grouped:
-            grouped[key] = {
-                "component": entry.get("component", entry.get("component", "Unknown")),
-                "source": entry.get("source", "#"),
-                "jax_doc": entry.get("jax_doc", "#"),
-                "onnx": set(),
-                "since": entry.get("since", ""),
-                "description": entry.get("description", ""),
-                "children": entry.get("children", []),
-                "testcases": {},
-            }
-
-        # For plugins, accumulate ONNX operator links if available.
-        for op in entry.get("onnx", []):
-            if isinstance(op, dict):
-                grouped[key]["onnx"].add(
-                    f"[{op.get('component', '')}]({op.get('doc', '#')})"
-                )
-            elif isinstance(op, str):
-                grouped[key]["onnx"].add(f"[{op}](#)")
-
-        # Record test case info - handle both individual testcase and testcases dict
-        if "testcase" in entry:
-            tc_name = entry.get("testcase", "")
-            if tc_name:
-                grouped[key]["testcases"][tc_name] = entry.get("status", "➖")
-
-        # Also consider testcases dict if present
-        if "testcases" in entry and isinstance(entry["testcases"], dict):
-            for tc_name, status in entry["testcases"].items():
-                if tc_name:  # Skip empty testcase names
-                    grouped[key]["testcases"][tc_name] = status
-
-    return grouped
+    # For plugins, use the existing grouping function
+    return organize_tests_by_context_and_component_from_params(entries)
 
 
 def merge_test_results(
@@ -257,26 +120,25 @@ def merge_test_results(
     Test result keys are tuples: (context, plugin, testcase).
     For plugins, we consider the plugin name as the short form of the jax component.
     """
-    for (context, component), data in grouped.items():
+    for (context, component), testcases in grouped.items():
         # Use plugin from jax_component (or component) to lookup test result.
-        plugin = get_plugin_from_source(data.get("component", component))
+        plugin = component
 
         # make a copy of data["testcases"] to avoid changing the original dict while iterating
-        copy = data["testcases"].copy()
-        for tc_ in copy:
-            candidates = []
-            if (context, plugin, tc_ + "_dynamic") in test_results:
-                candidates.append(tc_ + "_dynamic")
-                candidates.append(tc_ + "_concrete")
-                # remove the original testcase from the dict
-                del data["testcases"][tc_]
-            else:
-                candidates.append(tc_)
-            for tc in candidates:
-                if tc_ == tc or (context, plugin, tc) in test_results:
-                    status = test_results.get((context, plugin, tc), "➖")
-                    url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc}.onnx"
-                    data["testcases"][tc] = f"[`{tc}`]({url}) {status}"
+        # copy = testcases.copy()
+        for tc in testcases:
+            tc_ = tc["testcase"]
+            # if not in test_results print a comment
+            if (context, plugin, tc_) not in test_results:
+                logging.warning(
+                    f"❌ Test case `{tc_}` not found in test results for {context} - {plugin}"
+                )
+            if (context, plugin, tc_) in test_results:
+                status = test_results.get((context, plugin, tc_), "➖")
+                url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc_}.onnx"
+                # add attribute result to tc
+                tc["result"] = f"[`{tc_}`]({url}) {status}"
+
     return grouped
 
 
@@ -284,14 +146,17 @@ def merge_test_results(
 
 
 def update_readme(
-    metadata_plugins: List[Dict[str, Any]],
-    metadata_examples: List[Dict[str, Any]],
+    grouped_metadata,
     test_results: Dict,
 ):
-    logging.info("📄 Updating README...")
-    # Aggregate individual testcases by component.
-    plugins_grouped = aggregate_metadata(metadata_plugins)
-    examples_grouped = aggregate_metadata(metadata_examples)
+    # filter grouped_metadata by key "examples
+    examples_grouped = {
+        k: v for k, v in grouped_metadata.items() if k[0].startswith("examples")
+    }
+
+    plugins_grouped = {
+        k: v for k, v in grouped_metadata.items() if k[0].startswith("primitives")
+    }
 
     # Merge test results into the aggregated groups.
     plugins_grouped = merge_test_results(plugins_grouped, test_results)
@@ -301,21 +166,27 @@ def update_readme(
     plugin_rows = []
     for (context, component), data in sorted(plugins_grouped.items()):
 
-        comp_name = data["component"]
+        comp_name = component
         # Prepend context to the component name if it's not default
-        if context != "default":
-            comp_name = f"{context}.{comp_name}"
+        # if context != "default":
+        #     comp_name = f"{context}.{comp_name}"
         # Remove "plugin." prefix from the component name
         comp_name = comp_name.removeprefix("plugins.")
 
-        jax_comp = f"[{comp_name}]({data['jax_doc']})"
-        onnx_components = "<br>".join(sorted(data["onnx"])) if data["onnx"] else "➖"
-        testcases_str = (
-            "<br>".join(sorted(data["testcases"].values()))
-            if data["testcases"]
+        jax_comp = f"[{comp_name}]({data[0]['jax_doc']})"
+        onnx_components = (
+            "<br>".join(
+                sorted([f"[{x['component']}]({x['doc']})" for x in data[0]["onnx"]])
+            )
+            if data[0]["onnx"]
             else "➖"
         )
-        since = data["since"]
+        testcases_str = (
+            "<br>".join([tc.get("result", tc["testcase"]) for tc in data])
+            if data
+            else "➖"
+        )
+        since = data[0]["since"]
         row = f"| {jax_comp} | {onnx_components} | {testcases_str} | {since} |"
         plugin_rows.append(row)
 
@@ -323,15 +194,15 @@ def update_readme(
     example_rows = []
     for (context, component), data in sorted(examples_grouped.items()):
         # For examples we might have additional fields such as description or children.
-        description = data.get("description", "")
-        children = data.get("children", [])
+        description = data[0].get("description", "")
+        children = data[0].get("children", [])
         children_str = "<br>".join(children) if children else "➖"
         testcases_str = (
-            "<br>".join(sorted(data["testcases"].values()))
-            if data["testcases"]
+            "<br>".join([tc.get("result", tc["testcase"]) for tc in data])
+            if data
             else "➖"
         )
-        since = data["since"]
+        since = data[0]["since"]
         row = f"| {component} | {description} | {children_str} | {testcases_str} | {since} |"
         example_rows.append(row)
 
@@ -387,14 +258,6 @@ def update_readme(
 if __name__ == "__main__":
     start_time = time.time()
     test_results = run_pytest()
-    metadata_plugins = extract_metadata(PLUGIN_DIR, "plugins")
-    metadata_examples = extract_metadata(EXAMPLES_DIR, "examples")
-
-    # remove test_results, metadata_plugins, metadata_examples not including testcase with "linear_general"
-    # test = "autoencoder"
-    # test_results = {k: v for k, v in test_results.items() if test in k}
-    # metadata_plugins = [entry for entry in metadata_plugins if "testcase" in entry and test in entry["testcase"].lower()]
-    # metadata_examples = [entry for entry in metadata_examples if "testcase" in entry and test in entry["testcase"].lower()]
-
-    update_readme(metadata_plugins, metadata_examples, test_results)
+    grouped_metadata = get_plugin_grouping()
+    update_readme(grouped_metadata, test_results)
     logging.info(f"⏳ Total execution time: {time.time() - start_time:.2f}s")
