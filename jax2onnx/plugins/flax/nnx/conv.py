@@ -16,7 +16,7 @@ nnx.conv_p.multiple_results = False  # Correctly set at initialization
 
 @register_primitive(
     jaxpr_primitive=nnx.conv_p.name,
-    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/conv.html#flax.nnx.Conv",
+    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv",
     onnx=[
         {"component": "Conv", "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html"},
         {
