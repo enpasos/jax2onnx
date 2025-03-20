@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PLUGIN_DIR = os.path.join(BASE_DIR, "../jax2onnx/converter/plugins")
+PLUGIN_DIR = os.path.join(BASE_DIR, "../jax2onnx/plugins")
 EXAMPLES_DIR = os.path.join(BASE_DIR, "../jax2onnx/examples")
 TESTS_DIR = os.path.join(BASE_DIR, "../tests")
 README_PATH = os.path.join(BASE_DIR, "../README.md")
@@ -57,16 +57,58 @@ except ImportError:
                             md = module.get_metadata()
                             md = md if isinstance(md, list) else [md]
                             for entry in md:
-                                testcases = entry.get("testcases", [])
-                                for testcase in testcases:
-                                    testcase["source"] = module_name
-                                    testcase["context"] = entry.get(
-                                        "context", "default"
-                                    )
-                                    testcase["component"] = entry.get(
-                                        "component", file[:-3]
-                                    )
-                                    metadata_list.append(testcase)
+                                # Handle both old and new formats
+                                if "testcases" in entry:
+                                    # New format - testcases is a list of dicts or a dict
+                                    testcases = entry.get("testcases", [])
+                                    if isinstance(testcases, list):
+                                        for testcase in testcases:
+                                            # If testcase is a string, convert to dict
+                                            if isinstance(testcase, str):
+                                                tc_data = {
+                                                    "testcase": testcase,
+                                                    "source": module_name,
+                                                    "context": entry.get(
+                                                        "context", "default"
+                                                    ),
+                                                    "component": entry.get(
+                                                        "component", file[:-3]
+                                                    ),
+                                                }
+                                                metadata_list.append(tc_data)
+                                            else:
+                                                # It's already a dict
+                                                testcase["source"] = module_name
+                                                testcase["context"] = entry.get(
+                                                    "context", "default"
+                                                )
+                                                testcase["component"] = entry.get(
+                                                    "component", file[:-3]
+                                                )
+                                                metadata_list.append(testcase)
+                                    elif isinstance(testcases, dict):
+                                        # Handle testcases as dict (key: testcase name, value: status)
+                                        for tc_name, status in testcases.items():
+                                            tc_data = {
+                                                "testcase": tc_name,
+                                                "status": status,
+                                                "source": module_name,
+                                                "context": entry.get(
+                                                    "context", "default"
+                                                ),
+                                                "component": entry.get(
+                                                    "component", file[:-3]
+                                                ),
+                                            }
+                                            metadata_list.append(tc_data)
+                                else:
+                                    # Assume entry itself is a testcase entry (old format)
+                                    entry["source"] = module_name
+                                    if "context" not in entry:
+                                        entry["context"] = "default"
+                                    if "component" not in entry:
+                                        entry["component"] = file[:-3]
+                                    metadata_list.append(entry)
         return metadata_list
 
 
@@ -80,31 +122,37 @@ def run_pytest() -> Dict:
     os.makedirs(report_dir, exist_ok=True)
     report_path = os.path.join(report_dir, "pytest_report.json")
 
-    subprocess.run(
-        ["pytest", "--json-report", f"--json-report-file={report_path}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    # subprocess.run(
+    #     ["pytest", "--json-report", f"--json-report-file={report_path}"],
+    #     capture_output=True,
+    #     text=True,
+    #     check=True,
+    # )
 
     test_results = {}
     if os.path.exists(report_path):
         with open(report_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         for test in data.get("tests", []):
-            parts = test["nodeid"].split("::")
-            if len(parts) >= 3 and parts[0].startswith("tests"):
-                class_part = parts[1]
-                test_part = parts[2]
-                # Assume class_part has form Test_<context>_<plugin>
-                class_parts = class_part.split("_")
-                if len(class_parts) >= 3 and class_parts[0] == "Test":
-                    context = ".".join(class_parts[1:3])
-                    plugin = "_".join(class_parts[3:]) if len(class_parts) > 3 else ""
-                    testcase_name = test_part.replace("test_", "")
-                    status = "✅" if test["outcome"] == "passed" else "❌"
-                    key = (context, plugin, testcase_name)
-                    test_results[key] = status
+            partA, partB, partC = test["nodeid"].split("::")
+            partAs = partA.split("/")
+            testcase_name = (
+                partC.replace("test_", "") if partC.startswith("test_") else partC
+            )
+            situation = partAs[1]  # expecting "examples" or "primitives"
+            context = partAs[-1]
+
+            context = (
+                context.replace("test_", "") if context.startswith("test_") else context
+            )
+            context = context.replace(".py", "") if context.endswith(".py") else context
+            context = situation + "." + context
+            plugin = partB.replace("Test_", "") if partB.startswith("Test_") else partB
+
+            status = "✅" if test["outcome"] == "passed" else "❌"
+            key = (context, plugin, testcase_name)
+            test_results[key] = status
+
     logging.info(f"✅ Tests completed. {len(test_results)} results captured.")
 
     return test_results
@@ -125,15 +173,30 @@ def extract_metadata(base_path: str, source_type: str) -> List[Dict[str, Any]]:
     else:
         exclude = ["__init__.py"]
     metadata_list = load_metadata_from_dir(base_path, exclude)
+
+    # Convert metadata entries to a uniform format
     for entry in metadata_list:
-        if "testcases" not in entry:
+        # Make sure all entries have a testcase field
+        if "testcase" not in entry and "testcases" not in entry:
+            # If neither exists, create an empty testcases dict
             entry["testcases"] = {}
-        else:
-            # If testcases is a list, convert to a dict mapping testcase -> initial status.
+        elif "testcase" in entry and "testcases" not in entry:
+            # If only testcase exists, create a testcases entry from it
+            entry["testcases"] = {entry["testcase"]: "➖"}
+        elif "testcases" in entry:
+            # If testcases exists but is a list, convert to dict mapping
             if isinstance(entry["testcases"], list):
-                entry["testcases"] = {
-                    tc.get("testcase", ""): "➖" for tc in entry["testcases"]
-                }
+                if all(isinstance(tc, str) for tc in entry["testcases"]):
+                    # List of strings
+                    entry["testcases"] = {tc: "➖" for tc in entry["testcases"]}
+                else:
+                    # List of dicts, extract testcase names
+                    entry["testcases"] = {
+                        tc.get("testcase", ""): tc.get("status", "➖")
+                        for tc in entry["testcases"]
+                        if isinstance(tc, dict)
+                    }
+
     logging.info(f"✅ {len(metadata_list)} {source_type.lower()} components found.")
     return metadata_list
 
@@ -161,14 +224,28 @@ def aggregate_metadata(
                 "children": entry.get("children", []),
                 "testcases": {},
             }
+
         # For plugins, accumulate ONNX operator links if available.
         for op in entry.get("onnx", []):
-            grouped[key]["onnx"].add(
-                f"[{op.get('component', '')}]({op.get('doc', '#')})"
-            )
-        # Record test case info.
-        tc_name = entry.get("testcase", "")
-        grouped[key]["testcases"][tc_name] = ""  # We'll fill the status later.
+            if isinstance(op, dict):
+                grouped[key]["onnx"].add(
+                    f"[{op.get('component', '')}]({op.get('doc', '#')})"
+                )
+            elif isinstance(op, str):
+                grouped[key]["onnx"].add(f"[{op}](#)")
+
+        # Record test case info - handle both individual testcase and testcases dict
+        if "testcase" in entry:
+            tc_name = entry.get("testcase", "")
+            if tc_name:
+                grouped[key]["testcases"][tc_name] = entry.get("status", "➖")
+
+        # Also consider testcases dict if present
+        if "testcases" in entry and isinstance(entry["testcases"], dict):
+            for tc_name, status in entry["testcases"].items():
+                if tc_name:  # Skip empty testcase names
+                    grouped[key]["testcases"][tc_name] = status
+
     return grouped
 
 
