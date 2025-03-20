@@ -9,6 +9,14 @@ from jax2onnx import save_onnx, allclose
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
+PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
+
+
+from jax2onnx.plugin_system import (
+    PLUGIN_REGISTRY,
+    import_all_plugins,
+)
+
 
 # --- Cleaning and Setup ---
 
@@ -24,10 +32,8 @@ def clean_generated_dir(directory: str):
 
 
 def clean_generated_test_dirs():
-    GENERATED_PLUGINS_TESTS_DIR = os.path.join(TESTS_DIR, "primitives")
-    GENERATED_EXAMPLES_TESTS_DIR = os.path.join(TESTS_DIR, "examples")
-    clean_generated_dir(GENERATED_PLUGINS_TESTS_DIR)
-    clean_generated_dir(GENERATED_EXAMPLES_TESTS_DIR)
+    clean_generated_dir(os.path.join(TESTS_DIR, "primitives"))
+    clean_generated_dir(os.path.join(TESTS_DIR, "examples"))
 
 
 # --- Metadata Loading ---
@@ -52,14 +58,6 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     return metadata_list
 
 
-PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
-
-from jax2onnx.plugin_system import (
-    PLUGIN_REGISTRY,
-    import_all_plugins,
-)  # Import new registry
-
-
 def load_metadata_from_plugins() -> List[Dict[str, Any]]:
     """Helper function to load metadata from the new plugin system."""
     import_all_plugins()  # Automatically imports everything once
@@ -73,11 +71,8 @@ def load_metadata_from_plugins() -> List[Dict[str, Any]]:
 
 def load_plugin_metadata() -> List[Dict[str, Any]]:
     """Loads metadata from the new plugin system."""
-    new_md = load_metadata_from_plugins()
-    return extract_from_metadata(new_md)
-
-
-EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
+    md = load_metadata_from_plugins()
+    return extract_from_metadata(md)
 
 
 # --- Test Param Generation ---
@@ -113,8 +108,11 @@ def organize_tests_by_context_and_component_from_params(
 _GLOBAL_PLUGIN_GROUPING = None
 
 
-def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+def get_plugin_grouping(reset=False) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     global _GLOBAL_PLUGIN_GROUPING
+    if reset:
+        _GLOBAL_PLUGIN_GROUPING = None
+
     if _GLOBAL_PLUGIN_GROUPING is None:
         plugin_params = []
         for md in load_plugin_metadata():
@@ -221,7 +219,7 @@ def create_minimal_test_files(
 
 def generate_all_tests():
     clean_generated_test_dirs()
-    create_minimal_test_files(get_plugin_grouping(), TESTS_DIR)
+    create_minimal_test_files(get_plugin_grouping(True), TESTS_DIR)
 
 
 if __name__ == "__main__":
