@@ -111,10 +111,8 @@ from jax2onnx.plugin_system import (
 )  # Import new registry
 
 
-def load_plugin_metadata() -> List[Dict[str, Any]]:
-    """Loads metadata from both the old and new plugin systems."""
-
-    # Extract metadata from the new plugin system
+def load_metadata_from_plugins() -> List[Dict[str, Any]]:
+    """Helper function to load metadata from the new plugin system."""
     import_all_plugins()  # Automatically imports everything once
 
     new_md = []
@@ -122,8 +120,13 @@ def load_plugin_metadata() -> List[Dict[str, Any]]:
         if hasattr(plugin, "metadata"):
             plugin.metadata["jaxpr_primitive"] = name
             new_md.append(plugin.metadata)
+    return new_md
 
-    return extract_from_metadata(new_md)  # + new_md  # Merge old and new metadata
+
+def load_plugin_metadata() -> List[Dict[str, Any]]:
+    """Loads metadata from the new plugin system."""
+    new_md = load_metadata_from_plugins()
+    return extract_from_metadata(new_md)
 
 
 EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
