@@ -238,13 +238,14 @@ def make_test_function(tp: Dict[str, Any]):
 
 
 def generate_test_class(context: str, component: str, namespace: dict):
-    grouping = get_plugin_grouping()
-    testcases = grouping.get((context, component), [])
+    testcases = get_plugin_grouping().get((context, component), [])
     class_name = f"Test_{component}"
-    attrs = {}
-    for tp in testcases:
-        test_name = f"test_{tp['testcase'].replace('.', '_').replace(' ', '_')}"
-        attrs[test_name] = make_test_function(tp)
+    attrs = {
+        f"test_{tp['testcase'].replace('.', '_').replace(' ', '_')}": make_test_function(
+            tp
+        )
+        for tp in testcases
+    }
     namespace[class_name] = type(class_name, (object,), attrs)
 
 
