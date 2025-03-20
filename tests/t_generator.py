@@ -9,10 +9,6 @@ from jax2onnx import save_onnx, allclose
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
-# PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/converter/plugins")
-# EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
-# GENERATED_PLUGINS_TESTS_DIR = os.path.join(TESTS_DIR, "primitives")
-# GENERATED_EXAMPLES_TESTS_DIR = os.path.join(TESTS_DIR, "examples")
 
 # --- Cleaning and Setup ---
 
@@ -103,21 +99,8 @@ def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str,
                     if hasattr(module, "get_metadata"):
                         md = module.get_metadata()
                         md = md if isinstance(md, list) else [md]
-                        for entry in md:
-                            testcases = entry.get("testcases", [])
-                            for testcase in testcases:
-                                testcase["source"] = module_name
-                                testcase["context"] = entry.get("context", "default")
-                                testcase["component"] = entry.get(
-                                    "component", file[:-3]
-                                )
-                                testcase["jax_doc"] = entry.get("jax_doc", "")
-                                testcase["onnx"] = entry.get("onnx", "")
-                                testcase["since"] = entry.get("since", "")
-                                testcase["description"] = entry.get("description", "")
-                                testcase["children"] = entry.get("children", [])
-                                metadata_list.append(testcase)
-    return metadata_list
+                        metadata_list.extend(md)
+    return extract_from_metadata(metadata_list)
 
 
 NEW_PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
@@ -130,15 +113,6 @@ from jax2onnx.plugin_system import (
 
 def load_plugin_metadata() -> List[Dict[str, Any]]:
     """Loads metadata from both the old and new plugin systems."""
-    # old_mds = load_metadata_only_from_dir(
-    #     PLUGINS_DIR,
-    #     [
-    #         "__init__.py",
-    #         "plugin_interface.py",
-    #         "plugin_registry.py",
-    #         "plugin_registry_static.py",
-    #     ],
-    # )
 
     # Extract metadata from the new plugin system
     import_all_plugins()  # Automatically imports everything once
@@ -148,10 +122,6 @@ def load_plugin_metadata() -> List[Dict[str, Any]]:
         if hasattr(plugin, "metadata"):
             plugin.metadata["jaxpr_primitive"] = name
             new_md.append(plugin.metadata)
-            # metadata_entry = plugin.metadata.copy()
-            # metadata_entry["component"] = name
-            # metadata_entry["context"] = metadata_entry.get("context", "plugins.nnx")
-            # new_plugins.append(metadata_entry)
 
     return extract_from_metadata(new_md)  # + new_md  # Merge old and new metadata
 
@@ -216,7 +186,6 @@ def organize_tests_by_context_and_component_from_params(
 
 
 _GLOBAL_PLUGIN_GROUPING = None
-# _GLOBAL_EXAMPLE_GROUPING = None
 
 
 def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
@@ -229,18 +198,6 @@ def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
             plugin_params
         )
     return _GLOBAL_PLUGIN_GROUPING
-
-
-# def get_example_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
-#     global _GLOBAL_EXAMPLE_GROUPING
-#     if _GLOBAL_EXAMPLE_GROUPING is None:
-#         example_params = []
-#         for md in load_example_metadata():
-#             example_params.extend(generate_test_params(md))
-#         _GLOBAL_EXAMPLE_GROUPING = organize_tests_by_context_and_component_from_params(
-#             example_params
-#         )
-#     return _GLOBAL_EXAMPLE_GROUPING
 
 
 # --- Test Function Creation ---
@@ -330,7 +287,6 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
 def generate_all_tests():
     clean_generated_test_dirs()
     plugin_grouping = get_plugin_grouping()
-    # example_grouping = get_example_grouping()
 
     # For plugins: group by context.
     plugin_context_components: Dict[str, List[str]] = {}
