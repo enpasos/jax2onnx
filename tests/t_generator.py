@@ -33,25 +33,25 @@ def clean_generated_test_dirs():
 # --- Metadata Loading ---
 
 
-def load_metadata_only_from_dir(
-    directory: str, exclude_files=None
-) -> List[Dict[str, Any]]:
-    exclude_files = exclude_files or ["__init__.py"]
-    metadata_list = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".py") and file not in exclude_files:
-                module_path = os.path.join(root, file)
-                module_name = module_path.replace(os.sep, ".").replace(".py", "")
-                spec = importlib.util.spec_from_file_location(module_name, module_path)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    if hasattr(module, "get_metadata"):
-                        md = module.get_metadata()
-                        md = md if isinstance(md, list) else [md]
-                        metadata_list.extend(md)
-    return metadata_list
+# def load_metadata_only_from_dir(
+#     directory: str, exclude_files=None
+# ) -> List[Dict[str, Any]]:
+#     exclude_files = exclude_files or ["__init__.py"]
+#     metadata_list = []
+#     for root, _, files in os.walk(directory):
+#         for file in files:
+#             if file.endswith(".py") and file not in exclude_files:
+#                 module_path = os.path.join(root, file)
+#                 module_name = module_path.replace(os.sep, ".").replace(".py", "")
+#                 spec = importlib.util.spec_from_file_location(module_name, module_path)
+#                 if spec and spec.loader:
+#                     module = importlib.util.module_from_spec(spec)
+#                     spec.loader.exec_module(module)
+#                     if hasattr(module, "get_metadata"):
+#                         md = module.get_metadata()
+#                         md = md if isinstance(md, list) else [md]
+#                         metadata_list.extend(md)
+#     return metadata_list
 
 
 def extract_from_metadata(mds) -> List[Dict[str, Any]]:
@@ -73,23 +73,23 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     return metadata_list
 
 
-def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str, Any]]:
-    exclude_files = exclude_files or ["__init__.py"]
-    metadata_list = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".py") and file not in exclude_files:
-                module_path = os.path.join(root, file)
-                module_name = module_path.replace(os.sep, ".").replace(".py", "")
-                spec = importlib.util.spec_from_file_location(module_name, module_path)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    if hasattr(module, "get_metadata"):
-                        md = module.get_metadata()
-                        md = md if isinstance(md, list) else [md]
-                        metadata_list.extend(md)
-    return extract_from_metadata(metadata_list)
+# def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str, Any]]:
+#     exclude_files = exclude_files or ["__init__.py"]
+#     metadata_list = []
+#     for root, _, files in os.walk(directory):
+#         for file in files:
+#             if file.endswith(".py") and file not in exclude_files:
+#                 module_path = os.path.join(root, file)
+#                 module_name = module_path.replace(os.sep, ".").replace(".py", "")
+#                 spec = importlib.util.spec_from_file_location(module_name, module_path)
+#                 if spec and spec.loader:
+#                     module = importlib.util.module_from_spec(spec)
+#                     spec.loader.exec_module(module)
+#                     if hasattr(module, "get_metadata"):
+#                         md = module.get_metadata()
+#                         md = md if isinstance(md, list) else [md]
+#                         metadata_list.extend(md)
+#     return extract_from_metadata(metadata_list)
 
 
 PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
