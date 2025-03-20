@@ -400,46 +400,60 @@ class Jaxpr2OnnxConverter:
             raise NotImplementedError(f"Non-primitive equation: {jaxpr}")
 
     def _process_closed_jaxpr(self, jaxpr):
-        # TODO: CONFUSING, `jaxpr` is a JaxprEqn which contains the ClosedJaxpr
+        """Process a closed JAXPR inside a JaxprEqn."""
         assert isinstance(jaxpr, jax._src.core.JaxprEqn)
 
         closed_jaxpr = jaxpr.params["jaxpr"]
         node_inputs = jaxpr.invars
         node_outputs = jaxpr.outvars
 
-        subconverter = JaxprToOnnx(self.name_counter + 1)
+        # Create a subconverter to process the nested jaxpr
+        subconverter = Jaxpr2OnnxConverter(self.builder.name_counter + 1)
         subconverter._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
-        nodes = subconverter.nodes
-        initializers = subconverter.initializers
-        inputs = subconverter.inputs
-        outputs = subconverter.outputs
+        # Connect inputs from parent to subconverter
+        self._connect_inputs_to_subconverter(node_inputs, subconverter.builder.inputs)
 
-        assert len(node_inputs) == len(inputs)
-        assert len(node_outputs) == len(outputs)
+        # Add the subconverter's nodes and initializers to our own
+        self.builder.nodes.extend(subconverter.builder.nodes)
+        self.builder.initializers.extend(subconverter.builder.initializers)
+        self.builder.name_counter += (
+            subconverter.builder.name_counter - subconverter.builder.name_counter_init
+        )
 
-        for o_invar, i_invar in zip(node_inputs, inputs):
-            o_invar_name = self.get_name(o_invar)
-            i_invar_name = i_invar.name
+        # Connect outputs from subconverter back to parent
+        self._connect_outputs_from_subconverter(
+            node_outputs, subconverter.builder.outputs
+        )
+
+    def _connect_inputs_to_subconverter(self, parent_inputs, subconverter_inputs):
+        """Connect inputs from parent to subconverter."""
+        assert len(parent_inputs) == len(subconverter_inputs)
+
+        for parent_input, subconverter_input in zip(parent_inputs, subconverter_inputs):
+            parent_name = self.get_name(parent_input)
+            subconverter_name = subconverter_input.name
             node = self.builder.create_node(
                 "Identity",
-                [o_invar_name],
-                [i_invar_name],
+                [parent_name],
+                [subconverter_name],
                 name=self.get_unique_name("pjit_input"),
             )
             self.builder.add_node(node)
 
-        self.builder.add_nodes(nodes)
-        self.builder.add_initializers(initializers)
-        self.name_counter += subconverter.name_counter - subconverter._name_counter_init
+    def _connect_outputs_from_subconverter(self, parent_outputs, subconverter_outputs):
+        """Connect outputs from subconverter back to parent."""
+        assert len(parent_outputs) == len(subconverter_outputs)
 
-        for o_outvar, i_outvar in zip(node_outputs, outputs):
-            o_outvar_name = self.get_name(o_outvar)
-            i_outvar_name = i_outvar.name
+        for parent_output, subconverter_output in zip(
+            parent_outputs, subconverter_outputs
+        ):
+            parent_name = self.get_name(parent_output)
+            subconverter_name = subconverter_output.name
             node = self.builder.create_node(
                 "Identity",
-                [i_outvar_name],
-                [o_outvar_name],
+                [subconverter_name],
+                [parent_name],
                 name=self.get_unique_name("pjit_output"),
             )
             self.builder.add_node(node)
