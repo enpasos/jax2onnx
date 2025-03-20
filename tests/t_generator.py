@@ -2,20 +2,17 @@
 
 import os
 import shutil
-import importlib.util
 from typing import Any, Dict, List, Tuple
 import jax
 from jax2onnx import save_onnx, allclose
-
-# Define base directories.
-TESTS_DIR = os.path.dirname(__file__)
-PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
-
-
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,
 )
+
+# Define base directories.
+TESTS_DIR = os.path.dirname(__file__)
+PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
 
 
 # --- Cleaning and Setup ---

@@ -52,7 +52,7 @@ class RandomGammaPlugin(PrimitivePlugin):
         key = jax.random.PRNGKey(0)
         alpha = jnp.zeros(shape)
 
-        subconverter = s.create_subconverter()
+        subconverter = Jaxpr2OnnxConverter()
 
         if params.get("log_space", False):
             subconverter.trace_jaxpr(gamma_log, (key, alpha))
@@ -70,9 +70,9 @@ class RandomGammaPlugin(PrimitivePlugin):
             )
             s.add_node(id_node)
 
-        s.add_nodes(subconverter.builder.nodes)
-        s.add_initializers(subconverter.builder.initializers)
-        s.adjust_name_counter(subconverter.builder.name_counter)
+        s.builder.nodes.extend(subconverter.builder.nodes)
+        s.builder.initializers.extend(subconverter.builder.initializers)
+        s.builder.name_counter = subconverter.builder.name_counter
 
         for outer_var, inner_tensor in zip(node_outputs, subconverter.builder.outputs):
             outer_name = s.get_name(outer_var)

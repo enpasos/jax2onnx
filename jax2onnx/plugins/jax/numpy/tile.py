@@ -1,7 +1,7 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, List, Union, Sequence
+from typing import TYPE_CHECKING, Union, Sequence, Tuple
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
@@ -142,11 +142,21 @@ class TilePlugin(PrimitivePlugin):
     @staticmethod
     def _tile(a, reps: Union[int, Sequence[int]]):
         """Defines the primitive binding for Tile."""
-        try:
-            tup = tuple(reps)
-        except TypeError:
-            tup = (reps,)
-        return jnp.tile_p.bind(a, repeats=tup)
+        reps_tuple = TilePlugin._determine_dimensions(reps, len(a.shape))
+        return jnp.tile_p.bind(a, repeats=reps_tuple)
+
+    @staticmethod
+    def _determine_dimensions(
+        reps: Union[int, Sequence[int]], operand_ndim: int
+    ) -> Tuple[int, ...]:
+        """Handle different representations of repetition dimensions."""
+        if isinstance(reps, int):
+            reps_tuple: Tuple[int, ...] = (reps,)
+        else:
+            reps_tuple = tuple(reps)
+        if len(reps_tuple) < operand_ndim:
+            reps_tuple = (1,) * (operand_ndim - len(reps_tuple)) + reps_tuple
+        return reps_tuple
 
     @staticmethod
     def get_monkey_patch():

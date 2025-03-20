@@ -1,6 +1,6 @@
 import jax
 import numpy as np
-from typing import TYPE_CHECKING, Tuple, Sequence, Dict, List
+from typing import TYPE_CHECKING, Tuple, Sequence
 from onnx import helper
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 

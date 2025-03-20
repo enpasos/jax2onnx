@@ -1,13 +1,9 @@
-# file: jax2onnx/plugin_system.py
 import pkgutil
 import importlib
 import os
-from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
+from typing import Optional, Callable, Dict, Any, Type, Union
 
-PLUGIN_REGISTRY = {}
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitivePlugin"]] = {}
 
 
 class PrimitivePlugin:
@@ -15,14 +11,18 @@ class PrimitivePlugin:
 
     primitive: str
     metadata: Dict[str, Any]
-    patch_info: Optional[Callable] = None  # Method returning patch details
+    patch_info: Optional[Callable[[], Dict[str, Any]]] = (
+        None  # Method returning patch details
+    )
 
-    def get_handler(self, converter):
+    def get_handler(self, converter: Any) -> Callable:
         return lambda node_inputs, node_outputs, params: self.to_onnx(
             converter, node_inputs, node_outputs, params
         )
 
-    def to_onnx(self, converter, node_inputs, node_outputs, params):
+    def to_onnx(
+        self, converter: Any, node_inputs: Any, node_outputs: Any, params: Any
+    ) -> None:
         """Handles JAX to ONNX conversion; must be overridden."""
         raise NotImplementedError
 
@@ -31,20 +31,28 @@ class ExamplePlugin:
     metadata: Dict[str, Any]
 
 
-def register_example(**metadata: Optional[Dict[str, Any]]):
+def register_example(**metadata: Any) -> ExamplePlugin:
+    """
+    Decorator for registering an example plugin.
+    The metadata must be a dictionary of attributes.
+    """
     instance = ExamplePlugin()
-    instance.metadata = metadata or {}
-    PLUGIN_REGISTRY[instance.metadata["component"]] = instance
+    instance.metadata = metadata
+    component = metadata.get("component")
+    if isinstance(component, str):
+        PLUGIN_REGISTRY[component] = instance
     return instance
 
 
-def register_primitive(**metadata: Optional[Dict[str, Any]]):
+def register_primitive(
+    **metadata: Any,
+) -> Callable[[Type[PrimitivePlugin]], Type[PrimitivePlugin]]:
     """
     Decorator to register a plugin with the given primitive and metadata.
     """
-    primitive = metadata.get("jaxpr_primitive")
+    primitive = metadata.get("jaxpr_primitive", "")
 
-    def decorator(cls):
+    def decorator(cls: Type[PrimitivePlugin]) -> Type[PrimitivePlugin]:
         if not issubclass(cls, PrimitivePlugin):
             raise TypeError("Plugin must subclass PrimitivePlugin")
 
@@ -56,7 +64,8 @@ def register_primitive(**metadata: Optional[Dict[str, Any]]):
         if hasattr(cls, "patch_info"):
             instance.patch_info = getattr(cls, "patch_info")
 
-        PLUGIN_REGISTRY[primitive] = instance
+        if isinstance(primitive, str):
+            PLUGIN_REGISTRY[primitive] = instance
         return cls
 
     return decorator
@@ -65,7 +74,8 @@ def register_primitive(**metadata: Optional[Dict[str, Any]]):
 _already_imported_plugins = False
 
 
-def import_all_plugins():
+def import_all_plugins() -> None:
+    """Imports all plugins dynamically from the 'plugins' directory."""
     global _already_imported_plugins
     if _already_imported_plugins:
         return  # Already imported plugins; no-op
