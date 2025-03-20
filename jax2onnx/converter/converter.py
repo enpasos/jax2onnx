@@ -533,14 +533,6 @@ class Jaxpr2OnnxConverter:
 @contextlib.contextmanager
 def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
-        # for plugin in get_all_plugins().values():
-        #     patch_info = getattr(plugin, "patch_info", None)
-        #     if callable(patch_info):
-        #         patch_info = patch_info()
-        #         target = patch_info["patch_targets"][0]
-        #         patch_func = patch_info["patch_function"]
-        #         attr = patch_info.get("target_attribute", "__call__")
-        #         stack.enter_context(_temporary_patch(target, attr, patch_func))
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
             if not isinstance(plugin, PrimitivePlugin) or not plugin.patch_info:
