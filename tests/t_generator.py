@@ -339,13 +339,6 @@ def generate_all_tests():
     for context, components in plugin_context_components.items():
         create_minimal_test_file(TESTS_DIR, context, components)
 
-    # For examples: group by context.
-    # example_context_components: Dict[str, List[str]] = {}
-    # for context, component in example_grouping.keys():
-    #     example_context_components.setdefault(context, []).append(component)
-    # for context, components in example_context_components.items():
-    #     create_minimal_test_file(GENERATED_EXAMPLES_TESTS_DIR, context, components)
-
 
 if __name__ == "__main__":
     generate_all_tests()

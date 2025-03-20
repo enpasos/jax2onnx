@@ -5,7 +5,6 @@ import onnx
 from onnx import helper
 import numpy as np
 from typing import Dict, Any, Tuple
-from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
 import jax.random
 import contextlib
 from jax2onnx.converter.onnx_builder import OnnxBuilder
