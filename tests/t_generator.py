@@ -253,13 +253,13 @@ def generate_test_class(context: str, component: str, namespace: dict):
 
 
 def create_minimal_test_file(directory: str, context: str, components: List[str]):
-
     folder = context.split(".")[0]
-    # add folder to directory
     directory = os.path.join(directory, folder)
     os.makedirs(directory, exist_ok=True)
-    # Create an empty __init__.py so that the directory is a package.
+
     init_path = os.path.join(directory, "__init__.py")
+    with open(init_path, "w"):
+        pass
 
     filename = os.path.join(directory, f"test_{context.split('.')[-1]}.py")
     with open(filename, "w") as f:
