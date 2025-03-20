@@ -125,13 +125,15 @@ def load_example_metadata() -> List[Dict[str, Any]]:
     old_examples = load_metadata_from_dir(EXAMPLES_DIR)  # Load old-style metadata
 
     # Extract metadata from the new plugin system (if any examples exist there)
-    new_examples = []
-    for name, plugin in PLUGIN_REGISTRY.items():
-        if plugin.metadata.get("context", "").startswith("examples."):
-            metadata_entry = plugin.metadata.copy()
-            metadata_entry["component"] = name  # Ensure component name
-            metadata_entry["context"] = metadata_entry.get("context", "examples")
-            new_examples.append(metadata_entry)
+    new_examples = [
+        {
+            **plugin.metadata,
+            "component": name,
+            "context": plugin.metadata.get("context", "examples"),
+        }
+        for name, plugin in PLUGIN_REGISTRY.items()
+        if plugin.metadata.get("context", "").startswith("examples.")
+    ]
 
     return old_examples + new_examples  # Merge old and new metadata
 
