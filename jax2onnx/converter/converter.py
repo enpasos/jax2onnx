@@ -361,16 +361,18 @@ class Jaxpr2OnnxConverter:
 
         name = jaxpr.params["name"]
 
-        # Direct handlers for random distributions
-        random_handlers = {
+        # Group related operations by handler type
+        random_distributions = {
             "_normal": self._handle_random_normal,
             "_uniform": self._handle_random_uniform,
             "_truncated_normal": self._handle_truncated_normal,
         }
 
-        if name in random_handlers:
-            random_handlers[name](jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name in ["_gamma", "clip", "sort", "_where", "_gumbel", "_dirichlet"]:
+        closed_jaxpr_ops = ["_gamma", "clip", "sort", "_where", "_gumbel", "_dirichlet"]
+
+        if name in random_distributions:
+            random_distributions[name](jaxpr.invars, jaxpr.outvars, jaxpr.params)
+        elif name in closed_jaxpr_ops:
             self._process_closed_jaxpr(jaxpr)
         else:
             raise NotImplementedError(f"pjit {name} not yet handled")
