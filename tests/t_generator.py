@@ -229,15 +229,18 @@ def make_test_function(tp: Dict[str, Any]):
             opset=21,
         )
 
+        def generate_inputs(shapes):
+            return [jax.random.normal(rng, shape) for shape in shapes]
+
         if any("B" in shape for shape in input_shapes):
             for B in [2, 3]:
                 processed_shapes = [
                     tuple(B if dim == "B" else dim for dim in s) for s in input_shapes
                 ]
-                xs = [jax.random.normal(rng, shape) for shape in processed_shapes]
+                xs = generate_inputs(processed_shapes)
                 assert allclose(callable_obj, model_path, *xs)
         else:
-            xs = [jax.random.normal(rng, shape) for shape in input_shapes]
+            xs = generate_inputs(input_shapes)
             assert allclose(callable_obj, model_path, *xs)
 
     return test_func
