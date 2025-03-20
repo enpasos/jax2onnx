@@ -51,7 +51,7 @@ The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.
 
 
 ### **Planned Version**
-- **Ongoing**: Expanding test coverage.
+- **Ongoing**: Expanding JAX component coverage.
 - **0.4.0** *(Upcoming)*: Introducing ONNX function support.
 
 
