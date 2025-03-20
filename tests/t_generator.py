@@ -103,7 +103,7 @@ def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str,
     return extract_from_metadata(metadata_list)
 
 
-NEW_PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
+PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
 
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
