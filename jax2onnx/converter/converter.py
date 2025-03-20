@@ -7,10 +7,16 @@ import numpy as np
 from typing import Dict, Any, Tuple
 import jax.random
 import contextlib
+import inspect
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import (
     remove_redundant_transpose_pairs,
     remove_redundant_casts,
+)
+from jax2onnx.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitivePlugin,
+    import_all_plugins,
 )
 
 
@@ -119,13 +125,6 @@ class JaxprToOnnx:
 
     def _shape_with_example_batch(self, shape, example_batch=2):
         return tuple(example_batch if d == "B" else d for d in shape)
-
-
-from jax2onnx.plugin_system import (
-    PLUGIN_REGISTRY,
-    PrimitivePlugin,
-    import_all_plugins,
-)
 
 
 class Jaxpr2OnnxConverter:
@@ -361,26 +360,20 @@ class Jaxpr2OnnxConverter:
             raise ValueError("Expected ClosedJaxpr in pjit.param[jaxpr]")
 
         name = jaxpr.params["name"]
-        if name == "_normal":
-            self._handle_random_normal(jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name == "_uniform":
-            self._handle_random_uniform(jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name == "_gamma":
+
+        # Direct handlers for random distributions
+        random_handlers = {
+            "_normal": self._handle_random_normal,
+            "_uniform": self._handle_random_uniform,
+            "_truncated_normal": self._handle_truncated_normal,
+        }
+
+        if name in random_handlers:
+            random_handlers[name](jaxpr.invars, jaxpr.outvars, jaxpr.params)
+        elif name in ["_gamma", "clip", "sort", "_where", "_gumbel", "_dirichlet"]:
             self._process_closed_jaxpr(jaxpr)
-        elif name == "clip":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "sort":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_where":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_gumbel":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_dirichlet":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_truncated_normal":
-            self._handle_truncated_normal(jaxpr.invars, jaxpr.outvars, jaxpr.params)
         else:
-            raise NotImplementedError(f"pjit {jaxpr.params['name']} not yet handled")
+            raise NotImplementedError(f"pjit {name} not yet handled")
 
     def _process_eqn(self, jaxpr):
         """Process a single JAXPR equation."""
@@ -567,9 +560,6 @@ def temporary_monkey_patches():
             attr = patch_info.get("target_attribute", "__call__")
             stack.enter_context(_temporary_patch(target, attr, patch_func))
         yield
-
-
-import inspect
 
 
 @contextlib.contextmanager
