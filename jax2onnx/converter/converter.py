@@ -268,33 +268,36 @@ class Jaxpr2OnnxConverter:
         )
         self.nodes.append(node)
 
-    def _handle_random_uniform(self, node_inputs, node_outputs, params):
+    def _create_random_distribution_node(self, node_outputs, op_type, name_prefix):
+        """Create a node for random distribution operations."""
         output_name = self.get_var_name(node_outputs[0])
         shape = node_outputs[0].aval.shape
         if shape == ():
             shape = (1,)
         node = self.builder.create_node(
-            "RandomUniform",
+            op_type,
             [],
             [output_name],
-            name=self.get_unique_name("random_uniform"),
+            name=self.get_unique_name(name_prefix),
             shape=shape,
         )
         self.builder.add_node(node)
+        return output_name
+
+    def _handle_random_uniform(self, node_inputs, node_outputs, params):
+        return self._create_random_distribution_node(
+            node_outputs, "RandomUniform", "random_uniform"
+        )
 
     def _handle_random_normal(self, node_inputs, node_outputs, params):
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            "RandomNormal",
-            [],
-            [output_name],
-            name=self.get_unique_name("random_normal"),
-            shape=shape,
+        return self._create_random_distribution_node(
+            node_outputs, "RandomNormal", "random_normal"
         )
-        self.builder.add_node(node)
+
+    def _handle_truncated_normal(self, node_inputs, node_outputs, params):
+        return self._create_random_distribution_node(
+            node_outputs, "RandomNormal", "truncated_normal"
+        )
 
     def _handle_convert_element_type(self, node_inputs, node_outputs, params):
         input_names = [self.get_name(inp) for inp in node_inputs]
@@ -337,20 +340,6 @@ class Jaxpr2OnnxConverter:
             input_names,
             [output_name],
             name=self.get_unique_name("device_put"),
-        )
-        self.builder.add_node(node)
-
-    def _handle_truncated_normal(self, node_inputs, node_outputs, params):
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            "RandomNormal",
-            [],
-            [output_name],
-            name=self.get_unique_name("truncated_normal"),
-            shape=shape,
         )
         self.builder.add_node(node)
 
