@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 from typing import TYPE_CHECKING
-from onnx import helper, TensorProto
+from onnx import helper
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:

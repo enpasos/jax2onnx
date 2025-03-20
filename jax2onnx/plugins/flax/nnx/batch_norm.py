@@ -12,7 +12,6 @@ The conversion process involves:
   4. Monkey-patching BatchNorm.__call__ to redirect calls to our primitive.
 """
 
-import contextlib
 from typing import TYPE_CHECKING
 from flax import nnx
 from jax import core
