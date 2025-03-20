@@ -2,13 +2,13 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jax.lax.broadcast_in_dim_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.broadcast_in_dim.html",
     onnx=[
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
         }
     ],
     since="v0.2.0",
-    context="plugins.lax",
+    context="primitives.lax",
     testcases=[
         {
             "testcase": "broadcast_in_dim",

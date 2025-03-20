@@ -3,7 +3,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -13,7 +13,7 @@ nnx.softmax_p = Primitive("nnx.softmax")
 nnx.softmax_p.multiple_results = False  # Correct initialization
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=nnx.softmax_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
     onnx=[
@@ -23,7 +23,7 @@ nnx.softmax_p.multiple_results = False  # Correct initialization
         }
     ],
     since="v0.1.0",
-    context="plugins.nnx",
+    context="primitives.nnx",
     testcases=[
         {
             "testcase": "softmax",

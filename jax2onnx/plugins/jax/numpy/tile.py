@@ -2,7 +2,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING, Tuple, List, Union, Sequence
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -14,7 +14,7 @@ jnp.tile_p = Primitive("jnp.tile")
 jnp.tile_p.multiple_results = False
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=jnp.tile_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html",
     onnx=[
@@ -24,7 +24,7 @@ jnp.tile_p.multiple_results = False
         }
     ],
     since="v0.1.0",
-    context="plugins.jnp",
+    context="primitives.jnp",
     testcases=[
         {
             "testcase": "tile_a",

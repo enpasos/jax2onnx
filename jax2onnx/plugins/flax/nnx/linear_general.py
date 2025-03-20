@@ -19,7 +19,7 @@ from flax import nnx
 from onnx import helper
 from jax.extend.core import Primitive
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_plugin, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 nnx.linear_general_p = Primitive("nnx.linear_general")
 
 
-@register_plugin(
+@register_primitive(
     jaxpr_primitive=nnx.linear_general_p.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
     onnx=[
@@ -39,7 +39,7 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
         },
     ],
     since="v0.1.0",
-    context="plugins.nnx",
+    context="primitives.nnx",
     testcases=[
         {
             "testcase": "linear_general",

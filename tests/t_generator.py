@@ -9,10 +9,10 @@ from jax2onnx import save_onnx, allclose
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
-PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/converter/plugins")
-EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
-GENERATED_PLUGINS_TESTS_DIR = os.path.join(TESTS_DIR, "plugins")
-GENERATED_EXAMPLES_TESTS_DIR = os.path.join(TESTS_DIR, "examples")
+# PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/converter/plugins")
+# EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
+# GENERATED_PLUGINS_TESTS_DIR = os.path.join(TESTS_DIR, "primitives")
+# GENERATED_EXAMPLES_TESTS_DIR = os.path.join(TESTS_DIR, "examples")
 
 # --- Cleaning and Setup ---
 
@@ -63,20 +63,22 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     metadata_list = []
     for entry in mds:
         testcases = entry.get("testcases", [])
+        if "component" in entry and entry["component"] == "MLP":
+            print("MLP")
         for testcase in testcases:
             # testcase["source"] = module_name
             testcase["context"] = entry.get("context", "default")
             # if exist entry.jaxpr_primitive then use it as component
-            # if entry does not have jaxpr_primitive then i = 42
+            # if testcase["component"] is MLP then print MLP
+
             if "jaxpr_primitive" in entry:
                 testcase["component"] = entry["jaxpr_primitive"]
             else:
-                testcase["component"] = "default"
-            if testcase["component"] == "nnx.linear_general":
-                print("linear_general")
+                testcase["component"] = entry.get("component", "default")
 
             testcase["jax_doc"] = entry.get("jax_doc", "")
             testcase["onnx"] = entry.get("onnx", "")
+            testcase["source"] = entry.get("source", "")
             testcase["since"] = entry.get("since", "")
             testcase["description"] = entry.get("description", "")
             testcase["children"] = entry.get("children", [])
@@ -126,15 +128,15 @@ from jax2onnx.plugin_system import (
 
 def load_plugin_metadata() -> List[Dict[str, Any]]:
     """Loads metadata from both the old and new plugin systems."""
-    old_mds = load_metadata_only_from_dir(
-        PLUGINS_DIR,
-        [
-            "__init__.py",
-            "plugin_interface.py",
-            "plugin_registry.py",
-            "plugin_registry_static.py",
-        ],
-    )
+    # old_mds = load_metadata_only_from_dir(
+    #     PLUGINS_DIR,
+    #     [
+    #         "__init__.py",
+    #         "plugin_interface.py",
+    #         "plugin_registry.py",
+    #         "plugin_registry_static.py",
+    #     ],
+    # )
 
     # Extract metadata from the new plugin system
     import_all_plugins()  # Automatically imports everything once
@@ -149,9 +151,7 @@ def load_plugin_metadata() -> List[Dict[str, Any]]:
             # metadata_entry["context"] = metadata_entry.get("context", "plugins.nnx")
             # new_plugins.append(metadata_entry)
 
-    return extract_from_metadata(
-        old_mds + new_md
-    )  # + new_md  # Merge old and new metadata
+    return extract_from_metadata(new_md)  # + new_md  # Merge old and new metadata
 
 
 EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
@@ -289,7 +289,7 @@ def generate_test_class(context: str, component: str, namespace: dict):
     if component == "linear_general":
         print("linear_general")
 
-    if context.startswith("plugins"):
+    if context.startswith("primitives"):
         grouping = get_plugin_grouping()
     else:
         grouping = get_example_grouping()
@@ -306,6 +306,14 @@ def generate_test_class(context: str, component: str, namespace: dict):
 
 
 def create_minimal_test_file(directory: str, context: str, components: List[str]):
+
+    folder = context.split(".")[0]
+    # add folder to directory
+    directory = os.path.join(directory, folder)
+    os.makedirs(directory, exist_ok=True)
+    # Create an empty __init__.py so that the directory is a package.
+    init_path = os.path.join(directory, "__init__.py")
+
     filename = os.path.join(directory, f"test_{context.split('.')[-1]}.py")
     with open(filename, "w") as f:
         f.write("from tests.t_generator import generate_test_class\n\n")
@@ -322,21 +330,21 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
 def generate_all_tests():
     clean_generated_test_dirs()
     plugin_grouping = get_plugin_grouping()
-    example_grouping = get_example_grouping()
+    # example_grouping = get_example_grouping()
 
     # For plugins: group by context.
     plugin_context_components: Dict[str, List[str]] = {}
     for context, component in plugin_grouping.keys():
         plugin_context_components.setdefault(context, []).append(component)
     for context, components in plugin_context_components.items():
-        create_minimal_test_file(GENERATED_PLUGINS_TESTS_DIR, context, components)
+        create_minimal_test_file(TESTS_DIR, context, components)
 
     # For examples: group by context.
-    example_context_components: Dict[str, List[str]] = {}
-    for context, component in example_grouping.keys():
-        example_context_components.setdefault(context, []).append(component)
-    for context, components in example_context_components.items():
-        create_minimal_test_file(GENERATED_EXAMPLES_TESTS_DIR, context, components)
+    # example_context_components: Dict[str, List[str]] = {}
+    # for context, component in example_grouping.keys():
+    #     example_context_components.setdefault(context, []).append(component)
+    # for context, components in example_context_components.items():
+    #     create_minimal_test_file(GENERATED_EXAMPLES_TESTS_DIR, context, components)
 
 
 if __name__ == "__main__":

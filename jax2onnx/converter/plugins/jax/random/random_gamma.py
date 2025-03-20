@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
+def get_primitive():
+    return jax.random.random_gamma_p
+
+
 def gamma(key, alpha):
     d = alpha - 1 / 3
     c = 1 / jnp.sqrt(9 * d)
@@ -34,7 +38,7 @@ def gamma_log(key, alpha):
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.gamma.html",
     onnx=[],
     since="v0.2.0",
-    context="primitives.random",
+    context="plugins.random",
     testcases=[
         # {
         #     "testcase": "random_gamma_test1",
