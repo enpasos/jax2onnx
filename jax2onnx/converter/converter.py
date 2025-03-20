@@ -5,13 +5,18 @@ import onnx
 from onnx import helper
 import numpy as np
 from typing import Dict, Any, Tuple
-from jax2onnx.converter.plugins.plugin_registry import get_all_plugins
 import jax.random
 import contextlib
+import inspect
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import (
     remove_redundant_transpose_pairs,
     remove_redundant_casts,
+)
+from jax2onnx.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitivePlugin,
+    import_all_plugins,
 )
 
 
@@ -135,9 +140,9 @@ class Jaxpr2OnnxConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
-        for primitive, plugin in get_all_plugins().items():
-            handler = plugin.get_handler(self)
-            self.primitive_handlers[primitive] = handler
+        # for primitive, plugin in get_all_plugins().items():
+        #     handler = plugin.get_handler(self)
+        #     self.primitive_handlers[primitive] = handler
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
         self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
         self.primitive_handlers[jax._src.prng.random_split_p] = (
@@ -146,6 +151,13 @@ class Jaxpr2OnnxConverter:
         self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
             self._handle_random_unwrap
         )
+
+        import_all_plugins()
+
+        for key in PLUGIN_REGISTRY:
+            plugin = PLUGIN_REGISTRY[key]
+            if isinstance(plugin, PrimitivePlugin):
+                self.primitive_handlers[key] = plugin.get_handler(self)
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -194,29 +206,28 @@ class Jaxpr2OnnxConverter:
         onnx.save_model(onnx_model, output_path)
         return output_path
 
-    def _handle_random_seed(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
+    def _create_identity_node(self, node_inputs, node_outputs, name_prefix):
+        """Create an Identity node connecting inputs to outputs."""
+        input_names = [self.get_name(inp) for inp in node_inputs]
+        output_name = self.get_var_name(node_outputs[0])
 
-        node = helper.make_node(
+        node = self.builder.create_node(
             "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_seed"),
+            input_names,
+            [output_name],
+            name=self.get_unique_name(name_prefix),
         )
-        self.nodes.append(node)
+        self.builder.add_node(node)
+        return output_name
+
+    def _handle_random_seed(self, node_inputs, node_outputs, params):
+        return self._create_identity_node(node_inputs, node_outputs, "random_seed")
 
     def _handle_random_wrap(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
+        return self._create_identity_node(node_inputs, node_outputs, "random_wrap")
 
-        node = helper.make_node(
-            "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_wrap"),
-        )
-        self.nodes.append(node)
+    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
+        return self._create_identity_node(node_inputs, node_outputs, "random_unwrap")
 
     def _handle_random_split(self, node_inputs, node_outputs, params):
         input_name = self._get_name(node_inputs[0])
@@ -244,45 +255,36 @@ class Jaxpr2OnnxConverter:
         )
         self.nodes.append(node_2)
 
-    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
-
-        node = helper.make_node(
-            "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_wrap"),
+    def _create_random_distribution_node(self, node_outputs, op_type, name_prefix):
+        """Create a node for random distribution operations."""
+        output_name = self.get_var_name(node_outputs[0])
+        shape = node_outputs[0].aval.shape
+        if shape == ():
+            shape = (1,)
+        node = self.builder.create_node(
+            op_type,
+            [],
+            [output_name],
+            name=self.get_unique_name(name_prefix),
+            shape=shape,
         )
-        self.nodes.append(node)
+        self.builder.add_node(node)
+        return output_name
 
     def _handle_random_uniform(self, node_inputs, node_outputs, params):
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            "RandomUniform",
-            [],
-            [output_name],
-            name=self.get_unique_name("random_uniform"),
-            shape=shape,
+        return self._create_random_distribution_node(
+            node_outputs, "RandomUniform", "random_uniform"
         )
-        self.builder.add_node(node)
 
     def _handle_random_normal(self, node_inputs, node_outputs, params):
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            "RandomNormal",
-            [],
-            [output_name],
-            name=self.get_unique_name("random_normal"),
-            shape=shape,
+        return self._create_random_distribution_node(
+            node_outputs, "RandomNormal", "random_normal"
         )
-        self.builder.add_node(node)
+
+    def _handle_truncated_normal(self, node_inputs, node_outputs, params):
+        return self._create_random_distribution_node(
+            node_outputs, "RandomNormal", "truncated_normal"
+        )
 
     def _handle_convert_element_type(self, node_inputs, node_outputs, params):
         input_names = [self.get_name(inp) for inp in node_inputs]
@@ -328,46 +330,28 @@ class Jaxpr2OnnxConverter:
         )
         self.builder.add_node(node)
 
-    def _handle_truncated_normal(self, node_inputs, node_outputs, params):
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            "RandomNormal",
-            [],
-            [output_name],
-            name=self.get_unique_name("truncated_normal"),
-            shape=shape,
-        )
-        self.builder.add_node(node)
-
     def _process_pjit(self, jaxpr):
         closed_jaxpr = jaxpr.params["jaxpr"]
         if not isinstance(closed_jaxpr, jax._src.core.ClosedJaxpr):
             raise ValueError("Expected ClosedJaxpr in pjit.param[jaxpr]")
 
         name = jaxpr.params["name"]
-        if name == "_normal":
-            self._handle_random_normal(jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name == "_uniform":
-            self._handle_random_uniform(jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name == "_gamma":
+
+        # Group related operations by handler type
+        random_distributions = {
+            "_normal": self._handle_random_normal,
+            "_uniform": self._handle_random_uniform,
+            "_truncated_normal": self._handle_truncated_normal,
+        }
+
+        closed_jaxpr_ops = ["_gamma", "clip", "sort", "_where", "_gumbel", "_dirichlet"]
+
+        if name in random_distributions:
+            random_distributions[name](jaxpr.invars, jaxpr.outvars, jaxpr.params)
+        elif name in closed_jaxpr_ops:
             self._process_closed_jaxpr(jaxpr)
-        elif name == "clip":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "sort":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_where":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_gumbel":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_dirichlet":
-            self._process_closed_jaxpr(jaxpr)
-        elif name == "_truncated_normal":
-            self._handle_truncated_normal(jaxpr.invars, jaxpr.outvars, jaxpr.params)
         else:
-            raise NotImplementedError(f"pjit {jaxpr.params['name']} not yet handled")
+            raise NotImplementedError(f"pjit {name} not yet handled")
 
     def _process_eqn(self, jaxpr):
         """Process a single JAXPR equation."""
@@ -392,46 +376,60 @@ class Jaxpr2OnnxConverter:
             raise NotImplementedError(f"Non-primitive equation: {jaxpr}")
 
     def _process_closed_jaxpr(self, jaxpr):
-        # TODO: CONFUSING, `jaxpr` is a JaxprEqn which contains the ClosedJaxpr
+        """Process a closed JAXPR inside a JaxprEqn."""
         assert isinstance(jaxpr, jax._src.core.JaxprEqn)
 
         closed_jaxpr = jaxpr.params["jaxpr"]
         node_inputs = jaxpr.invars
         node_outputs = jaxpr.outvars
 
-        subconverter = JaxprToOnnx(self.name_counter + 1)
+        # Create a subconverter to process the nested jaxpr
+        subconverter = Jaxpr2OnnxConverter(self.builder.name_counter + 1)
         subconverter._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
-        nodes = subconverter.nodes
-        initializers = subconverter.initializers
-        inputs = subconverter.inputs
-        outputs = subconverter.outputs
+        # Connect inputs from parent to subconverter
+        self._connect_inputs_to_subconverter(node_inputs, subconverter.builder.inputs)
 
-        assert len(node_inputs) == len(inputs)
-        assert len(node_outputs) == len(outputs)
+        # Add the subconverter's nodes and initializers to our own
+        self.builder.nodes.extend(subconverter.builder.nodes)
+        self.builder.initializers.extend(subconverter.builder.initializers)
+        self.builder.name_counter += (
+            subconverter.builder.name_counter - subconverter.builder.name_counter_init
+        )
 
-        for o_invar, i_invar in zip(node_inputs, inputs):
-            o_invar_name = self.get_name(o_invar)
-            i_invar_name = i_invar.name
+        # Connect outputs from subconverter back to parent
+        self._connect_outputs_from_subconverter(
+            node_outputs, subconverter.builder.outputs
+        )
+
+    def _connect_inputs_to_subconverter(self, parent_inputs, subconverter_inputs):
+        """Connect inputs from parent to subconverter."""
+        assert len(parent_inputs) == len(subconverter_inputs)
+
+        for parent_input, subconverter_input in zip(parent_inputs, subconverter_inputs):
+            parent_name = self.get_name(parent_input)
+            subconverter_name = subconverter_input.name
             node = self.builder.create_node(
                 "Identity",
-                [o_invar_name],
-                [i_invar_name],
+                [parent_name],
+                [subconverter_name],
                 name=self.get_unique_name("pjit_input"),
             )
             self.builder.add_node(node)
 
-        self.builder.add_nodes(nodes)
-        self.builder.add_initializers(initializers)
-        self.name_counter += subconverter.name_counter - subconverter._name_counter_init
+    def _connect_outputs_from_subconverter(self, parent_outputs, subconverter_outputs):
+        """Connect outputs from subconverter back to parent."""
+        assert len(parent_outputs) == len(subconverter_outputs)
 
-        for o_outvar, i_outvar in zip(node_outputs, outputs):
-            o_outvar_name = self.get_name(o_outvar)
-            i_outvar_name = i_outvar.name
+        for parent_output, subconverter_output in zip(
+            parent_outputs, subconverter_outputs
+        ):
+            parent_name = self.get_name(parent_output)
+            subconverter_name = subconverter_output.name
             node = self.builder.create_node(
                 "Identity",
-                [i_outvar_name],
-                [o_outvar_name],
+                [subconverter_name],
+                [parent_name],
                 name=self.get_unique_name("pjit_output"),
             )
             self.builder.add_node(node)
@@ -467,6 +465,8 @@ class Jaxpr2OnnxConverter:
         # Get JAXPR from the function
         with temporary_monkey_patches():
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+
+        print(closed_jaxpr)
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
         self._process_jaxpr(jaxpr, consts)
@@ -533,10 +533,31 @@ class Jaxpr2OnnxConverter:
 @contextlib.contextmanager
 def temporary_monkey_patches():
     with contextlib.ExitStack() as stack:
-        # Iterate over all registered plugins.
-        for plugin in get_all_plugins().values():
-            # Check if the plugin module defines a temporary_patch.
-            temporary_patch = getattr(plugin, "temporary_patch", None)
-            if callable(temporary_patch):
-                stack.enter_context(temporary_patch())
+        for key in PLUGIN_REGISTRY:
+            plugin = PLUGIN_REGISTRY[key]
+            if not isinstance(plugin, PrimitivePlugin) or not plugin.patch_info:
+                continue
+            patch_info = plugin.patch_info()
+
+            target = patch_info["patch_targets"][0]
+            patch_func = patch_info["patch_function"]
+            attr = patch_info.get("target_attribute", "__call__")
+            stack.enter_context(_temporary_patch(target, attr, patch_func))
         yield
+
+
+@contextlib.contextmanager
+def _temporary_patch(target, attr, patch_func):
+    original = getattr(target, attr)
+
+    # Check if the patch function expects an argument
+    if inspect.signature(patch_func).parameters:
+        patched = patch_func(original)
+    else:
+        patched = patch_func()  # Call without arguments if none are expected
+
+    setattr(target, attr, patched)
+    try:
+        yield
+    finally:
+        setattr(target, attr, original)
