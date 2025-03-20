@@ -28,6 +28,8 @@ def clean_generated_dir(directory: str):
 
 
 def clean_generated_test_dirs():
+    GENERATED_PLUGINS_TESTS_DIR = os.path.join(TESTS_DIR, "primitives")
+    GENERATED_EXAMPLES_TESTS_DIR = os.path.join(TESTS_DIR, "examples")
     clean_generated_dir(GENERATED_PLUGINS_TESTS_DIR)
     clean_generated_dir(GENERATED_EXAMPLES_TESTS_DIR)
 
@@ -214,7 +216,7 @@ def organize_tests_by_context_and_component_from_params(
 
 
 _GLOBAL_PLUGIN_GROUPING = None
-_GLOBAL_EXAMPLE_GROUPING = None
+# _GLOBAL_EXAMPLE_GROUPING = None
 
 
 def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
@@ -229,16 +231,16 @@ def get_plugin_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     return _GLOBAL_PLUGIN_GROUPING
 
 
-def get_example_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
-    global _GLOBAL_EXAMPLE_GROUPING
-    if _GLOBAL_EXAMPLE_GROUPING is None:
-        example_params = []
-        for md in load_example_metadata():
-            example_params.extend(generate_test_params(md))
-        _GLOBAL_EXAMPLE_GROUPING = organize_tests_by_context_and_component_from_params(
-            example_params
-        )
-    return _GLOBAL_EXAMPLE_GROUPING
+# def get_example_grouping() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+#     global _GLOBAL_EXAMPLE_GROUPING
+#     if _GLOBAL_EXAMPLE_GROUPING is None:
+#         example_params = []
+#         for md in load_example_metadata():
+#             example_params.extend(generate_test_params(md))
+#         _GLOBAL_EXAMPLE_GROUPING = organize_tests_by_context_and_component_from_params(
+#             example_params
+#         )
+#     return _GLOBAL_EXAMPLE_GROUPING
 
 
 # --- Test Function Creation ---
@@ -286,15 +288,13 @@ def make_test_function(tp: Dict[str, Any]):
 
 def generate_test_class(context: str, component: str, namespace: dict):
     # Select grouping based on context prefix.
-    if component == "linear_general":
-        print("linear_general")
+    if component == "MLP":
+        print("MLP")
 
-    if context.startswith("primitives"):
-        grouping = get_plugin_grouping()
-    else:
-        grouping = get_example_grouping()
+    grouping = get_plugin_grouping()
+
     testcases = grouping.get((context, component), [])
-    class_name = f"Test_{context.replace('.', '_')}_{component}"
+    class_name = f"Test_{component}"
     attrs = {}
     for tp in testcases:
         test_name = f"test_{tp['testcase'].replace('.', '_').replace(' ', '_')}"
