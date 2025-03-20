@@ -284,19 +284,24 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
     print(f"Generated minimal test file: {filename}")
 
 
+def create_minimal_test_files(
+    grouping: Dict[Tuple[str, str], List[Dict[str, Any]]], directory: str
+):
+    """Helper function to create minimal test files based on the grouping."""
+    context_components: Dict[str, List[str]] = {}
+    for context, component in grouping.keys():
+        context_components.setdefault(context, []).append(component)
+    for context, components in context_components.items():
+        create_minimal_test_file(directory, context, components)
+
+
 # --- Main Generation ---
 
 
 def generate_all_tests():
     clean_generated_test_dirs()
     plugin_grouping = get_plugin_grouping()
-
-    # For plugins: group by context.
-    plugin_context_components: Dict[str, List[str]] = {}
-    for context, component in plugin_grouping.keys():
-        plugin_context_components.setdefault(context, []).append(component)
-    for context, components in plugin_context_components.items():
-        create_minimal_test_file(TESTS_DIR, context, components)
+    create_minimal_test_files(plugin_grouping, TESTS_DIR)
 
 
 if __name__ == "__main__":
