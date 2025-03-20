@@ -376,7 +376,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "vit",
+            "testcase": "vit_conv_embedding",
             "callable": VisionTransformer(
                 height=28,
                 width=28,
@@ -389,6 +389,22 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 28, 28, 1)],
-        }
+        },
+        {
+            "testcase": "vit_patch_embedding",
+            "callable": VisionTransformer(
+                height=28,
+                width=28,
+                num_hiddens=256,
+                num_layers=6,
+                num_heads=8,
+                mlp_dim=512,
+                num_classes=10,
+                embedding_type="patch",
+                patch_size=4,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 28, 28, 1)],
+        },
     ],
 )
