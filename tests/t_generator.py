@@ -104,12 +104,11 @@ def load_metadata_from_plugins() -> List[Dict[str, Any]]:
     """Helper function to load metadata from the new plugin system."""
     import_all_plugins()  # Automatically imports everything once
 
-    new_md = []
-    for name, plugin in PLUGIN_REGISTRY.items():
-        if hasattr(plugin, "metadata"):
-            plugin.metadata["jaxpr_primitive"] = name
-            new_md.append(plugin.metadata)
-    return new_md
+    return [
+        {**plugin.metadata, "jaxpr_primitive": name}
+        for name, plugin in PLUGIN_REGISTRY.items()
+        if hasattr(plugin, "metadata")
+    ]
 
 
 def load_plugin_metadata() -> List[Dict[str, Any]]:
