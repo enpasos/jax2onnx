@@ -206,29 +206,28 @@ class Jaxpr2OnnxConverter:
         onnx.save_model(onnx_model, output_path)
         return output_path
 
-    def _handle_random_seed(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
+    def _create_identity_node(self, node_inputs, node_outputs, name_prefix):
+        """Create an Identity node connecting inputs to outputs."""
+        input_names = [self.get_name(inp) for inp in node_inputs]
+        output_name = self.get_var_name(node_outputs[0])
 
-        node = helper.make_node(
+        node = self.builder.create_node(
             "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_seed"),
+            input_names,
+            [output_name],
+            name=self.get_unique_name(name_prefix),
         )
-        self.nodes.append(node)
+        self.builder.add_node(node)
+        return output_name
+
+    def _handle_random_seed(self, node_inputs, node_outputs, params):
+        return self._create_identity_node(node_inputs, node_outputs, "random_seed")
 
     def _handle_random_wrap(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
+        return self._create_identity_node(node_inputs, node_outputs, "random_wrap")
 
-        node = helper.make_node(
-            "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_wrap"),
-        )
-        self.nodes.append(node)
+    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
+        return self._create_identity_node(node_inputs, node_outputs, "random_unwrap")
 
     def _handle_random_split(self, node_inputs, node_outputs, params):
         input_name = self._get_name(node_inputs[0])
@@ -255,18 +254,6 @@ class Jaxpr2OnnxConverter:
             name=self._get_unique_name("random_split:tile"),
         )
         self.nodes.append(node_2)
-
-    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
-        input_names = [self._get_name(inp) for inp in node_inputs]
-        output_name = self._get_var_name(node_outputs[0])
-
-        node = helper.make_node(
-            "Identity",
-            inputs=input_names,
-            outputs=[output_name],
-            name=self._get_unique_name("random_wrap"),
-        )
-        self.nodes.append(node)
 
     def _create_random_distribution_node(self, node_outputs, op_type, name_prefix):
         """Create a node for random distribution operations."""
