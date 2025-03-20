@@ -51,11 +51,12 @@ The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.
 
 
 ### **Planned Version**
-- **ongoing**: coverage extension
-- **0.4.0** *(Upcoming)*: ONNX functions.
+- **Ongoing**: Expanding test coverage.
+- **0.4.0** *(Upcoming)*: Introducing ONNX function support.
+
 
 ### **Current Productive Version**
-- **0.3.0** *(PyPI Release)*: Simplifying the plugin mechanism: automatic registration, simplified registration of custom primitives.
+- **0.3.0** *(PyPI Release)*: Streamlined the plugin system with automatic registration and simplified integration of custom primitives.
 
 ### **Past Versions**
 - **0.2.0** *(First PyPI Release)*: Rebased the implementation on `jaxpr`, improving usability and adding low-level `lax` components.
