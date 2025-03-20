@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-
+from jax2onnx.plugin_system import register_example
 from typing import List
 
 
@@ -54,6 +54,30 @@ class PatchEmbedding(nnx.Module):
         for layer in self.layers:
             x = layer(x)
         return x
+
+
+register_example(
+    component="PatchEmbedding",
+    description="Cutting the image into patches and linearly embedding them.",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.1.0",
+    context="examples.nnx",
+    children=["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
+    testcases=[
+        {
+            "testcase": "patch_embedding",
+            "callable": PatchEmbedding(
+                height=28,
+                width=28,
+                patch_size=4,
+                num_hiddens=256,
+                in_features=1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 28, 28, 1)],
+        }
+    ],
+)
 
 
 class ConvEmbedding(nnx.Module):
@@ -117,6 +141,33 @@ class ConvEmbedding(nnx.Module):
         return x
 
 
+register_example(
+    component="ConvEmbedding",
+    description="Convolutional Token Embedding for MNIST with hierarchical downsampling.",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.1.0",
+    context="examples.nnx",
+    children=[
+        "flax.nnx.Conv",
+        "flax.nnx.LayerNorm",
+        "jax.numpy.Reshape",
+        "jax.nn.relu",
+    ],
+    testcases=[
+        {
+            "testcase": "mnist_conv_embedding",
+            "callable": ConvEmbedding(
+                embed_dims=[32, 64, 128],
+                kernel_size=3,
+                strides=[1, 2, 2],
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 28, 28, 1)],
+        }
+    ],
+)
+
+
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
@@ -136,6 +187,25 @@ class MLPBlock(nnx.Module):
             else:
                 x = layer(x)
         return x
+
+
+register_example(
+    component="MLPBlock",
+    description="MLP in Transformer",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.1.0",
+    context="examples.nnx",
+    children=["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
+    testcases=[
+        {
+            "testcase": "mlp_block",
+            "callable": MLPBlock(
+                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(1, 10, 256)],
+        },
+    ],
+)
 
 
 class TransformerBlock(nnx.Module):
@@ -170,6 +240,35 @@ class TransformerBlock(nnx.Module):
         y = self.dropout(y, deterministic=deterministic)
         x = x + y
         return x + self.mlp_block(self.layer_norm2(x), deterministic)
+
+
+register_example(
+    component="TransformerBlock",
+    description="Transformer from 'Attention Is All You Need.'",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.1.0",
+    context="examples.nnx",
+    children=[
+        "flax.nnx.MultiHeadAttention",
+        "flax.nnx.LayerNorm",
+        "MLPBlock",
+        "flax.nnx.Dropout",
+    ],
+    testcases=[
+        {
+            "testcase": "transformer_block",
+            "callable": TransformerBlock(
+                num_hiddens=256,
+                num_heads=8,
+                mlp_dim=512,
+                attention_dropout_rate=0.1,
+                mlp_dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(1, 10, 256)],
+        },
+    ],
+)
 
 
 class VisionTransformer(nnx.Module):
@@ -257,137 +356,39 @@ class VisionTransformer(nnx.Module):
         return nnx.log_softmax(self.dense(x))
 
 
-# ---------------------------------------------------------------------------
-# Metadata for ONNX conversion tests
-# ---------------------------------------------------------------------------
-def get_metadata():
-    """Return metadata for the MNIST Vision Transformer (ViT) example."""
-    vit_params = {
-        "height": 28,
-        "width": 28,
-        "num_hiddens": 256,
-        "num_layers": 6,
-        "num_heads": 8,
-        "mlp_dim": 512,
-        "num_classes": 10,
-        "embedding_dropout_rate": 0.5,
-        "attention_dropout_rate": 0.5,
-        "mlp_dropout_rate": 0.5,
-        "rngs": nnx.Rngs(0),
-    }
-    return [
+register_example(
+    component="VisionTransformer",
+    description="A Vision Transformer (ViT) model for MNIST with configurable embedding type.",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.2.0",
+    context="examples.nnx",
+    children=[
+        "PatchEmbedding",
+        "ConvEmbedding",
+        "MLPBlock",
+        "TransformerBlock",
+        "nnx.MultiHeadAttention",
+        "nnx.LayerNorm",
+        "nnx.Linear",
+        "nnx.gelu",
+        "nnx.Dropout",
+        "nnx.Param",
+    ],
+    testcases=[
         {
-            "component": "VisionTransformer",
-            "description": "A MNIST Vision Transformer (ViT) model with configurable convolutional or patch embedding.",
-            "since": "v0.1.0",
-            "context": "examples.nnx",
-            "children": [
-                "PatchEmbedding",
-                "ConvEmbedding",
-                "TransformerBlock",
-                "nnx.Linear",
-                "nnx.LayerNorm",
-            ],
-            "testcases": [
-                {
-                    "testcase": "mnist_vit_conv",
-                    "callable": VisionTransformer(**vit_params),
-                    "input_shapes": [(3, 28, 28, 1)],
-                    "params": {"embedding_type": "conv"},
-                },
-                {
-                    "testcase": "mnist_vit_patch",
-                    "callable": VisionTransformer(**vit_params),
-                    "input_shapes": [(3, 28, 28, 1)],
-                    "params": {"embedding_type": "patch"},
-                },
-            ],
-        },
-        {
-            "component": "TransformerBlock",
-            "description": "Transformer from 'Attention Is All You Need.'",
-            "children": [
-                "flax.nnx.MultiHeadAttention",
-                "flax.nnx.LayerNorm",
-                "MLPBlock",
-                "flax.nnx.Dropout",
-            ],
-            "since": "v0.1.0",
-            "context": "examples.nnx",
-            "testcases": [
-                {
-                    "testcase": "transformer_block",
-                    "callable": TransformerBlock(
-                        num_hiddens=256,
-                        num_heads=8,
-                        mlp_dim=512,
-                        attention_dropout_rate=0.1,
-                        mlp_dropout_rate=0.1,
-                        rngs=nnx.Rngs(0),
-                    ),
-                    "input_shapes": [(1, 10, 256)],
-                },
-            ],
-        },
-        {
-            "component": "PatchEmbedding",
-            "description": "Cutting the image into patches and linearly embedding them.",
-            "children": ["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
-            "since": "v0.1.0",
-            "context": "examples.nnx",
-            "testcases": [
-                {
-                    "testcase": "patch_embedding",
-                    "callable": PatchEmbedding(
-                        height=28,
-                        width=28,
-                        patch_size=4,
-                        num_hiddens=256,
-                        in_features=1,
-                        rngs=nnx.Rngs(0),
-                    ),
-                    "input_shapes": [(3, 28, 28, 1)],
-                }
-            ],
-        },
-        {
-            "component": "MLPBlock",
-            "description": "MLP in Transformer",
-            "children": ["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
-            "since": "v0.1.0",
-            "context": "examples.nnx",
-            "testcases": [
-                {
-                    "testcase": "mlp_block",
-                    "callable": MLPBlock(
-                        num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
-                    ),
-                    "input_shapes": [(1, 10, 256)],
-                },
-            ],
-        },
-        {
-            "component": "ConvEmbedding",
-            "description": "Convolutional Token Embedding for MNIST with hierarchical downsampling.",
-            "children": [
-                "flax.nnx.Conv",
-                "flax.nnx.LayerNorm",
-                "jax.numpy.Reshape",
-                "jax.nn.relu",
-            ],
-            "since": "v0.1.0",
-            "context": "examples.nnx",
-            "testcases": [
-                {
-                    "testcase": "mnist_conv_embedding",
-                    "callable": ConvEmbedding(
-                        embed_dims=[32, 64, 128],
-                        kernel_size=3,
-                        strides=[1, 2, 2],
-                        rngs=nnx.Rngs(0),
-                    ),
-                    "input_shapes": [(3, 28, 28, 1)],
-                }
-            ],
-        },
-    ]
+            "testcase": "vit",
+            "callable": VisionTransformer(
+                height=28,
+                width=28,
+                num_hiddens=256,
+                num_layers=6,
+                num_heads=8,
+                mlp_dim=512,
+                num_classes=10,
+                embedding_type="conv",
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 28, 28, 1)],
+        }
+    ],
+)
