@@ -153,8 +153,7 @@ def load_example_metadata() -> List[Dict[str, Any]]:
 
 def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     input_shapes = entry.get("input_shapes", [])
-    has_symbolic = any("B" in shape for shape in input_shapes)
-    if has_symbolic:
+    if any("B" in shape for shape in input_shapes):
         dynamic = entry.copy()
         dynamic["testcase"] += "_dynamic"
         concrete = entry.copy()
