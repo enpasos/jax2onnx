@@ -33,27 +33,6 @@ def clean_generated_test_dirs():
 # --- Metadata Loading ---
 
 
-# def load_metadata_only_from_dir(
-#     directory: str, exclude_files=None
-# ) -> List[Dict[str, Any]]:
-#     exclude_files = exclude_files or ["__init__.py"]
-#     metadata_list = []
-#     for root, _, files in os.walk(directory):
-#         for file in files:
-#             if file.endswith(".py") and file not in exclude_files:
-#                 module_path = os.path.join(root, file)
-#                 module_name = module_path.replace(os.sep, ".").replace(".py", "")
-#                 spec = importlib.util.spec_from_file_location(module_name, module_path)
-#                 if spec and spec.loader:
-#                     module = importlib.util.module_from_spec(spec)
-#                     spec.loader.exec_module(module)
-#                     if hasattr(module, "get_metadata"):
-#                         md = module.get_metadata()
-#                         md = md if isinstance(md, list) else [md]
-#                         metadata_list.extend(md)
-#     return metadata_list
-
-
 def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     metadata_list = []
     for entry in mds:
@@ -71,25 +50,6 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
             testcase["children"] = entry.get("children", [])
             metadata_list.append(testcase)
     return metadata_list
-
-
-# def load_metadata_from_dir(directory: str, exclude_files=None) -> List[Dict[str, Any]]:
-#     exclude_files = exclude_files or ["__init__.py"]
-#     metadata_list = []
-#     for root, _, files in os.walk(directory):
-#         for file in files:
-#             if file.endswith(".py") and file not in exclude_files:
-#                 module_path = os.path.join(root, file)
-#                 module_name = module_path.replace(os.sep, ".").replace(".py", "")
-#                 spec = importlib.util.spec_from_file_location(module_name, module_path)
-#                 if spec and spec.loader:
-#                     module = importlib.util.module_from_spec(spec)
-#                     spec.loader.exec_module(module)
-#                     if hasattr(module, "get_metadata"):
-#                         md = module.get_metadata()
-#                         md = md if isinstance(md, list) else [md]
-#                         metadata_list.extend(md)
-#     return extract_from_metadata(metadata_list)
 
 
 PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
@@ -120,24 +80,6 @@ def load_plugin_metadata() -> List[Dict[str, Any]]:
 EXAMPLES_DIR = os.path.join(TESTS_DIR, "../jax2onnx/examples")
 
 
-def load_example_metadata() -> List[Dict[str, Any]]:
-    """Loads metadata from both the old and new example systems."""
-    old_examples = load_metadata_from_dir(EXAMPLES_DIR)  # Load old-style metadata
-
-    # Extract metadata from the new plugin system (if any examples exist there)
-    new_examples = [
-        {
-            **plugin.metadata,
-            "component": name,
-            "context": plugin.metadata.get("context", "examples"),
-        }
-        for name, plugin in PLUGIN_REGISTRY.items()
-        if plugin.metadata.get("context", "").startswith("examples.")
-    ]
-
-    return old_examples + new_examples  # Merge old and new metadata
-
-
 # --- Test Param Generation ---
 
 
@@ -152,14 +94,6 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         ]
         return [dynamic, concrete]
     return [entry]
-
-
-def load_all_test_params() -> List[Dict[str, Any]]:
-    metadata = load_plugin_metadata() + load_example_metadata()
-    params = []
-    for md in metadata:
-        params.extend(generate_test_params(md))
-    return params
 
 
 # --- Organizing Tests (and caching groupings) ---
