@@ -250,12 +250,7 @@ def make_test_function(tp: Dict[str, Any]):
 
 
 def generate_test_class(context: str, component: str, namespace: dict):
-    # Select grouping based on context prefix.
-    if component == "MLP":
-        print("MLP")
-
     grouping = get_plugin_grouping()
-
     testcases = grouping.get((context, component), [])
     class_name = f"Test_{component}"
     attrs = {}
