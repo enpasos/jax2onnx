@@ -49,11 +49,8 @@ def load_metadata_only_from_dir(
                     spec.loader.exec_module(module)
                     if hasattr(module, "get_metadata"):
                         md = module.get_metadata()
-                        # if isinstance(md, list) then add all elements in the list to metadata_list
-                        # else add the single element to metadata_list
                         md = md if isinstance(md, list) else [md]
                         metadata_list.extend(md)
-
     return metadata_list
 
 
@@ -157,7 +154,6 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         dynamic = entry.copy()
         dynamic["testcase"] += "_dynamic"
         concrete = entry.copy()
-        concrete["testcase"] += "_concrete"
         concrete["input_shapes"] = [
             tuple(3 if dim == "B" else dim for dim in shape) for shape in input_shapes
         ]
