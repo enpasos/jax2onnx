@@ -287,8 +287,7 @@ def create_minimal_test_files(
 
 def generate_all_tests():
     clean_generated_test_dirs()
-    plugin_grouping = get_plugin_grouping()
-    create_minimal_test_files(plugin_grouping, TESTS_DIR)
+    create_minimal_test_files(get_plugin_grouping(), TESTS_DIR)
 
 
 if __name__ == "__main__":
