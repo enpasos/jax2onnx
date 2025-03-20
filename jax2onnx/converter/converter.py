@@ -28,6 +28,7 @@ def save_onnx(
     include_intermediate_shapes: bool = True,
     opset: int = 21,
 ) -> str:
+    import_all_plugins()
     jaxpr2onnx = JaxprToOnnx()
     return jaxpr2onnx.save_onnx(
         fn,
