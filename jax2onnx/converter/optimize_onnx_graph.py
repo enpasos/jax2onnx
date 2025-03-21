@@ -3,7 +3,18 @@
 
 import onnx
 from onnx import shape_inference
-from typing import Dict, List
+from typing import Dict, List, Optional
+from onnx import ModelProto
+from itertools import chain
+
+
+def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
+    onnx_model = shape_inference.infer_shapes(onnx_model)
+    onnx_model = remove_redundant_casts(onnx_model)
+    onnx_model = remove_redundant_reshapes(onnx_model)
+    onnx_model = remove_redundant_transpose_pairs(onnx_model)
+    onnx_model = shape_inference.infer_shapes(onnx_model)
+    return onnx_model
 
 
 def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
@@ -88,7 +99,15 @@ def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
 
 
 # Define the set of allowed elementwise operations.
-ALLOWED_ELEMENTWISE_OPS = {"Elu", "Gelu", "Relu", "Sigmoid", "Tanh"}
+ALLOWED_ELEMENTWISE_OPS = {
+    "Elu",
+    "Gelu",
+    "Relu",
+    "Sigmoid",
+    "Tanh",
+    "Dropout",
+    "LeakyRelu",
+}
 
 
 def remove_redundant_transpose_pairs(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
@@ -205,4 +224,87 @@ def remove_redundant_transpose_pairs(onnx_model: onnx.ModelProto) -> onnx.ModelP
     new_nodes = [n for n in graph.node if n not in nodes_to_remove]
     del graph.node[:]
     graph.node.extend(new_nodes)
+    return onnx_model
+
+
+def get_tensor_shape(name: str, model: onnx.ModelProto) -> Optional[List[int]]:
+    for vi in chain(model.graph.value_info, model.graph.input, model.graph.output):
+        if vi.name == name:
+            return [dim.dim_value for dim in vi.type.tensor_type.shape.dim]
+    return None
+
+
+def remove_redundant_reshapes(onnx_model: ModelProto) -> ModelProto:
+    graph = onnx_model.graph
+
+    # Maps from output names to nodes that consume them
+    output_to_consumers: Dict[str, List[onnx.NodeProto]] = {}
+    for node in graph.node:
+        for inp in node.input:
+            output_to_consumers.setdefault(inp, []).append(node)
+
+    nodes_to_remove: set[int] = set()
+
+    for node in graph.node:
+        if id(node) in nodes_to_remove:
+            continue
+
+        if node.op_type != "Reshape":
+            continue
+
+        reshape_1 = node
+        reshape_1_out = reshape_1.output[0]
+
+        # Allowable intermediate ops between reshape_1 and reshape_2
+        allowed_ops = {"Dropout", "Gelu", "Identity"}
+
+        # Follow chain through allowed ops
+        chain_nodes = [reshape_1]
+        current_output = reshape_1_out
+        success = False
+
+        for _ in range(3):  # limit to short chains
+            consumers = output_to_consumers.get(current_output, [])
+            if len(consumers) != 1:
+                break
+            next_node = consumers[0]
+            if next_node.op_type in allowed_ops:
+                chain_nodes.append(next_node)
+                current_output = next_node.output[0]
+            elif next_node.op_type == "Reshape":
+                reshape_2 = next_node
+                chain_nodes.append(reshape_2)
+
+                # Check if first and last shapes match
+                shape_1 = get_tensor_shape(reshape_1.input[0], onnx_model)
+                shape_2 = get_tensor_shape(reshape_2.output[0], onnx_model)
+
+                if shape_1 != shape_2:
+                    break
+
+                # Rewire: redirect reshape_1's input to reshape_2's output consumers
+                reshape_1_input = reshape_1.input[0]
+                reshape_2_output = reshape_2.output[0]
+                consumers_of_reshape_2 = output_to_consumers.get(reshape_2_output, [])
+                for consumer in consumers_of_reshape_2:
+                    consumer.input[:] = [
+                        reshape_1_input if inp == reshape_2_output else inp
+                        for inp in consumer.input
+                    ]
+
+                # Mark all nodes in chain for removal
+                nodes_to_remove.update(id(n) for n in chain_nodes)
+                success = True
+                break
+            else:
+                break
+
+        if not success:
+            continue
+
+    # ✅ Actually remove nodes (protobuf-safe)
+    kept_nodes = [n for n in graph.node if id(n) not in nodes_to_remove]
+    del graph.node[:]
+    graph.node.extend(kept_nodes)
+
     return onnx_model

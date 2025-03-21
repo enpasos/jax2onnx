@@ -142,7 +142,7 @@ def make_test_function(tp: Dict[str, Any]):
             callable_obj,
             input_shapes,
             model_path,
-            include_intermediate_shapes=True,
+            # include_intermediate_shapes=True,
             opset=21,
         )
 
