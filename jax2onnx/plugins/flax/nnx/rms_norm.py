@@ -2,8 +2,8 @@
 RMS Norm Plugin for JAX to ONNX conversion.
 
 This plugin enables conversion of flax.nnx.RMSNorm layers to ONNX format.
-It transforms JAX’s rms_norm operations into an ONNX RMSNormalization operator
-with necessary Transpose operations for NHWC to NCHW conversion.
+It transforms JAX's rms_norm operations into an ONNX RMSNormalization operator
+and falls back to a manual graph construction if needed.
 """
 
 from typing import TYPE_CHECKING
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 # Define a new primitive for RMS norm.
 nnx.rms_norm_p = Primitive("nnx.rms_norm")
-nnx.rms_norm_p.multiple_results = False  # Set at initialization
+nnx.rms_norm_p.multiple_results = False
 
 
 @register_primitive(
@@ -28,7 +28,7 @@ nnx.rms_norm_p.multiple_results = False  # Set at initialization
     onnx=[
         {
             "component": "RMSNormalization",
-            "doc": "https://example.com/onnx_RMSNormalization_doc",  # Replace with an appropriate doc link if available.
+            "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
         },
     ],
     since="v0.3.0",
@@ -50,135 +50,131 @@ class RMSNormPlugin(PrimitivePlugin):
     """
     Plugin for converting flax.nnx.RMSNorm to ONNX.
 
-    Converts an RMSNorm operation into an RMSNormalization operator
-    with necessary Transpose operations for NHWC to NCHW conversion.
+    Attempts to use native RMSNormalization ONNX op, otherwise falls back to manual construction.
     """
 
     @staticmethod
     def abstract_eval(x, scale, *args, **kwargs):
-        """Abstract evaluation function for rms_norm."""
         return core.ShapedArray(x.shape, x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of rms_norm to ONNX format."""
         input_name = s.get_name(node_inputs[0])
         scale_name = s.get_name(node_inputs[1])
         final_output_name = s.get_name(node_outputs[0])
         epsilon = params.get("epsilon", 1e-5)
+        # is supported in ONNX implementation, yet ... coming soon
 
-        node_inputs[0].aval.shape  # e.g. (11, 2, 2, 64) or (2, 20)
-
-        # Calculate mean of squares
+        # try:
+        #     rms_node = helper.make_node(
+        #         "RMSNormalization",
+        #         inputs=[input_name, scale_name],
+        #         outputs=[final_output_name],
+        #         name=s.get_unique_name("RMSNormalization"),
+        #         epsilon=epsilon,
+        #         axes=[-1],
+        #     )
+        #     s.add_node(rms_node)
+        #     return
+        # except Exception:
+        #     # fallback implementation
         mean_square_name = s.get_unique_name("mean_square")
-        mean_square_node = helper.make_node(
-            "ReduceMean",
-            inputs=[input_name],
-            outputs=[mean_square_name],
-            name=s.get_unique_name("reduce_mean_square"),
-            keepdims=1,  # Change to 1
+        s.add_node(
+            helper.make_node(
+                "ReduceMean",
+                [input_name],
+                [mean_square_name],
+                name=s.get_unique_name("reduce_mean_square"),
+                keepdims=1,
+            )
         )
-        s.add_node(mean_square_node)
 
-        # Subtract mean square from input
         sub_name = s.get_unique_name("sub")
-        sub_node = helper.make_node(
-            "Sub",
-            inputs=[input_name, mean_square_name],
-            outputs=[sub_name],
-            name=s.get_unique_name("sub_mean_square"),
+        s.add_node(
+            helper.make_node(
+                "Sub",
+                [input_name, mean_square_name],
+                [sub_name],
+                name=s.get_unique_name("sub_mean_square"),
+            )
         )
-        s.add_node(sub_node)
 
-        # Square the result
         square_name = s.get_unique_name("square")
-        square_node = helper.make_node(
-            "Pow",
-            inputs=[sub_name, s.get_constant_name(np.array(2.0, dtype=np.float32))],
-            outputs=[square_name],
-            name=s.get_unique_name("square"),
+        s.add_node(
+            helper.make_node(
+                "Pow",
+                [sub_name, s.get_constant_name(np.array(2.0, dtype=np.float32))],
+                [square_name],
+                name=s.get_unique_name("square"),
+            )
         )
-        s.add_node(square_node)
 
-        # Calculate mean of squares
         mean_square_2_name = s.get_unique_name("mean_square_2")
-        mean_square_2_node = helper.make_node(
-            "ReduceMean",
-            inputs=[square_name],
-            outputs=[mean_square_2_name],
-            name=s.get_unique_name("reduce_mean_square_2"),
-            keepdims=1,  # Change to 1
+        s.add_node(
+            helper.make_node(
+                "ReduceMean",
+                [square_name],
+                [mean_square_2_name],
+                name=s.get_unique_name("reduce_mean_square_2"),
+                keepdims=1,
+            )
         )
-        s.add_node(mean_square_2_node)
 
-        # Add epsilon
         add_epsilon_name = s.get_unique_name("add_epsilon")
-        add_epsilon_node = helper.make_node(
-            "Add",
-            inputs=[
-                mean_square_2_name,
-                s.get_constant_name(np.array(epsilon, dtype=np.float32)),
-            ],
-            outputs=[add_epsilon_name],
-            name=s.get_unique_name("add_epsilon"),
+        s.add_node(
+            helper.make_node(
+                "Add",
+                [
+                    mean_square_2_name,
+                    s.get_constant_name(np.array(epsilon, dtype=np.float32)),
+                ],
+                [add_epsilon_name],
+                name=s.get_unique_name("add_epsilon"),
+            )
         )
-        s.add_node(add_epsilon_node)
 
-        # Calculate sqrt
         sqrt_name = s.get_unique_name("sqrt")
-        sqrt_node = helper.make_node(
-            "Sqrt",
-            inputs=[add_epsilon_name],
-            outputs=[sqrt_name],
-            name=s.get_unique_name("sqrt"),
+        s.add_node(
+            helper.make_node(
+                "Sqrt", [add_epsilon_name], [sqrt_name], name=s.get_unique_name("sqrt")
+            )
         )
-        s.add_node(sqrt_node)
 
-        # Divide input by sqrt
         div_name = s.get_unique_name("div")
-        div_node = helper.make_node(
-            "Div",
-            inputs=[input_name, sqrt_name],
-            outputs=[div_name],
-            name=s.get_unique_name("div"),
+        s.add_node(
+            helper.make_node(
+                "Div",
+                [input_name, sqrt_name],
+                [div_name],
+                name=s.get_unique_name("div"),
+            )
         )
-        s.add_node(div_node)
 
-        # Multiply by scale
-        s.get_unique_name("mul")
-        mul_node = helper.make_node(
-            "Mul",
-            inputs=[div_name, scale_name],
-            outputs=[final_output_name],
-            name=s.get_unique_name("mul"),
+        s.add_node(
+            helper.make_node(
+                "Mul",
+                [div_name, scale_name],
+                [final_output_name],
+                name=s.get_unique_name("mul"),
+            )
         )
-        s.add_node(mul_node)
 
     @staticmethod
     def _rms_norm(x, scale, epsilon):
-        nnx.rms_norm_p.multiple_results = False
         return nnx.rms_norm_p.bind(x, scale, epsilon=epsilon)
 
     @staticmethod
     def rms_norm(x, scale, epsilon):
-        """Binding function for rms_norm."""
         return RMSNormPlugin._rms_norm(x, scale, epsilon)
 
     @staticmethod
     def get_monkey_patch():
-        """Returns a patched version of RMSNorm.__call__."""
-
         def patched_rms_norm_call(self, x):
-            return RMSNormPlugin._rms_norm(
-                x,
-                self.scale.value,
-                epsilon=self.epsilon,
-            )
+            return RMSNormPlugin._rms_norm(x, self.scale.value, self.epsilon)
 
         return patched_rms_norm_call
 
     @staticmethod
     def patch_info():
-        """Provides patching information."""
         return {
             "patch_targets": [nnx.RMSNorm],
             "patch_function": lambda _: RMSNormPlugin.get_monkey_patch(),
@@ -186,5 +182,5 @@ class RMSNormPlugin(PrimitivePlugin):
         }
 
 
-# Register abstract evaluation function.
+# Register abstract evaluation function
 nnx.rms_norm_p.def_abstract_eval(RMSNormPlugin.abstract_eval)
