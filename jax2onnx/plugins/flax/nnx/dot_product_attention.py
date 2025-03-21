@@ -1,7 +1,7 @@
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
-from onnx import helper
+from onnx import helper, TensorProto
 from flax import nnx
 from typing import TYPE_CHECKING
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 # Define the JAX primitive for dot product attention.
 nnx.dot_product_attention_p = Primitive("nnx.dot_product_attention")
-nnx.dot_product_attention_p.multiple_results = False  # Correctly set at initialization
+nnx.dot_product_attention_p.multiple_results = False
 
 
 @register_primitive(
@@ -19,16 +19,19 @@ nnx.dot_product_attention_p.multiple_results = False  # Correctly set at initial
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
     onnx=[
         {
-            "component": "Constant",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
         },
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
+        {"component": "Sqrt", "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
         {
             "component": "Einsum",
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
-        },
-        {
-            "component": "Mul",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html",
         },
         {
             "component": "Softmax",
@@ -52,19 +55,16 @@ class DotProductAttentionPlugin(PrimitivePlugin):
 
     @staticmethod
     def _shape_dot_product_attention(q_shape, k_shape, v_shape):
-        """Computes the output shape of dot_product_attention."""
         return q_shape
 
     @staticmethod
     def abstract_eval(q, k, v, axis=-1):
-        """Abstract evaluation function for dot_product_attention."""
         output_shape = DotProductAttentionPlugin._shape_dot_product_attention(
             q.shape, k.shape, v.shape
         )
         return core.ShapedArray(output_shape, q.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of dot_product_attention to ONNX format."""
         q_var, k_var, v_var = node_inputs[:3]
         output_var = node_outputs[0]
 
@@ -79,12 +79,7 @@ class DotProductAttentionPlugin(PrimitivePlugin):
         B, N, H, E = q_shape
         _, M, _, _ = k_shape
 
-        scale_value = 1.0 / np.sqrt(E)
-        scale_const_name = s.builder.get_constant_name(
-            np.array(scale_value, dtype=np.float32)
-        )
-
-        # Attention scores (Einsum)
+        # Step 1: Compute raw attention scores with Einsum
         attn_scores_name = s.get_unique_name("attn_scores")
         attn_scores_shape = (B, N, H, M)
         s.add_node(
@@ -98,32 +93,80 @@ class DotProductAttentionPlugin(PrimitivePlugin):
         )
         s.add_shape_info(attn_scores_name, attn_scores_shape)
 
-        # Scaled attention scores (Mul)
+        # Step 2: Compute sqrt(E) dynamically from q.shape[-1]
+        # q_shape = Shape(q)
+        q_shape_name = s.get_unique_name("q_shape")
+        s.add_node(
+            helper.make_node(
+                "Shape",
+                inputs=[q_name],
+                outputs=[q_shape_name],
+                name=s.get_unique_name("shape_q"),
+            )
+        )
+
+        # Gather last dim
+        e_index_name = s.builder.get_constant_name(np.array([-1], dtype=np.int64))
+        e_dim_name = s.get_unique_name("q_last_dim")
+        s.add_node(
+            helper.make_node(
+                "Gather",
+                inputs=[q_shape_name, e_index_name],
+                outputs=[e_dim_name],
+                axis=0,
+                name=s.get_unique_name("gather_E"),
+            )
+        )
+
+        # Cast E to float
+        e_dim_float_name = s.get_unique_name("e_dim_float")
+        s.add_node(
+            helper.make_node(
+                "Cast",
+                inputs=[e_dim_name],
+                outputs=[e_dim_float_name],
+                to=TensorProto.FLOAT,
+                name=s.get_unique_name("cast_e"),
+            )
+        )
+
+        # sqrt(E)
+        sqrt_e_name = s.get_unique_name("sqrt_e")
+        s.add_node(
+            helper.make_node(
+                "Sqrt",
+                inputs=[e_dim_float_name],
+                outputs=[sqrt_e_name],
+                name=s.get_unique_name("sqrt_e"),
+            )
+        )
+
+        # Step 3: Divide qk by sqrt(E)
         scaled_scores_name = s.get_unique_name("scaled_scores")
         s.add_node(
             helper.make_node(
-                "Mul",
-                inputs=[attn_scores_name, scale_const_name],
+                "Div",
+                inputs=[attn_scores_name, sqrt_e_name],
                 outputs=[scaled_scores_name],
                 name=s.get_unique_name("scale"),
             )
         )
         s.add_shape_info(scaled_scores_name, attn_scores_shape)
 
-        # Attention weights (Softmax)
+        # Step 4: Softmax
         attn_weights_name = s.get_unique_name("attn_weights")
         s.add_node(
             helper.make_node(
                 "Softmax",
                 inputs=[scaled_scores_name],
                 outputs=[attn_weights_name],
-                axis=params.get("axis", -1),  # Correctly use 'axis' from params
+                axis=params.get("axis", -1),
                 name=s.get_unique_name("softmax"),
             )
         )
         s.add_shape_info(attn_weights_name, attn_scores_shape)
 
-        # Attention output (Einsum)
+        # Step 5: Weighted sum: einsum(attn_weights, v)
         attn_output_shape = (B, N, H, v_shape[-1])
         s.add_node(
             helper.make_node(
@@ -138,13 +181,10 @@ class DotProductAttentionPlugin(PrimitivePlugin):
 
     @staticmethod
     def _dot_product_attention(q, k, v, axis=-1):
-        """Defines the primitive binding for dot_product_attention."""
         return nnx.dot_product_attention_p.bind(q, k, v, axis=axis)
 
     @staticmethod
     def get_monkey_patch():
-        """Provides patching information for dot_product_attention."""
-
         def patched_dot_product_attention(q, k, v, axis=-1):
             return DotProductAttentionPlugin._dot_product_attention(q, k, v, axis)
 
@@ -152,7 +192,6 @@ class DotProductAttentionPlugin(PrimitivePlugin):
 
     @staticmethod
     def patch_info():
-        """Provides patching information for dot_product_attention."""
         return {
             "patch_targets": [nnx],
             "patch_function": lambda _: DotProductAttentionPlugin.get_monkey_patch(),
@@ -160,5 +199,5 @@ class DotProductAttentionPlugin(PrimitivePlugin):
         }
 
 
-# Register abstract evaluation function.
+# Register abstract evaluation
 nnx.dot_product_attention_p.def_abstract_eval(DotProductAttentionPlugin.abstract_eval)
