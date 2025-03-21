@@ -10,8 +10,7 @@ import contextlib
 import inspect
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import (
-    remove_redundant_transpose_pairs,
-    remove_redundant_casts,
+    improve_onnx_model,
 )
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
@@ -25,7 +24,7 @@ def save_onnx(
     input_shapes: Any,
     output_path: str = "model.onnx",
     model_name: str = "jax_model",
-    include_intermediate_shapes: bool = True,
+    # include_intermediate_shapes: bool = True,
     opset: int = 21,
 ) -> str:
     import_all_plugins()
@@ -35,7 +34,7 @@ def save_onnx(
         input_shapes,
         output_path=output_path,
         model_name=model_name,
-        include_intermediate_shapes=include_intermediate_shapes,
+        # include_intermediate_shapes=include_intermediate_shapes,
         opset=opset,
     )
 
@@ -47,7 +46,7 @@ class JaxprToOnnx:
         input_shapes: Any,
         output_path: str = "model.onnx",
         model_name: str = "jax_model",
-        include_intermediate_shapes: bool = True,
+        include_intermediate_shapes: bool = False,
         opset: int = 21,
     ) -> str:
 
@@ -112,9 +111,7 @@ class JaxprToOnnx:
             graph, opset_imports=[helper.make_opsetid("", opset)]
         )
 
-        onnx_model = remove_redundant_transpose_pairs(
-            remove_redundant_casts(onnx_model)
-        )
+        onnx_model = improve_onnx_model(onnx_model)
 
         onnx.save_model(onnx_model, output_path)
 
