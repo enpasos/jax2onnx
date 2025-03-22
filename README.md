@@ -15,35 +15,45 @@
 
 ## 🚀 Quickstart
 
-Here's how simple it is to convert your JAX callable to ONNX:
+Convert your JAX callable to ONNX in just a few lines:
 
 ```python
 from jax2onnx import save_onnx
-from flax import nnx 
+from flax import nnx
 
-# Example: A minimal MLP (from Flax documentation)
+# Define a simple MLP (from Flax docs)
 class MLP(nnx.Module):
   def __init__(self, din, dmid, dout, *, rngs):
     self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
     self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
     self.bn = nnx.BatchNorm(dmid, rngs=rngs)
     self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+
   def __call__(self, x):
     x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
     return self.linear2(x)
 
 # Instantiate model
-my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
+jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
-# Convert and save to ONNX
-save_onnx(
-    my_callable,
-    [('B', 30)],          # Input shapes, batch size 'B' is symbolic
-    "my_callable.onnx"    # Output path
-)
+# Save directly to ONNX 
+save_onnx(jax_callable, [('B', 30)], "my_model.onnx")
 ```
-The result: [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_callable.onnx)
 
+✅ Result: [`my_model.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_model.onnx)
+
+---
+
+Or convert to an in-memory ONNX model first:
+
+```python
+from jax2onnx import to_onnx
+import onnx
+
+jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
+onnx_model = to_onnx(jax_callable, [('B', 30)])
+onnx.save_model(onnx_model, "my_model.onnx")
+```
 
 ---
 
@@ -136,7 +146,7 @@ If conversion doesn't work out of the box, it could be due to:
 | [nnx.batch_norm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm) | [BatchNormalization](https://onnx.ai/onnx/operators/onnx__BatchNormalization.html) | [`batch_norm`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/batch_norm.onnx) ✅<br>[`batch_norm_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/batch_norm_2.onnx) ✅<br>[`batch_norm_3d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/batch_norm_3d.onnx) ✅<br>[`batch_norm_float64`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/batch_norm_float64.onnx) ✅<br>[`batch_norm_single_batch`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/batch_norm_single_batch.onnx) ✅ | v0.1.0 |
 | [nnx.conv](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv) | [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html)<br>[Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | [`conv_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_dynamic.onnx) ✅<br>[`conv`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv.onnx) ✅<br>[`conv_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_2.onnx) ✅<br>[`conv_3`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_3.onnx) ✅<br>[`conv_4`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_4.onnx) ✅ | v0.1.0 |
 | [nnx.conv_transpose](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/conv_transpose.html) | [ConvTranspose](https://onnx.ai/onnx/operators/onnx__ConvTranspose.html) | [`conv_transpose_valid_padding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_transpose_valid_padding.onnx) ✅<br>[`conv_transpose_circular_padding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/conv_transpose_circular_padding.onnx) ✅ | v0.3.0 |
-| [nnx.dot_product_attention](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention) | [Constant](https://onnx.ai/onnx/operators/onnx__Constant.html)<br>[Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html)<br>[Mul](https://onnx.ai/onnx/operators/onnx__Mul.html)<br>[Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html) | [`dot_product_attention`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/dot_product_attention.onnx) ✅ | v0.1.0 |
+| [nnx.dot_product_attention](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention) | [Cast](https://onnx.ai/onnx/operators/onnx__Cast.html)<br>[Div](https://onnx.ai/onnx/operators/onnx__Div.html)<br>[Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html)<br>[Gather](https://onnx.ai/onnx/operators/onnx__Gather.html)<br>[Shape](https://onnx.ai/onnx/operators/onnx__Shape.html)<br>[Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html)<br>[Sqrt](https://onnx.ai/onnx/operators/onnx__Sqrt.html) | [`dot_product_attention`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/dot_product_attention.onnx) ✅ | v0.1.0 |
 | [nnx.dropout](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout) | [Dropout](https://onnx.ai/onnx/operators/onnx__Dropout.html) | [`dropout_inference`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/dropout_inference.onnx) ✅ | v0.1.0 |
 | [nnx.elu](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.elu.html) | [Elu](https://onnx.ai/onnx/operators/onnx__Elu.html) | [`elu`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/elu.onnx) ✅ | v0.1.0 |
 | [nnx.gelu](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html) | [Gelu](https://onnx.ai/onnx/operators/onnx__Gelu.html) | [`gelu`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/gelu.onnx) ✅<br>[`gelu_1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/gelu_1.onnx) ✅<br>[`gelu_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/gelu_2.onnx) ✅<br>[`gelu_3`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/gelu_3.onnx) ✅ | v0.1.0 |
@@ -148,7 +158,7 @@ If conversion doesn't work out of the box, it could be due to:
 | [nnx.log_softmax](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.log_softmax.html) | [LogSoftmax](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html) | [`log_softmax`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/log_softmax.onnx) ✅ | v0.1.0 |
 | [nnx.max_pool](https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool) | [MaxPool](https://onnx.ai/onnx/operators/onnx__MaxPool.html)<br>[Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | [`max_pool`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/max_pool.onnx) ✅<br>[`max_pool_same_padding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/max_pool_same_padding.onnx) ✅ | v0.1.0 |
 | [nnx.relu](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.relu.html) | [Relu](https://onnx.ai/onnx/operators/onnx__Relu.html) | [`relu`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/relu.onnx) ✅<br>[`relu_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/relu_2.onnx) ✅ | v0.1.0 |
-| [nnx.rms_norm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.RMSNorm) | [RMSNormalization](https://example.com/onnx_RMSNormalization_doc) | [`rms_norm`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/rms_norm.onnx) ✅<br>[`rms_norm_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/rms_norm_2.onnx) ✅ | v0.3.0 |
+| [nnx.rms_norm](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.RMSNorm) | [RMSNormalization](https://onnx.ai/onnx/operators/onnx__RMSNormalization.html) | [`rms_norm`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/rms_norm.onnx) ✅<br>[`rms_norm_2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/rms_norm_2.onnx) ✅ | v0.3.0 |
 | [nnx.sigmoid](https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.sigmoid) | [Sigmoid](https://onnx.ai/onnx/operators/onnx__Sigmoid.html) | [`sigmoid`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/sigmoid.onnx) ✅ | v0.1.0 |
 | [nnx.softmax](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html) | [Softmax](https://onnx.ai/onnx/operators/onnx__Softmax.html) | [`softmax`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/softmax.onnx) ✅ | v0.1.0 |
 | [nnx.softplus](https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softplus.html) | [Softplus](https://onnx.ai/onnx/operators/onnx__Softplus.html) | [`softplus`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/nnx/softplus.onnx) ✅ | v0.1.0 |

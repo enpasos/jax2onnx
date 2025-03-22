@@ -24,31 +24,44 @@ def save_onnx(
     input_shapes: Any,
     output_path: str = "model.onnx",
     model_name: str = "jax_model",
-    # include_intermediate_shapes: bool = True,
     opset: int = 21,
-) -> str:
-    import_all_plugins()
-    jaxpr2onnx = JaxprToOnnx()
-    return jaxpr2onnx.save_onnx(
+):
+    onnx_model = to_onnx(
         fn,
         input_shapes,
-        output_path=output_path,
         model_name=model_name,
-        # include_intermediate_shapes=include_intermediate_shapes,
         opset=opset,
     )
+    onnx.save_model(onnx_model, output_path)
+
+
+def to_onnx(
+    fn: Any,
+    input_shapes: Any,
+    model_name: str = "jax_model",
+    opset: int = 21,
+) -> onnx.ModelProto:
+    import_all_plugins()
+    jaxpr2onnx = JaxprToOnnx()
+    onnx_model = jaxpr2onnx.to_onnx(
+        fn,
+        input_shapes,
+        model_name=model_name,
+        opset=opset,
+    )
+    return onnx_model
 
 
 class JaxprToOnnx:
-    def save_onnx(
+    def to_onnx(
         self,
         fn: Any,
         input_shapes: Any,
-        output_path: str = "model.onnx",
+        # output_path: str = "model.onnx",
         model_name: str = "jax_model",
         include_intermediate_shapes: bool = False,
         opset: int = 21,
-    ) -> str:
+    ) -> onnx.ModelProto:
 
         # if input_shapes have dynamic batch dimensions then include_intermediate_shapes must be False
         if any("B" in shape for shape in input_shapes):
@@ -113,9 +126,7 @@ class JaxprToOnnx:
 
         onnx_model = improve_onnx_model(onnx_model)
 
-        onnx.save_model(onnx_model, output_path)
-
-        return output_path
+        return onnx_model
 
     def _validate_input_shapes(self, input_shapes):
         for shape in input_shapes:

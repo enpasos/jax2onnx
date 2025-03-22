@@ -1,7 +1,8 @@
 # file: quickstart.py
 
-from jax2onnx import save_onnx
+import onnx
 from flax import nnx
+from jax2onnx import to_onnx
 
 
 # Example: A minimal MLP (from Flax documentation)
@@ -21,8 +22,13 @@ class MLP(nnx.Module):
 my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
 # Convert and save to ONNX
-save_onnx(
-    my_callable,
-    [("B", 30)],  # Input shapes, batch size 'B' is symbolic
-    "my_callable.onnx",  # Output path
-)
+# save_onnx(
+#     my_callable,
+#     [("B", 30)],  # Input shapes, batch size 'B' is symbolic
+#     "my_callable.onnx",  # Output path
+# )
+
+
+onnx_model = to_onnx(my_callable, [("B", 30)])
+
+onnx.save_model(onnx_model, "my_callable.onnx")
