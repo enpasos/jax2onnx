@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/flax/nnx/dot_product_attention.py
+
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
@@ -43,7 +45,7 @@ nnx.dot_product_attention_p.multiple_results = False
     testcases=[
         {
             "testcase": "dot_product_attention",
-            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "callable": lambda q, k, v: nnx.nn.attention.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
         },
     ],
