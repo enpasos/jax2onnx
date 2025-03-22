@@ -237,73 +237,84 @@ def get_tensor_shape(name: str, model: onnx.ModelProto) -> Optional[List[int]]:
 def remove_redundant_reshapes(onnx_model: ModelProto) -> ModelProto:
     graph = onnx_model.graph
 
-    # Maps from output names to nodes that consume them
+    # Build mapping from output name to consumer nodes.
     output_to_consumers: Dict[str, List[onnx.NodeProto]] = {}
     for node in graph.node:
         for inp in node.input:
             output_to_consumers.setdefault(inp, []).append(node)
 
-    nodes_to_remove: set[int] = set()
+    nodes_to_remove = set()
 
-    for node in graph.node:
-        if id(node) in nodes_to_remove:
+    # Iterate over a copy of the node list.
+    for node in list(graph.node):
+        if node.op_type != "Reshape" or id(node) in nodes_to_remove:
             continue
 
-        if node.op_type != "Reshape":
-            continue
+        T1 = node  # first Reshape
+        chain = [T1]
+        allowed_nodes = []
+        current_output = T1.output[0]
+        T2 = None
 
-        reshape_1 = node
-        reshape_1_out = reshape_1.output[0]
-
-        # Allowable intermediate ops between reshape_1 and reshape_2
-        allowed_ops = {"Dropout", "Gelu", "Identity"}
-
-        # Follow chain through allowed ops
-        chain_nodes = [reshape_1]
-        current_output = reshape_1_out
-        success = False
-
-        for _ in range(3):  # limit to short chains
+        # Follow a chain through allowed ops (max 3 hops).
+        for _ in range(3):
             consumers = output_to_consumers.get(current_output, [])
             if len(consumers) != 1:
                 break
             next_node = consumers[0]
-            if next_node.op_type in allowed_ops:
-                chain_nodes.append(next_node)
+            if next_node.op_type in ALLOWED_ELEMENTWISE_OPS:
+                chain.append(next_node)
+                allowed_nodes.append(next_node)
                 current_output = next_node.output[0]
+                continue
             elif next_node.op_type == "Reshape":
-                reshape_2 = next_node
-                chain_nodes.append(reshape_2)
-
-                # Check if first and last shapes match
-                shape_1 = get_tensor_shape(reshape_1.input[0], onnx_model)
-                shape_2 = get_tensor_shape(reshape_2.output[0], onnx_model)
-
-                if shape_1 != shape_2:
-                    break
-
-                # Rewire: redirect reshape_1's input to reshape_2's output consumers
-                reshape_1_input = reshape_1.input[0]
-                reshape_2_output = reshape_2.output[0]
-                consumers_of_reshape_2 = output_to_consumers.get(reshape_2_output, [])
-                for consumer in consumers_of_reshape_2:
-                    consumer.input[:] = [
-                        reshape_1_input if inp == reshape_2_output else inp
-                        for inp in consumer.input
-                    ]
-
-                # Mark all nodes in chain for removal
-                nodes_to_remove.update(id(n) for n in chain_nodes)
-                success = True
+                T2 = next_node
+                chain.append(T2)
                 break
             else:
                 break
 
-        if not success:
+        if T2 is None:
             continue
 
-    # ✅ Actually remove nodes (protobuf-safe)
-    kept_nodes = [n for n in graph.node if id(n) not in nodes_to_remove]
+        # Verify that the shapes match: shape(T1.input) == shape(T2.output)
+        shape1 = get_tensor_shape(T1.input[0], onnx_model)
+        shape2 = get_tensor_shape(T2.output[0], onnx_model)
+        if shape1 != shape2:
+            continue
+
+        new_input = T1.input[0]
+        new_output = T2.output[0]
+
+        if allowed_nodes:
+            # Rewire the first allowed node's inputs.
+            first_allowed = allowed_nodes[0]
+            for idx in range(len(first_allowed.input)):
+                if first_allowed.input[idx] == T1.output[0]:
+                    first_allowed.input[idx] = new_input
+            # Rewire the last allowed node's output.
+            last_allowed = allowed_nodes[-1]
+            if len(last_allowed.output) > 0:
+                last_allowed.output[0] = new_output
+        else:
+            # Direct chain: rewire all consumers of T2's output.
+            consumers_T2 = output_to_consumers.get(new_output, [])
+            for consumer in consumers_T2:
+                for idx in range(len(consumer.input)):
+                    if consumer.input[idx] == new_output:
+                        consumer.input[idx] = new_input
+
+        # Update graph outputs if necessary.
+        for out in graph.output:
+            if out.name == new_output:
+                if not allowed_nodes:
+                    out.name = new_input
+
+        # Mark only the two Reshape nodes for removal.
+        nodes_to_remove.update({id(T1), id(T2)})
+
+    # Actually remove the marked nodes.
+    kept_nodes = [node for node in graph.node if id(node) not in nodes_to_remove]
     del graph.node[:]
     graph.node.extend(kept_nodes)
 
