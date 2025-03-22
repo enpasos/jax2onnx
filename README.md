@@ -37,10 +37,10 @@ class MLP(nnx.Module):
 jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
 # Save directly to ONNX 
-save_onnx(jax_callable, [('B', 30)], "my_model.onnx")
+save_onnx(jax_callable, [('B', 30)], "jax_callable.onnx")
 ```
 
-✅ Result: [`my_model.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_model.onnx)
+✅ Result: [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
 
 ---
 
@@ -52,7 +52,7 @@ import onnx
 
 jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 onnx_model = to_onnx(jax_callable, [('B', 30)])
-onnx.save_model(onnx_model, "my_model.onnx")
+onnx.save_model(onnx_model, "jax_callable.onnx")
 ```
 
 ---
