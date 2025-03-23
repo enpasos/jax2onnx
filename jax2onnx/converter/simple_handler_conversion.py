@@ -1,12 +1,65 @@
-# file: jax2onnx/converter/simple_handler_conversion.py
-
 import jax
 import onnx
 from typing import Any
-import jax.random
+import jax.numpy as jnp
+from onnx import helper
 from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
+from jax2onnx.converter.onnx_functions import (
+    ONNX_FUNCTION_REGISTRY,
+    find_decorated_calls_in_jaxpr,
+)
+
+
+def trace_to_jaxpr(fn, input_shapes):
+    example_args = [jnp.zeros([2 if d == "B" else d for d in s]) for s in input_shapes]
+    closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+    print(closed_jaxpr)
+    return closed_jaxpr.jaxpr
+
+
+def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
+    pending_registry = ONNX_FUNCTION_REGISTRY.copy()
+    extracted_models = {}
+
+    while pending_registry:
+        jaxpr = trace_to_jaxpr(fn, input_shapes)
+        decorated_calls = find_decorated_calls_in_jaxpr(jaxpr, pending_registry)
+
+        if not decorated_calls:
+            break
+
+        for func_name, cls in decorated_calls.items():
+            instance = cls()
+
+            # Temporarily unregister to isolate nested calls
+            del ONNX_FUNCTION_REGISTRY[func_name]
+
+            sub_model = to_onnx(
+                instance, input_shapes, model_name=func_name, opset=opset
+            )
+            extracted_models[func_name] = sub_model
+
+            # Re-register after extraction
+            ONNX_FUNCTION_REGISTRY[func_name] = cls
+            del pending_registry[func_name]
+
+    final_model = to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
+
+    # Inject extracted ONNX functions into final ONNX model
+    for name, model in extracted_models.items():
+        graph = model.graph
+        onnx_func = onnx.FunctionProto()
+        onnx_func.name = name
+        onnx_func.domain = ""  # default domain
+        onnx_func.input.extend([i.name for i in graph.input])
+        onnx_func.output.extend([o.name for o in graph.output])
+        onnx_func.node.extend(graph.node)
+
+        final_model.functions.append(onnx_func)
+
+    return final_model
 
 
 def to_onnx(
@@ -22,8 +75,6 @@ def to_onnx(
         custom_primitive_handler,
     )
     from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitivePlugin
-    import jax.numpy as jnp
-    from onnx import helper
 
     # Handle symbolic dimensions
     if any("B" in shape for shape in input_shapes):
@@ -50,8 +101,7 @@ def to_onnx(
         if isinstance(plugin, PrimitivePlugin):
             converter.primitive_handlers[name] = plugin.get_handler(converter)
 
-    # Register handlers for ONNX functions (hierarchical)
-
+    # Register handlers for ONNX primitives/functions
     for name, primitive in ONNX_PRIMITIVE_REGISTRY.items():
         converter.primitive_handlers[name] = (
             lambda conv, eqn, params, n=name: custom_primitive_handler(

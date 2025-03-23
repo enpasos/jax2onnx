@@ -1,13 +1,39 @@
-# jax2onnx/converter/user_interface.py
-
 import onnx
 from typing import Any
 import numpy as np
 import onnxruntime as ort
-from jax2onnx.plugin_system import (
-    import_all_plugins,
+from jax2onnx.converter.simple_handler_conversion import (
+    hierarchical_to_onnx,
+    to_onnx as basic_to_onnx,
 )
-from jax2onnx.converter.simple_handler_conversion import to_onnx as simple_to_onnx
+
+
+def to_onnx(
+    fn: Any,
+    input_shapes: Any,
+    model_name: str = "jax_model",
+    opset: int = 21,
+    hierarchical: bool = False,
+) -> onnx.ModelProto:
+    """
+    User-friendly interface for converting JAX functions to ONNX.
+
+    Args:
+        fn: JAX function or module to convert.
+        input_shapes: List of input shapes (tuples).
+        model_name: Name of the ONNX model.
+        opset: ONNX opset version.
+        hierarchical: Use hierarchical ONNX functions.
+
+    Returns:
+        An ONNX ModelProto object.
+    """
+    if hierarchical:
+        return hierarchical_to_onnx(
+            fn, input_shapes, model_name=model_name, opset=opset
+        )
+    else:
+        return basic_to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
 
 
 def save_onnx(
@@ -16,30 +42,16 @@ def save_onnx(
     output_path: str = "model.onnx",
     model_name: str = "jax_model",
     opset: int = 21,
+    hierarchical: bool = False,
 ):
     onnx_model = to_onnx(
         fn,
         input_shapes,
         model_name=model_name,
         opset=opset,
+        hierarchical=hierarchical,
     )
     onnx.save_model(onnx_model, output_path)
-
-
-def to_onnx(
-    fn: Any,
-    input_shapes: Any,
-    model_name: str = "jax_model",
-    opset: int = 21,
-) -> onnx.ModelProto:
-    import_all_plugins()
-    onnx_model = simple_to_onnx(
-        fn,
-        input_shapes,
-        model_name=model_name,
-        opset=opset,
-    )
-    return onnx_model
 
 
 def allclose(callable, onnx_model_path, *xs):
