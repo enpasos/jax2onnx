@@ -56,14 +56,26 @@ def parse_pytest_results() -> Dict[Tuple[str, str, str], str]:
 
     test_results = {}
     for test in data.get("tests", []):
-        partA, partB, partC = test["nodeid"].split("::")
+        parts = test["nodeid"].split("::")
+
+        if len(parts) == 3:
+            partA, partB, partC = parts
+        elif len(parts) == 2:
+            partA, partC = parts
+            partB = "NoClass"
+        else:
+            logging.warning(f"⚠️ Unexpected nodeid format: {test['nodeid']}")
+            continue
+
         partAs = partA.split("/")
+        if len(partAs) < 2 or partAs[1] not in {"examples", "primitives"}:
+            continue
+
         testcase_name = (
             partC.replace("test_", "") if partC.startswith("test_") else partC
         )
-        situation = partAs[1]  # expecting "examples" or "primitives"
+        situation = partAs[1]  # "examples" or "primitives"
         context = partAs[-1]
-
         context = (
             context.replace("test_", "") if context.startswith("test_") else context
         )

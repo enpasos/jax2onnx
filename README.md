@@ -62,7 +62,8 @@ onnx.save_model(onnx_model, "jax_callable.onnx")
 
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.4.0** *(Upcoming)*: Introducing ONNX function support.
+- **0.4.0** *(Upcoming)*: Introducing ONNX function support ... somehow like this [`function_example.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/sandbox/onnx_with_mlp_function_option1b.onnx)
+
 
 
 ### **Current Productive Version**
