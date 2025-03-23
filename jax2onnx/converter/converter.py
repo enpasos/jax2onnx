@@ -9,9 +9,7 @@ import jax.random
 import contextlib
 import inspect
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.optimize_onnx_graph import (
-    improve_onnx_model,
-)
+from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitivePlugin,
@@ -57,40 +55,64 @@ class JaxprToOnnx:
         self,
         fn: Any,
         input_shapes: Any,
-        # output_path: str = "model.onnx",
         model_name: str = "jax_model",
         include_intermediate_shapes: bool = False,
         opset: int = 21,
     ) -> onnx.ModelProto:
 
-        # if input_shapes have dynamic batch dimensions then include_intermediate_shapes must be False
+        from jax2onnx.onnx_functions import (
+            ONNX_PRIMITIVE_REGISTRY,
+            custom_primitive_handler,
+        )
+        from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitivePlugin
+        import jax.numpy as jnp
+        from onnx import helper
+
+        # Handle symbolic dimensions
         if any("B" in shape for shape in input_shapes):
             include_intermediate_shapes = False
             print(
                 "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
             )
 
-        self._validate_input_shapes(input_shapes=input_shapes)
-        example_args = [
-            jax.numpy.zeros(self._shape_with_example_batch(s)) for s in input_shapes
-        ]
+        # Generate example inputs
+        def replace_B(s):
+            return [2 if d == "B" else d for d in s]
 
-        # example_args = create_example_args_with_dynamic_batch(input_shapes)
+        example_args = [jnp.zeros(replace_B(s)) for s in input_shapes]
 
+        # Dry-run to patch layers
         with temporary_monkey_patches():
             jax.make_jaxpr(fn)(*example_args)
 
+        # Create converter
         converter = Jaxpr2OnnxConverter()
+
+        # Register handlers from plugin system
+        for name, plugin in PLUGIN_REGISTRY.items():
+            if isinstance(plugin, PrimitivePlugin):
+                converter.primitive_handlers[name] = plugin.get_handler(converter)
+
+        # Register handlers for ONNX functions (hierarchical)
+
+        for name, primitive in ONNX_PRIMITIVE_REGISTRY.items():
+            converter.primitive_handlers[name] = (
+                lambda conv, eqn, params, n=name: custom_primitive_handler(
+                    conv, eqn, params
+                )
+            )
+
+        # Trace and convert
         converter.trace_jaxpr(fn, example_args)
 
-        # Set symbolic batch dimension 'B' only on corresponding input tensors
+        # Annotate input shapes
         for tensor, input_shape in zip(converter.builder.inputs, input_shapes):
             tensor_shape = tensor.type.tensor_type.shape.dim
             for idx, dim in enumerate(input_shape):
                 if dim == "B":
                     tensor_shape[idx].dim_param = "B"
 
-        # Set symbolic batch dimension 'B' on outputs if it's set on any input
+        # Annotate output shapes
         batch_dims = {
             idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
         }
@@ -100,17 +122,16 @@ class JaxprToOnnx:
                 if idx < len(tensor_shape):
                     tensor_shape[idx].dim_param = "B"
 
-        # Optionally include intermediate shape information
+        # Clean up value_info if not needed
         value_info = converter.builder.value_info if include_intermediate_shapes else []
 
-        # Remove unused initializers
-        used_initializers = {i for node in converter.builder.nodes for i in node.input}
+        # Prune unused initializers
+        used_inputs = {i for node in converter.builder.nodes for i in node.input}
         converter.builder.initializers = [
-            init
-            for init in converter.builder.initializers
-            if init.name in used_initializers
+            init for init in converter.builder.initializers if init.name in used_inputs
         ]
 
+        # Build graph
         graph = helper.make_graph(
             nodes=converter.builder.nodes,
             name=model_name,
@@ -120,13 +141,9 @@ class JaxprToOnnx:
             value_info=value_info,
         )
 
-        onnx_model = helper.make_model(
-            graph, opset_imports=[helper.make_opsetid("", opset)]
-        )
-
-        onnx_model = improve_onnx_model(onnx_model)
-
-        return onnx_model
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+        model = improve_onnx_model(model)
+        return model
 
     def _validate_input_shapes(self, input_shapes):
         for shape in input_shapes:
@@ -167,6 +184,16 @@ class Jaxpr2OnnxConverter:
             plugin = PLUGIN_REGISTRY[key]
             if isinstance(plugin, PrimitivePlugin):
                 self.primitive_handlers[key] = plugin.get_handler(self)
+
+        # ✅ DELAYED IMPORT: Avoid circular import by importing here
+        from jax2onnx.onnx_functions import (
+            ONNX_FUNCTION_REGISTRY,
+            custom_primitive_handler,
+        )
+
+        # Register custom ONNX functions
+        for prim_name in ONNX_FUNCTION_REGISTRY:
+            self.primitive_handlers[prim_name] = custom_primitive_handler
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -362,27 +389,32 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError(f"pjit {name} not yet handled")
 
-    def _process_eqn(self, jaxpr):
+    def _process_eqn(self, eqn):
         """Process a single JAXPR equation."""
-        if hasattr(jaxpr, "primitive"):
-            primitive = jaxpr.primitive
-            if primitive.name == "pjit":
-                self._process_pjit(jaxpr)
-            elif primitive.name in self.primitive_handlers:
+        if not hasattr(eqn, "primitive"):
+            raise NotImplementedError(f"Non-primitive equation: {eqn}")
 
-                self.primitive_handlers[primitive.name](
-                    jaxpr.invars, jaxpr.outvars, jaxpr.params
-                )
-                # for all jaxpr.outvars, add shape info
-                for outvar in jaxpr.outvars:
-                    output_name = self.get_name(outvar)
-                    self.add_shape_info(output_name, outvar.aval.shape)
+        primitive = eqn.primitive
+        name = primitive.name
 
-            else:
-                raise NotImplementedError(f"Primitive {primitive.name} not implemented")
-        else:
-            # Handle call primitives or other special cases
-            raise NotImplementedError(f"Non-primitive equation: {jaxpr}")
+        if name == "pjit":
+            self._process_pjit(eqn)
+            return
+
+        handler = self.primitive_handlers.get(name)
+        if handler is None:
+            raise NotImplementedError(f"Primitive {name} not implemented")
+
+        # Try handler with either signature: (converter, eqn, params) or legacy
+        try:
+            handler(self, eqn, eqn.params)
+        except TypeError:
+            handler(eqn.invars, eqn.outvars, eqn.params)
+
+        # Add shape info for outputs
+        for outvar in eqn.outvars:
+            output_name = self.get_name(outvar)
+            self.add_shape_info(output_name, outvar.aval.shape)
 
     def _process_closed_jaxpr(self, jaxpr):
         """Process a closed JAXPR inside a JaxprEqn."""
