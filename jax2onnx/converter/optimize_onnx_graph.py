@@ -14,7 +14,25 @@ def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
     onnx_model = remove_redundant_reshapes(onnx_model)
     onnx_model = remove_redundant_transpose_pairs(onnx_model)
     onnx_model = shape_inference.infer_shapes(onnx_model)
+    onnx_model = strip_unk_dim_names(onnx_model)
     return onnx_model
+
+
+def strip_unk_dim_names(model):
+    def scrub_dims(value_info):
+        shape = value_info.type.tensor_type.shape
+        for dim in shape.dim:
+            if dim.HasField("dim_param") and dim.dim_param.startswith("unk__"):
+                dim.ClearField("dim_param")
+
+    for vi in model.graph.input:
+        scrub_dims(vi)
+    for vi in model.graph.output:
+        scrub_dims(vi)
+    for vi in model.graph.value_info:
+        scrub_dims(vi)
+
+    return model
 
 
 def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
