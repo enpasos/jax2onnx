@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/optimize_transpose.py
+# file: jax2onnx/converter/optimize_onnx_graph.py
 
 
 import onnx

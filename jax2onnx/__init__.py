@@ -1,5 +1,2 @@
 from jax2onnx import converter  # noqa: F401
-from jax2onnx import tester  # noqa: F401
-from jax2onnx.converter.converter import save_onnx  # noqa: F401
-from jax2onnx.converter.converter import to_onnx  # noqa: F401
-from jax2onnx.tester import allclose  # noqa: F401
+from jax2onnx.converter.user_interface import save_onnx, to_onnx, allclose  # noqa: F401
