@@ -85,36 +85,41 @@ def to_onnx(
     include_intermediate_shapes: bool = False,
     opset: int = 21,
 ) -> onnx.ModelProto:
-
     from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitivePlugin
 
+    # Handle symbolic batch dimensions
     if any("B" in shape for shape in input_shapes):
         include_intermediate_shapes = False
         print(
             "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
         )
 
+    # Replace symbolic "B" with a concrete example batch size (e.g., 2)
     def replace_B(s):
         return [2 if d == "B" else d for d in s]
 
     example_args = [jnp.zeros(replace_B(s)) for s in input_shapes]
 
+    # Initialize converter and handler registry
     converter = Jaxpr2OnnxConverter()
 
+    # Register plugin-based primitive handlers
     for name, plugin in PLUGIN_REGISTRY.items():
         if isinstance(plugin, PrimitivePlugin):
             converter.primitive_handlers[name] = plugin.get_handler(converter)
 
-    for name, primitive in ONNX_FUNCTION_PRIMITIVE_REGISTRY.items():
+    # Register ONNX function call handlers (nested modules marked with @onnx_function)
+    for name, _ in ONNX_FUNCTION_PRIMITIVE_REGISTRY.items():
 
         def make_handler(n=name):
             return lambda conv, eqn, params: _function_call_handler(conv, eqn, n)
 
         converter.primitive_handlers[name] = make_handler()
 
-    with temporary_monkey_patches():
-        converter.trace_jaxpr(fn, example_args)
+    # Trace and convert the function
+    converter.trace_jaxpr(fn, example_args)
 
+    # Annotate symbolic input/output dimensions
     for tensor, input_shape in zip(converter.builder.inputs, input_shapes):
         tensor_shape = tensor.type.tensor_type.shape.dim
         for idx, dim in enumerate(input_shape):
@@ -130,12 +135,16 @@ def to_onnx(
             if idx < len(tensor_shape):
                 tensor_shape[idx].dim_param = "B"
 
+    # Remove unused intermediate tensors if not requested
     value_info = converter.builder.value_info if include_intermediate_shapes else []
+
+    # Clean up unused initializers
     used_inputs = {i for node in converter.builder.nodes for i in node.input}
     converter.builder.initializers = [
         init for init in converter.builder.initializers if init.name in used_inputs
     ]
 
+    # Finalize ONNX graph
     graph = helper.make_graph(
         nodes=converter.builder.nodes,
         name=model_name,
