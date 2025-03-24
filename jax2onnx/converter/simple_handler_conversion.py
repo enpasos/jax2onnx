@@ -13,7 +13,6 @@ from jax2onnx.converter.onnx_functions import (
     find_decorated_calls_in_jaxpr,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
-import flax.nnx as nnx
 
 
 def find_decorated_instances(obj, registry):
@@ -32,40 +31,40 @@ def find_decorated_instances(obj, registry):
     return found
 
 
-def find_matching_instances(root, registry):
-    """
-    Recursively finds instances in a flax.nnx module tree whose class names match the ONNX function registry.
+# def find_matching_instances(root, registry):
+#     """
+#     Recursively finds instances in a flax.nnx module tree whose class names match the ONNX function registry.
 
-    Args:
-        root: The top-level nnx.Module.
-        registry: Dict[str, Type] mapping function names to classes.
+#     Args:
+#         root: The top-level nnx.Module.
+#         registry: Dict[str, Type] mapping function names to classes.
 
-    Returns:
-        Dict[str, nnx.Module] mapping class name to instance (one per name).
-    """
-    found = {}
+#     Returns:
+#         Dict[str, nnx.Module] mapping class name to instance (one per name).
+#     """
+#     found = {}
 
-    def recurse(obj):
-        if not isinstance(obj, nnx.Module):
-            return
-        cls = type(obj)
-        name = cls.__name__
-        if name in registry and name not in found and registry[name] is cls:
-            found[name] = obj
-        for value in vars(obj).values():
-            if isinstance(value, nnx.Module):
-                recurse(value)
-            elif isinstance(value, (list, tuple)):
-                for v in value:
-                    if isinstance(v, nnx.Module):
-                        recurse(v)
-            elif isinstance(value, dict):
-                for v in value.values():
-                    if isinstance(v, nnx.Module):
-                        recurse(v)
+#     def recurse(obj):
+#         if not isinstance(obj, nnx.Module):
+#             return
+#         cls = type(obj)
+#         name = cls.__name__
+#         if name in registry and name not in found and registry[name] is cls:
+#             found[name] = obj
+#         for value in vars(obj).values():
+#             if isinstance(value, nnx.Module):
+#                 recurse(value)
+#             elif isinstance(value, (list, tuple)):
+#                 for v in value:
+#                     if isinstance(v, nnx.Module):
+#                         recurse(v)
+#             elif isinstance(value, dict):
+#                 for v in value.values():
+#                     if isinstance(v, nnx.Module):
+#                         recurse(v)
 
-    recurse(root)
-    return found
+#     recurse(root)
+#     return found
 
 
 def trace_to_jaxpr(fn, input_shapes):
@@ -76,56 +75,38 @@ def trace_to_jaxpr(fn, input_shapes):
 
 
 def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
-    # Copy all known decorated ONNX functions
-    pending_registry = ONNX_FUNCTION_REGISTRY.copy()
+
+    instance_map = find_decorated_instances(fn, ONNX_FUNCTION_REGISTRY)
+
+    # Build a mapping from registered function name → instance (from top model)
+    # instance_map = find_decorated_instances(fn, ONNX_FUNCTION_REGISTRY)
+    pending_names = set(
+        ONNX_FUNCTION_REGISTRY.keys()
+    )  # Set of functions yet to be processed
     extracted_models = {}
 
-    print("🔄 Starting hierarchical to ONNX conversion.")
-
-    # Repeat tracing while there are still functions to extract
-    while pending_registry:
-        # Patch both plugin handlers and function call primitives
+    while pending_names:
+        # Enable function primitives + plugins
         with temporary_monkey_patches(allow_function_primitives=True):
             jaxpr = trace_to_jaxpr(fn, input_shapes)
 
-        # Find all decorated function calls in the JAXPR
-        decorated_calls = find_decorated_calls_in_jaxpr(jaxpr, pending_registry)
-
-        if not decorated_calls:
-            print("❌ No more decorated functions found. Breaking out of the loop.")
+        found_calls = find_decorated_calls_in_jaxpr(jaxpr, ONNX_FUNCTION_REGISTRY)
+        if not found_calls:
             break
 
-        print(f"🔄 Found decorated calls: {decorated_calls}")
-
-        for func_name, cls in decorated_calls.items():
-            if func_name not in pending_registry:
-                # Skip if function has already been processed
-                print(f"🔁 Skipping {func_name} as it's already processed.")
+        for func_name in list(found_calls.keys()):
+            if func_name not in pending_names:
+                print(f"🔁 Skipping {func_name} as it's already processed or removed.")
                 continue
 
             print(f"🔁 Extracting function: {func_name}")
+            instance = instance_map[func_name]
 
-            if func_name == "VisionTransformer":
-                # Provide the required arguments for VisionTransformer
-                instance = cls(
-                    height=28,  # Example height
-                    width=28,  # Example width
-                    num_hiddens=256,  # Example hidden units
-                    num_layers=6,  # Example number of layers
-                    num_heads=8,  # Example number of heads
-                    mlp_dim=512,  # Example MLP dimension
-                    num_classes=10,  # Example number of classes
-                    embedding_type="conv",  # Example embedding type
-                    rngs=nnx.Rngs(0),  # Example rngs for randomness
-                )
-            else:
-                # For other functions, use the usual instantiation
-                instance = cls()
-
-            # Temporarily remove the function from the registry to avoid recursion
+            # Temporarily disable function to allow inner nesting
+            print(f"🔻 Removing {func_name} from registry for deeper nesting.")
             del ONNX_FUNCTION_REGISTRY[func_name]
+            ONNX_FUNCTION_PRIMITIVE_REGISTRY.pop(func_name, None)
 
-            # Convert the isolated function to an ONNX model using only plugin patches
             with temporary_monkey_patches():
                 sub_model = to_onnx(
                     instance, input_shapes, model_name=func_name, opset=opset
@@ -133,24 +114,21 @@ def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
 
             extracted_models[func_name] = sub_model
 
-            # Re-register the function after processing
-            ONNX_FUNCTION_REGISTRY[func_name] = cls
-            del pending_registry[func_name]
+            # Mark as processed by removing from pending_names
+            pending_names.remove(func_name)
+            print(f"✅ Function {func_name} extracted and removed from pending list.")
 
-            print(f"✅ Extracted {func_name} and added to the final model.")
-
-    # Final model conversion after all sub-functions have been extracted
-    print(f"🔄 Converting the final model: {model_name}")
+    # Final top-level conversion
     with temporary_monkey_patches():
         final_model = to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
 
-    # Add custom domain opset import if necessary
+    # Add ONNX domain for functions
     domains = {op.domain for op in final_model.opset_import}
     if "jax2onnx.fn" not in domains:
         print("✅ Adding opset import for domain 'jax2onnx.fn'")
         final_model.opset_import.append(helper.make_opsetid("jax2onnx.fn", opset))
 
-    # Embed extracted functions into the final model
+    # Inject extracted functions into the final model, maintaining hierarchy
     for name, model in extracted_models.items():
         graph = model.graph
         onnx_func = onnx.FunctionProto()
@@ -159,10 +137,10 @@ def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
         onnx_func.input.extend([i.name for i in graph.input])
         onnx_func.output.extend([o.name for o in graph.output])
         onnx_func.node.extend(graph.node)
+
+        # Embed function in hierarchical structure
         final_model.functions.append(onnx_func)
         print(f"🧩 Added function: {name} with {len(graph.node)} nodes")
-
-    print("✅ Finished hierarchical to ONNX conversion.")
 
     return final_model
 

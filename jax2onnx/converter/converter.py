@@ -7,6 +7,7 @@ import numpy as np
 from typing import Dict, Any, Tuple
 import jax.random
 from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.converter.onnx_functions import FunctionPlugin
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitivePlugin,
@@ -44,18 +45,8 @@ class Jaxpr2OnnxConverter:
 
         for key in PLUGIN_REGISTRY:
             plugin = PLUGIN_REGISTRY[key]
-            if isinstance(plugin, PrimitivePlugin):
+            if isinstance(plugin, (PrimitivePlugin, FunctionPlugin)):
                 self.primitive_handlers[key] = plugin.get_handler(self)
-
-        # ✅ DELAYED IMPORT: Avoid circular import by importing here
-        from jax2onnx.converter.onnx_functions import (
-            ONNX_FUNCTION_REGISTRY,
-            custom_primitive_handler,
-        )
-
-        # Register custom ONNX functions
-        for prim_name in ONNX_FUNCTION_REGISTRY:
-            self.primitive_handlers[prim_name] = custom_primitive_handler
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(

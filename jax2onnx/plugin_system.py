@@ -3,7 +3,6 @@
 import pkgutil
 import importlib
 import os
-import inspect
 from typing import Optional, Callable, Dict, Any, Type, Union
 
 PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitivePlugin"]] = {}
@@ -15,45 +14,8 @@ class PrimitivePlugin:
     patch_info: Optional[Callable[[], Dict[str, Any]]] = None
 
     def get_handler(self, converter: Any) -> Callable:
-        sig = inspect.signature(self.to_onnx)
-        param_names = list(sig.parameters)
-
-        # Remove first param if it looks like a method-bound instance (self/s/etc)
-        if len(param_names) >= 1 and param_names[0] not in {
-            "converter",
-            "node_inputs",
-            "eqn",
-        }:
-            param_names = param_names[1:]
-
-        # Normalize by length and position, not exact parameter names
-        if len(param_names) == 3:
-            # Could be (converter, eqn, params) or (converter, node_inputs, node_outputs)
-            # if param_names[0] == "converter":
-            #     return lambda converter, eqn, params: self.to_onnx(
-            #         converter, eqn, params
-            #     )
-            # else:
-            return lambda converter, eqn, params: self.to_onnx(
-                converter, eqn.invars, eqn.outvars, params
-            )
-
-        # elif len(param_names) == 2:
-        # Old style: (node_inputs, node_outputs, params)
-        # return lambda converter, eqn, params: self.to_onnx(
-        #     eqn.invars, eqn.outvars, params
-        # )
-
-        # elif len(param_names) == 1 and param_names[0] == "eqn":
-        #     return lambda converter, eqn, params: self.to_onnx(eqn)
-
-        raise TypeError(
-            f"Unsupported to_onnx() signature in {type(self).__name__}. Expected one of:\n"
-            f"  (converter, eqn, params)\n"
-            f"  (converter, node_inputs, node_outputs, params)\n"
-            f"  (node_inputs, node_outputs, params)\n"
-            f"  or (eqn)\n"
-            f"Got: {param_names}"
+        return lambda node_inputs, node_outputs, params: self.to_onnx(
+            converter, node_inputs, node_outputs, params
         )
 
     def to_onnx(
