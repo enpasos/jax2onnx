@@ -76,7 +76,7 @@ def trace_to_jaxpr(fn, input_shapes):
 
 
 def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
-    # Create a copy of the ONNX function registry to track pending functions
+    # Copy all known decorated ONNX functions
     pending_registry = ONNX_FUNCTION_REGISTRY.copy()
     extracted_models = {}
 
@@ -104,7 +104,23 @@ def hierarchical_to_onnx(fn, input_shapes, model_name="jax_model", opset=21):
                 continue
 
             print(f"🔁 Extracting function: {func_name}")
-            instance = cls()
+
+            if func_name == "VisionTransformer":
+                # Provide the required arguments for VisionTransformer
+                instance = cls(
+                    height=28,  # Example height
+                    width=28,  # Example width
+                    num_hiddens=256,  # Example hidden units
+                    num_layers=6,  # Example number of layers
+                    num_heads=8,  # Example number of heads
+                    mlp_dim=512,  # Example MLP dimension
+                    num_classes=10,  # Example number of classes
+                    embedding_type="conv",  # Example embedding type
+                    rngs=nnx.Rngs(0),  # Example rngs for randomness
+                )
+            else:
+                # For other functions, use the usual instantiation
+                instance = cls()
 
             # Temporarily remove the function from the registry to avoid recursion
             del ONNX_FUNCTION_REGISTRY[func_name]
