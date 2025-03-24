@@ -109,12 +109,10 @@ def to_onnx(
             converter.primitive_handlers[name] = plugin.get_handler(converter)
 
     # Register ONNX function call handlers (nested modules marked with @onnx_function)
-    for name, _ in ONNX_FUNCTION_PRIMITIVE_REGISTRY.items():
-
-        def make_handler(n=name):
-            return lambda conv, eqn, params: _function_call_handler(conv, eqn, n)
-
-        converter.primitive_handlers[name] = make_handler()
+    for name in ONNX_FUNCTION_PRIMITIVE_REGISTRY:
+        converter.primitive_handlers[name] = (
+            lambda conv, eqn, params, n=name: _function_call_handler(conv, eqn, n)
+        )
 
     # Trace and convert the function
     converter.trace_jaxpr(fn, example_args)
