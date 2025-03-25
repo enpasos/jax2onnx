@@ -102,9 +102,18 @@ class OnnxBuilder:
         )
 
     def create_model(self, graph: GraphProto) -> ModelProto:
-        return helper.make_model(
-            graph, opset_imports=[helper.make_opsetid("", self.opset_version)]
+        """Create the final ONNX model, including any registered nested functions."""
+        model = helper.make_model(
+            graph,
+            opset_imports=[helper.make_opsetid("", self.opset_version)],
         )
+
+        # Add FunctionProtos from nested functions
+        if self.functions:
+            model.functions.extend(self.create_functions())
+            print(f"🧠 Added {len(model.functions)} nested function(s) to model")
+
+        return model
 
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
         if dtype == np.float32:
