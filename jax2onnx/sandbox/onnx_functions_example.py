@@ -1,10 +1,12 @@
 # file: jax2onnx/sandbox/onnx_functions_example.py
 
-from jax2onnx.converter.onnx_functions import onnx_function
+
 from jax2onnx import to_onnx
 from flax import nnx
 import os
 import onnx
+
+from jax2onnx.plugin_system import onnx_function
 
 
 @onnx_function

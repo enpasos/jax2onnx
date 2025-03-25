@@ -1,3 +1,5 @@
+# file: jax2onnx/sandbox/demonstrate_function_patch.py
+
 import contextlib
 import inspect
 from jax.core import Primitive
