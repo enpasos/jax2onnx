@@ -1,11 +1,10 @@
 # file: jax2onnx/plugin_system.py
-
 import pkgutil
 import importlib
 import os
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
-import jax.numpy as jnp
 
 PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitiveLeafPlugin"]] = {}
 
@@ -61,6 +60,7 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive = Primitive(name)
         self.primitive.def_abstract_eval(lambda *args: args[0])
         self._orig_fn = None
+        self._nested_builder = None
 
     def get_handler(self, converter: Any) -> Callable:
         return lambda converter, eqn, params: self._function_handler(
@@ -71,19 +71,41 @@ class FunctionPlugin(PrimitivePlugin):
         if self._orig_fn is None:
             raise RuntimeError(f"Original function for {self.name} not recorded.")
 
+        print(f"\n🚀 Tracing function: {self.name}")
+        print(f"   ↪ Inputs: {[v.aval.shape for v in eqn.invars]}")
+
         input_names = [converter.get_name(v) for v in eqn.invars]
         example_args = [jnp.ones((1,)) for _ in input_names]
 
-        converter.trace_jaxpr(
+        # Store parent builder
+        parent_builder = converter.builder
+
+        # Create new converter and builder for this function
+        sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
+        sub_converter.trace_jaxpr(
             lambda *args: self._orig_fn(self.target(), *args), example_args
         )
 
+        # Register subgraph (function) with parent builder
+        parent_builder.add_function(self.name, sub_converter.builder)
+        parent_builder.name_counter = sub_converter.builder.name_counter
+
+        # Emit function call node
+        parent_builder.add_function_call_node(
+            self.name,
+            input_names,
+            [converter.get_var_name(v) for v in eqn.outvars],
+        )
+
+        print(f"✅ Finished tracing function: {self.name}\n")
+
     def get_patch_fn(self, primitive):
         def patch(original_call):
-            def wrapped(self, *args):
-                ONNX_FUNCTION_PLUGIN_REGISTRY[self.__class__.__name__]._orig_fn = (
-                    original_call
-                )
+            def wrapped(instance, *args):
+                class_name = instance.__class__.__name__
+                print(f"🧠 Calling ONNX-decorated function: {class_name}")
+                if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
+                    ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = original_call
                 return primitive.bind(*args)
 
             return wrapped
