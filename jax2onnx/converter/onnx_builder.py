@@ -2,7 +2,7 @@
 
 from onnx import helper, TensorProto, NodeProto, ValueInfoProto, ModelProto, GraphProto
 import numpy as np
-from typing import List, Any, Tuple
+from typing import Dict, List, Any, Tuple
 from jax.extend.core import Literal
 
 
@@ -15,6 +15,7 @@ class OnnxBuilder:
         self.value_info: List[ValueInfoProto] = []
         self.name_counter: int = name_counter
         self.opset_version: int = opset_version
+        self.functions: Dict[str, GraphProto] = {}
 
     def reset(self) -> None:
         self.nodes = []
@@ -110,11 +111,12 @@ class OnnxBuilder:
             return TensorProto.FLOAT
 
     def add_function(self, name: str, builder: "OnnxBuilder") -> None:
-        """Registers a nested function. Stored as ValueInfo for now — can be expanded later."""
-        # This is a placeholder for proper FunctionProto handling
-        # You can wire this up later into the full ONNX model
-        print(f"🧩 Added function definition: {name}")
-        # Eventually store builder.create_graph(...) here if needed
+        """Registers a nested function and stores its graph definition."""
+        function_graph = builder.create_graph(name)
+        self.functions[name] = function_graph
+        print(
+            f"🧩 Stored nested function: {name} with {len(function_graph.node)} nodes"
+        )
 
     def add_function_call_node(
         self, name: str, inputs: List[str], outputs: List[str]
