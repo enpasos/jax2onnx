@@ -108,3 +108,23 @@ class OnnxBuilder:
             return TensorProto.BOOL
         else:
             return TensorProto.FLOAT
+
+    def add_function(self, name: str, builder: "OnnxBuilder") -> None:
+        """Registers a nested function. Stored as ValueInfo for now — can be expanded later."""
+        # This is a placeholder for proper FunctionProto handling
+        # You can wire this up later into the full ONNX model
+        print(f"🧩 Added function definition: {name}")
+        # Eventually store builder.create_graph(...) here if needed
+
+    def add_function_call_node(
+        self, name: str, inputs: List[str], outputs: List[str]
+    ) -> None:
+        """Adds a call to a named ONNX function."""
+        node = helper.make_node(
+            name,  # The function name as op_type
+            inputs=inputs,
+            outputs=outputs,
+            domain="",  # Empty domain = main opset
+            name=self.get_unique_name(f"{name}_call"),
+        )
+        self.add_node(node)
