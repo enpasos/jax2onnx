@@ -7,10 +7,12 @@ import numpy as np
 from typing import Dict, Any, Tuple
 import jax.random
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.plugin_system import FunctionPlugin
+from jax2onnx.plugin_system import (
+    ONNX_FUNCTION_PLUGIN_REGISTRY,
+    PrimitivePlugin,
+)
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
-    PrimitiveLeafPlugin,
     import_all_plugins,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches  # Add this import
@@ -47,12 +49,16 @@ class Jaxpr2OnnxConverter:
         import_all_plugins()
 
         for key, plugin in PLUGIN_REGISTRY.items():
-            if isinstance(plugin, PrimitiveLeafPlugin):
+            if isinstance(plugin, PrimitivePlugin):
                 self.primitive_handlers[key] = plugin.get_handler(self)
-            elif isinstance(plugin, FunctionPlugin):
-                self.primitive_handlers[key] = plugin.get_handler()
 
-        print("✅ Plugin registry:", list(PLUGIN_REGISTRY.keys()))
+        for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
+            self.primitive_handlers[key] = plugin.get_handler(self)
+
+        print(
+            "✅ Plugin registry at the end of Jaxpr2OnnxConverter init:",
+            list(PLUGIN_REGISTRY.keys()),
+        )
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -248,6 +254,12 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError(f"pjit {name} not yet handled")
 
+    def print_primitive_handlers(self):
+        print(
+            "✅ primitive_handlers in _process_eqn:",
+            list(self.primitive_handlers.keys()),
+        )
+
     def _process_eqn(self, eqn):
         """Process a single JAXPR equation."""
         if not hasattr(eqn, "primitive"):
@@ -259,6 +271,8 @@ class Jaxpr2OnnxConverter:
         if name == "pjit":
             self._process_pjit(eqn)
             return
+
+        self.print_primitive_handlers()
 
         handler = self.primitive_handlers.get(name)
         if handler is None:
@@ -366,6 +380,7 @@ class Jaxpr2OnnxConverter:
         self.name_counter = 0
 
     def trace_jaxpr(self, fn, example_args, preserve_graph=False):
+        print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
         if not preserve_graph:
             self.builder.reset()
             self.var_to_name = {}

@@ -80,12 +80,19 @@ class FunctionPlugin(PrimitivePlugin):
         # Store parent builder
         parent_builder = converter.builder
 
+        print("   ↪ parent converter: ...")
+        converter.print_primitive_handlers()
+
+        print("   ↪ sub_converter: ...")
         # Create new converter and builder for this function
         sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
+        sub_converter.print_primitive_handlers()
+
+        # with temporary_monkey_patches(allow_function_primitives=True):
         sub_converter.trace_jaxpr(
             lambda *args: self._orig_fn(self.target(), *args),
             example_args,
-            preserve_graph=True,  # <- KEEP the subgraph!
+            preserve_graph=True,
         )
 
         # Register subgraph (function) with parent builder
@@ -132,6 +139,8 @@ def onnx_function(cls):
 
     plugin = FunctionPlugin(name, cls)
     ONNX_FUNCTION_PLUGIN_REGISTRY[name] = plugin
+
+    # PLUGIN_REGISTRY[name] = plugin
 
     return cls
 
