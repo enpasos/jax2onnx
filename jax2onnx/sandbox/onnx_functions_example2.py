@@ -1,6 +1,6 @@
 # file: jax2onnx/sandbox/onnx_functions_example2.py
 
-from jax2onnx.converter.onnx_functions import onnx_function
+
 from flax import nnx
 import os
 import onnx
@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 
 from jax2onnx import to_onnx
+from jax2onnx.plugin_system import onnx_function
 
 
 # ---------------------------------------------------------------------------

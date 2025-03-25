@@ -2,7 +2,6 @@
 
 import contextlib
 import inspect
-
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
@@ -15,33 +14,23 @@ def temporary_monkey_patches(allow_function_primitives=False):
     """
     Temporarily patch all primitives:
     - Plugin primitives (from PLUGIN_REGISTRY)
-    - Function primitives (from ONNX_FUNCTION_PRIMITIVE_REGISTRY, if enabled)
+    - Function primitives (from ONNX_FUNCTION_PLUGIN_REGISTRY, if enabled)
     """
     with contextlib.ExitStack() as stack:
-        # Plugin primitives
+        # Patch leaf plugin primitives
         for key, plugin in PLUGIN_REGISTRY.items():
             if not isinstance(plugin, PrimitiveLeafPlugin) or not plugin.patch_info:
                 continue
             target, attr, patch_func = plugin.get_patch_params()
             stack.enter_context(_temporary_patch(target, attr, patch_func))
 
-        # ONNX function primitives
+        # Patch function-decorated classes
         if allow_function_primitives:
-            for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
+            for name, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
+                primitive = plugin.primitive
+                patch_fn = plugin.get_patch_fn(primitive)
                 target = plugin.target
-
-                def make_patch(prim):
-                    def patch(original_call):
-                        def wrapped(self, *args):
-                            return prim.bind(*args)
-
-                        return wrapped
-
-                    return patch
-
-                stack.enter_context(
-                    _temporary_patch(target, "__call__", make_patch(plugin))
-                )
+                stack.enter_context(_temporary_patch(target, "__call__", patch_fn))
 
         yield
 
