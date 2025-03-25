@@ -100,25 +100,31 @@ class FunctionPlugin(PrimitivePlugin):
             preserve_graph=True,
         )
 
-        # Transfer sub-converter initializers as function parameters
+        # Transfer initializers as function parameters
         function_initializers = sub_converter.builder.initializers
         param_input_names = [init.name for init in function_initializers]
 
         existing_input_names = {vi.name for vi in parent_builder.inputs}
-
-        # === ✅ Ensure explicit, consistent dtype matching here ===
         for init in function_initializers:
             if init.name not in existing_input_names:
                 parent_builder.add_input(
                     init.name,
                     list(init.dims),
-                    _tensorproto_dtype_to_numpy(
-                        init.data_type
-                    ),  # ✅ dtype explicitly converted
+                    _tensorproto_dtype_to_numpy(init.data_type),
                 )
                 parent_builder.initializers.append(init)
 
         parent_builder.add_function(self.name, sub_converter.builder, param_input_names)
+
+        # ✅ Explicitly propagate nested ONNX functions upward
+        for (
+            nested_func_name,
+            nested_func_proto,
+        ) in sub_converter.builder.functions.items():
+            if nested_func_name not in parent_builder.functions:
+                parent_builder.functions[nested_func_name] = nested_func_proto
+                print(f"🚀 Propagated nested ONNX function: {nested_func_name}")
+
         parent_builder.name_counter = sub_converter.builder.name_counter
 
         parent_builder.add_function_call_node(
