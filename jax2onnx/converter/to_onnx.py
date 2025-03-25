@@ -1,5 +1,4 @@
 # file: jax2onnx/converter/simple_handler_conversion.py
-import jax
 import onnx
 from typing import Any
 import jax.numpy as jnp
@@ -9,30 +8,6 @@ from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
 )
-
-
-def find_decorated_instances(obj, registry):
-    found = {}
-
-    # ✅ Check the object itself
-    cls = type(obj)
-    name = cls.__name__
-    if name in registry and registry[name] is cls:
-        found[name] = obj
-
-    # Then descend recursively
-    if hasattr(obj, "__dict__"):
-        for attr in vars(obj).values():
-            found.update(find_decorated_instances(attr, registry))
-
-    return found
-
-
-def trace_to_jaxpr(fn, input_shapes):
-    example_args = [jnp.zeros([2 if d == "B" else d for d in s]) for s in input_shapes]
-    closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
-    print(closed_jaxpr)
-    return closed_jaxpr.jaxpr
 
 
 def to_onnx(
@@ -96,6 +71,14 @@ def to_onnx(
         value_info=value_info,
     )
 
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+    # explicitly add functions (FunctionProto) to model
+    model = helper.make_model(
+        graph,
+        opset_imports=[
+            helper.make_opsetid("", opset),
+            helper.make_opsetid("custom", 1),  # <-- ✅ explicitly import custom domain
+        ],
+        functions=list(converter.builder.functions.values()),
+    )
 
     return improve_onnx_model(model)
