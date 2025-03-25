@@ -1,7 +1,7 @@
 import jax
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
         },
     ],
 )
-class ConcatenatePlugin(PrimitivePlugin):
+class ConcatenatePlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.lax.concatenate to ONNX.
     """

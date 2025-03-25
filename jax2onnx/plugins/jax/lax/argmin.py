@@ -1,7 +1,7 @@
 import jax
 from typing import TYPE_CHECKING
 from onnx import helper, TensorProto
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         },
     ],
 )
-class ArgMinPlugin(PrimitivePlugin):
+class ArgMinPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.lax.argmin to ONNX.
     """
