@@ -2,7 +2,7 @@ import jax
 from typing import TYPE_CHECKING
 from onnx import helper
 import jax.numpy as jnp
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         }
     ],
 )
-class GatherPlugin(PrimitivePlugin):
+class GatherPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.gather to ONNX Gather."""
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):

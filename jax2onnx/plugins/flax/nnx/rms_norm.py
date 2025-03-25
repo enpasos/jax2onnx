@@ -11,7 +11,7 @@ from flax import nnx
 from jax import core
 from onnx import helper
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 import numpy as np
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ nnx.rms_norm_p.multiple_results = False
         },
     ],
 )
-class RMSNormPlugin(PrimitivePlugin):
+class RMSNormPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.RMSNorm to ONNX.
 

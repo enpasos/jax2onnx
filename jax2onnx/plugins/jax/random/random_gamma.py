@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -43,7 +43,7 @@ def gamma_log(key, alpha):
         # }
     ],
 )
-class RandomGammaPlugin(PrimitivePlugin):
+class RandomGammaPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.random.random_gamma to ONNX."""
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):

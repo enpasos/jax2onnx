@@ -17,7 +17,7 @@ from flax import nnx
 from jax import core
 from onnx import helper
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ nnx.batch_norm_p.multiple_results = False  # Set once at initialization
         },
     ],
 )
-class BatchNormPlugin(PrimitivePlugin):
+class BatchNormPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.BatchNorm to ONNX.
 

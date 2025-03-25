@@ -2,7 +2,7 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper, TensorProto
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
         },
     ],
 )
-class DynamicSlicePlugin(PrimitivePlugin):
+class DynamicSlicePlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.dynamic_slice to ONNX Slice."""
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
