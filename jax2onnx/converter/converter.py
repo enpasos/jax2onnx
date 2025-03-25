@@ -55,11 +55,6 @@ class Jaxpr2OnnxConverter:
         for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
             self.primitive_handlers[key] = plugin.get_handler(self)
 
-        print(
-            "✅ Plugin registry at the end of Jaxpr2OnnxConverter init:",
-            list(PLUGIN_REGISTRY.keys()),
-        )
-
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
             self.builder.get_unique_name(""), jax.core.ShapedArray(shape, dtype)
@@ -254,12 +249,6 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError(f"pjit {name} not yet handled")
 
-    def print_primitive_handlers(self):
-        print(
-            "✅ primitive_handlers in _process_eqn:",
-            list(self.primitive_handlers.keys()),
-        )
-
     def _process_eqn(self, eqn):
         """Process a single JAXPR equation."""
         if not hasattr(eqn, "primitive"):
@@ -271,8 +260,6 @@ class Jaxpr2OnnxConverter:
         if name == "pjit":
             self._process_pjit(eqn)
             return
-
-        self.print_primitive_handlers()
 
         handler = self.primitive_handlers.get(name)
         if handler is None:

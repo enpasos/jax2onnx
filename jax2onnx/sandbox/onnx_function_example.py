@@ -15,6 +15,7 @@ class MLPBlock(nnx.Module):
         return nnx.gelu(x)
 
 
+@onnx_function
 class TransformerBlock(nnx.Module):
     def __init__(self):
         self.mlp = MLPBlock()

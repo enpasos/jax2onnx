@@ -71,10 +71,13 @@ class FunctionPlugin(PrimitivePlugin):
         if self._orig_fn is None:
             raise RuntimeError(f"Original function for {self.name} not recorded.")
 
+        # Debugging: Log the type and structure of eqn
         print(f"\n🚀 Tracing function: {self.name}")
+        print(f"Type of eqn: {type(eqn)}")
+        print(f"Contents of eqn: {eqn}")
+
         input_shapes = [var.aval.shape for var in eqn.invars]
         input_names = [converter.get_name(v) for v in eqn.invars]
-
         example_args = [
             jnp.ones(shape, dtype=var.aval.dtype)
             for shape, var in zip(input_shapes, eqn.invars)
@@ -82,9 +85,8 @@ class FunctionPlugin(PrimitivePlugin):
 
         parent_builder = converter.builder
         sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
-
         sub_converter.trace_jaxpr(
-            lambda *args: self._orig_fn(self.target(), *args),
+            self._orig_fn,  # <-- ✅ original callable now directly usable
             example_args,
             preserve_graph=True,
         )
@@ -117,7 +119,10 @@ class FunctionPlugin(PrimitivePlugin):
                 class_name = instance.__class__.__name__
                 print(f"🧠 Calling ONNX-decorated function: {class_name}")
                 if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
-                    ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = original_call
+                    # ✅ Capture the original callable directly bound to the instance
+                    ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
+                        original_call.__get__(instance, type(instance))
+                    )
                 return primitive.bind(*args)
 
             return wrapped
