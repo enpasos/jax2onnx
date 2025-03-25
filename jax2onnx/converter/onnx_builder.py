@@ -131,13 +131,51 @@ class OnnxBuilder:
         else:
             return TensorProto.FLOAT
 
-    def add_function(self, name: str, builder: "OnnxBuilder") -> None:
-        """Registers a nested function and stores its graph definition."""
+    def add_function(
+        self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
+    ) -> None:
+        """Registers a nested function correctly as a FunctionProto."""
         function_graph = builder.create_graph(name)
-        self.functions[name] = function_graph
-        print(
-            f"🧩 Stored nested function: {name} with {len(function_graph.node)} nodes"
+
+        # Inputs (dynamic inputs)
+        inputs = [vi.name for vi in function_graph.input]
+
+        # Outputs
+        outputs = [vi.name for vi in function_graph.output]
+
+        # Collect full value_info (input, output, intermediate tensors)
+        all_value_info = (
+            list(function_graph.input)
+            + list(function_graph.output)
+            + list(function_graph.value_info)
         )
+        seen = set()
+        unique_value_infos = []
+        for vi in all_value_info:
+            if vi.name not in seen:
+                unique_value_infos.append(vi)
+                seen.add(vi.name)
+
+        # Explicitly add parameter initializers as function inputs with proper shapes/dtypes
+        param_value_infos = [
+            helper.make_tensor_value_info(init.name, init.data_type, list(init.dims))
+            for init in builder.initializers
+        ]
+
+        function_proto = helper.make_function(
+            domain="custom",
+            fname=name,
+            inputs=inputs + param_input_names,
+            outputs=outputs,
+            nodes=function_graph.node,
+            opset_imports=[helper.make_opsetid("", self.opset_version)],
+            attributes=[],
+            value_info=unique_value_infos
+            + param_value_infos,  # explicitly define params
+        )
+
+        self.functions[name] = function_proto
+        print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
 
     def add_function_call_node(
         self,
@@ -145,12 +183,12 @@ class OnnxBuilder:
         inputs: List[str],
         outputs: List[str],
     ) -> None:
-        """Adds a node that calls a nested function by name."""
+        """Adds a node calling a nested function by name."""
         node = helper.make_node(
-            op_type=function_name,  # Name matches FunctionProto later
+            op_type=function_name,
             inputs=inputs,
             outputs=outputs,
-            domain="",  # Default domain
+            domain="custom",
         )
         self.nodes.append(node)
 
@@ -176,3 +214,23 @@ class OnnxBuilder:
             functions.append(func_proto)
 
         return functions
+
+    def create_function_proto(
+        self, graph: GraphProto, domain: str = ""
+    ) -> FunctionProto:
+        function_proto = FunctionProto()
+        function_proto.name = graph.name
+        function_proto.domain = domain  # leave domain empty or define clearly
+        function_proto.input.extend([inp.name for inp in graph.input])
+        function_proto.output.extend([out.name for out in graph.output])
+        function_proto.node.extend(graph.node)
+        function_proto.value_info.extend(graph.value_info)
+        function_proto.opset_import.extend(
+            [OperatorSetIdProto(domain="", version=self.opset_version)]
+        )
+        return function_proto
+
+    # def add_function(self, name: str, builder: "OnnxBuilder", domain: str = "") -> None:
+    #     function_graph = builder.create_graph(name)
+    #     function_proto = self.create_function_proto(function_graph, domain)
+    #     self.functions[name] = function_proto  # ✅ now explicitly FunctionProto

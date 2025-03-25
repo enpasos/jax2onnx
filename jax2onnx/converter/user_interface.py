@@ -4,10 +4,7 @@ import onnx
 from typing import Any
 import numpy as np
 import onnxruntime as ort
-from jax2onnx.converter.simple_handler_conversion import (
-    # hierarchical_to_onnx,
-    to_onnx as basic_to_onnx,
-)
+from jax2onnx.converter.to_onnx import to_onnx as to_onnx_implementation
 
 
 def to_onnx(
@@ -30,7 +27,7 @@ def to_onnx(
     Returns:
         An ONNX ModelProto object.
     """
-    return basic_to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
+    return to_onnx_implementation(fn, input_shapes, model_name=model_name, opset=opset)
 
 
 def save_onnx(

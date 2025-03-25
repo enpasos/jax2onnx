@@ -72,37 +72,40 @@ class FunctionPlugin(PrimitivePlugin):
             raise RuntimeError(f"Original function for {self.name} not recorded.")
 
         print(f"\n🚀 Tracing function: {self.name}")
-        print(f"   ↪ Inputs: {[v.aval.shape for v in eqn.invars]}")
-
+        input_shapes = [var.aval.shape for var in eqn.invars]
         input_names = [converter.get_name(v) for v in eqn.invars]
-        example_args = [jnp.ones((1,)) for _ in input_names]
 
-        # Store parent builder
+        example_args = [
+            jnp.ones(shape, dtype=var.aval.dtype)
+            for shape, var in zip(input_shapes, eqn.invars)
+        ]
+
         parent_builder = converter.builder
-
-        print("   ↪ parent converter: ...")
-        converter.print_primitive_handlers()
-
-        print("   ↪ sub_converter: ...")
-        # Create new converter and builder for this function
         sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
-        sub_converter.print_primitive_handlers()
 
-        # with temporary_monkey_patches(allow_function_primitives=True):
         sub_converter.trace_jaxpr(
             lambda *args: self._orig_fn(self.target(), *args),
             example_args,
             preserve_graph=True,
         )
 
-        # Register subgraph (function) with parent builder
-        parent_builder.add_function(self.name, sub_converter.builder)
+        # Transfer sub-converter initializers as function parameters
+        function_initializers = sub_converter.builder.initializers
+        param_input_names = [init.name for init in function_initializers]
+
+        # Explicitly add param inputs to parent graph inputs if not already present
+        existing_input_names = {vi.name for vi in parent_builder.inputs}
+        for init in function_initializers:
+            if init.name not in existing_input_names:
+                parent_builder.add_input(init.name, list(init.dims), init.data_type)
+                parent_builder.initializers.append(init)
+
+        parent_builder.add_function(self.name, sub_converter.builder, param_input_names)
         parent_builder.name_counter = sub_converter.builder.name_counter
 
-        # Emit function call node
         parent_builder.add_function_call_node(
             self.name,
-            input_names,
+            input_names + param_input_names,
             [converter.get_var_name(v) for v in eqn.outvars],
         )
 
