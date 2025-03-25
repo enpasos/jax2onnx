@@ -7,10 +7,10 @@ import numpy as np
 from typing import Dict, Any, Tuple
 import jax.random
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.onnx_functions import FunctionPlugin
+from jax2onnx.plugin_system import FunctionPlugin
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
-    PrimitivePlugin,
+    PrimitiveLeafPlugin,
     import_all_plugins,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches  # Add this import
@@ -29,6 +29,9 @@ class Jaxpr2OnnxConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
+
+        self.name_to_const = {}
+        self.name_counter = 0
         # for primitive, plugin in get_all_plugins().items():
         #     handler = plugin.get_handler(self)
         #     self.primitive_handlers[primitive] = handler
@@ -43,10 +46,13 @@ class Jaxpr2OnnxConverter:
 
         import_all_plugins()
 
-        for key in PLUGIN_REGISTRY:
-            plugin = PLUGIN_REGISTRY[key]
-            if isinstance(plugin, (PrimitivePlugin, FunctionPlugin)):
+        for key, plugin in PLUGIN_REGISTRY.items():
+            if isinstance(plugin, PrimitiveLeafPlugin):
                 self.primitive_handlers[key] = plugin.get_handler(self)
+            elif isinstance(plugin, FunctionPlugin):
+                self.primitive_handlers[key] = plugin.get_handler()
+
+        print("✅ Plugin registry:", list(PLUGIN_REGISTRY.keys()))
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -350,14 +356,21 @@ class Jaxpr2OnnxConverter:
         for var in jaxpr.outvars:
             self.add_output(var, var.aval.shape, var.aval.dtype)
 
-    def trace_jaxpr(self, fn, example_args):
-        # Reset state
+    def reset(self):
+        """Reset the converter state."""
         self.builder.reset()
         self.var_to_name = {}
         self.name_to_const = {}
+        self.name_to_var = {}
+        self.primitive_handlers.clear()
+        self.name_counter = 0
 
+    def trace_jaxpr(self, fn, example_args):
+        self.builder.reset()
+        self.var_to_name = {}
+        self.name_to_const = {}
         # Get JAXPR from the function
-        with temporary_monkey_patches():
+        with temporary_monkey_patches(allow_function_primitives=True):
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
         print(closed_jaxpr)

@@ -2,7 +2,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING, Tuple, Union, Sequence, Optional
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -61,7 +61,7 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
         },
     ],
 )
-class TransposePlugin(PrimitivePlugin):
+class TransposePlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.numpy.transpose to ONNX.
     """

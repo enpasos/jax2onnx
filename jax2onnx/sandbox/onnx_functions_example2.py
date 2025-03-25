@@ -1,13 +1,14 @@
 # file: jax2onnx/sandbox/onnx_functions_example2.py
 
 from jax2onnx.converter.onnx_functions import onnx_function
-from jax2onnx.converter.simple_handler_conversion import hierarchical_to_onnx
 from flax import nnx
 import os
 import onnx
 from typing import List
 import jax
 import jax.numpy as jnp
+
+from jax2onnx import to_onnx
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +280,7 @@ top_model = VisionTransformer(
     rngs=nnx.Rngs(0),
 )
 
-onnx_model = hierarchical_to_onnx(top_model, [(2, 28, 28, 1)])
+onnx_model = to_onnx(top_model, [(2, 28, 28, 1)])
 output_path = "./docs/onnx/sandbox/vit.onnx"
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 onnx.save(onnx_model, output_path)

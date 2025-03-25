@@ -11,7 +11,7 @@ from flax import nnx
 from jax import core
 from onnx import helper
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -71,7 +71,7 @@ def _convert_padding(padding):
         },
     ],
 )
-class ConvTransposePlugin(PrimitivePlugin):
+class ConvTransposePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x, weight, *args, **kwargs):

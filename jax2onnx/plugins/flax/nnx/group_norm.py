@@ -11,7 +11,7 @@ from flax import nnx
 from jax import core
 from onnx import helper
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -45,7 +45,7 @@ nnx.group_norm_p.multiple_results = False  # Set at initialization
         },
     ],
 )
-class GroupNormPlugin(PrimitivePlugin):
+class GroupNormPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.GroupNorm to ONNX.
 

@@ -2,7 +2,7 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         }
     ],
 )
-class DotGeneralPlugin(PrimitivePlugin):
+class DotGeneralPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.lax.dot_general to ONNX.
     """
