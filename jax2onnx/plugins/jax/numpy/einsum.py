@@ -3,7 +3,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING, Tuple, List, Union, Dict
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -67,7 +67,7 @@ jnp.einsum_p.multiple_results = False  # Correct initialization
         },
     ],
 )
-class EinsumPlugin(PrimitivePlugin):
+class EinsumPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.numpy.einsum to ONNX.
     """

@@ -4,7 +4,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 from flax import nnx
 from typing import TYPE_CHECKING, Tuple, Union
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -52,7 +52,7 @@ nnx.linear_p.multiple_results = False  # Correct initialization
         },
     ],
 )
-class LinearPlugin(PrimitivePlugin):
+class LinearPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.Linear to ONNX.
     """

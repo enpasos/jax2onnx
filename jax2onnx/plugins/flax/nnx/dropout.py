@@ -5,7 +5,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 from jax import core
 import numpy as np
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -42,7 +42,7 @@ nnx.dropout_p.multiple_results = False  # Correctly set at initialization
         # },
     ],
 )
-class DropoutPlugin(PrimitivePlugin):
+class DropoutPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.Dropout to ONNX.
     """

@@ -3,7 +3,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -32,7 +32,7 @@ nnx.sigmoid_p.multiple_results = False  # Correct initialization
         }
     ],
 )
-class SigmoidPlugin(PrimitivePlugin):
+class SigmoidPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.sigmoid to ONNX.
     """

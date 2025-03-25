@@ -1,9 +1,11 @@
+# file: jax2onnx/plugins/flax/nnx/layer_norm.py
+
 from jax import core
 from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 import numpy as np
 
 if TYPE_CHECKING:
@@ -43,7 +45,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
         },
     ],
 )
-class LayerNormPlugin(PrimitivePlugin):
+class LayerNormPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.LayerNorm to ONNX.
     """
