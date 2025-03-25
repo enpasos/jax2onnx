@@ -2,7 +2,7 @@ import jax
 import numpy as np
 from typing import TYPE_CHECKING, Tuple, Sequence
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -69,7 +69,7 @@ def compute_same_pads(input_size, filter_size, stride):
         },
     ],
 )
-class ConvGeneralDilatedPlugin(PrimitivePlugin):
+class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.lax.conv_general_dilated to ONNX.
     """
