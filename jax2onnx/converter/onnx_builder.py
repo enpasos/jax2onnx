@@ -1,6 +1,15 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from onnx import helper, TensorProto, NodeProto, ValueInfoProto, ModelProto, GraphProto
+from onnx import (
+    helper,
+    TensorProto,
+    NodeProto,
+    ValueInfoProto,
+    ModelProto,
+    GraphProto,
+    FunctionProto,
+    OperatorSetIdProto,
+)
 import numpy as np
 from typing import Dict, List, Any, Tuple
 from jax.extend.core import Literal
@@ -23,6 +32,7 @@ class OnnxBuilder:
         self.outputs = []
         self.initializers = []
         self.value_info = []
+        self.functions.clear()
         self.name_counter = 0
 
     def get_unique_name(self, prefix: str = "node") -> str:
@@ -119,14 +129,39 @@ class OnnxBuilder:
         )
 
     def add_function_call_node(
-        self, name: str, inputs: List[str], outputs: List[str]
+        self,
+        function_name: str,
+        inputs: List[str],
+        outputs: List[str],
     ) -> None:
-        """Adds a call to a named ONNX function."""
+        """Adds a node that calls a nested function by name."""
         node = helper.make_node(
-            name,  # The function name as op_type
+            op_type=function_name,  # Name matches FunctionProto later
             inputs=inputs,
             outputs=outputs,
-            domain="",  # Empty domain = main opset
-            name=self.get_unique_name(f"{name}_call"),
+            domain="",  # Default domain
         )
-        self.add_node(node)
+        self.nodes.append(node)
+
+    def create_functions(self) -> List[FunctionProto]:
+        """Converts stored function graphs into ONNX FunctionProto objects."""
+        functions = []
+        for func_name, graph in self.functions.items():
+            opset = OperatorSetIdProto()
+            opset.version = self.opset_version
+
+            func_proto = FunctionProto()
+            func_proto.name = func_name
+            func_proto.domain = ""  # Default domain for now
+            func_proto.opset_import.extend([opset])
+
+            # Copy input/output names
+            func_proto.input.extend([i.name for i in graph.input])
+            func_proto.output.extend([o.name for o in graph.output])
+
+            # Add nodes from the function graph
+            func_proto.node.extend(graph.node)
+
+            functions.append(func_proto)
+
+        return functions
