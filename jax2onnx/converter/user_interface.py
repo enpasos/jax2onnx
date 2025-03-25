@@ -1,9 +1,11 @@
+# file: jax2onnx/converter/user_interface.py
+
 import onnx
 from typing import Any
 import numpy as np
 import onnxruntime as ort
 from jax2onnx.converter.simple_handler_conversion import (
-    hierarchical_to_onnx,
+    # hierarchical_to_onnx,
     to_onnx as basic_to_onnx,
 )
 
@@ -28,12 +30,7 @@ def to_onnx(
     Returns:
         An ONNX ModelProto object.
     """
-    if hierarchical:
-        return hierarchical_to_onnx(
-            fn, input_shapes, model_name=model_name, opset=opset
-        )
-    else:
-        return basic_to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
+    return basic_to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
 
 
 def save_onnx(

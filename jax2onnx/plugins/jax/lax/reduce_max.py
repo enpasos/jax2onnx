@@ -2,7 +2,7 @@ import numpy as np
 import jax
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         }
     ],
 )
-class ReduceMaxPlugin(PrimitivePlugin):
+class ReduceMaxPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.reduce_max to ONNX ReduceMax."""
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):

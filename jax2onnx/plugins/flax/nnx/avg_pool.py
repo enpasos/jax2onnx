@@ -4,7 +4,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING, Tuple, Sequence
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -51,7 +51,7 @@ nnx.avg_pool_p.multiple_results = False  # Correctly set at initialization
         },
     ],
 )
-class AvgPoolPlugin(PrimitivePlugin):
+class AvgPoolPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.avg_pool to ONNX.
     """

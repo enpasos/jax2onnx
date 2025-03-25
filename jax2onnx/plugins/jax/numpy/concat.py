@@ -2,7 +2,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -31,7 +31,7 @@ jnp.concat_p.multiple_results = False  # Correct initialization
         }
     ],
 )
-class ConcatPlugin(PrimitivePlugin):
+class ConcatPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting jax.numpy.concatenate to ONNX.  Note:  jax.numpy.concat
     is an alias for jax.numpy.concatenate.
