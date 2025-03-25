@@ -111,7 +111,9 @@ class OnnxBuilder:
         # Add FunctionProtos from nested functions
         if self.functions:
             model.functions.extend(self.create_functions())
-            print(f"🧠 Added {len(model.functions)} nested function(s) to model")
+            print(
+                f"🧠 Added {len(model.functions)} nested ONNX function(s): {[f.name for f in model.functions]}"
+            )
 
         return model
 

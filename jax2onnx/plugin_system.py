@@ -83,7 +83,9 @@ class FunctionPlugin(PrimitivePlugin):
         # Create new converter and builder for this function
         sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
         sub_converter.trace_jaxpr(
-            lambda *args: self._orig_fn(self.target(), *args), example_args
+            lambda *args: self._orig_fn(self.target(), *args),
+            example_args,
+            preserve_graph=True,  # <- KEEP the subgraph!
         )
 
         # Register subgraph (function) with parent builder
