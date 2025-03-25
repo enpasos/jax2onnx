@@ -17,22 +17,22 @@ class MLPBlock(nnx.Module):
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
         self.layers = [
             nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            # lambda x: nnx.gelu(x, approximate=False),
-            # nnx.Dropout(rate=dropout_rate, rngs=rngs),
-            # nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            # nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            lambda x: nnx.gelu(x, approximate=False),
+            nnx.Dropout(rate=0.1, rngs=rngs),
+            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
-            # if isinstance(layer, nnx.Dropout):
-            #     x = layer(x, deterministic=deterministic)
-            # else:
-            x = layer(x)
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=deterministic)
+            else:
+                x = layer(x)
         return x
 
 
-# @onnx_function
+@onnx_function
 class TransformerBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)  # Example RNGs initialization
