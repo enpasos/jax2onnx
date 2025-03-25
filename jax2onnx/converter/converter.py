@@ -365,11 +365,12 @@ class Jaxpr2OnnxConverter:
         self.primitive_handlers.clear()
         self.name_counter = 0
 
-    def trace_jaxpr(self, fn, example_args):
-        self.builder.reset()
-        self.var_to_name = {}
-        self.name_to_const = {}
-        # Get JAXPR from the function
+    def trace_jaxpr(self, fn, example_args, preserve_graph=False):
+        if not preserve_graph:
+            self.builder.reset()
+            self.var_to_name = {}
+            self.name_to_const = {}
+
         with temporary_monkey_patches(allow_function_primitives=True):
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
 
