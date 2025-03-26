@@ -1,13 +1,10 @@
 # file: jax2onnx/sandbox/onnx_functions_example.py
 
 
-from jax2onnx import to_onnx
 from flax import nnx
-import os
-import onnx
 import jax.numpy as jnp
 
-from jax2onnx.plugin_system import onnx_function
+from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
@@ -32,7 +29,6 @@ class MLPBlock(nnx.Module):
         return x
 
 
-@onnx_function
 class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)  # Example RNGs initialization
@@ -43,8 +39,18 @@ class SuperBlock(nnx.Module):
         return self.mlp(x)
 
 
-top_model = SuperBlock()
-onnx_model = to_onnx(top_model, [("B", 10, 256)])
-output_path = "./docs/onnx/sandbox/transformer_block.onnx"
-os.makedirs(os.path.dirname(output_path), exist_ok=True)
-onnx.save(onnx_model, output_path)
+register_example(
+    component="onnx_functions_001",
+    description="The first onnx function example: one function.",
+    # source="https:/",
+    since="v0.4.0",
+    context="examples.onnx_functions",
+    children=["MLPBlock"],
+    testcases=[
+        {
+            "testcase": "one_function",
+            "callable": SuperBlock(),
+            "input_shapes": [("B", 10, 256)],
+        },
+    ],
+)

@@ -1,3 +1,5 @@
+# file: scripts/generate_readme.py
+
 from pathlib import Path
 import subprocess
 import time
@@ -36,7 +38,7 @@ def run_pytest() -> Dict[Tuple[str, str, str], str]:
             ["pytest", "--json-report", f"--json-report-file={REPORT_PATH}"],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
     except subprocess.CalledProcessError as e:
         logging.error(f"❌ Pytest execution failed: {e}")
