@@ -4,6 +4,8 @@ import jax.numpy as jnp
 import numpy as np
 from onnx import TensorProto
 
+from jax2onnx.converter.onnx_builder import OnnxBuilder
+
 
 def function_handler(name, converter, eqn, orig_fn, params):
 
@@ -19,7 +21,12 @@ def function_handler(name, converter, eqn, orig_fn, params):
     ]
 
     parent_builder = converter.builder
-    sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
+    builder = OnnxBuilder(
+        parent_builder.name_counter,
+        parent_builder.opset,
+        parent_builder.model_name,
+    )
+    sub_converter = converter.__class__(builder)
 
     sub_converter.trace_jaxpr(
         orig_fn,

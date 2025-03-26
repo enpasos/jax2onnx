@@ -4,6 +4,7 @@ from typing import Any
 import jax.numpy as jnp
 from onnx import helper
 from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
@@ -30,7 +31,8 @@ def to_onnx(
 
     example_args = [jnp.zeros(replace_B(s)) for s in input_shapes]
 
-    converter = Jaxpr2OnnxConverter()
+    builder = OnnxBuilder(name_counter=0, opset=opset)
+    converter = Jaxpr2OnnxConverter(builder)
 
     for name, plugin in PLUGIN_REGISTRY.items():
         if isinstance(plugin, PrimitiveLeafPlugin):

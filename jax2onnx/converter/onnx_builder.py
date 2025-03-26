@@ -16,14 +16,14 @@ from jax.extend.core import Literal
 
 
 class OnnxBuilder:
-    def __init__(self, name_counter: int = 0, opset_version: int = 21) -> None:
+    def __init__(self, name_counter: int = 0, opset: int = 21) -> None:
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []
         self.outputs: List[ValueInfoProto] = []
         self.initializers: List[Any] = []  # TensorProto objects
         self.value_info: List[ValueInfoProto] = []
         self.name_counter: int = name_counter
-        self.opset_version: int = opset_version
+        self.opset: int = opset
         self.functions: Dict[str, GraphProto] = {}
 
     def reset(self) -> None:
@@ -103,11 +103,11 @@ class OnnxBuilder:
 
     def create_model(self, graph: GraphProto) -> ModelProto:
         """Create the final ONNX model, including any registered nested functions."""
-        opset_imports = [helper.make_opsetid("", self.opset_version)]
+        opset_imports = [helper.make_opsetid("", self.opset)]
 
         # Add `custom` domain opset if functions are present
         if self.functions:
-            opset_imports.append(helper.make_opsetid("custom", self.opset_version))
+            opset_imports.append(helper.make_opsetid("custom", self.opset))
 
         model = helper.make_model(
             graph,
@@ -174,7 +174,7 @@ class OnnxBuilder:
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
-            opset_imports=[helper.make_opsetid("", self.opset_version)],
+            opset_imports=[helper.make_opsetid("", self.opset)],
             attributes=[],
             value_info=unique_value_infos
             + param_value_infos,  # explicitly define params
@@ -203,7 +203,7 @@ class OnnxBuilder:
         functions = []
         for func_name, graph in self.functions.items():
             opset = OperatorSetIdProto()
-            opset.version = self.opset_version
+            opset.version = self.opset
 
             func_proto = FunctionProto()
             func_proto.name = func_name
@@ -232,11 +232,6 @@ class OnnxBuilder:
         function_proto.node.extend(graph.node)
         function_proto.value_info.extend(graph.value_info)
         function_proto.opset_import.extend(
-            [OperatorSetIdProto(domain="", version=self.opset_version)]
+            [OperatorSetIdProto(domain="", version=self.opset)]
         )
         return function_proto
-
-    # def add_function(self, name: str, builder: "OnnxBuilder", domain: str = "") -> None:
-    #     function_graph = builder.create_graph(name)
-    #     function_proto = self.create_function_proto(function_graph, domain)
-    #     self.functions[name] = function_proto  # ✅ now explicitly FunctionProto
