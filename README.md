@@ -225,8 +225,8 @@ We warmly welcome contributions!
 
 **How you can help:**
 
-- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/converter/plugins`](./jax2onnx/converter/plugins).
-- **Provide examples:** Add an illustrative example to the [`examples`](./jax2onnx/examples) folder.
+- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins). 
+a custom primitive or an example.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
 ---
