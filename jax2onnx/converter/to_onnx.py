@@ -34,13 +34,6 @@ def to_onnx(
     builder = OnnxBuilder(name_counter=0, opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
 
-    for name, plugin in PLUGIN_REGISTRY.items():
-        if isinstance(plugin, PrimitiveLeafPlugin):
-            converter.primitive_handlers[name] = plugin.get_handler(converter)
-
-    for name, function_plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-        converter.primitive_handlers[name] = function_plugin.get_handler(converter)
-
     converter.trace_jaxpr(fn, example_args)
 
     for tensor, input_shape in zip(converter.builder.inputs, input_shapes):
