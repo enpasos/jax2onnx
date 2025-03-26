@@ -103,9 +103,15 @@ class OnnxBuilder:
 
     def create_model(self, graph: GraphProto) -> ModelProto:
         """Create the final ONNX model, including any registered nested functions."""
+        opset_imports = [helper.make_opsetid("", self.opset_version)]
+
+        # Add `custom` domain opset if functions are present
+        if self.functions:
+            opset_imports.append(helper.make_opsetid("custom", self.opset_version))
+
         model = helper.make_model(
             graph,
-            opset_imports=[helper.make_opsetid("", self.opset_version)],
+            opset_imports=opset_imports,
         )
 
         # Add FunctionProtos from nested functions
