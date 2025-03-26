@@ -1,4 +1,4 @@
-# file: jax2onnx/sandbox/onnx_functions_example.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_000.py
 
 
 from flax import nnx
@@ -7,7 +7,6 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-@onnx_function
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
@@ -29,6 +28,7 @@ class MLPBlock(nnx.Module):
         return x
 
 
+@onnx_function
 class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)  # Example RNGs initialization
@@ -40,15 +40,15 @@ class SuperBlock(nnx.Module):
 
 
 register_example(
-    component="onnx_functions_001",
-    description="one function on an inner layer.",
+    component="onnx_functions_000",
+    description="one function on an outer layer.",
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
     children=["MLPBlock"],
     testcases=[
         {
-            "testcase": "one_function",
+            "testcase": "one_function_outer",
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
         },
