@@ -1,5 +1,3 @@
-# file: jax2onnx/converter/primitive_converter.py
-
 import jax
 import jax.random
 import numpy as np
