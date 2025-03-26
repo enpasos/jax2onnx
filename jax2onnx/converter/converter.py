@@ -21,17 +21,16 @@ class Jaxpr2OnnxConverter:
     A translator that converts JAX's JAXPR representation to ONNX format.
     """
 
-    def __init__(self, name_counter=0):
+    def __init__(self, builder: OnnxBuilder):
 
-        # Instead of duplicating helper functions, delegate to OnnxBuilder:
-        self.builder = OnnxBuilder(name_counter)
+        self.builder = builder
+
         # Other converter state
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
 
         self.name_to_const = {}
-        self.name_counter = 0
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
         self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
         self.primitive_handlers[jax._src.prng.random_split_p] = (

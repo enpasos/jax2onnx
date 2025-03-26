@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 from typing import TYPE_CHECKING
 from onnx import helper
+from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
@@ -52,7 +53,8 @@ class RandomGammaPlugin(PrimitiveLeafPlugin):
         key = jax.random.PRNGKey(0)
         alpha = jnp.zeros(shape)
 
-        subconverter = Jaxpr2OnnxConverter()
+        builder = OnnxBuilder()
+        subconverter = Jaxpr2OnnxConverter(builder)
 
         if params.get("log_space", False):
             subconverter.trace_jaxpr(gamma_log, (key, alpha))
