@@ -1,4 +1,4 @@
-# file: jax2onnx/sandbox/onnx_functions_example.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_002.py
 
 
 from flax import nnx

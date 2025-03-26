@@ -2,11 +2,10 @@
 import pkgutil
 import importlib
 import os
-import jax.numpy as jnp
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
-import numpy as np
-from onnx import TensorProto
+
+from jax2onnx.converter.function_handler import function_handler
 
 PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitiveLeafPlugin"]] = {}
 
@@ -14,16 +13,6 @@ PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitiveLeafPlugin"]] = {}
 ONNX_FUNCTION_REGISTRY: Dict[str, Any] = {}
 ONNX_FUNCTION_PRIMITIVE_REGISTRY: Dict[str, Tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
-
-
-def _tensorproto_dtype_to_numpy(onnx_dtype):
-    return {
-        TensorProto.FLOAT: np.float32,
-        TensorProto.DOUBLE: np.float64,
-        TensorProto.INT32: np.int32,
-        TensorProto.INT64: np.int64,
-        TensorProto.BOOL: np.bool_,
-    }.get(onnx_dtype, np.float32)
 
 
 #####################################
@@ -80,60 +69,7 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, converter, eqn, params):
-        if self._orig_fn is None:
-            raise RuntimeError(f"Original function for {self.name} not recorded.")
-
-        print(f"\n🚀 Tracing function: {self.name}")
-        input_shapes = [var.aval.shape for var in eqn.invars]
-        input_names = [converter.get_name(v) for v in eqn.invars]
-        example_args = [
-            jnp.ones(shape, dtype=var.aval.dtype)
-            for shape, var in zip(input_shapes, eqn.invars)
-        ]
-
-        parent_builder = converter.builder
-        sub_converter = converter.__class__(name_counter=parent_builder.name_counter)
-
-        sub_converter.trace_jaxpr(
-            self._orig_fn,
-            example_args,
-            preserve_graph=True,
-        )
-
-        # Transfer initializers as function parameters
-        function_initializers = sub_converter.builder.initializers
-        param_input_names = [init.name for init in function_initializers]
-
-        existing_input_names = {vi.name for vi in parent_builder.inputs}
-        for init in function_initializers:
-            if init.name not in existing_input_names:
-                parent_builder.add_input(
-                    init.name,
-                    list(init.dims),
-                    _tensorproto_dtype_to_numpy(init.data_type),
-                )
-                parent_builder.initializers.append(init)
-
-        parent_builder.add_function(self.name, sub_converter.builder, param_input_names)
-
-        # ✅ Explicitly propagate nested ONNX functions upward
-        for (
-            nested_func_name,
-            nested_func_proto,
-        ) in sub_converter.builder.functions.items():
-            if nested_func_name not in parent_builder.functions:
-                parent_builder.functions[nested_func_name] = nested_func_proto
-                print(f"🚀 Propagated nested ONNX function: {nested_func_name}")
-
-        parent_builder.name_counter = sub_converter.builder.name_counter
-
-        parent_builder.add_function_call_node(
-            self.name,
-            input_names + param_input_names,
-            [converter.get_var_name(v) for v in eqn.outvars],
-        )
-
-        print(f"✅ Finished tracing function: {self.name}\n")
+        function_handler(self.name, converter, eqn, self._orig_fn, params)
 
     def get_patch_fn(self, primitive):
         def patch(original_call):
