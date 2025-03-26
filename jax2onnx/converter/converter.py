@@ -7,6 +7,7 @@ import jax.random
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
     PrimitivePlugin,
 )
 from jax2onnx.plugin_system import (
@@ -48,6 +49,13 @@ class Jaxpr2OnnxConverter:
 
         for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
             self.primitive_handlers[key] = plugin.get_handler(self)
+
+        # for name, plugin in PLUGIN_REGISTRY.items():
+        #     if isinstance(plugin, PrimitiveLeafPlugin):
+        #         self.primitive_handlers[name] = plugin.get_handler(self)
+
+        # for name, function_plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
+        #     self.primitive_handlers[name] = function_plugin.get_handler(self)
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
