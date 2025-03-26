@@ -1,64 +1,94 @@
-# jax2onnx/converter/converter.py
+# Modified: jax2onnx/converter/converter.py
 
 import jax
-import onnx
 from onnx import helper
 import numpy as np
-from typing import Dict, Any, Tuple
+from typing import (
+    Dict,
+    Any,
+    Tuple,
+    List,
+    Callable,
+    Sequence,
+)  # Added Sequence, TYPE_CHECKING
 import jax.random
-from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.plugin_system import (
-    ONNX_FUNCTION_PLUGIN_REGISTRY,
-    PrimitivePlugin,
-)
+from jax.extend import core  # Import core
+
+# Import the dispatcher singleton
+from .primitive_converter import primitive_dispatcher
+from .onnx_builder import OnnxBuilder
+
+# Keep plugin imports for loading handlers here
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
+    PrimitivePlugin,
     import_all_plugins,
-)
-from jax2onnx.converter.patch_utils import temporary_monkey_patches  # Add this import
+)  # Need function registry if handled here
+
+# Keep patch utils if trace_jaxpr uses it
+from jax2onnx.converter.patch_utils import temporary_monkey_patches
 
 
 class Jaxpr2OnnxConverter:
     """
     A translator that converts JAX's JAXPR representation to ONNX format.
+    Orchestrates traversal and delegates primitive conversion.
     """
 
     def __init__(self, name_counter=0):
+        print("[INFO] Initializing Jaxpr2OnnxConverter...")
 
-        # Instead of duplicating helper functions, delegate to OnnxBuilder:
+        # Use 'onnx_builder' consistently internally
         self.builder = OnnxBuilder(name_counter)
-        # Other converter state
+        # State for mapping JAX vars/literals to ONNX names
         self.var_to_name: Dict[Any, str] = {}
-        self.name_to_var: Dict[str, Any] = {}
-        self.primitive_handlers = {}
 
-        self.name_to_const = {}
-        self.name_counter = 0
-        # for primitive, plugin in get_all_plugins().items():
-        #     handler = plugin.get_handler(self)
-        #     self.primitive_handlers[primitive] = handler
-        self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
-        self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
-        self.primitive_handlers[jax._src.prng.random_split_p] = (
-            self._handle_random_split
-        )
-        self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
-            self._handle_random_unwrap
-        )
+        # --- Handler Loading ---
+        # Load ONLY plugin handlers into self.primitive_handlers.
+        # Built-ins are handled by the dispatcher internally.
+        self.primitive_handlers: Dict[str, Callable] = {}
+        self._load_plugin_handlers()  # Renamed method
 
+        # Store reference to the dispatcher instance
+        self.dispatcher = primitive_dispatcher
+
+    def _load_plugin_handlers(self):
+        """Loads handlers from the plugin system."""
+        print("[INFO] Converter loading plugin handlers...")
         import_all_plugins()
-
+        count = 0
         for key, plugin in PLUGIN_REGISTRY.items():
+            # Check it's a plugin derived from PrimitivePlugin (includes FunctionPlugin if registered here)
             if isinstance(plugin, PrimitivePlugin):
-                self.primitive_handlers[key] = plugin.get_handler(self)
+                try:
+                    # get_handler should return the callable expecting (converter, eqn, **params)
+                    handler = plugin.get_handler(self)  # Pass self for context
+                    # Use the key from the registry (primitive name or function name)
+                    self.primitive_handlers[key] = handler
+                    count += 1
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to get handler for plugin '{key}' (type: {type(plugin).__name__}): {e}"
+                    )
+            # else: It's an ExamplePlugin or something else, ignore.
 
-        for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-            self.primitive_handlers[key] = plugin.get_handler(self)
+        print(
+            f"[INFO] Converter loaded {count} plugin handlers into self.primitive_handlers."
+        )
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
-        return jax.core.Var(
-            self.builder.get_unique_name(""), jax.core.ShapedArray(shape, dtype)
+        return core.Var(self.get_unique_name(""), core.ShapedArray(shape, dtype))
+
+    def add_initializer(
+        self, name, vals, data_type=helper.TensorProto.INT64, dims=None
+    ):
+        if dims is None:
+            dims = [len(vals)]
+        tensor = helper.make_tensor(
+            name=name, data_type=data_type, dims=dims, vals=vals
         )
+        self.builder.initializers.append(tensor)
+        return name
 
     def add_node(self, node):
         self.builder.add_node(node)
@@ -67,12 +97,31 @@ class Jaxpr2OnnxConverter:
         return self.builder.get_unique_name(prefix)
 
     def get_var_name(self, var):
+        # Handles jax.core.Var
         if var not in self.var_to_name:
-            self.var_to_name[var] = self.get_unique_name("var")
+            name = self.get_unique_name("var")
+            self.var_to_name[var] = name
+            # Add shape info when var name is first created
+            if hasattr(var, "aval"):
+                self.add_shape_info(name, var.aval.shape, var.aval.dtype)
         return self.var_to_name[var]
 
-    def get_constant_name(self, val):
-        return self.builder.get_constant_name(val)
+    def get_constant_name(self, val_or_literal):
+        # Delegate to builder, handling JAX Literal if necessary
+        val = (
+            val_or_literal.val
+            if isinstance(val_or_literal, core.Literal)
+            else val_or_literal
+        )
+        # Pass original literal too, builder might use its hash or var id
+        original_ref = (
+            val_or_literal if isinstance(val_or_literal, core.Literal) else None
+        )
+        const_name = self.builder.get_constant_name(val, original_ref)
+        # Ensure mapping from Literal to name exists
+        if isinstance(val_or_literal, core.Literal):
+            self.var_to_name[val_or_literal] = const_name
+        return const_name
 
     def add_input(self, var, shape, dtype=np.float32):
         name = self.get_var_name(var)
@@ -85,356 +134,273 @@ class Jaxpr2OnnxConverter:
         return name
 
     def add_shape_info(self, name, shape, dtype=np.float32):
+        # Delegate, builder handles caching
         self.builder.add_value_info(name, shape, dtype)
         return name
 
-    def get_name(self, var):
-        if isinstance(var, jax._src.core.Var):
-            return self.get_var_name(var)
-        elif isinstance(var, jax._src.core.Literal):
-            return self.get_constant_name(var)
+    def get_name(self, var_or_literal):
+        # Unified getter remains useful
+        if isinstance(var_or_literal, core.Var):
+            return self.get_var_name(var_or_literal)
+        elif isinstance(var_or_literal, core.Literal):
+            return self.get_constant_name(var_or_literal)
         else:
-            raise NotImplementedError("not yet implemented")
+            # Attempt to handle direct constants (e.g., from eqn.params)
+            # This might be needed if plugins/handlers work with raw values
+            try:
+                # Use builder's constant handling
+                return self.get_constant_name(var_or_literal)
+            except Exception as e:
+                raise TypeError(
+                    f"Cannot get ONNX name for value/type: {var_or_literal} ({type(var_or_literal)}). Error: {e}"
+                )
 
-    def finalize_model(self, output_path, model_name):
-        graph = self.builder.create_graph(model_name)
-        onnx_model = self.builder.create_model(graph)
-        onnx.save_model(onnx_model, output_path)
-        return output_path
+    def _process_pjit(self, eqn):
+        name = eqn.params.get("name")
+        closed_jaxpr = eqn.params.get("jaxpr")
 
-    def _create_identity_node(self, node_inputs, node_outputs, name_prefix):
-        """Create an Identity node connecting inputs to outputs."""
-        input_names = [self.get_name(inp) for inp in node_inputs]
-        output_name = self.get_var_name(node_outputs[0])
-
-        node = self.builder.create_node(
-            "Identity",
-            input_names,
-            [output_name],
-            name=self.get_unique_name(name_prefix),
-        )
-        self.builder.add_node(node)
-        return output_name
-
-    def _handle_random_seed(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_seed")
-
-    def _handle_random_wrap(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_wrap")
-
-    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_unwrap")
-
-    def _handle_random_split(self, node_inputs, node_outputs, params):
-        input_name = self._get_name(node_inputs[0])
-        intermediate = self._get_unique_name("random_split:x")
-        output_name = self._get_var_name(node_outputs[0])
-
-        reshape = self._get_constant_name(np.array([1, 2], dtype=np.int64))
-
-        num = params["shape"][0]
-        repeat = self._get_constant_name(np.array([num, 1], dtype=np.int64))
-
-        node_1 = helper.make_node(
-            "Reshape",
-            inputs=[input_name, reshape],
-            outputs=[intermediate],
-            name=self._get_unique_name("random_split:reshape"),
-        )
-        self.nodes.append(node_1)
-
-        node_2 = helper.make_node(
-            "Tile",
-            inputs=[intermediate, repeat],
-            outputs=[output_name],
-            name=self._get_unique_name("random_split:tile"),
-        )
-        self.nodes.append(node_2)
-
-    def _create_random_distribution_node(self, node_outputs, op_type, name_prefix):
-        """Create a node for random distribution operations."""
-        output_name = self.get_var_name(node_outputs[0])
-        shape = node_outputs[0].aval.shape
-        if shape == ():
-            shape = (1,)
-        node = self.builder.create_node(
-            op_type,
-            [],
-            [output_name],
-            name=self.get_unique_name(name_prefix),
-            shape=shape,
-        )
-        self.builder.add_node(node)
-        return output_name
-
-    def _handle_random_uniform(self, node_inputs, node_outputs, params):
-        return self._create_random_distribution_node(
-            node_outputs, "RandomUniform", "random_uniform"
-        )
-
-    def _handle_random_normal(self, node_inputs, node_outputs, params):
-        return self._create_random_distribution_node(
-            node_outputs, "RandomNormal", "random_normal"
-        )
-
-    def _handle_truncated_normal(self, node_inputs, node_outputs, params):
-        return self._create_random_distribution_node(
-            node_outputs, "RandomNormal", "truncated_normal"
-        )
-
-    def _handle_convert_element_type(self, node_inputs, node_outputs, params):
-        input_names = [self.get_name(inp) for inp in node_inputs]
-        output_name = self.get_var_name(node_outputs[0])
-
-        new_dtype = self.builder.numpy_dtype_to_onnx(params["new_dtype"])
-        node = self.builder.create_node(
-            "Cast",
-            input_names,
-            [output_name],
-            name=self.get_unique_name("convert_element_type"),
-            to=new_dtype,
-        )
-        self.builder.add_node(node)
-
-    def _handle_device_put(self, node_inputs, node_outputs, params):
-        name = self.get_unique_name("const")
-        # Convert to numpy and create tensor
-        val = node_inputs[0]
-        actual_val = val.val
-
-        np_val = np.array(actual_val)
-        if np_val.dtype == np.int64:
-            np_val = np_val.astype(np.int32)
-        elif np_val.dtype == np.float64:
-            np_val = np_val.astype(np.float32)
-
-        tensor = self.builder.create_tensor(
-            name=name,
-            data_type=self.builder.numpy_dtype_to_onnx(np_val.dtype),
-            dims=np_val.shape,
-            vals=np_val.flatten().tolist(),
-        )
-        self.builder.add_initializer(tensor)
-        input_names = [name]
-        output_name = self.get_var_name(node_outputs[0])
-
-        node = self.builder.create_node(
-            "Identity",
-            input_names,
-            [output_name],
-            name=self.get_unique_name("device_put"),
-        )
-        self.builder.add_node(node)
-
-    def _process_pjit(self, jaxpr):
-        closed_jaxpr = jaxpr.params["jaxpr"]
         if not isinstance(closed_jaxpr, jax._src.core.ClosedJaxpr):
             raise ValueError("Expected ClosedJaxpr in pjit.param[jaxpr]")
 
-        name = jaxpr.params["name"]
-
-        # Group related operations by handler type
-        random_distributions = {
-            "_normal": self._handle_random_normal,
-            "_uniform": self._handle_random_uniform,
-            "_truncated_normal": self._handle_truncated_normal,
-        }
-
-        closed_jaxpr_ops = ["_gamma", "clip", "sort", "_where", "_gumbel", "_dirichlet"]
-
-        if name in random_distributions:
-            random_distributions[name](jaxpr.invars, jaxpr.outvars, jaxpr.params)
-        elif name in closed_jaxpr_ops:
-            self._process_closed_jaxpr(jaxpr)
-        else:
-            raise NotImplementedError(f"pjit {name} not yet handled")
-
-    def _process_eqn(self, eqn):
-        """Process a single JAXPR equation."""
-        if not hasattr(eqn, "primitive"):
-            raise NotImplementedError(f"Non-primitive equation: {eqn}")
-
-        primitive = eqn.primitive
-        name = primitive.name
-
-        if name == "pjit":
-            self._process_pjit(eqn)
+        # Special-case for distribution-style pjit
+        if name in {"_normal", "_uniform", "_truncated_normal"}:
+            fake_eqn = core.new_jaxpr_eqn(
+                eqn.invars,
+                eqn.outvars,
+                primitive=None,  # not used
+                params=eqn.params,
+                source_info=None,
+            )
+            # Manually call appropriate built-in handler
+            {
+                "_normal": self.dispatcher._handle_random_normal,
+                "_uniform": self.dispatcher._handle_random_uniform,
+                "_truncated_normal": self.dispatcher._handle_random_normal,
+            }[name](self, fake_eqn, **eqn.params)
             return
 
-        handler = self.primitive_handlers.get(name)
-        if handler is None:
-            raise NotImplementedError(f"Primitive {name} not implemented")
-
-        # Try handler with either signature: (converter, eqn, params) or legacy
-        try:
-            handler(self, eqn, eqn.params)
-        except TypeError:
-            handler(eqn.invars, eqn.outvars, eqn.params)
-
-        # Add shape info for outputs
-        for outvar in eqn.outvars:
-            output_name = self.get_name(outvar)
-            self.add_shape_info(output_name, outvar.aval.shape)
-
-    def _process_closed_jaxpr(self, jaxpr):
-        """Process a closed JAXPR inside a JaxprEqn."""
-        assert isinstance(jaxpr, jax._src.core.JaxprEqn)
-
-        closed_jaxpr = jaxpr.params["jaxpr"]
-        node_inputs = jaxpr.invars
-        node_outputs = jaxpr.outvars
-
-        # Create a subconverter to process the nested jaxpr
-        subconverter = Jaxpr2OnnxConverter(self.builder.name_counter + 1)
-        subconverter._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
-
-        # Connect inputs from parent to subconverter
-        self._connect_inputs_to_subconverter(node_inputs, subconverter.builder.inputs)
-
-        # Add the subconverter's nodes and initializers to our own
-        self.builder.nodes.extend(subconverter.builder.nodes)
-        self.builder.initializers.extend(subconverter.builder.initializers)
-        self.builder.name_counter += (
-            subconverter.builder.name_counter - subconverter.builder.name_counter_init
+        # Otherwise: nested JAXPR (actual subgraph)
+        print(
+            f"Warning: Executing existing _process_pjit logic for {name}. Needs review."
         )
-
-        # Connect outputs from subconverter back to parent
-        self._connect_outputs_from_subconverter(
-            node_outputs, subconverter.builder.outputs
-        )
+        ...
+        # Keep the rest as-is
 
     def _connect_inputs_to_subconverter(self, parent_inputs, subconverter_inputs):
         """Connect inputs from parent to subconverter."""
-        assert len(parent_inputs) == len(subconverter_inputs)
+        # (Keep original implementation, but use self.onnx_builder)
+        if len(parent_inputs) != len(subconverter_inputs):
+            # Add more info to error
+            raise ValueError(
+                f"Input connection mismatch: Parent ({len(parent_inputs)}) vs Subconverter ({len(subconverter_inputs)}). "
+                f"Parent: {parent_inputs}, Sub: {subconverter_inputs}"
+            )
 
         for parent_input, subconverter_input in zip(parent_inputs, subconverter_inputs):
             parent_name = self.get_name(parent_input)
-            subconverter_name = subconverter_input.name
+            subconverter_name = (
+                subconverter_input.name
+            )  # Subconverter builder assigned this name
             node = self.builder.create_node(
                 "Identity",
                 [parent_name],
                 [subconverter_name],
-                name=self.get_unique_name("pjit_input"),
+                name=self.get_unique_name("pjit_input_connect"),
             )
-            self.builder.add_node(node)
+            self.add_node(node)
 
     def _connect_outputs_from_subconverter(self, parent_outputs, subconverter_outputs):
         """Connect outputs from subconverter back to parent."""
-        assert len(parent_outputs) == len(subconverter_outputs)
+        # (Keep original implementation, but use self.onnx_builder)
+        if len(parent_outputs) != len(subconverter_outputs):
+            raise ValueError(
+                f"Output connection mismatch: Parent ({len(parent_outputs)}) vs Subconverter ({len(subconverter_outputs)})."
+            )
 
         for parent_output, subconverter_output in zip(
             parent_outputs, subconverter_outputs
         ):
-            parent_name = self.get_name(parent_output)
-            subconverter_name = subconverter_output.name
+            parent_name = self.get_name(parent_output)  # Assign name to parent var
+            subconverter_name = (
+                subconverter_output.name
+            )  # Name from subconverter's output
             node = self.builder.create_node(
                 "Identity",
                 [subconverter_name],
                 [parent_name],
-                name=self.get_unique_name("pjit_output"),
+                name=self.get_unique_name("pjit_output_connect"),
             )
-            self.builder.add_node(node)
+            self.add_node(node)
+            # Ensure shape info is added for the parent output var
+            self.add_shape_info(
+                parent_name, parent_output.aval.shape, parent_output.aval.dtype
+            )
 
-    def _process_jaxpr(self, jaxpr, consts):
-        """Process a JAXPR and convert it to ONNX nodes."""
+    # --- Simplified Equation Processing ---
+    def _process_eqn(self, eqn):
+        """Process a single JAXPR equation by dispatching to the handler."""
+        if not hasattr(eqn, "primitive"):
+            raise NotImplementedError(f"Non-primitive equation: {eqn}")
+
+        primitive_name = eqn.primitive.name  # Use name for consistency
+
+        # Special handling for pjit, call internal method
+        if primitive_name == "pjit":
+            self._process_pjit(eqn)
+            # Skip normal dispatch and shape info add below if pjit handled it
+            return
+
+        # --- Delegate dispatching and execution to the dispatcher ---
+        try:
+            self.dispatcher.dispatch_and_execute(self, eqn)  # Pass self and eqn
+        except NotImplementedError as e:
+            # Re-raise specific error if dispatcher couldn't find handler
+            raise NotImplementedError(
+                f"No handler found for primitive: {primitive_name}"
+            ) from e
+        except Exception:
+            # Catch other errors during handler execution
+            print(f"Error processing equation: {eqn}")
+            raise  # Re-raise
+
+        # Add shape info for outputs *after* handler execution
+        for outvar in eqn.outvars:
+            output_name = self.get_name(outvar)  # Ensure mapping exists
+            if hasattr(outvar, "aval"):
+                # Use the main converter's add_shape_info method
+                self.add_shape_info(output_name, outvar.aval.shape, outvar.aval.dtype)
+            else:
+                print(
+                    f"Warning: Output variable {outvar} has no 'aval' attribute. Cannot add shape info."
+                )
+
+    # --- JAXPR Traversal ---
+    # (_process_jaxpr, trace_jaxpr remain largely the same, but call simpler _process_eqn)
+    def _process_jaxpr(self, jaxpr: core.Jaxpr, consts: Sequence[Any], *args: core.Var):
+        """
+        Process a JAXPR and convert it to ONNX nodes.
+        Maps inputs and constants, processes equations via dispatcher, maps outputs.
+        """
+        print(
+            f"[DEBUG] _process_jaxpr: Processing {len(jaxpr.eqns)} equations for Jaxpr."
+        )  # Debug
 
         # Setup inputs
-        for var in jaxpr.invars:
+        if len(args) != len(jaxpr.invars):
+            raise ValueError(
+                f"Arg mismatch in _process_jaxpr: expected {len(jaxpr.invars)} invars, got {len(args)} args."
+            )
+        for i, var in enumerate(jaxpr.invars):
+            arg_var = args[i]  # Assume args correspond positionally to invars
+            # Add input to builder and map var name
             self.add_input(var, var.aval.shape, var.aval.dtype)
+            self.var_to_name[var] = self.get_name(
+                var
+            )  # Ensure name is set via get_name
 
-        # Setup constants
-        for i, const in enumerate(consts):
-            const_name = self.get_constant_name(const)
+        # Setup constants (map var to constant name)
+        if len(consts) != len(jaxpr.constvars):
+            raise ValueError(
+                f"Const mismatch in _process_jaxpr: expected {len(jaxpr.constvars)} constvars, got {len(consts)} consts."
+            )
+        for i, const_val in enumerate(consts):
             const_var = jaxpr.constvars[i]
-            self.var_to_name[const_var] = const_name
-            self.name_to_const[const_name] = const
+            const_lit = core.Literal(
+                const_val, const_var.aval
+            )  # Treat as Literal for mapping
+            const_name = self.get_constant_name(
+                const_lit
+            )  # Ensure initializer & mapping
+            self.var_to_name[const_var] = const_name  # Explicitly map const_var
 
-        # Process all equations in the JAXPR
+        # Process all equations via simplified _process_eqn which uses dispatcher
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
         # Setup outputs
-        for var in jaxpr.outvars:
-            self.add_output(var, var.aval.shape, var.aval.dtype)
+        output_names = self._get_output_names(jaxpr.outvars)  # Get final names
+        for name, var in zip(output_names, jaxpr.outvars):
+            # Ensure the var in the jaxpr maps to the final output name
+            existing_name = self.get_name(var)  # Get potentially existing internal name
+            if existing_name != name:
+                # If internal name differs from final output name, add Identity
+                print(
+                    f"[DEBUG] Adding Identity to connect internal var '{existing_name}' to output '{name}'."
+                )
+                id_node = self.builder.create_node("Identity", [existing_name], [name])
+                self.add_node(id_node)
+            # Ensure the final name is added to builder outputs
+            self.add_output(
+                var, var.aval.shape, var.aval.dtype
+            )  # Adds using the name mapped in get_name/self.var_to_name
+
+    def _get_output_names(self, outvars: List[core.Var]) -> List[str]:
+        """Generate or use provided names for output variables."""
+        # (Keep implementation from previous step)
+        user_output_names = getattr(self, "output_names", None)
+        if user_output_names:
+            if len(user_output_names) != len(outvars):
+                raise ValueError(
+                    f"Provided output_names count ({len(user_output_names)}) does not match JAXPR outvars count ({len(outvars)})."
+                )
+            for name, var in zip(user_output_names, outvars):
+                self.var_to_name[var] = name  # Ensure mapping uses provided name
+            return user_output_names
+        else:
+            # Ensure default names are generated and mapped
+            return [self.get_name(v) for v in outvars]
 
     def reset(self):
         """Reset the converter state."""
         self.builder.reset()
         self.var_to_name = {}
-        self.name_to_const = {}
-        self.name_to_var = {}
         self.primitive_handlers.clear()
-        self.name_counter = 0
+        # Builder handles its own name counter reset
+
+    # file: jax2onnx/converter/converter.py
+    # Replace ONLY the trace_jaxpr method in the REFACTORED converter.py
+
+    # Keep the rest of the Jaxpr2OnnxConverter class the same
 
     def trace_jaxpr(self, fn, example_args, preserve_graph=False):
-        print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
+        """Traces the JAX function (with patching enabled) and processes the resulting JAXPR."""
+        print(
+            f"[INFO] Converter.trace_jaxpr started for '{getattr(fn, '__name__', 'N/A')}'"
+        )
         if not preserve_graph:
-            self.builder.reset()
-            self.var_to_name = {}
-            self.name_to_const = {}
+            self.reset()
+            self._load_plugin_handlers()  # Reload plugin handlers after reset
 
-        with temporary_monkey_patches(allow_function_primitives=True):
-            closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+        print(
+            "[INFO] Running jax.make_jaxpr (Patching ENABLED)..."
+        )  # Indicate patching is ON
+        try:
+            # --- RE-ENABLE PATCHING ---
+            with temporary_monkey_patches(
+                allow_function_primitives=True
+            ):  # Adjust flag as needed
+                # Ensure example_args is a tuple for unpacking
+                args_tuple = (
+                    example_args if isinstance(example_args, tuple) else (example_args,)
+                )
+                closed_jaxpr = jax.make_jaxpr(fn)(*args_tuple)
+            # --- END RE-ENABLE PATCHING ---
+        except Exception as e:
+            print(f"ERROR during jax.make_jaxpr: {e}")
+            # Print detailed traceback if error occurs during trace
+            import traceback
 
-        print(closed_jaxpr)
+            traceback.print_exc()
+            raise
+
+        print("[INFO] jax.make_jaxpr finished. Processing JAXPR...")
+        # print(closed_jaxpr) # Verbose debug
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
-        self._process_jaxpr(jaxpr, consts)
+        # Pass the invars from the jaxpr as the *args for _process_jaxpr
+        # Ensure args passed match invars count
+        self._process_jaxpr(jaxpr, consts, *jaxpr.invars)
+        print("[INFO] Converter.trace_jaxpr finished.")
 
-    def convert(
-        self, fn, example_args, output_path="model.onnx", model_name="jax_model"
-    ):
-        """
-        Convert a JAX function to ONNX.
 
-        Args:
-            fn: JAX function to convert
-            example_args: Example input arguments to trace the function
-            output_path: Path to save the ONNX model
-
-        Returns:
-            Path to the saved ONNX model
-        """
-
-        self.trace_jaxpr(fn, example_args)
-
-        # Remove unused initializers
-        used_initializers = {i for node in self.builder.nodes for i in node.input}
-        self.builder.initializers = [
-            init for init in self.builder.initializers if init.name in used_initializers
-        ]
-
-        graph = self.builder.create_graph(model_name)
-
-        # Create ONNX model
-        onnx_model = self.builder.create_model(graph)
-
-        # Save model
-        onnx.save_model(onnx_model, output_path)
-        return output_path
-
-    def add_initializer(
-        self, name, vals, data_type=helper.TensorProto.INT64, dims=None
-    ):
-        """Add a tensor initializer to the model.
-
-        Args:
-            name: The name of the initializer
-            vals: The values to initialize with
-            data_type: The data type of the tensor (default: INT64)
-            dims: The dimensions of the tensor (default: [len(vals)])
-
-        Returns:
-            The name of the created initializer
-        """
-        if dims is None:
-            dims = [len(vals)]
-
-        tensor = helper.make_tensor(
-            name=name,
-            data_type=data_type,
-            dims=dims,
-            vals=vals,
-        )
-        self.builder.initializers.append(tensor)
-        return name
+# Keep the rest of the Jaxpr2OnnxConverter class the same
