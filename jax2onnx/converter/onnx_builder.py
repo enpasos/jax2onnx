@@ -60,29 +60,35 @@ class OnnxBuilder:
         self.initializers.append(tensor)
         return name
 
+    def _add_tensor(
+        self,
+        collection: List[ValueInfoProto],
+        name: str,
+        shape: Tuple[int, ...],
+        dtype: Any,
+    ):
+        """
+        Generalized method to add a tensor to a specified collection (inputs, outputs, or value_info).
+        """
+        tensor_def = helper.make_tensor_value_info(
+            name, self._numpy_dtype_to_onnx(dtype), shape
+        )
+        collection.append(tensor_def)
+
     def add_input(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        input_def = helper.make_tensor_value_info(
-            name, self._numpy_dtype_to_onnx(dtype), shape
-        )
-        self.inputs.append(input_def)
+        self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        output_def = helper.make_tensor_value_info(
-            name, self._numpy_dtype_to_onnx(dtype), shape
-        )
-        self.outputs.append(output_def)
+        self._add_tensor(self.outputs, name, shape, dtype)
 
     def add_value_info(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        value_info = helper.make_tensor_value_info(
-            name, self._numpy_dtype_to_onnx(dtype), shape
-        )
-        self.value_info.append(value_info)
+        self._add_tensor(self.value_info, name, shape, dtype)
 
     def create_node(
         self, op_type: str, inputs: List[str], outputs: List[str], **kwargs: Any
