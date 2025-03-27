@@ -235,3 +235,26 @@ class OnnxBuilder:
             [OperatorSetIdProto(domain="", version=self.opset)]
         )
         return function_proto
+
+    def adjust_dynamic_batch_dimensions(self, input_shapes):
+        """
+        Adjusts input and output tensor shapes to handle dynamic batch dimensions ("B").
+        """
+        # Adjust input tensor shapes
+        for tensor, input_shape in zip(self.inputs, input_shapes):
+            tensor_shape = tensor.type.tensor_type.shape.dim
+            for idx, dim in enumerate(input_shape):
+                if dim == "B":
+                    tensor_shape[idx].dim_param = "B"
+
+        # Collect batch dimension indices
+        batch_dims = {
+            idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
+        }
+
+        # Adjust output tensor shapes
+        for tensor in self.outputs:
+            tensor_shape = tensor.type.tensor_type.shape.dim
+            for idx in batch_dims:
+                if idx < len(tensor_shape):
+                    tensor_shape[idx].dim_param = "B"
