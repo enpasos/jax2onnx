@@ -263,28 +263,26 @@ class OnnxBuilder:
         )
         return function_proto
 
+    def _adjust_tensor_shape(self, tensor, shape, batch_dims):
+        tensor_shape = tensor.type.tensor_type.shape.dim
+        for idx, dim in enumerate(shape):
+            if dim == "B":
+                tensor_shape[idx].dim_param = "B"
+        for idx in batch_dims:
+            if idx < len(tensor_shape):
+                tensor_shape[idx].dim_param = "B"
+
     def adjust_dynamic_batch_dimensions(self, input_shapes):
         """
         Adjusts input and output tensor shapes to handle dynamic batch dimensions ("B").
         """
-        # Adjust input tensor shapes
-        for tensor, input_shape in zip(self.inputs, input_shapes):
-            tensor_shape = tensor.type.tensor_type.shape.dim
-            for idx, dim in enumerate(input_shape):
-                if dim == "B":
-                    tensor_shape[idx].dim_param = "B"
-
-        # Collect batch dimension indices
         batch_dims = {
             idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
         }
-
-        # Adjust output tensor shapes
+        for tensor, input_shape in zip(self.inputs, input_shapes):
+            self._adjust_tensor_shape(tensor, input_shape, batch_dims)
         for tensor in self.outputs:
-            tensor_shape = tensor.type.tensor_type.shape.dim
-            for idx in batch_dims:
-                if idx < len(tensor_shape):
-                    tensor_shape[idx].dim_param = "B"
+            self._adjust_tensor_shape(tensor, [], batch_dims)
 
     def filter_unused_initializers(self):
         """
