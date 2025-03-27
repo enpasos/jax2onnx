@@ -231,28 +231,31 @@ class OnnxBuilder:
         )
         self.nodes.append(node)
 
+    def _build_function_proto(
+        self, graph: GraphProto, domain: str = ""
+    ) -> FunctionProto:
+        """
+        Helper method to build a FunctionProto from a GraphProto.
+        """
+        function_proto = FunctionProto()
+        function_proto.name = graph.name
+        function_proto.domain = domain
+        function_proto.input.extend([inp.name for inp in graph.input])
+        function_proto.output.extend([out.name for out in graph.output])
+        function_proto.node.extend(graph.node)
+        function_proto.value_info.extend(graph.value_info)
+        function_proto.opset_import.extend(
+            [OperatorSetIdProto(domain="", version=self.opset)]
+        )
+        return function_proto
+
     def create_functions(self) -> List[FunctionProto]:
-        """Converts stored function graphs into ONNX FunctionProto objects."""
-        functions = []
-        for func_name, graph in self.functions.items():
-            opset = OperatorSetIdProto()
-            opset.version = self.opset
-
-            func_proto = FunctionProto()
-            func_proto.name = func_name
-            func_proto.domain = ""  # Default domain for now
-            func_proto.opset_import.extend([opset])
-
-            # Copy input/output names
-            func_proto.input.extend([i.name for i in graph.input])
-            func_proto.output.extend([o.name for o in graph.output])
-
-            # Add nodes from the function graph
-            func_proto.node.extend(graph.node)
-
-            functions.append(func_proto)
-
-        return functions
+        """
+        Converts stored function graphs into ONNX FunctionProto objects.
+        """
+        return [
+            self._build_function_proto(graph, "") for graph in self.functions.values()
+        ]
 
     def create_function_proto(
         self, graph: GraphProto, domain: str = ""
