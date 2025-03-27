@@ -5,7 +5,7 @@ import os
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
 
-from jax2onnx.converter.function_handler import function_handler
+from jax2onnx.converter.utils import function_handler
 
 PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitiveLeafPlugin"]] = {}
 
