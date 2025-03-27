@@ -245,13 +245,8 @@ class Jaxpr2OnnxConverter:
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
 
-        # Try handler with either signature: (converter, eqn, params) or legacy
-        try:
-            handler(self, eqn, eqn.params)
-        except TypeError:
-            handler(eqn.invars, eqn.outvars, eqn.params)
+        handler(self, eqn, eqn.params)
 
-        # Add shape info for outputs
         for outvar in eqn.outvars:
             output_name = self.get_name(outvar)
             self.add_shape_info(output_name, outvar.aval.shape)

@@ -44,8 +44,8 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
         return target, attr, patch_func
 
     def get_handler(self, converter: Any) -> Callable:
-        return lambda node_inputs, node_outputs, params: self.to_onnx(
-            converter, node_inputs, node_outputs, params
+        return lambda converter, eqn, params: self.to_onnx(
+            converter, eqn.invars, eqn.outvars, params
         )
 
     def to_onnx(
