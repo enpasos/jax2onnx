@@ -18,21 +18,81 @@ from jax2onnx.converter.name_generator import GlobalNameCounter
 
 
 class OnnxBuilder:
+    # In jax2onnx/converter/onnx_builder.py
+    # In jax2onnx/converter/onnx_builder.py -> OnnxBuilder.__init__
+
     def __init__(
         self,
         name_counter: GlobalNameCounter,
         opset: int = 21,
         model_name: str = "",
+        constant_cache: (
+            Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] | None
+        ) = None,
+        # ADD optional initializers argument
+        initializers: List[Any] | None = None,
     ) -> None:
         self.name_counter: GlobalNameCounter = name_counter
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []
         self.outputs: List[ValueInfoProto] = []
-        self.initializers: List[Any] = []  # TensorProto objects
+        # Use provided initializers list or create a new one
+        self.initializers: List[Any] = (
+            initializers if initializers is not None else []
+        )  # TensorProto objects
         self.value_info: List[ValueInfoProto] = []
         self.opset: int = opset
-        self.functions: Dict[str, GraphProto] = {}
-        self.model_name: str = model_name  # Added model_name attribute
+        self.functions: Dict[str, FunctionProto] = {}
+        self.model_name: str = model_name
+
+        # Use provided cache or create a new one
+        self.constant_cache: Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] = (
+            constant_cache if constant_cache is not None else {}
+        )  # Replace the existing get_constant_name method:
+
+    def get_constant_name(self, val):
+        """
+        Creates or retrieves a globally unique ONNX constant tensor and returns its name.
+        Uses a cache based on value, dtype, and shape to reuse existing constants.
+        """
+        if isinstance(val, Literal):
+            val = val.val  # Extract value if it's a JAX Literal
+
+        np_val = np.array(val)
+        # Standardize dtype if necessary (e.g., consistently use float32 for float types)
+        if np_val.dtype == np.float64:
+            np_val = np_val.astype(np.float32)
+
+        # Create a hashable cache key: (value_bytes, dtype, shape)
+        try:
+            cache_key = (np_val.tobytes(), np_val.dtype, np_val.shape)
+        except AttributeError:  # Handle non-numpy arrays if they occur
+            # Fallback for non-numpy values - might need refinement
+            cache_key = (str(val), type(val), ())  # Add shape placeholder
+
+        if cache_key in self.constant_cache:
+            # Constant already exists, return its name
+            return self.constant_cache[cache_key]
+        else:
+            # Constant not found, create a new one
+            # Generate a new unique name using the existing counter
+            name = self.get_unique_name("const")
+
+            # Create the ONNX TensorProto
+            tensor = helper.make_tensor(
+                name=name,
+                data_type=self._numpy_dtype_to_onnx(np_val.dtype),
+                dims=np_val.shape,
+                vals=np_val.flatten().tolist(),
+            )
+            # IMPORTANT: Add the new tensor to the initializers list *of this builder instance*
+            # Since the cache (and thus potentially the builder instance) is shared,
+            # this adds the initializer to the correct central list.
+            self.initializers.append(tensor)
+            # Store the new constant's name in the cache
+            self.constant_cache[cache_key] = name
+            # Return the new name
+            return name
 
     def reset(self) -> None:
         self.nodes = []
@@ -46,28 +106,48 @@ class OnnxBuilder:
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_counter.get(prefix)
 
-    def get_constant_name(self, val):
-        """
-        Creates a globally unique ONNX constant tensor and returns its name.
-        """
-        # Always generate a unique name (never reuse)
-        name = self.get_unique_name("const")
+    # def get_constant_name(self, val):
+    #     """
+    #     Creates or retrieves a globally unique ONNX constant tensor and returns its name.
+    #     Uses a cache based on value, dtype, and shape to reuse existing constants.
+    #     """
+    #     if isinstance(val, Literal):
+    #         val = val.val  # Extract value if it's a JAX Literal
 
-        if isinstance(val, Literal):
-            val = val.val
+    #     np_val = np.array(val)
+    #     # Standardize dtype if necessary (e.g., consistently use float32 for float types)
+    #     if np_val.dtype == np.float64:
+    #         np_val = np_val.astype(np.float32)
 
-        np_val = np.array(val)
-        if np_val.dtype == np.float64:
-            np_val = np_val.astype(np.float32)
-        tensor = helper.make_tensor(
-            name=name,
-            data_type=self._numpy_dtype_to_onnx(np_val.dtype),
-            dims=np_val.shape,
-            vals=np_val.flatten().tolist(),
-        )
-        self.initializers.append(tensor)
-        # self.constant_cache[key] = name
-        return name
+    #     # Create a hashable cache key: (value_bytes, dtype, shape)
+    #     # Using bytes of the array ensures hashability and value comparison.
+    #     try:
+    #         cache_key = (np_val.tobytes(), np_val.dtype, np_val.shape)
+    #     except AttributeError:  # Handle non-numpy arrays if they occur
+    #         # Fallback for non-numpy values - might need refinement based on types seen
+    #         cache_key = (str(val), type(val))
+
+    #     if cache_key in self.constant_cache:
+    #         # Constant already exists, return its name
+    #         return self.constant_cache[cache_key]
+    #     else:
+    #         # Constant not found, create a new one
+    #         # Generate a new unique name using the existing counter
+    #         name = self.get_unique_name("const")
+
+    #         # Create the ONNX TensorProto
+    #         tensor = helper.make_tensor(
+    #             name=name,
+    #             data_type=self._numpy_dtype_to_onnx(np_val.dtype),
+    #             dims=np_val.shape,
+    #             vals=np_val.flatten().tolist(),
+    #         )
+    #         # Add the new tensor to the initializers list
+    #         self.initializers.append(tensor)
+    #         # Store the new constant's name in the cache
+    #         self.constant_cache[cache_key] = name
+    #         # Return the new name
+    #         return name
 
     def _add_tensor(
         self,
@@ -137,15 +217,17 @@ class OnnxBuilder:
         return model
 
     def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
-        graph = self._build_graph(model_name)
+        graph = self._build_graph(
+            model_name
+        )  # Uses self.inputs, self.outputs, self.initializers
 
         model = helper.make_model(
             graph,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid("custom", 1),
+                helper.make_opsetid("custom", 1),  # Custom domain for functions
             ],
-            functions=list(self.functions.values()),
+            functions=list(self.functions.values()),  # Adds the FunctionProtos
         )
 
         return model
