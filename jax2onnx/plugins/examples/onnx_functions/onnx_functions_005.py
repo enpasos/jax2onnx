@@ -42,14 +42,14 @@ class SuperBlock005(nnx.Module):
 
 register_example(
     component="onnx_functions_005",
-    description="nested function plus component",
+    description="nested function plus more components",
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
     children=["NestedBlock005"],
     testcases=[
         {
-            "testcase": "005 nested functions plus component",
+            "testcase": "nested functions plus more components",
             "callable": SuperBlock005(),
             "input_shapes": [("B", 10, 256)],
         },
