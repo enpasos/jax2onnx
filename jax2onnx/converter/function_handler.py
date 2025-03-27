@@ -51,13 +51,7 @@ def function_handler(name, converter, eqn, orig_fn, params):
     parent_builder.add_function(name, sub_converter.builder, param_input_names)
 
     # ✅ Explicitly propagate nested ONNX functions upward
-    for (
-        nested_func_name,
-        nested_func_proto,
-    ) in sub_converter.builder.functions.items():
-        if nested_func_name not in parent_builder.functions:
-            parent_builder.functions[nested_func_name] = nested_func_proto
-            print(f"🚀 Propagated nested ONNX function: {nested_func_name}")
+    _propagate_nested_functions(parent_builder, sub_converter.builder)
 
     parent_builder.name_counter = sub_converter.builder.name_counter
 
@@ -78,3 +72,13 @@ def _tensorproto_dtype_to_numpy(onnx_dtype):
         TensorProto.INT64: np.int64,
         TensorProto.BOOL: np.bool_,
     }.get(onnx_dtype, np.float32)
+
+
+def _propagate_nested_functions(parent_builder, sub_builder):
+    """
+    Propagates nested ONNX functions from a sub-builder to the parent builder.
+    """
+    for nested_func_name, nested_func_proto in sub_builder.functions.items():
+        if nested_func_name not in parent_builder.functions:
+            parent_builder.functions[nested_func_name] = nested_func_proto
+            print(f"🚀 Propagated nested ONNX function: {nested_func_name}")
