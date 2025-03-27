@@ -1,5 +1,4 @@
 # file: jax2onnx/converter/onnx_builder.py
-
 from onnx import (
     helper,
     TensorProto,
@@ -21,7 +20,7 @@ from jax2onnx.converter.name_generator import GlobalNameCounter
 class OnnxBuilder:
     def __init__(
         self,
-        name_counter: GlobalNameCounter = GlobalNameCounter(),
+        name_counter: GlobalNameCounter,
         opset: int = 21,
         model_name: str = "",
     ) -> None:
@@ -67,6 +66,7 @@ class OnnxBuilder:
             vals=np_val.flatten().tolist(),
         )
         self.initializers.append(tensor)
+        # self.constant_cache[key] = name
         return name
 
     def _add_tensor(
@@ -76,9 +76,6 @@ class OnnxBuilder:
         shape: Tuple[int, ...],
         dtype: Any,
     ):
-        """
-        Generalized method to add a tensor to a specified collection (inputs, outputs, or value_info).
-        """
         tensor_def = helper.make_tensor_value_info(
             name, self._numpy_dtype_to_onnx(dtype), shape
         )
@@ -108,9 +105,6 @@ class OnnxBuilder:
         self.nodes.append(node)
 
     def _build_graph(self, name: str) -> GraphProto:
-        """
-        Helper method to build an ONNX graph with the current nodes, inputs, outputs, initializers, and value_info.
-        """
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
@@ -121,16 +115,11 @@ class OnnxBuilder:
         )
 
     def create_graph(self, name: str) -> GraphProto:
-        """
-        Creates an ONNX graph using the current state of the builder.
-        """
         return self._build_graph(name)
 
     def create_model(self, graph: GraphProto) -> ModelProto:
-        """Create the final ONNX model, including any registered nested functions."""
         opset_imports = [helper.make_opsetid("", self.opset)]
 
-        # Add `custom` domain opset if functions are present
         if self.functions:
             opset_imports.append(helper.make_opsetid("custom", self.opset))
 
@@ -139,7 +128,6 @@ class OnnxBuilder:
             opset_imports=opset_imports,
         )
 
-        # Add FunctionProtos from nested functions
         if self.functions:
             model.functions.extend(self.create_functions())
             print(
@@ -149,16 +137,13 @@ class OnnxBuilder:
         return model
 
     def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
-        """
-        Creates the ONNX model by assembling the graph, initializers, and functions.
-        """
         graph = self._build_graph(model_name)
 
         model = helper.make_model(
             graph,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid("custom", 1),  # Explicitly import custom domain
+                helper.make_opsetid("custom", 1),
             ],
             functions=list(self.functions.values()),
         )
@@ -182,16 +167,10 @@ class OnnxBuilder:
     def add_function(
         self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
     ) -> None:
-        """
-        Registers a nested function correctly as a FunctionProto.
-        """
         function_graph = builder.create_graph(name)
-
-        # Collect inputs and outputs
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
 
-        # Collect unique value_info (input, output, intermediate tensors)
         all_value_info = (
             list(function_graph.input)
             + list(function_graph.output)
@@ -199,16 +178,13 @@ class OnnxBuilder:
         )
         unique_value_infos = list({vi.name: vi for vi in all_value_info}.values())
 
-        # Add parameter initializers as function inputs
         param_value_infos = [
             helper.make_tensor_value_info(init.name, init.data_type, list(init.dims))
             for init in builder.initializers
         ]
 
-        # Combine unique value_infos and parameter initializers
         combined_value_infos = unique_value_infos + param_value_infos
 
-        # Create the FunctionProto
         function_proto = helper.make_function(
             domain="custom",
             fname=name,
@@ -217,27 +193,20 @@ class OnnxBuilder:
             nodes=function_graph.node,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid(
-                    "custom", self.opset
-                ),  # Ensure custom domain is included
+                helper.make_opsetid("custom", self.opset),
             ],
             attributes=[],
             value_info=combined_value_infos,
         )
 
-        # self.functions[name] = function_proto
-
-        # After storing the function
         self.functions[name] = function_proto
         print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
-        #
-        #         # 🚨 Remove function initializers from global initializer list to maintain SSA form
-        #         function_initializer_names = {init.name for init in builder.initializers}
-        #         self.initializers = [
-        #             init for init in self.initializers if init.name not in function_initializer_names
-        # ]
 
-        print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
+        # Remove function-level initializers from the top-level to maintain SSA
+        # function_initializer_names = {init.name for init in builder.initializers}
+        # self.initializers = [
+        #     init for init in self.initializers if init.name not in function_initializer_names
+        # ]
 
     def add_function_call_node(
         self,

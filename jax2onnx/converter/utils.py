@@ -73,6 +73,18 @@ def function_handler(name, converter, eqn, orig_fn, params):
         else:
             print(f"⚠️ Constant '{init.name}' already exists in parent builder inputs.")
 
+    # Ensure constants are linked to the ONNX model
+    # for init in function_initializers:
+    #     if init.name not in {node.name for node in parent_builder.nodes}:
+    #         parent_builder.add_node(
+    #             parent_builder.create_node(
+    #                 op_type="Constant",
+    #                 inputs=[],
+    #                 outputs=[init.name],
+    #                 value=init,
+    #             )
+    #         )
+
     parent_builder.add_function(name, sub_converter.builder, param_input_names)
 
     # Explicitly propagate nested ONNX functions upward
