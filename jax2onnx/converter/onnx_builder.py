@@ -92,7 +92,10 @@ class OnnxBuilder:
     def add_node(self, node: NodeProto) -> None:
         self.nodes.append(node)
 
-    def create_graph(self, name: str) -> GraphProto:
+    def _build_graph(self, name: str) -> GraphProto:
+        """
+        Helper method to build an ONNX graph with the current nodes, inputs, outputs, initializers, and value_info.
+        """
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
@@ -101,6 +104,12 @@ class OnnxBuilder:
             initializer=self.initializers,
             value_info=self.value_info,
         )
+
+    def create_graph(self, name: str) -> GraphProto:
+        """
+        Creates an ONNX graph using the current state of the builder.
+        """
+        return self._build_graph(name)
 
     def create_model(self, graph: GraphProto) -> ModelProto:
         """Create the final ONNX model, including any registered nested functions."""
@@ -128,14 +137,7 @@ class OnnxBuilder:
         """
         Creates the ONNX model by assembling the graph, initializers, and functions.
         """
-        graph = helper.make_graph(
-            nodes=self.nodes,
-            name=model_name,
-            inputs=self.inputs,
-            outputs=self.outputs,
-            initializer=self.initializers,
-            value_info=self.value_info,
-        )
+        graph = self._build_graph(model_name)
 
         model = helper.make_model(
             graph,
