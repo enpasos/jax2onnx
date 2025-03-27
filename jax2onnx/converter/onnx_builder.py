@@ -258,3 +258,12 @@ class OnnxBuilder:
             for idx in batch_dims:
                 if idx < len(tensor_shape):
                     tensor_shape[idx].dim_param = "B"
+
+    def filter_unused_initializers(self):
+        """
+        Filters the initializers to include only those that are used by the nodes in the graph.
+        """
+        used_inputs = {i for node in self.nodes for i in node.input}
+        self.initializers = [
+            init for init in self.initializers if init.name in used_inputs
+        ]
