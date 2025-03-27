@@ -44,20 +44,8 @@ def to_onnx(
 
     converter.trace_jaxpr(fn, example_args)
 
-    for tensor, input_shape in zip(converter.builder.inputs, input_shapes):
-        tensor_shape = tensor.type.tensor_type.shape.dim
-        for idx, dim in enumerate(input_shape):
-            if dim == "B":
-                tensor_shape[idx].dim_param = "B"
-
-    batch_dims = {
-        idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
-    }
-    for tensor in converter.builder.outputs:
-        tensor_shape = tensor.type.tensor_type.shape.dim
-        for idx in batch_dims:
-            if idx < len(tensor_shape):
-                tensor_shape[idx].dim_param = "B"
+    # Adjust dynamic batch dimensions using the new method
+    builder.adjust_dynamic_batch_dimensions(input_shapes)
 
     value_info = converter.builder.value_info if include_intermediate_shapes else []
     used_inputs = {i for node in converter.builder.nodes for i in node.input}
