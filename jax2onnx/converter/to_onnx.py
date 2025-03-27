@@ -38,11 +38,8 @@ def to_onnx(
 
     builder.adjust_dynamic_batch_dimensions(input_shapes)
 
-    value_info = converter.builder.value_info
-    used_inputs = {i for node in converter.builder.nodes for i in node.input}
-    converter.builder.initializers = [
-        init for init in converter.builder.initializers if init.name in used_inputs
-    ]
+    # Filter unused initializers using the new method
+    builder.filter_unused_initializers()
 
     graph = helper.make_graph(
         nodes=converter.builder.nodes,
@@ -50,7 +47,7 @@ def to_onnx(
         inputs=converter.builder.inputs,
         outputs=converter.builder.outputs,
         initializer=converter.builder.initializers,
-        value_info=value_info,
+        value_info=converter.builder.value_info,
     )
 
     # explicitly add functions (FunctionProto) to model
