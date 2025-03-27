@@ -173,34 +173,28 @@ class OnnxBuilder:
     def add_function(
         self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
     ) -> None:
-        """Registers a nested function correctly as a FunctionProto."""
+        """
+        Registers a nested function correctly as a FunctionProto.
+        """
         function_graph = builder.create_graph(name)
 
-        # Inputs (dynamic inputs)
+        # Collect inputs and outputs
         inputs = [vi.name for vi in function_graph.input]
-
-        # Outputs
         outputs = [vi.name for vi in function_graph.output]
 
-        # Collect full value_info (input, output, intermediate tensors)
+        # Collect unique value_info (input, output, intermediate tensors)
         all_value_info = (
-            list(function_graph.input)
-            + list(function_graph.output)
-            + list(function_graph.value_info)
+            function_graph.input + function_graph.output + function_graph.value_info
         )
-        seen = set()
-        unique_value_infos = []
-        for vi in all_value_info:
-            if vi.name not in seen:
-                unique_value_infos.append(vi)
-                seen.add(vi.name)
+        unique_value_infos = {vi.name: vi for vi in all_value_info}.values()
 
-        # Explicitly add parameter initializers as function inputs with proper shapes/dtypes
+        # Add parameter initializers as function inputs
         param_value_infos = [
             helper.make_tensor_value_info(init.name, init.data_type, list(init.dims))
             for init in builder.initializers
         ]
 
+        # Create the FunctionProto
         function_proto = helper.make_function(
             domain="custom",
             fname=name,
@@ -209,8 +203,7 @@ class OnnxBuilder:
             nodes=function_graph.node,
             opset_imports=[helper.make_opsetid("", self.opset)],
             attributes=[],
-            value_info=unique_value_infos
-            + param_value_infos,  # explicitly define params
+            value_info=list(unique_value_infos) + param_value_infos,
         )
 
         self.functions[name] = function_proto
