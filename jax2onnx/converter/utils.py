@@ -70,6 +70,8 @@ def function_handler(name, converter, eqn, orig_fn, params):
                 _tensorproto_dtype_to_numpy(init.data_type),
             )
             parent_builder.initializers.append(init)
+        else:
+            print(f"⚠️ Constant '{init.name}' already exists in parent builder inputs.")
 
     parent_builder.add_function(name, sub_converter.builder, param_input_names)
 

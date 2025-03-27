@@ -33,7 +33,7 @@ class MLPBlock002(nnx.Module):
 class SuperBlock002(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)  # Example RNGs initialization
-        self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
+        #  self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
         self.mlp = MLPBlock002(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
