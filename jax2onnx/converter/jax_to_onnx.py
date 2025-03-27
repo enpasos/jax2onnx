@@ -1,14 +1,60 @@
-# file: jax2onnx/converter/function_handler.py
-
+import onnx
 import jax.numpy as jnp
 import numpy as np
+from typing import Any
 from onnx import TensorProto
-
+from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
+from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitiveLeafPlugin
+from jax2onnx.converter.utils import (
+    _tensorproto_dtype_to_numpy,
+    _propagate_nested_functions,
+)
+
+
+def prepare_example_args(input_shapes, default_batch_size=2):
+    """
+    Prepares example arguments for tracing by replacing dynamic batch dimensions ('B') with a default value.
+    """
+    if any("B" in shape for shape in input_shapes):
+        print("Dynamic batch dimensions detected.")
+
+    def replace_B(s):
+        return [default_batch_size if d == "B" else d for d in s]
+
+    return [jnp.zeros(replace_B(s)) for s in input_shapes]
+
+
+def to_onnx(
+    fn: Any,
+    input_shapes: Any,
+    model_name: str = "jax_model",
+    opset: int = 21,
+) -> onnx.ModelProto:
+    """
+    Converts a JAX function into an ONNX model.
+    """
+    example_args = prepare_example_args(input_shapes)
+
+    builder = OnnxBuilder(name_counter=0, opset=opset)
+    converter = Jaxpr2OnnxConverter(builder)
+
+    converter.trace_jaxpr(fn, example_args)
+
+    builder.adjust_dynamic_batch_dimensions(input_shapes)
+    builder.filter_unused_initializers()
+
+    model = builder.create_onnx_model(model_name)
+
+    return improve_onnx_model(model)
 
 
 def function_handler(name, converter, eqn, orig_fn, params):
-
+    """
+    Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
+    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -50,7 +96,7 @@ def function_handler(name, converter, eqn, orig_fn, params):
 
     parent_builder.add_function(name, sub_converter.builder, param_input_names)
 
-    # ✅ Explicitly propagate nested ONNX functions upward
+    # Explicitly propagate nested ONNX functions upward
     _propagate_nested_functions(parent_builder, sub_converter.builder)
 
     parent_builder.name_counter = sub_converter.builder.name_counter
@@ -62,23 +108,3 @@ def function_handler(name, converter, eqn, orig_fn, params):
     )
 
     print(f"✅ Finished tracing function: {name}\n")
-
-
-def _tensorproto_dtype_to_numpy(onnx_dtype):
-    return {
-        TensorProto.FLOAT: np.float32,
-        TensorProto.DOUBLE: np.float64,
-        TensorProto.INT32: np.int32,
-        TensorProto.INT64: np.int64,
-        TensorProto.BOOL: np.bool_,
-    }.get(onnx_dtype, np.float32)
-
-
-def _propagate_nested_functions(parent_builder, sub_builder):
-    """
-    Propagates nested ONNX functions from a sub-builder to the parent builder.
-    """
-    for nested_func_name, nested_func_proto in sub_builder.functions.items():
-        if nested_func_name not in parent_builder.functions:
-            parent_builder.functions[nested_func_name] = nested_func_proto
-            print(f"🚀 Propagated nested ONNX function: {nested_func_name}")

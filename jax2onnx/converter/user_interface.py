@@ -4,7 +4,7 @@ import onnx
 from typing import Any
 import numpy as np
 import onnxruntime as ort
-from jax2onnx.converter.to_onnx import to_onnx as to_onnx_implementation
+from jax2onnx.converter.jax_to_onnx import to_onnx as to_onnx_implementation
 
 
 def to_onnx(
