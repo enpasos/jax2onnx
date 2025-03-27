@@ -11,6 +11,18 @@ from jax2onnx.plugin_system import (
 )
 
 
+def prepare_example_args(input_shapes):
+    if any("B" in shape for shape in input_shapes):
+        print(
+            "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
+        )
+
+    def replace_B(s):
+        return [2 if d == "B" else d for d in s]
+
+    return [jnp.zeros(replace_B(s)) for s in input_shapes]
+
+
 def to_onnx(
     fn: Any,
     input_shapes: Any,
@@ -20,16 +32,12 @@ def to_onnx(
 ) -> onnx.ModelProto:
     from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitiveLeafPlugin
 
+    # concrete example inputs
+
     if any("B" in shape for shape in input_shapes):
         include_intermediate_shapes = False
-        print(
-            "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
-        )
 
-    def replace_B(s):
-        return [2 if d == "B" else d for d in s]
-
-    example_args = [jnp.zeros(replace_B(s)) for s in input_shapes]
+    example_args = prepare_example_args(input_shapes)
 
     builder = OnnxBuilder(name_counter=0, opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
