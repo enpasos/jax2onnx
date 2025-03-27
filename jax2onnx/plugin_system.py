@@ -7,7 +7,9 @@ from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
 
 from jax2onnx.converter.utils import function_handler
 
-PLUGIN_REGISTRY: Dict[str, Union["ExamplePlugin", "PrimitiveLeafPlugin"]] = {}
+PLUGIN_REGISTRY: Dict[
+    str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
+] = {}
 
 # Track ONNX-decorated modules and their plugins
 ONNX_FUNCTION_REGISTRY: Dict[str, Any] = {}
