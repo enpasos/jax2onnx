@@ -8,7 +8,6 @@ from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
-    PrimitivePlugin,
 )
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
@@ -44,7 +43,7 @@ class Jaxpr2OnnxConverter:
         import_all_plugins()
 
         for key, plugin in PLUGIN_REGISTRY.items():
-            if isinstance(plugin, (PrimitivePlugin, PrimitiveLeafPlugin)):
+            if isinstance(plugin, (PrimitiveLeafPlugin)):
                 self.primitive_handlers[key] = plugin.get_handler(self)
 
         for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
