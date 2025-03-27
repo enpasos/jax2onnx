@@ -11,14 +11,12 @@ from jax2onnx.plugin_system import (
 )
 
 
-def prepare_example_args(input_shapes):
+def prepare_example_args(input_shapes, default_batch_size=2):
     if any("B" in shape for shape in input_shapes):
-        print(
-            "Dynamic batch dimensions detected. Setting include_intermediate_shapes=False"
-        )
+        print("Dynamic batch dimensions detected.")
 
     def replace_B(s):
-        return [2 if d == "B" else d for d in s]
+        return [default_batch_size if d == "B" else d for d in s]
 
     return [jnp.zeros(replace_B(s)) for s in input_shapes]
 
@@ -27,15 +25,9 @@ def to_onnx(
     fn: Any,
     input_shapes: Any,
     model_name: str = "jax_model",
-    include_intermediate_shapes: bool = False,
     opset: int = 21,
 ) -> onnx.ModelProto:
     from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitiveLeafPlugin
-
-    # concrete example inputs
-
-    if any("B" in shape for shape in input_shapes):
-        include_intermediate_shapes = False
 
     example_args = prepare_example_args(input_shapes)
 
@@ -44,10 +36,9 @@ def to_onnx(
 
     converter.trace_jaxpr(fn, example_args)
 
-    # Adjust dynamic batch dimensions using the new method
     builder.adjust_dynamic_batch_dimensions(input_shapes)
 
-    value_info = converter.builder.value_info if include_intermediate_shapes else []
+    value_info = converter.builder.value_info
     used_inputs = {i for node in converter.builder.nodes for i in node.input}
     converter.builder.initializers = [
         init for init in converter.builder.initializers if init.name in used_inputs
