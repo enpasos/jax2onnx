@@ -76,7 +76,7 @@ register_example(
     children=["MLPBlock007"],
     testcases=[
         {
-            "testcase": "transformer block",
+            "testcase": "transformer_block",
             "callable": TransformerBlock007(
                 num_hiddens=256,
                 num_heads=8,

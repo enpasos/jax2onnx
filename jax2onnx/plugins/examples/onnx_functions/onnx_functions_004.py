@@ -38,7 +38,7 @@ register_example(
     children=["NestedBlock004"],
     testcases=[
         {
-            "testcase": "nested function plus component",
+            "testcase": "004_nested_function_plus_component",
             "callable": SuperBlock004(),
             "input_shapes": [("B", 10, 256)],
         },
