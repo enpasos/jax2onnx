@@ -13,6 +13,7 @@ from onnx import (
 import numpy as np
 from typing import Dict, List, Any, Tuple
 from jax.extend.core import Literal
+import onnx
 
 
 class OnnxBuilder:
@@ -120,6 +121,30 @@ class OnnxBuilder:
             print(
                 f"🧠 Added {len(model.functions)} nested ONNX function(s): {[f.name for f in model.functions]}"
             )
+
+        return model
+
+    def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
+        """
+        Creates the ONNX model by assembling the graph, initializers, and functions.
+        """
+        graph = helper.make_graph(
+            nodes=self.nodes,
+            name=model_name,
+            inputs=self.inputs,
+            outputs=self.outputs,
+            initializer=self.initializers,
+            value_info=self.value_info,
+        )
+
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", self.opset),
+                helper.make_opsetid("custom", 1),  # Explicitly import custom domain
+            ],
+            functions=list(self.functions.values()),
+        )
 
         return model
 
