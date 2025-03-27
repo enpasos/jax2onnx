@@ -186,13 +186,16 @@ class OnnxBuilder:
         all_value_info = (
             function_graph.input + function_graph.output + function_graph.value_info
         )
-        unique_value_infos = {vi.name: vi for vi in all_value_info}.values()
+        unique_value_infos = list({vi.name: vi for vi in all_value_info}.values())
 
         # Add parameter initializers as function inputs
         param_value_infos = [
             helper.make_tensor_value_info(init.name, init.data_type, list(init.dims))
             for init in builder.initializers
         ]
+
+        # Combine unique value_infos and parameter initializers
+        combined_value_infos = unique_value_infos + param_value_infos
 
         # Create the FunctionProto
         function_proto = helper.make_function(
@@ -203,7 +206,7 @@ class OnnxBuilder:
             nodes=function_graph.node,
             opset_imports=[helper.make_opsetid("", self.opset)],
             attributes=[],
-            value_info=list(unique_value_infos) + param_value_infos,
+            value_info=combined_value_infos,
         )
 
         self.functions[name] = function_proto
