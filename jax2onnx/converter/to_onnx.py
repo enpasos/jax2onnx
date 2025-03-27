@@ -41,23 +41,7 @@ def to_onnx(
     # Filter unused initializers using the new method
     builder.filter_unused_initializers()
 
-    graph = helper.make_graph(
-        nodes=converter.builder.nodes,
-        name=model_name,
-        inputs=converter.builder.inputs,
-        outputs=converter.builder.outputs,
-        initializer=converter.builder.initializers,
-        value_info=converter.builder.value_info,
-    )
-
-    # explicitly add functions (FunctionProto) to model
-    model = helper.make_model(
-        graph,
-        opset_imports=[
-            helper.make_opsetid("", opset),
-            helper.make_opsetid("custom", 1),  # <-- ✅ explicitly import custom domain
-        ],
-        functions=list(converter.builder.functions.values()),
-    )
+    # Create the ONNX model using the new method
+    model = builder.create_onnx_model(model_name)
 
     return improve_onnx_model(model)
