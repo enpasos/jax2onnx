@@ -1,13 +1,9 @@
 import onnx
 import jax.numpy as jnp
-import numpy as np
 from typing import Any
-from onnx import TensorProto
-from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
-from jax2onnx.plugin_system import PLUGIN_REGISTRY, PrimitiveLeafPlugin
 from jax2onnx.converter.utils import (
     _tensorproto_dtype_to_numpy,
     _propagate_nested_functions,

@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class MLPBlock(nnx.Module):
+class MLPBlock002(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
@@ -30,11 +30,11 @@ class MLPBlock(nnx.Module):
 
 
 @onnx_function
-class SuperBlock(nnx.Module):
+class SuperBlock002(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)  # Example RNGs initialization
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
-        self.mlp = MLPBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
+        self.mlp = MLPBlock002(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
         return self.mlp(x)
@@ -46,11 +46,11 @@ register_example(
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock"],
+    children=["MLPBlock002"],
     testcases=[
         {
             "testcase": "two_nested_functions",
-            "callable": SuperBlock(),
+            "callable": SuperBlock002(),
             "input_shapes": [("B", 10, 256)],
         },
     ],

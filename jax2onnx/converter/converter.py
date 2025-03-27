@@ -31,7 +31,7 @@ class Jaxpr2OnnxConverter:
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
 
-        self.name_to_const = {}
+        self.name_to_const: Dict[str, Any] = {}
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
         self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
         self.primitive_handlers[jax._src.prng.random_split_p] = (
@@ -44,7 +44,7 @@ class Jaxpr2OnnxConverter:
         import_all_plugins()
 
         for key, plugin in PLUGIN_REGISTRY.items():
-            if isinstance(plugin, PrimitivePlugin):
+            if isinstance(plugin, (PrimitivePlugin, PrimitiveLeafPlugin)):
                 self.primitive_handlers[key] = plugin.get_handler(self)
 
         for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():

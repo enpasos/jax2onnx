@@ -17,7 +17,9 @@ import onnx
 
 
 class OnnxBuilder:
-    def __init__(self, name_counter: int = 0, opset: int = 21) -> None:
+    def __init__(
+        self, name_counter: int = 0, opset: int = 21, model_name: str = ""
+    ) -> None:
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []
         self.outputs: List[ValueInfoProto] = []
@@ -26,6 +28,7 @@ class OnnxBuilder:
         self.name_counter: int = name_counter
         self.opset: int = opset
         self.functions: Dict[str, GraphProto] = {}
+        self.model_name: str = model_name  # Added model_name attribute
 
     def reset(self) -> None:
         self.nodes = []
@@ -184,7 +187,9 @@ class OnnxBuilder:
 
         # Collect unique value_info (input, output, intermediate tensors)
         all_value_info = (
-            function_graph.input + function_graph.output + function_graph.value_info
+            list(function_graph.input)
+            + list(function_graph.output)
+            + list(function_graph.value_info)
         )
         unique_value_infos = list({vi.name: vi for vi in all_value_info}.values())
 
@@ -204,7 +209,12 @@ class OnnxBuilder:
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
-            opset_imports=[helper.make_opsetid("", self.opset)],
+            opset_imports=[
+                helper.make_opsetid("", self.opset),
+                helper.make_opsetid(
+                    "custom", self.opset
+                ),  # Ensure custom domain is included
+            ],
             attributes=[],
             value_info=combined_value_infos,
         )
@@ -291,9 +301,10 @@ class OnnxBuilder:
 
     def filter_unused_initializers(self):
         """
-        Filters the initializers to include only those that are used by the nodes in the graph.
+        Ensures all required initializers are included in the graph.
         """
         used_inputs = {i for node in self.nodes for i in node.input}
+        # Include all initializers that are used or required by the graph
         self.initializers = [
-            init for init in self.initializers if init.name in used_inputs
+            init for init in self.initializers if init.name in used_inputs or init.name
         ]

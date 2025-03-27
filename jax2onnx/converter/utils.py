@@ -1,7 +1,5 @@
 import numpy as np
 from onnx import TensorProto
-from typing import Any, Dict, Tuple
-from jax import core
 import jax.numpy as jnp
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
