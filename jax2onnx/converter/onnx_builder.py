@@ -15,17 +15,22 @@ from typing import Dict, List, Any, Tuple
 from jax.extend.core import Literal
 import onnx
 
+from jax2onnx.converter.name_generator import GlobalNameCounter
+
 
 class OnnxBuilder:
     def __init__(
-        self, name_counter: int = 0, opset: int = 21, model_name: str = ""
+        self,
+        name_counter: GlobalNameCounter = GlobalNameCounter(),
+        opset: int = 21,
+        model_name: str = "",
     ) -> None:
+        self.name_counter: GlobalNameCounter = name_counter
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []
         self.outputs: List[ValueInfoProto] = []
         self.initializers: List[Any] = []  # TensorProto objects
         self.value_info: List[ValueInfoProto] = []
-        self.name_counter: int = name_counter
         self.opset: int = opset
         self.functions: Dict[str, GraphProto] = {}
         self.model_name: str = model_name  # Added model_name attribute
@@ -37,20 +42,21 @@ class OnnxBuilder:
         self.initializers = []
         self.value_info = []
         self.functions.clear()
-        self.name_counter = 0
+        self.name_counter = GlobalNameCounter()  # Reset the name counter
 
     def get_unique_name(self, prefix: str = "node") -> str:
-        name = f"{prefix}_{self.name_counter}"
-        self.name_counter += 1
-        return name
+        return self.name_counter.get(prefix)
 
     def get_constant_name(self, val):
+        """
+        Creates a globally unique ONNX constant tensor and returns its name.
+        """
+        # Always generate a unique name (never reuse)
         name = self.get_unique_name("const")
-        # Unwrap a JAX Literal to get its Python value.
 
         if isinstance(val, Literal):
             val = val.val
-        # Continue with conversion, for example converting to numpy if needed:
+
         np_val = np.array(val)
         if np_val.dtype == np.float64:
             np_val = np_val.astype(np.float32)
@@ -219,7 +225,18 @@ class OnnxBuilder:
             value_info=combined_value_infos,
         )
 
+        # self.functions[name] = function_proto
+
+        # After storing the function
         self.functions[name] = function_proto
+        print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
+        #
+        #         # 🚨 Remove function initializers from global initializer list to maintain SSA form
+        #         function_initializer_names = {init.name for init in builder.initializers}
+        #         self.initializers = [
+        #             init for init in self.initializers if init.name not in function_initializer_names
+        # ]
+
         print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
 
     def add_function_call_node(
@@ -229,6 +246,10 @@ class OnnxBuilder:
         outputs: List[str],
     ) -> None:
         """Adds a node calling a nested function by name."""
+        # Ensure all inputs and outputs are properly connected
+        assert inputs, f"Function {function_name} must have inputs."
+        assert outputs, f"Function {function_name} must have outputs."
+
         node = helper.make_node(
             op_type=function_name,
             inputs=inputs,
@@ -236,6 +257,9 @@ class OnnxBuilder:
             domain="custom",
         )
         self.nodes.append(node)
+        print(
+            f"🧩 Added function call node: {function_name} with inputs {inputs} and outputs {outputs}"
+        )
 
     def _build_function_proto(
         self, graph: GraphProto, domain: str = ""
