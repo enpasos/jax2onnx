@@ -106,49 +106,6 @@ class OnnxBuilder:
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_counter.get(prefix)
 
-    # def get_constant_name(self, val):
-    #     """
-    #     Creates or retrieves a globally unique ONNX constant tensor and returns its name.
-    #     Uses a cache based on value, dtype, and shape to reuse existing constants.
-    #     """
-    #     if isinstance(val, Literal):
-    #         val = val.val  # Extract value if it's a JAX Literal
-
-    #     np_val = np.array(val)
-    #     # Standardize dtype if necessary (e.g., consistently use float32 for float types)
-    #     if np_val.dtype == np.float64:
-    #         np_val = np_val.astype(np.float32)
-
-    #     # Create a hashable cache key: (value_bytes, dtype, shape)
-    #     # Using bytes of the array ensures hashability and value comparison.
-    #     try:
-    #         cache_key = (np_val.tobytes(), np_val.dtype, np_val.shape)
-    #     except AttributeError:  # Handle non-numpy arrays if they occur
-    #         # Fallback for non-numpy values - might need refinement based on types seen
-    #         cache_key = (str(val), type(val))
-
-    #     if cache_key in self.constant_cache:
-    #         # Constant already exists, return its name
-    #         return self.constant_cache[cache_key]
-    #     else:
-    #         # Constant not found, create a new one
-    #         # Generate a new unique name using the existing counter
-    #         name = self.get_unique_name("const")
-
-    #         # Create the ONNX TensorProto
-    #         tensor = helper.make_tensor(
-    #             name=name,
-    #             data_type=self._numpy_dtype_to_onnx(np_val.dtype),
-    #             dims=np_val.shape,
-    #             vals=np_val.flatten().tolist(),
-    #         )
-    #         # Add the new tensor to the initializers list
-    #         self.initializers.append(tensor)
-    #         # Store the new constant's name in the cache
-    #         self.constant_cache[cache_key] = name
-    #         # Return the new name
-    #         return name
-
     def _add_tensor(
         self,
         collection: List[ValueInfoProto],
