@@ -51,12 +51,6 @@ def to_onnx(
 
     return model
 
-    # graph = builder.create_graph(model_name)
-    # model = builder.create_model(graph)  # ✅ This embeds FunctionProtos
-    # onnx.checker.check_model(model)      # Will now find MLPBlock007
-    # # analyze_constants(model)
-    # return model
-
 
 def analyze_constants(model: onnx.ModelProto):
     print("\n🔍 Constant Analysis Report (Verbose)")

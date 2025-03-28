@@ -6,9 +6,16 @@ from onnx import shape_inference
 from typing import Dict, List, Optional
 from onnx import ModelProto
 from itertools import chain
+import copy
+import logging
+from typing import Set
+
+logging.basicConfig(level=logging.INFO)
 
 
 def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
+    onnx_model = duplicate_shared_function_constants(onnx_model)
+
     onnx_model = shape_inference.infer_shapes(onnx_model)
     onnx_model = remove_redundant_casts(onnx_model)
     onnx_model = remove_redundant_reshapes(onnx_model)
@@ -337,3 +344,171 @@ def remove_redundant_reshapes(onnx_model: ModelProto) -> ModelProto:
     graph.node.extend(kept_nodes)
 
     return onnx_model
+
+
+def duplicate_shared_function_constants(model: onnx.ModelProto) -> onnx.ModelProto:
+    """
+    Identifies and duplicates constant initializers shared between the main graph
+    and function calls, ensuring functions use local copies.
+
+    Args:
+        model: The input ONNX ModelProto.
+
+    Returns:
+        A modified ONNX ModelProto with duplicated constants for functions.
+    """
+    graph = model.graph
+    functions = {f.name: f for f in model.functions}
+    initializers_in_main_graph = {init.name for init in graph.initializer}
+    modified = False
+    new_initializers = []
+
+    shared_constants_map: Dict[int, Set[str]] = {}
+
+    for i, node in enumerate(graph.node):
+        if node.op_type in functions:
+            shared_inputs = set(node.input) & initializers_in_main_graph
+            if shared_inputs:
+                shared_constants_map[i] = shared_inputs
+
+    if not shared_constants_map:
+        logging.info("No shared constants found between main graph and function calls.")
+        return model
+
+    new_nodes = list(graph.node)
+
+    for node_index, shared_names in shared_constants_map.items():
+        func_node = new_nodes[node_index]
+        func_proto = functions.get(func_node.op_type)
+
+        if not func_proto:
+            logging.warning(
+                f"FunctionProto for node {func_node.op_type} not found. Skipping."
+            )
+            continue
+
+        logging.info(
+            f"Processing function call: {func_node.name or func_node.op_type} (index {node_index})"
+        )
+
+        rename_map_for_func: Dict[str, str] = {}
+
+        for orig_init_name in shared_names:
+            logging.info(f"  Duplicating shared constant: {orig_init_name}")
+            modified = True
+
+            orig_initializer = next(
+                (init for init in graph.initializer if init.name == orig_init_name),
+                None,
+            )
+            if orig_initializer is None:
+                logging.warning(
+                    f"  Initializer '{orig_init_name}' not found in main graph initializers. Skipping."
+                )
+                continue
+
+            new_init_name = f"{func_node.name or func_node.op_type}_{orig_init_name}_local_{node_index}"
+            new_initializer = copy.deepcopy(orig_initializer)
+            new_initializer.name = new_init_name
+            new_initializers.append(new_initializer)
+            rename_map_for_func[orig_init_name] = new_init_name
+
+        new_func_node_inputs = list(func_node.input)
+        for orig_name, new_name in rename_map_for_func.items():
+            try:
+                idx = new_func_node_inputs.index(orig_name)
+                new_func_node_inputs[idx] = new_name
+            except ValueError:
+                logging.warning(
+                    f"Original input '{orig_name}' not found in func call node '{func_node.name}' inputs."
+                )
+
+        new_func_node = onnx.helper.make_node(
+            func_node.op_type,
+            inputs=new_func_node_inputs,
+            outputs=list(func_node.output),
+            name=func_node.name,
+            domain=func_node.domain,
+        )
+        new_nodes[node_index] = new_func_node
+
+        if rename_map_for_func:
+            new_func_proto_inputs = list(func_proto.input)
+            updated_func_proto_nodes = []
+
+            for orig_name, new_name in rename_map_for_func.items():
+                try:
+                    idx = new_func_proto_inputs.index(orig_name)
+                    new_func_proto_inputs[idx] = new_name
+                except ValueError:
+                    pass
+
+            for internal_node in func_proto.node:
+                new_internal_node_inputs = list(internal_node.input)
+                changed_internal_inputs = False
+                for i, input_name in enumerate(internal_node.input):
+                    if input_name in rename_map_for_func:
+                        new_internal_node_inputs[i] = rename_map_for_func[input_name]
+                        changed_internal_inputs = True
+
+                if changed_internal_inputs:
+                    updated_internal_node = onnx.helper.make_node(
+                        internal_node.op_type,
+                        inputs=new_internal_node_inputs,
+                        outputs=list(internal_node.output),
+                        name=internal_node.name,
+                        domain=internal_node.domain,
+                        **{
+                            attr.name: onnx.helper.get_attribute_value(attr)
+                            for attr in internal_node.attribute
+                        },
+                    )
+                    updated_func_proto_nodes.append(updated_internal_node)
+                else:
+                    updated_func_proto_nodes.append(internal_node)
+
+            updated_func_proto = onnx.helper.make_function(
+                domain=func_proto.domain,
+                fname=func_proto.name,
+                inputs=new_func_proto_inputs,
+                outputs=list(func_proto.output),
+                nodes=updated_func_proto_nodes,
+                opset_imports=list(func_proto.opset_import),
+                attributes=[a.name for a in func_proto.attribute],
+                attribute_protos=list(func_proto.attribute_proto),
+                doc_string=func_proto.doc_string,
+            )
+            functions[func_proto.name] = updated_func_proto
+
+    if not modified:
+        return model
+
+    graph.initializer.extend(new_initializers)
+
+    new_graph = onnx.helper.make_graph(
+        nodes=new_nodes,
+        name=graph.name + "_repaired",
+        inputs=list(graph.input),
+        outputs=list(graph.output),
+        initializer=list(graph.initializer),
+        value_info=list(graph.value_info),
+        doc_string=graph.doc_string,
+    )
+
+    new_model = onnx.helper.make_model(
+        new_graph,
+        producer_name=model.producer_name,
+        producer_version=model.producer_version,
+        opset_imports=list(model.opset_import),
+        model_version=model.model_version,
+        functions=list(functions.values()),
+    )
+
+    try:
+        onnx.checker.check_model(new_model)
+        logging.info("Repaired model passed ONNX checker.")
+    except onnx.checker.ValidationError as e:
+        logging.error(f"Repaired model failed ONNX checker: {e}")
+        raise e
+
+    return new_model
