@@ -80,7 +80,7 @@ class OnnxBuilder:
         self.initializers = []
         self.value_info = []
         self.functions.clear()
-        self.name_counter = GlobalNameCounter()  # Reset the name counter
+        self.name_counter = GlobalNameCounter()
 
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_counter.get(prefix)
@@ -159,11 +159,9 @@ class OnnxBuilder:
             graph,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid(
-                    CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION
-                ),  # Custom domain for functions
+                helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
-            functions=list(self.functions.values()),  # Adds the FunctionProtos
+            functions=list(self.functions.values()),
         )
 
         return model
