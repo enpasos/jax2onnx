@@ -22,9 +22,6 @@ CUSTOM_DOMAIN_VERSION = 1  # Start versioning at 1
 
 
 class OnnxBuilder:
-    # In jax2onnx/converter/onnx_builder.py
-    # In jax2onnx/converter/onnx_builder.py -> OnnxBuilder.__init__
-
     def __init__(
         self,
         name_counter: GlobalNameCounter,
@@ -33,71 +30,47 @@ class OnnxBuilder:
         constant_cache: (
             Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] | None
         ) = None,
-        # ADD optional initializers argument
         initializers: List[Any] | None = None,
     ) -> None:
         self.name_counter: GlobalNameCounter = name_counter
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []
         self.outputs: List[ValueInfoProto] = []
-        # Use provided initializers list or create a new one
-        self.initializers: List[Any] = (
-            initializers if initializers is not None else []
-        )  # TensorProto objects
+        self.initializers: List[Any] = initializers if initializers is not None else []
         self.value_info: List[ValueInfoProto] = []
         self.opset: int = opset
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
-
-        # Use provided cache or create a new one
         self.constant_cache: Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] = (
             constant_cache if constant_cache is not None else {}
         )
-
         self.function_name_to_domain: Dict[str, str] = {}
 
     def get_constant_name(self, val):
-        """
-        Creates or retrieves a globally unique ONNX constant tensor and returns its name.
-        Uses a cache based on value, dtype, and shape to reuse existing constants.
-        """
         if isinstance(val, Literal):
-            val = val.val  # Extract value if it's a JAX Literal
+            val = val.val
 
         np_val = np.array(val)
-        # Standardize dtype if necessary (e.g., consistently use float32 for float types)
         if np_val.dtype == np.float64:
             np_val = np_val.astype(np.float32)
 
-        # Create a hashable cache key: (value_bytes, dtype, shape)
         try:
             cache_key = (np_val.tobytes(), np_val.dtype, np_val.shape)
-        except AttributeError:  # Handle non-numpy arrays if they occur
-            # Fallback for non-numpy values - might need refinement
-            cache_key = (str(val), type(val), ())  # Add shape placeholder
+        except AttributeError:
+            cache_key = (str(val), type(val), ())
 
         if cache_key in self.constant_cache:
-            # Constant already exists, return its name
             return self.constant_cache[cache_key]
         else:
-            # Constant not found, create a new one
-            # Generate a new unique name using the existing counter
             name = self.get_unique_name("const")
-
-            # Create the ONNX TensorProto
             tensor = helper.make_tensor(
                 name=name,
                 data_type=self._numpy_dtype_to_onnx(np_val.dtype),
                 dims=np_val.shape,
                 vals=np_val.flatten().tolist(),
             )
-            # IMPORTANT: Add the new tensor to the initializers list *of this builder instance*
-            # Since the cache (and thus potentially the builder instance) is shared,
-            # this adds the initializer to the correct central list.
             self.initializers.append(tensor)
-            # Store the new constant's name in the cache
             self.constant_cache[cache_key] = name
-            # Return the new name
             return name
 
     def reset(self) -> None:
@@ -180,9 +153,7 @@ class OnnxBuilder:
         return model
 
     def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
-        graph = self._build_graph(
-            model_name
-        )  # Uses self.inputs, self.outputs, self.initializers
+        graph = self._build_graph(model_name)
 
         model = helper.make_model(
             graph,
@@ -249,20 +220,12 @@ class OnnxBuilder:
         self.functions[name] = function_proto
         print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
 
-        # Remove function-level initializers from the top-level to maintain SSA
-        # function_initializer_names = {init.name for init in builder.initializers}
-        # self.initializers = [
-        #     init for init in self.initializers if init.name not in function_initializer_names
-        # ]
-
     def add_function_call_node(
         self,
         function_name: str,
         inputs: List[str],
         outputs: List[str],
     ) -> None:
-        """Adds a node calling a nested function by name."""
-        # Ensure all inputs and outputs are properly connected
         assert inputs, f"Function {function_name} must have inputs."
         assert outputs, f"Function {function_name} must have outputs."
 
@@ -280,9 +243,6 @@ class OnnxBuilder:
     def _build_function_proto(
         self, graph: GraphProto, domain: str = ""
     ) -> FunctionProto:
-        """
-        Helper method to build a FunctionProto from a GraphProto.
-        """
         function_proto = FunctionProto()
         function_proto.name = graph.name
         function_proto.domain = domain
@@ -296,9 +256,6 @@ class OnnxBuilder:
         return function_proto
 
     def create_functions(self) -> List[FunctionProto]:
-        """
-        Converts stored function graphs into ONNX FunctionProto objects.
-        """
         return [
             self._build_function_proto(graph, "") for graph in self.functions.values()
         ]
@@ -308,7 +265,7 @@ class OnnxBuilder:
     ) -> FunctionProto:
         function_proto = FunctionProto()
         function_proto.name = graph.name
-        function_proto.domain = domain  # leave domain empty or define clearly
+        function_proto.domain = domain
         function_proto.input.extend([inp.name for inp in graph.input])
         function_proto.output.extend([out.name for out in graph.output])
         function_proto.node.extend(graph.node)
@@ -328,9 +285,6 @@ class OnnxBuilder:
                 tensor_shape[idx].dim_param = "B"
 
     def adjust_dynamic_batch_dimensions(self, input_shapes):
-        """
-        Adjusts input and output tensor shapes to handle dynamic batch dimensions ("B").
-        """
         batch_dims = {
             idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
         }
@@ -340,11 +294,7 @@ class OnnxBuilder:
             self._adjust_tensor_shape(tensor, [], batch_dims)
 
     def filter_unused_initializers(self):
-        """
-        Ensures all required initializers are included in the graph.
-        """
         used_inputs = {i for node in self.nodes for i in node.input}
-        # Include all initializers that are used or required by the graph
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs or init.name
         ]
