@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_007.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_006.py
 
 
 from flax import nnx
@@ -59,10 +59,11 @@ class TransformerBlock006(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        y = self.attention(self.layer_norm1(x))
+        x = self.layer_norm1(x)
+        y = self.attention(x)
         y = self.dropout(y, deterministic=deterministic)
-        x = x + y
-        return x + self.mlp_block(self.layer_norm2(x))
+        x = self.layer_norm2(x + y)
+        return x + self.mlp_block(x)
 
 
 register_example(
@@ -71,7 +72,7 @@ register_example(
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock007"],
+    children=["MLPBlock006"],
     testcases=[
         {
             "testcase": "006_transformer_block",

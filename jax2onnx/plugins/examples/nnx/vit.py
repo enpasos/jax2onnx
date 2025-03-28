@@ -236,10 +236,11 @@ class TransformerBlock(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        y = self.attention(self.layer_norm1(x))
+        x = self.layer_norm1(x)
+        y = self.attention(x)
         y = self.dropout(y, deterministic=deterministic)
-        x = x + y
-        return x + self.mlp_block(self.layer_norm2(x), deterministic)
+        x = self.layer_norm2(x + y)
+        return x + self.mlp_block(x, deterministic)
 
 
 register_example(

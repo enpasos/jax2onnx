@@ -1,0 +1,96 @@
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_006.py
+
+
+from flax import nnx
+import jax.numpy as jnp
+
+from jax2onnx.plugin_system import onnx_function, register_example
+
+
+@onnx_function
+class MLPBlock008(nnx.Module):
+    """MLP block for Transformer layers."""
+
+    def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
+        self.layers = [
+            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+            lambda x: nnx.gelu(x, approximate=False),
+            nnx.Dropout(rate=0.1, rngs=rngs),
+            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
+        ]
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        deterministic = True
+        for layer in self.layers:
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=deterministic)
+            else:
+                x = layer(x)
+        return x
+
+
+@onnx_function
+class MultiHeadAttention008(nnx.MultiHeadAttention):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return super().__call__(x)
+
+
+@onnx_function
+class TransformerBlock008(nnx.Module):
+    """Transformer block with multi-head attention and MLP."""
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_heads: int,
+        mlp_dim: int,
+        attention_dropout_rate: float = 0.1,
+        mlp_dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.rng_collection = rngs
+        self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
+        self.attention = MultiHeadAttention008(
+            num_heads=num_heads,
+            qkv_features=num_hiddens,
+            out_features=num_hiddens,
+            in_features=num_hiddens,
+            rngs=rngs,
+            decode=False,
+        )
+        self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
+        self.mlp_block = MLPBlock008(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        x = self.layer_norm1(x)
+        y = self.attention(x)
+        y = self.dropout(y, deterministic=deterministic)
+        x = self.layer_norm2(x + y)
+        return x + self.mlp_block(x)
+
+
+register_example(
+    component="onnx_functions_008",
+    description="transformer block with nested mlp block no call parameter",
+    # source="https:/",
+    since="v0.4.0",
+    context="examples.onnx_functions",
+    children=["MLPBlock008", "MultiHeadAttention008"],
+    testcases=[
+        {
+            "testcase": "008_transformer_block",
+            "callable": TransformerBlock008(
+                num_hiddens=256,
+                num_heads=8,
+                mlp_dim=512,
+                attention_dropout_rate=0.1,
+                mlp_dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 10, 256)],
+        },
+    ],
+)
