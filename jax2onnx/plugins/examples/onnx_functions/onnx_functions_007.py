@@ -20,8 +20,8 @@ class MLPBlock007(nnx.Module):
             nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    #    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        # def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         deterministic = True
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
@@ -63,8 +63,8 @@ class TransformerBlock007(nnx.Module):
         y = self.attention(self.layer_norm1(x))
         y = self.dropout(y, deterministic=deterministic)
         x = x + y
-        # return x + self.mlp_block(self.layer_norm2(x), deterministic)
-        return x + self.mlp_block(self.layer_norm2(x))
+        return x + self.mlp_block(self.layer_norm2(x), deterministic)
+        # return x + self.mlp_block(self.layer_norm2(x))
 
 
 register_example(

@@ -49,7 +49,7 @@ register_example(
     children=["MLPBlock002"],
     testcases=[
         {
-            "testcase": "two_nested_functions",
+            "testcase": "002_two_nested_functions",
             "callable": SuperBlock002(),
             "input_shapes": [("B", 10, 256)],
         },

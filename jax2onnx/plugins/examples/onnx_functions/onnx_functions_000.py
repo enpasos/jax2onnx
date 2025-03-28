@@ -48,7 +48,7 @@ register_example(
     children=["MLPBlock000"],
     testcases=[
         {
-            "testcase": "one_function_outer",
+            "testcase": "000_one_function_outer",
             "callable": SuperBlock000(),
             "input_shapes": [("B", 10, 256)],
         },

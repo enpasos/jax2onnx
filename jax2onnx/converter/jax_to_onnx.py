@@ -33,7 +33,6 @@ def to_onnx(
 
     counter = GlobalNameCounter()
     builder = OnnxBuilder(counter, opset=opset)
-    # builder = OnnxBuilder(opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
 
     converter.trace_jaxpr(fn, example_args)
@@ -47,7 +46,7 @@ def to_onnx(
 
     onnx.checker.check_model(model)
 
-    analyze_constants(model)
+    # analyze_constants(model)
 
     return model
 
