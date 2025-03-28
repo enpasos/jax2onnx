@@ -69,7 +69,6 @@ def function_handler(name, converter: "Jaxpr2OnnxConverter", eqn, orig_fn, param
         parent_builder.name_counter,
         parent_builder.opset,
         parent_builder.model_name,
-        constant_cache=parent_builder.constant_cache,
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)

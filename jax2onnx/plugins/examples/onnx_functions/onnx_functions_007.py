@@ -31,7 +31,7 @@ class MLPBlock007(nnx.Module):
         return x
 
 
-# @onnx_function
+@onnx_function
 class TransformerBlock007(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
