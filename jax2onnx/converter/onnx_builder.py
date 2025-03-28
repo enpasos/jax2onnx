@@ -17,6 +17,10 @@ import onnx
 from jax2onnx.converter.name_generator import GlobalNameCounter
 
 
+CUSTOM_DOMAIN = "custom"  # "jax2onnx.functions"
+CUSTOM_DOMAIN_VERSION = 1  # Start versioning at 1
+
+
 class OnnxBuilder:
     # In jax2onnx/converter/onnx_builder.py
     # In jax2onnx/converter/onnx_builder.py -> OnnxBuilder.__init__
@@ -48,7 +52,9 @@ class OnnxBuilder:
         # Use provided cache or create a new one
         self.constant_cache: Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] = (
             constant_cache if constant_cache is not None else {}
-        )  # Replace the existing get_constant_name method:
+        )
+
+        self.function_name_to_domain: Dict[str, str] = {}
 
     def get_constant_name(self, val):
         """
@@ -182,7 +188,9 @@ class OnnxBuilder:
             graph,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid("custom", 1),  # Custom domain for functions
+                helper.make_opsetid(
+                    CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION
+                ),  # Custom domain for functions
             ],
             functions=list(self.functions.values()),  # Adds the FunctionProtos
         )
@@ -225,14 +233,14 @@ class OnnxBuilder:
         combined_value_infos = unique_value_infos + param_value_infos
 
         function_proto = helper.make_function(
-            domain="custom",
+            domain=CUSTOM_DOMAIN,
             fname=name,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
-                helper.make_opsetid("custom", self.opset),
+                helper.make_opsetid(CUSTOM_DOMAIN, self.opset),
             ],
             attributes=[],
             value_info=combined_value_infos,

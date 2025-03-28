@@ -1,3 +1,4 @@
+# file: jax2onnx/converter/converter.py
 import jax
 import onnx
 from onnx import helper
