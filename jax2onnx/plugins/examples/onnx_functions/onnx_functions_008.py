@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class MLPBlock006(nnx.Module):
+class MLPBlock008(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -31,7 +31,13 @@ class MLPBlock006(nnx.Module):
 
 
 @onnx_function
-class TransformerBlock006(nnx.Module):
+class MultiHeadAttention008(nnx.MultiHeadAttention):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return super().__call__(x)
+
+
+@onnx_function
+class TransformerBlock008(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
     def __init__(
@@ -46,7 +52,7 @@ class TransformerBlock006(nnx.Module):
     ):
         self.rng_collection = rngs
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.attention = nnx.MultiHeadAttention(
+        self.attention = MultiHeadAttention008(
             num_heads=num_heads,
             qkv_features=num_hiddens,
             out_features=num_hiddens,
@@ -55,7 +61,7 @@ class TransformerBlock006(nnx.Module):
             decode=False,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock006(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
+        self.mlp_block = MLPBlock008(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
@@ -67,16 +73,16 @@ class TransformerBlock006(nnx.Module):
 
 
 register_example(
-    component="onnx_functions_006",
+    component="onnx_functions_008",
     description="transformer block with nested mlp block no call parameter",
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock006"],
+    children=["MLPBlock008", "MultiHeadAttention008"],
     testcases=[
         {
-            "testcase": "006_transformer_block",
-            "callable": TransformerBlock006(
+            "testcase": "008_transformer_block",
+            "callable": TransformerBlock008(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
