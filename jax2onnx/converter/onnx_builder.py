@@ -27,9 +27,6 @@ class OnnxBuilder:
         name_counter: GlobalNameCounter,
         opset: int = 21,
         model_name: str = "",
-        constant_cache: (
-            Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] | None
-        ) = None,
         initializers: List[Any] | None = None,
     ) -> None:
         self.name_counter: GlobalNameCounter = name_counter
@@ -41,9 +38,6 @@ class OnnxBuilder:
         self.opset: int = opset
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
-        self.constant_cache: Dict[Tuple[bytes, np.dtype, Tuple[int, ...]], str] = (
-            constant_cache if constant_cache is not None else {}
-        )
         self.function_name_to_domain: Dict[str, str] = {}
 
     def get_constant_name(self, val):
@@ -54,24 +48,15 @@ class OnnxBuilder:
         if np_val.dtype == np.float64:
             np_val = np_val.astype(np.float32)
 
-        try:
-            cache_key = (np_val.tobytes(), np_val.dtype, np_val.shape)
-        except AttributeError:
-            cache_key = (str(val), type(val), ())
-
-        if cache_key in self.constant_cache:
-            return self.constant_cache[cache_key]
-        else:
-            name = self.get_unique_name("const")
-            tensor = helper.make_tensor(
-                name=name,
-                data_type=self._numpy_dtype_to_onnx(np_val.dtype),
-                dims=np_val.shape,
-                vals=np_val.flatten().tolist(),
-            )
-            self.initializers.append(tensor)
-            self.constant_cache[cache_key] = name
-            return name
+        name = self.get_unique_name("const")
+        tensor = helper.make_tensor(
+            name=name,
+            data_type=self._numpy_dtype_to_onnx(np_val.dtype),
+            dims=np_val.shape,
+            vals=np_val.flatten().tolist(),
+        )
+        self.initializers.append(tensor)
+        return name
 
     def reset(self) -> None:
         self.nodes = []
