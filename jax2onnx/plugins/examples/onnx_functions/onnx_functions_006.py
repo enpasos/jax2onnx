@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class MLPBlock007(nnx.Module):
+class MLPBlock006(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -20,8 +20,7 @@ class MLPBlock007(nnx.Module):
             nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        # def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         deterministic = True
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
@@ -32,7 +31,7 @@ class MLPBlock007(nnx.Module):
 
 
 @onnx_function
-class TransformerBlock007(nnx.Module):
+class TransformerBlock006(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
     def __init__(
@@ -56,28 +55,27 @@ class TransformerBlock007(nnx.Module):
             decode=False,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock007(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
+        self.mlp_block = MLPBlock006(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         y = self.attention(self.layer_norm1(x))
         y = self.dropout(y, deterministic=deterministic)
         x = x + y
-        return x + self.mlp_block(self.layer_norm2(x), deterministic)
-        # return x + self.mlp_block(self.layer_norm2(x))
+        return x + self.mlp_block(self.layer_norm2(x))
 
 
 register_example(
-    component="onnx_functions_007",
-    description="transformer block with nested mlp block",
+    component="onnx_functions_006",
+    description="transformer block with nested mlp block no call parameter",
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
     children=["MLPBlock007"],
     testcases=[
         {
-            "testcase": "007_transformer_block",
-            "callable": TransformerBlock007(
+            "testcase": "006_transformer_block",
+            "callable": TransformerBlock006(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
