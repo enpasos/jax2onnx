@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/utils.py
+
 import numpy as np
 from onnx import (
     TensorProto,
@@ -68,7 +70,7 @@ def function_handler(name, converter: "Jaxpr2OnnxConverter", eqn, orig_fn, param
         parent_builder.opset,
         parent_builder.model_name,
         constant_cache=parent_builder.constant_cache,
-        initializers=parent_builder.initializers,  # Pass the list object
+        initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
 
@@ -95,7 +97,7 @@ def function_handler(name, converter: "Jaxpr2OnnxConverter", eqn, orig_fn, param
 
     parent_builder.add_function_call_node(
         name,
-        input_names + final_param_input_names,  # Pass original inputs AND constants
+        input_names + final_param_input_names,
         [converter.get_var_name(v) for v in eqn.outvars],
     )
 
