@@ -1,4 +1,6 @@
 # file: jax2onnx/plugin_system.py
+import functools
+import inspect
 import pkgutil
 import importlib
 import os
@@ -73,13 +75,30 @@ class FunctionPlugin(PrimitivePlugin):
 
     def get_patch_fn(self, primitive):
         def patch(original_call):
-            def wrapped(instance, *args, **kwargs):
-                class_name = instance.__class__.__name__
-                if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
-                    ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
-                        original_call.__get__(instance, type(instance))
-                    )
-                return primitive.bind(*args, **kwargs)
+            # if args2 or kwargs2:
+            #     raise ValueError("No args or kwargs expected for this function plugin")
+            sig = inspect.signature(original_call)
+            params = list(sig.parameters.keys())
+
+            @functools.wraps(original_call)
+            def wrapped(*args, **kwargs):
+                # Check if the original callable expects 'self'
+                expects_self = params and params[0] == "self"
+
+                if expects_self:
+                    # It's a method - args[0] is 'self'
+                    instance = args[0]
+                    class_name = instance.__class__.__name__
+                    if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
+                        ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
+                            original_call.__get__(instance, type(instance))
+                        )
+                    # Do NOT forward 'self' to primitive!
+                    return primitive.bind(*args[1:], **kwargs)
+                else:
+                    # Standalone function, no 'self'
+                    self._orig_fn = original_call
+                    return primitive.bind(*args, **kwargs)
 
             return wrapped
 
@@ -104,22 +123,28 @@ class FunctionPlugin(PrimitivePlugin):
 ########################################
 
 
-def onnx_function(cls):
-    name = cls.__name__
-    primitive = Primitive(name)
-    primitive.def_abstract_eval(lambda x: x)
+def onnx_function(target):
+    plugin = FunctionPlugin(name=target.__name__, target=target)
+    ONNX_FUNCTION_PLUGIN_REGISTRY[target.__name__] = plugin
 
-    cls._onnx_primitive = primitive
+    if isinstance(target, type):
+        # For classes, patch __call__
+        return target
+    elif callable(target):
+        primitive = plugin.primitive
 
-    ONNX_FUNCTION_REGISTRY[name] = cls
-    ONNX_FUNCTION_PRIMITIVE_REGISTRY[name] = (primitive, cls)
+        @functools.wraps(target)
+        def wrapped_function(*args, **kwargs):
+            return primitive.bind(*args, **kwargs)
 
-    plugin = FunctionPlugin(name, cls)
-    ONNX_FUNCTION_PLUGIN_REGISTRY[name] = plugin
+        primitive.def_impl(target)
 
-    # PLUGIN_REGISTRY[name] = plugin
+        # Set an abstract_eval if necessary
+        primitive.def_abstract_eval(lambda *args, **kwargs: args[0])
 
-    return cls
+        return wrapped_function
+    else:
+        raise TypeError("onnx_function decorator expects a class or function.")
 
 
 class ExamplePlugin:

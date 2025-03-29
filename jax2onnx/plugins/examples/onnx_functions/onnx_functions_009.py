@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class FeedForward008(nnx.Module):
+class FeedForward009(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -31,13 +31,12 @@ class FeedForward008(nnx.Module):
 
 
 @onnx_function
-class Attention008:
-    def __call__(self, *args, **kwargs):
-        return nnx.dot_product_attention(*args, **kwargs)
+def attention_009(*args, **kwargs):
+    return nnx.dot_product_attention(*args, **kwargs)
 
 
 @onnx_function
-class MultiHeadAttention008(nnx.Module):
+class MultiHeadAttention009(nnx.Module):
     def __init__(
         self,
         num_hiddens: int,
@@ -51,7 +50,7 @@ class MultiHeadAttention008(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            attention_fn=Attention008(),
+            attention_fn=lambda *args, **kwargs: attention_009(*args),
             rngs=rngs,
             decode=False,
         )
@@ -64,7 +63,7 @@ class MultiHeadAttention008(nnx.Module):
 
 
 @onnx_function
-class TransformerBlock008(nnx.Module):
+class TransformerBlock009(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
     def __init__(
@@ -78,14 +77,14 @@ class TransformerBlock008(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.attention = MultiHeadAttention008(
+        self.attention = MultiHeadAttention009(
             num_hiddens=num_hiddens,
             num_heads=num_heads,
             attention_dropout_rate=attention_dropout_rate,
             rngs=rngs,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = FeedForward008(
+        self.mlp_block = FeedForward009(
             num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs
         )
 
@@ -100,16 +99,16 @@ class TransformerBlock008(nnx.Module):
 
 
 register_example(
-    component="onnx_functions_008",
-    description="transformer block with nested mlp block no call parameter",
+    component="onnx_functions_009",
+    description="transformer block using decorator on class and function",
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["FeedForwardBlock008", "MultiHeadAttention008"],
+    children=["FeedForwardBlock009", "MultiHeadAttention009"],
     testcases=[
         {
-            "testcase": "008_transformer_block",
-            "callable": TransformerBlock008(
+            "testcase": "009_transformer_block",
+            "callable": TransformerBlock009(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,

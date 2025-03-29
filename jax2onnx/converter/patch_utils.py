@@ -11,11 +11,6 @@ from jax2onnx.plugin_system import (
 
 @contextlib.contextmanager
 def temporary_monkey_patches(allow_function_primitives=False):
-    """
-    Temporarily patch all primitives:
-    - Plugin primitives (from PLUGIN_REGISTRY)
-    - Function primitives (from ONNX_FUNCTION_PLUGIN_REGISTRY, if enabled)
-    """
     with contextlib.ExitStack() as stack:
         # Patch leaf plugin primitives
         for key, plugin in PLUGIN_REGISTRY.items():
@@ -24,13 +19,24 @@ def temporary_monkey_patches(allow_function_primitives=False):
             target, attr, patch_func = plugin.get_patch_params()
             stack.enter_context(_temporary_patch(target, attr, patch_func))
 
-        # Patch function-decorated classes
         if allow_function_primitives:
             for name, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
                 primitive = plugin.primitive
                 patch_fn = plugin.get_patch_fn(primitive)
                 target = plugin.target
-                stack.enter_context(_temporary_patch(target, "__call__", patch_fn))
+
+                if inspect.isclass(target):
+                    # Class-based: patch __call__
+                    stack.enter_context(_temporary_patch(target, "__call__", patch_fn))
+                elif callable(target):
+                    # Function-based: carefully patch all known references
+                    module = inspect.getmodule(target)
+                    # original_fn = getattr(module, target.__name__)
+                    stack.enter_context(
+                        _temporary_patch(module, target.__name__, patch_fn)
+                    )
+                else:
+                    raise TypeError(f"Unsupported target type: {type(target)}")
 
         yield
 
