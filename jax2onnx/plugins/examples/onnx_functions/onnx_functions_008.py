@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class MLPBlock008(nnx.Module):
+class FeedForward008(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -31,9 +31,29 @@ class MLPBlock008(nnx.Module):
 
 
 @onnx_function
-class MultiHeadAttention008(nnx.MultiHeadAttention):
+class MultiHeadAttention008(nnx.Module):
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_heads: int,
+        attention_dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.attention = nnx.MultiHeadAttention(
+            num_heads=num_heads,
+            qkv_features=num_hiddens,
+            out_features=num_hiddens,
+            in_features=num_hiddens,
+            rngs=rngs,
+            decode=False,
+        )
+        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
+
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        return super().__call__(x)
+        x = self.attention(x)
+        x = self.dropout(x, deterministic=True)
+        return x
 
 
 @onnx_function
@@ -50,26 +70,26 @@ class TransformerBlock008(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.rng_collection = rngs
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.attention = MultiHeadAttention008(
+            num_hiddens=num_hiddens,
             num_heads=num_heads,
-            qkv_features=num_hiddens,
-            out_features=num_hiddens,
-            in_features=num_hiddens,
+            attention_dropout_rate=attention_dropout_rate,
             rngs=rngs,
-            decode=False,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock008(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
+        self.mlp_block = FeedForward008(
+            num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs
+        )
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.layer_norm1(x)
-        y = self.attention(x)
-        y = self.dropout(y, deterministic=deterministic)
-        x = self.layer_norm2(x + y)
-        return x + self.mlp_block(x)
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # Pre-LN as it is more stable than Post-LN used in the original attention paper
+        # x stays untached, the residual r is learned
+        r = self.layer_norm1(x)
+        r = self.attention(r)
+        x = x + r
+        r = self.layer_norm2(x)
+        return x + self.mlp_block(r)
 
 
 register_example(
@@ -78,7 +98,7 @@ register_example(
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock008", "MultiHeadAttention008"],
+    children=["FeedForwardBlock008", "MultiHeadAttention008"],
     testcases=[
         {
             "testcase": "008_transformer_block",
