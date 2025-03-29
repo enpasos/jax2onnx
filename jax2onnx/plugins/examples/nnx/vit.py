@@ -236,11 +236,14 @@ class TransformerBlock(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.layer_norm1(x)
-        y = self.attention(x)
-        y = self.dropout(y, deterministic=deterministic)
-        x = self.layer_norm2(x + y)
-        return x + self.mlp_block(x, deterministic)
+        # Pre-LN as it is more stable than Post-LN used in the original attention paper
+        # x stays untached, the residual r is learned
+        r = self.layer_norm1(x)
+        r = self.attention(r)
+        r = self.dropout(r, deterministic=deterministic)
+        x = x + r
+        r = self.layer_norm2(x)
+        return x + self.mlp_block(r, deterministic)
 
 
 register_example(
