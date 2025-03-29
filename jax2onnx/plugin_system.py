@@ -143,31 +143,6 @@ def onnx_function(target):
     return target
 
 
-# def onnx_function(target):
-#     print(f"Registering ONNX function: {target.__name__}")
-#     plugin = FunctionPlugin(name=target.__name__, target=target)
-#     ONNX_FUNCTION_PLUGIN_REGISTRY[target.__name__] = plugin
-
-#     if isinstance(target, type):
-#         # For classes, patch __call__
-#         return target
-#     elif callable(target):
-#         primitive = plugin.primitive
-
-#         @functools.wraps(target)
-#         def wrapped_function(*args, **kwargs):
-#             return primitive.bind(*args, **kwargs)
-
-#         primitive.def_impl(target)
-
-#         # Set an abstract_eval if necessary
-#         primitive.def_abstract_eval(lambda *args, **kwargs: args[0])
-
-#         return wrapped_function
-#     else:
-#         raise TypeError("onnx_function decorator expects a class or function.")
-
-
 class ExamplePlugin:
     metadata: Dict[str, Any]
 
