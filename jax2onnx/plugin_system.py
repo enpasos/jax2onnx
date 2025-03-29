@@ -97,7 +97,9 @@ class FunctionPlugin(PrimitivePlugin):
                     return primitive.bind(*args[1:], **kwargs)
                 else:
                     # Standalone function, no 'self'
-                    self._orig_fn = original_call
+
+                    ONNX_FUNCTION_PLUGIN_REGISTRY[self.name]._orig_fn = original_call
+                    # self._orig_fn = original_call
                     return primitive.bind(*args, **kwargs)
 
             return wrapped
@@ -124,27 +126,46 @@ class FunctionPlugin(PrimitivePlugin):
 
 
 def onnx_function(target):
-    plugin = FunctionPlugin(name=target.__name__, target=target)
-    ONNX_FUNCTION_PLUGIN_REGISTRY[target.__name__] = plugin
+    name = target.__name__
+    primitive = Primitive(name)
+    primitive.def_abstract_eval(lambda x: x)
 
-    if isinstance(target, type):
-        # For classes, patch __call__
-        return target
-    elif callable(target):
-        primitive = plugin.primitive
+    target._onnx_primitive = primitive
 
-        @functools.wraps(target)
-        def wrapped_function(*args, **kwargs):
-            return primitive.bind(*args, **kwargs)
+    ONNX_FUNCTION_REGISTRY[name] = target
+    ONNX_FUNCTION_PRIMITIVE_REGISTRY[name] = (primitive, target)
 
-        primitive.def_impl(target)
+    plugin = FunctionPlugin(name, target)
+    ONNX_FUNCTION_PLUGIN_REGISTRY[name] = plugin
 
-        # Set an abstract_eval if necessary
-        primitive.def_abstract_eval(lambda *args, **kwargs: args[0])
+    # PLUGIN_REGISTRY[name] = plugin
 
-        return wrapped_function
-    else:
-        raise TypeError("onnx_function decorator expects a class or function.")
+    return target
+
+
+# def onnx_function(target):
+#     print(f"Registering ONNX function: {target.__name__}")
+#     plugin = FunctionPlugin(name=target.__name__, target=target)
+#     ONNX_FUNCTION_PLUGIN_REGISTRY[target.__name__] = plugin
+
+#     if isinstance(target, type):
+#         # For classes, patch __call__
+#         return target
+#     elif callable(target):
+#         primitive = plugin.primitive
+
+#         @functools.wraps(target)
+#         def wrapped_function(*args, **kwargs):
+#             return primitive.bind(*args, **kwargs)
+
+#         primitive.def_impl(target)
+
+#         # Set an abstract_eval if necessary
+#         primitive.def_abstract_eval(lambda *args, **kwargs: args[0])
+
+#         return wrapped_function
+#     else:
+#         raise TypeError("onnx_function decorator expects a class or function.")
 
 
 class ExamplePlugin:

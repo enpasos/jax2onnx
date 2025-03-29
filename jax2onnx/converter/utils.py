@@ -73,6 +73,35 @@ def function_handler(name, converter: "Jaxpr2OnnxConverter", eqn, orig_fn, param
     )
     sub_converter = converter.__class__(sub_builder)
 
+    # import inspect
+    # from jax2onnx.converter.patch_utils import _temporary_patch
+    # from contextlib import nullcontext
+    # # Ensure the plugin is available
+    # from jax2onnx.plugin_system import ONNX_FUNCTION_PLUGIN_REGISTRY
+    # plugin = ONNX_FUNCTION_PLUGIN_REGISTRY.get(name)
+    # if plugin is None:
+    #     raise RuntimeError(f"Plugin for function '{name}' not found in registry.")
+
+    # # Check if it's a standalone function
+    # target = plugin.target
+    # is_standalone_function = callable(target) and not inspect.isclass(target)
+
+    # # Prepare context
+    # trace_context = nullcontext()
+    # if is_standalone_function:
+    #     module = inspect.getmodule(target)
+    #     if module is None:
+    #         raise RuntimeError(f"Could not resolve module for function '{target}'")
+    #     trace_context = _temporary_patch(module, target.__name__, lambda _: orig_fn)
+
+    # # Perform nested trace inside patch-free context
+    # with trace_context:
+    #     sub_converter.trace_jaxpr(
+    #         orig_fn,
+    #         example_args,
+    #         preserve_graph=True,
+    #     )
+
     sub_converter.trace_jaxpr(
         orig_fn,
         example_args,
