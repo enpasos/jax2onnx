@@ -84,6 +84,7 @@ class TransformerBlock007(nnx.Module):
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         # Pre-LN as it is more stable than Post-LN used in the original attention paper
         # x stays untached, the residual r is learned
+
         r = self.layer_norm1(x)
         r = self.attention(r, deterministic)
         x = x + r
