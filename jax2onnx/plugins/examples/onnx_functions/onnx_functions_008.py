@@ -30,6 +30,18 @@ class FeedForward008(nnx.Module):
         return x
 
 
+# TODO
+# @onnx_function
+# def attention_008(*args, **kwargs):
+#     return nnx.dot_product_attention(*args, **kwargs)
+
+
+@onnx_function
+class Attention008:
+    def __call__(self, *args, **kwargs):
+        return nnx.dot_product_attention(*args, **kwargs)
+
+
 @onnx_function
 class MultiHeadAttention008(nnx.Module):
     def __init__(
@@ -45,6 +57,8 @@ class MultiHeadAttention008(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
+            # attention_fn=attention_008,
+            attention_fn=Attention008(),
             rngs=rngs,
             decode=False,
         )

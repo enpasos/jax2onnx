@@ -55,39 +55,48 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
 
 
 class FunctionPlugin(PrimitivePlugin):
-    target: Any
-
     def __init__(self, name: str, target: Any):
         self.name = name
         self.target = target
         self.primitive = Primitive(name)
-        self.primitive.def_abstract_eval(lambda *args: args[0])
+        self.primitive.def_abstract_eval(self.abstract_eval_with_kwargs)
+        self.primitive.def_impl(self.primitive_impl)
         self._orig_fn = None
-        self._nested_builder = None
 
-    def get_handler(self, converter: Any) -> Callable:
-        return lambda converter, eqn, params: self._function_handler(
-            converter, eqn, params
-        )
+    def abstract_eval_with_kwargs(self, *args, **kwargs):
+        return args[0]
 
-    def _function_handler(self, converter, eqn, params):
-        function_handler(self.name, converter, eqn, self._orig_fn, params)
+    def primitive_impl(self, *args, **kwargs):
+        if self._orig_fn is None:
+            raise ValueError("Original function not set for primitive!")
+        return self._orig_fn(*args, **kwargs)
 
     def get_patch_fn(self, primitive):
         def patch(original_call):
-            def wrapped(instance, *args):
+            def wrapped(instance, *args, **kwargs):
                 class_name = instance.__class__.__name__
-                print(f"🧠 Calling ONNX-decorated function: {class_name}")
                 if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
-                    # ✅ Capture the original callable directly bound to the instance
                     ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
                         original_call.__get__(instance, type(instance))
                     )
-                return primitive.bind(*args)
+                return primitive.bind(*args, **kwargs)
 
             return wrapped
 
         return patch
+
+    def get_patch_params(self):
+        return (self.target, "__call__", self.get_patch_fn(self.primitive))
+
+    # Add this implementation
+    def get_handler(self, converter: Any) -> Callable:
+        return lambda conv, eqn, params: self._function_handler(
+            converter, conv, eqn, params
+        )
+
+    def _function_handler(self, plugin_converter, converter, eqn, params):
+        # Implementation for how this function plugin is handled during conversion
+        function_handler(self.name, converter, eqn, self._orig_fn, params)
 
 
 ########################################
