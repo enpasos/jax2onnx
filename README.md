@@ -63,7 +63,7 @@ onnx.save_model(onnx_model, "jax_callable.onnx")
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
 - **0.4.0** *(Upcoming)*: Introducing ONNX function support ... somehow like this [`transformer_block.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/008_transformer_block.onnx)
-Testing (see under examples) has started.
+... click on the [f] to drill in the function. ... Making a function is easy for the user: just an `@onnx_function` decorator.
 
 
 ### **Current Productive Version**
