@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_009.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_010.py
 
 
 from flax import nnx
@@ -98,26 +98,59 @@ class TransformerBlock(nnx.Module):
         return x + self.mlp_block(r)
 
 
+class TransformerStack(nnx.Module):
+    """Stack of Transformer blocks."""
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_heads: int,
+        mlp_dim: int,
+        num_layers: int,
+        attention_dropout_rate: float = 0.1,
+        mlp_dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.blocks = [
+            TransformerBlock(
+                num_hiddens,
+                num_heads,
+                mlp_dim,
+                attention_dropout_rate,
+                mlp_dropout_rate,
+                rngs=rngs,
+            )
+            for _ in range(num_layers)
+        ]
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+
 register_example(
-    component="onnx_functions_009",  # Keep component name matching file for now
-    description="transformer block using decorator on class and function",
+    component="onnx_functions_010",
+    description="transformer stack",
     since="v0.4.0",
     context="examples.onnx_functions",
     # === Updated children names ===
-    children=["FeedForward", "MultiHeadAttention"],
+    children=["TransformerBlock"],
     testcases=[
-        {
-            "testcase": "009_transformer_block",
-            # === Updated callable name ===
-            "callable": TransformerBlock(
-                num_hiddens=256,
-                num_heads=8,
-                mlp_dim=512,
-                attention_dropout_rate=0.1,
-                mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [("B", 10, 256)],
-        },
+        # {
+        #     "testcase": "010_transformer_block",
+        #     # === Updated callable name ===
+        #     "callable": TransformerStack(
+        #         num_hiddens=256,
+        #         num_heads=8,
+        #         mlp_dim=512,
+        #         num_layers=6,
+        #         attention_dropout_rate=0.1,
+        #         mlp_dropout_rate=0.1,
+        #         rngs=nnx.Rngs(0),
+        #     ),
+        #     "input_shapes": [("B", 10, 256)],
+        # },
     ],
 )

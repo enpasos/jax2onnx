@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import onnx_function, register_example
 from typing import List
 
 
@@ -24,6 +24,7 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
 # ---------------------------------------------------------------------------
 # Model components
 # ---------------------------------------------------------------------------
+# @onnx_function
 class PatchEmbedding(nnx.Module):
     """Patch embedding for Vision Transformers."""
 
@@ -80,6 +81,7 @@ register_example(
 )
 
 
+# @onnx_function
 class ConvEmbedding(nnx.Module):
     """Convolutional embedding for MNIST."""
 
@@ -168,6 +170,7 @@ register_example(
 )
 
 
+@onnx_function
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
@@ -208,6 +211,7 @@ register_example(
 )
 
 
+@onnx_function
 class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
@@ -275,6 +279,64 @@ register_example(
 )
 
 
+class TransformerStack(nnx.Module):
+    """Stack of Transformer blocks."""
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_heads: int,
+        mlp_dim: int,
+        num_layers: int,
+        attention_dropout_rate: float = 0.1,
+        mlp_dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.blocks = [
+            TransformerBlock(
+                num_hiddens,
+                num_heads,
+                mlp_dim,
+                attention_dropout_rate,
+                mlp_dropout_rate,
+                rngs=rngs,
+            )
+            for _ in range(num_layers)
+        ]
+
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        for block in self.blocks:
+            x = block(x, deterministic)
+        return x
+
+
+register_example(
+    component="TransformerStack",
+    description="Stack of Transformer blocks",
+    source="https://github.com/google/flax/blob/main/README.md",
+    since="v0.1.0",
+    context="examples.nnx",
+    children=["TransformerBlock"],
+    testcases=[
+        {
+            "testcase": "transformer_stack",
+            "callable": TransformerStack(
+                num_hiddens=256,
+                num_heads=8,
+                mlp_dim=512,
+                num_layers=6,
+                attention_dropout_rate=0.1,
+                mlp_dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(1, 10, 256)],
+        },
+    ],
+)
+
+
+@onnx_function
 class VisionTransformer(nnx.Module):
     """Vision Transformer model for MNIST with configurable embedding type."""
 
@@ -329,17 +391,15 @@ class VisionTransformer(nnx.Module):
         self.positional_embedding = nnx.Param(
             create_sinusoidal_embeddings(num_patches, num_hiddens)
         )
-        self.transformer_blocks = [
-            TransformerBlock(
-                num_hiddens,
-                num_heads,
-                mlp_dim,
-                attention_dropout_rate,
-                mlp_dropout_rate,
-                rngs=rngs,
-            )
-            for _ in range(num_layers)
-        ]
+        self.transformer_stack = TransformerStack(
+            num_hiddens,
+            num_heads,
+            mlp_dim,
+            num_layers,
+            attention_dropout_rate,
+            mlp_dropout_rate,
+            rngs=rngs,
+        )
         self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
@@ -353,8 +413,7 @@ class VisionTransformer(nnx.Module):
         )
         pos_emb_expanded = jnp.asarray(pos_emb_expanded)
         x = x + pos_emb_expanded
-        for block in self.transformer_blocks:
-            x = block(x, deterministic)
+        x = self.transformer_stack(x, deterministic)
         x = self.layer_norm(x)
         x = x[:, 0, :]
         return nnx.log_softmax(self.dense(x))
