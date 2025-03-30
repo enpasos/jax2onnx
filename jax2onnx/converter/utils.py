@@ -1,11 +1,11 @@
 # file: jax2onnx/converter/utils.py
 
 import numpy as np
-from onnx import TensorProto, helper  # Added helper import
+from onnx import TensorProto  # Added helper import
 import jax.numpy as jnp
 
 # Added missing typing imports from previous steps
-from typing import TYPE_CHECKING, List, Set, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable
 from jax.extend.core import Literal
 
 # Assuming these are correctly defined in your project:
@@ -13,9 +13,6 @@ from jax2onnx.converter.onnx_builder import (
     OnnxBuilder,
     CUSTOM_DOMAIN,
 )  # Import CUSTOM_DOMAIN
-from jax2onnx.converter.name_generator import (
-    GlobalNameCounter,
-)  # Import GlobalNameCounter
 
 # Conditionally import Jaxpr2OnnxConverter for type hinting only
 if TYPE_CHECKING:
