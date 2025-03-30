@@ -113,14 +113,17 @@ class FunctionPlugin(PrimitivePlugin):
     def get_patch_params(self):
         return (self.target, "__call__", self.get_patch_fn(self.primitive))
 
-    def get_handler(self) -> Callable:
-        return lambda conv, eqn, params: self._function_handler(conv, eqn, params)
+    # Add this implementation
+    def get_handler(self, converter: Any) -> Callable:
+        return lambda conv, eqn, params: self._function_handler(
+            converter, conv, eqn, params
+        )
 
-    def _function_handler(self, converter, eqn, params):
+    def _function_handler(self, plugin_converter, converter, eqn, params):
         # context = converter.context
         # builder = converter.builder
         #
-        # name = context.next_function_name(self.target.__name__)
+        # name = context.next_function_name(self.name)
         #
         # if not context.has_function(name):
         #     # Example placeholder input/output lists for demonstration
