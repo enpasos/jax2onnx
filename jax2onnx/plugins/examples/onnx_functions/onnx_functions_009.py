@@ -7,8 +7,9 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
+# === Renamed ===
 @onnx_function
-class FeedForward009(nnx.Module):
+class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -30,13 +31,16 @@ class FeedForward009(nnx.Module):
         return x
 
 
+# === Renamed ===
 @onnx_function
-def attention_009(*args, **kwargs):
+def attention(*args, **kwargs):
+    # Assuming nnx.dot_product_attention is the intended JAX primitive/function
     return nnx.dot_product_attention(*args, **kwargs)
 
 
+# === Renamed ===
 @onnx_function
-class MultiHeadAttention009(nnx.Module):
+class MultiHeadAttention(nnx.Module):
     def __init__(
         self,
         num_hiddens: int,
@@ -50,7 +54,8 @@ class MultiHeadAttention009(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            attention_fn=lambda *args, **kwargs: attention_009(*args),
+            # === Updated internal reference ===
+            attention_fn=lambda *args, **kwargs: attention(*args),
             rngs=rngs,
             decode=False,
         )
@@ -62,8 +67,9 @@ class MultiHeadAttention009(nnx.Module):
         return x
 
 
+# === Renamed ===
 @onnx_function
-class TransformerBlock009(nnx.Module):
+class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
     def __init__(
@@ -77,20 +83,18 @@ class TransformerBlock009(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.attention = MultiHeadAttention009(
+        # === Updated internal reference ===
+        self.attention = MultiHeadAttention(
             num_hiddens=num_hiddens,
             num_heads=num_heads,
             attention_dropout_rate=attention_dropout_rate,
             rngs=rngs,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = FeedForward009(
-            num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs
-        )
+        # === Updated internal reference ===
+        self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        # Pre-LN as it is more stable than Post-LN used in the original attention paper
-        # x stays untached, the residual r is learned
         r = self.layer_norm1(x)
         r = self.attention(r)
         x = x + r
@@ -99,16 +103,17 @@ class TransformerBlock009(nnx.Module):
 
 
 register_example(
-    component="onnx_functions_009",
+    component="onnx_functions_009",  # Keep component name matching file for now
     description="transformer block using decorator on class and function",
-    # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["FeedForwardBlock009", "MultiHeadAttention009"],
+    # === Updated children names ===
+    children=["FeedForward", "MultiHeadAttention"],
     testcases=[
         {
             "testcase": "009_transformer_block",
-            "callable": TransformerBlock009(
+            # === Updated callable name ===
+            "callable": TransformerBlock(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
