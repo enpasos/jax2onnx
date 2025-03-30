@@ -7,8 +7,9 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
+# === Renamed ===
 @onnx_function
-class MLPBlock002(nnx.Module):
+class MLPBlock(nnx.Module):  # Renamed from MLPBlock002
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
@@ -29,28 +30,32 @@ class MLPBlock002(nnx.Module):
         return x
 
 
+# === Renamed ===
 @onnx_function
-class SuperBlock002(nnx.Module):
+class SuperBlock(nnx.Module):  # Renamed from SuperBlock002
     def __init__(self):
-        rngs = nnx.Rngs(0)  # Example RNGs initialization
-        #  self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
-        self.mlp = MLPBlock002(num_hiddens=256, mlp_dim=512, rngs=rngs)
+        rngs = nnx.Rngs(0)
+        # === Updated internal reference ===
+        self.mlp = MLPBlock(
+            num_hiddens=256, mlp_dim=512, rngs=rngs
+        )  # Use renamed class
 
     def __call__(self, x):
         return self.mlp(x)
 
 
 register_example(
-    component="onnx_functions_002",
+    component="onnx_functions_002",  # Keep component name matching file
     description="two nested functions.",
-    # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock002"],
+    # === Updated children name ===
+    children=["MLPBlock"],
     testcases=[
         {
             "testcase": "002_two_nested_functions",
-            "callable": SuperBlock002(),
+            # === Updated callable name ===
+            "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
         },
     ],

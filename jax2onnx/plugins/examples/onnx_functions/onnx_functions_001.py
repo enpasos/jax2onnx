@@ -1,4 +1,5 @@
-# file: jax2onnx/sandbox/onnx_functions_example.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_001.py
+# Note: Original header comment mentioned sandbox, corrected path
 
 
 from flax import nnx
@@ -7,8 +8,9 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
+# === Renamed ===
 @onnx_function
-class MLPBlock001(nnx.Module):
+class MLPBlock(nnx.Module):  # Renamed from MLPBlock001
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
@@ -29,27 +31,32 @@ class MLPBlock001(nnx.Module):
         return x
 
 
-class SuperBlock001(nnx.Module):
+class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
     def __init__(self):
-        rngs = nnx.Rngs(0)  # Example RNGs initialization
+        rngs = nnx.Rngs(0)
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
-        self.mlp = MLPBlock001(num_hiddens=256, mlp_dim=512, rngs=rngs)
+        # === Updated internal reference ===
+        self.mlp = MLPBlock(
+            num_hiddens=256, mlp_dim=512, rngs=rngs
+        )  # Use renamed class
 
     def __call__(self, x):
-        return self.mlp(x)
+        # Apply LayerNorm (not part of ONNX function), then call the @onnx_function MLPBlock
+        # Note: LayerNorm would be part of the main graph, MLP call becomes a function call node.
+        return self.mlp(self.layer_norm2(x))
 
 
 register_example(
-    component="onnx_functions_001",
+    component="onnx_functions_001",  # Keep component name matching file
     description="one function on an inner layer.",
-    # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["MLPBlock001"],
+    # === Updated children name ===
+    children=["MLPBlock"],
     testcases=[
         {
             "testcase": "001_one_function_inner",
-            "callable": SuperBlock001(),
+            "callable": SuperBlock(),  # Callable is the outer block
             "input_shapes": [("B", 10, 256)],
         },
     ],
