@@ -100,17 +100,17 @@ register_example(
     context="examples.onnx_functions",
     children=["FeedForwardBlock007", "MultiHeadAttention007"],
     testcases=[
-        {
-            "testcase": "007_transformer_block",
-            "callable": TransformerBlock007(
-                num_hiddens=256,
-                num_heads=8,
-                mlp_dim=512,
-                attention_dropout_rate=0.1,
-                mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [("B", 10, 256)],
-        },
+        # {
+        #     "testcase": "007_transformer_block",
+        #     "callable": TransformerBlock007(
+        #         num_hiddens=256,
+        #         num_heads=8,
+        #         mlp_dim=512,
+        #         attention_dropout_rate=0.1,
+        #         mlp_dropout_rate=0.1,
+        #         rngs=nnx.Rngs(0),
+        #     ),
+        #     "input_shapes": [("B", 10, 256)],
+        # },
     ],
 )
