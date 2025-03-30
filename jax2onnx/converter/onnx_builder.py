@@ -14,11 +14,8 @@ from typing import Dict, List, Any, Tuple
 from jax.extend.core import Literal
 import onnx
 
-# === Change 1: Import BOTH name generators ===
-from jax2onnx.converter.name_generator import (
-    GlobalNameCounter,
-    UniqueNameGenerator,
-)  # Added UniqueNameGenerator
+# === Import BOTH name generators ===
+from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGenerator
 
 
 CUSTOM_DOMAIN = "custom"
@@ -33,7 +30,7 @@ class OnnxBuilder:
         model_name: str = "",
         initializers: List[Any] | None = None,
     ) -> None:
-        # === Change 2: Keep original name_counter, add new name_generator ===
+        # === Keep original name_counter, add new name_generator ===
         self.name_counter: GlobalNameCounter = name_counter  # Keep original name
         self.name_generator: UniqueNameGenerator = (
             UniqueNameGenerator()
@@ -48,7 +45,6 @@ class OnnxBuilder:
         self.opset: int = opset
         self.functions: Dict[str, FunctionProto] = {}  # Store FunctionProtos
         self.model_name: str = model_name
-        # self.function_name_to_domain: Dict[str, str] = {} # Keep removed as per fetched code
 
     def get_constant_name(self, val):
         if isinstance(val, Literal):
@@ -69,7 +65,7 @@ class OnnxBuilder:
         return name
 
     def reset(self) -> None:
-        # === Change 3: Reset BOTH generators ===
+        # === Reset BOTH generators ===
         self.name_counter = GlobalNameCounter()  # Reset original counter
         self.name_generator = UniqueNameGenerator()  # Reset new generator
 
@@ -85,11 +81,32 @@ class OnnxBuilder:
         # === Uses self.name_counter (original behavior) ===
         return self.name_counter.get(prefix)
 
-    # === Change 4: ADD the new method using the NEW generator ===
+    # === ADD the new method using the NEW generator ===
     def get_unique_instance_name(self, base_name: str) -> str:
         """Gets a unique name for a type instance (e.g., ONNX function) using the new generator."""
         # --- Uses the NEW name_generator instance ---
         return self.name_generator.get(base_name)
+
+    # === Fix: Add back add_initializer method ===
+    def add_initializer(
+        self, name, vals, data_type=helper.TensorProto.INT64, dims=None
+    ):
+        """Add a tensor initializer to the model's list."""
+        if dims is None:
+            # Try to infer dims if possible, otherwise maybe require it?
+            # For simplicity, assume vals is list-like for len()
+            dims = (
+                [len(vals)] if isinstance(vals, (list, tuple)) else []
+            )  # Basic inference
+
+        tensor = helper.make_tensor(
+            name=name,
+            data_type=data_type,
+            dims=dims,
+            vals=vals,  # Should be flattened list if multi-dimensional
+        )
+        self.initializers.append(tensor)
+        return name
 
     def _add_tensor(
         self,
@@ -104,7 +121,6 @@ class OnnxBuilder:
         )
         collection.append(tensor_def)
 
-    # --- add_input, add_output, add_value_info use _add_tensor ---
     def add_input(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
@@ -120,7 +136,6 @@ class OnnxBuilder:
     ) -> None:
         self._add_tensor(self.value_info, name, shape, dtype)
 
-    # --- create_node, add_node ---
     def create_node(
         self, op_type: str, inputs: List[str], outputs: List[str], **kwargs: Any
     ) -> NodeProto:
@@ -129,7 +144,6 @@ class OnnxBuilder:
     def add_node(self, node: NodeProto) -> None:
         self.nodes.append(node)
 
-    # --- _build_graph, create_graph ---
     def _build_graph(self, name: str) -> GraphProto:
         # === Uses CORRECTED filter_unused_initializers below ===
         self.filter_unused_initializers()
@@ -145,7 +159,7 @@ class OnnxBuilder:
     def create_graph(self, name: str) -> GraphProto:
         return self._build_graph(name)
 
-    # === Fix 1: UNCONDITIONALLY add Custom Opset in create_model & Simplify Func Handling ===
+    # === UNCONDITIONALLY add Custom Opset in create_model & Simplify Func Handling ===
     def create_model(self, graph: GraphProto) -> ModelProto:
         opset_imports = [
             helper.make_opsetid("", self.opset),
@@ -159,16 +173,11 @@ class OnnxBuilder:
             # Pass functions directly using the stored FunctionProtos
             functions=list(self.functions.values()),
         )
-
-        # Optional print for debugging
-        if self.functions:
-            print(
-                f"🧠 Added {len(model.functions)} nested ONNX function(s) via create_model: {[f.name for f in model.functions]}"
-            )
-
+        # Optional print
+        # if self.functions: print(f"🧠 Added {len(model.functions)} functions via create_model: {[f.name for f in model.functions]}")
         return model
 
-    # === Fix 2: UNCONDITIONALLY add Custom Opset in create_onnx_model & Simplify Func Handling ===
+    # === UNCONDITIONALLY add Custom Opset in create_onnx_model & Simplify Func Handling ===
     def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
         graph = self._build_graph(model_name)
 
@@ -184,18 +193,12 @@ class OnnxBuilder:
             # Pass functions directly using the stored FunctionProtos
             functions=list(self.functions.values()),
         )
-
-        # Optional print for debugging
-        if self.functions:
-            print(
-                f"🧠 Added {len(model.functions)} nested ONNX function(s) via create_onnx_model: {[f.name for f in model.functions]}"
-            )
-
+        # Optional print
+        # if self.functions: print(f"🧠 Added {len(model.functions)} functions via create_onnx_model: {[f.name for f in model.functions]}")
         return model
 
-    # === Fix 3: CORRECT numpy -> ONNX dtype mapping ===
+    # === CORRECT numpy -> ONNX dtype mapping ===
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
-        """Maps numpy dtype to ONNX TensorProto type, handling integers correctly."""
         try:
             np_dtype = np.dtype(dtype)
         except TypeError:
@@ -203,48 +206,38 @@ class OnnxBuilder:
                 f"Warning: Could not convert dtype '{dtype}' to numpy dtype. Defaulting to ONNX FLOAT."
             )
             return TensorProto.FLOAT
-
-        # Dictionary for clear mapping
         dtype_map = {
             np.dtype(np.float32): TensorProto.FLOAT,
             np.dtype(np.float64): TensorProto.DOUBLE,
             np.dtype(np.int32): TensorProto.INT32,
-            np.dtype(np.int64): TensorProto.INT64,  # Ensure int64 maps correctly
+            np.dtype(np.int64): TensorProto.INT64,
             np.dtype(np.bool_): TensorProto.BOOL,
             np.dtype(np.int8): TensorProto.INT8,
             np.dtype(np.uint8): TensorProto.UINT8,
         }
         onnx_type = dtype_map.get(np_dtype)
-
         if onnx_type is None:
             print(
                 f"Warning: Unsupported numpy dtype {np_dtype} encountered. Defaulting to ONNX FLOAT."
             )
-            return TensorProto.FLOAT  # Default fallback
-
+            return TensorProto.FLOAT
         return onnx_type
 
-    # === Fix 4: Simplify Function Handling: Modify add_function & Add Custom Opset Import Inside ===
+    # === Simplify Function Handling: Modify add_function & Add Custom Opset Import Inside ===
     def add_function(
         self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
     ) -> None:
-        """Builds and stores a FunctionProto derived from another OnnxBuilder instance."""
-        # name is the UNIQUE name (e.g., "TransformerBlock_0") generated by the caller in Step 3
         if name in self.functions:
             print(f"Warning: Function {name} already exists. Overwriting.")
-
         function_graph = builder.create_graph(name + "_internal_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
-
-        # Create the FunctionProto using the helper
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
-            # Add BOTH standard and custom opset imports inside the function definition
             opset_imports=[
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(
@@ -252,9 +245,8 @@ class OnnxBuilder:
                 ),  # Use correct version
             ],
         )
-
-        self.functions[name] = function_proto  # Store the created FunctionProto
-        # print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes") # Keep print optional
+        self.functions[name] = function_proto
+        # print(f"🧩 Stored FunctionProto: {name} with {len(function_graph.node)} nodes")
 
     def add_function_call_node(
         self,
@@ -262,15 +254,13 @@ class OnnxBuilder:
         inputs: List[str],
         outputs: List[str],
     ) -> None:
-        # function_name is the unique name (e.g., "TransformerBlock_0")
         if function_name not in self.functions:
             raise ValueError(
-                f"Function '{function_name}' not defined in domain '{CUSTOM_DOMAIN}' before call. Available functions: {list(self.functions.keys())}"
+                f"Function '{function_name}' not defined in domain '{CUSTOM_DOMAIN}'. Available: {list(self.functions.keys())}"
             )
-
-        # Give the call node a unique name using the original name generator
-        call_node_name = self.get_unique_name(f"call_{function_name}")
-
+        call_node_name = self.get_unique_name(
+            f"call_{function_name}"
+        )  # Use original name counter
         node = helper.make_node(
             op_type=function_name,
             inputs=inputs,
@@ -279,9 +269,9 @@ class OnnxBuilder:
             domain=CUSTOM_DOMAIN,
         )
         self.nodes.append(node)
-        # print(f"🧩 Added function call node '{call_node_name}': {function_name}({', '.join(inputs)}) -> {', '.join(outputs)}") # Keep print optional
+        # print(f"🧩 Added function call node '{call_node_name}': {function_name}({', '.join(inputs)}) -> {', '.join(outputs)}")
 
-    # === Fix 5: Remove Redundant Function Helpers ===
+    # === Remove Redundant Function Helpers ===
     # def _build_function_proto( ... ) # Removed
     # def create_functions(self) -> List[FunctionProto]: # Removed
     # def create_function_proto( ... ) # Removed
@@ -321,15 +311,12 @@ class OnnxBuilder:
         for tensor in self.outputs:
             self._adjust_tensor_shape(tensor, [], batch_dims)
 
-    # === Fix 6: Correct filter_unused_initializers logic ===
+    # === CORRECT filter_unused_initializers logic ===
     def filter_unused_initializers(self):
-        """Removes initializers not used as input to any node in the main graph."""
         used_inputs = {inp for node in self.nodes for inp in node.input}
         initializers_count_before = len(self.initializers)
-        # Corrected logic: Keep only if name is in used_inputs.
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]
-        initializers_count_after = len(self.initializers)
-        removed_count = initializers_count_before - initializers_count_after
-        # if removed_count > 0: print(f"Removed {removed_count} unused initializers.") # Keep print optional
+        removed_count = initializers_count_before - len(self.initializers)
+        # if removed_count > 0: print(f"Removed {removed_count} unused initializers.")
