@@ -65,6 +65,18 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive.def_impl(self.primitive_impl)
         self._orig_fn = None
 
+    def to_function_proto(self, context, builder, inputs, outputs):
+        # Generate a unique name for this function instance
+        function_name = context.next_function_name(self.target.__name__)
+
+        # Start building the FunctionProto
+        builder.start_function(function_name, inputs, outputs)
+
+        # The actual conversion logic would go here...
+        # e.g., trace self.target, emit intermediate nodes, etc.
+
+        return builder.end_function()
+
     def abstract_eval_with_kwargs(self, *args, **kwargs):
         return args[0]
 
@@ -75,31 +87,23 @@ class FunctionPlugin(PrimitivePlugin):
 
     def get_patch_fn(self, primitive):
         def patch(original_call):
-            # if args2 or kwargs2:
-            #     raise ValueError("No args or kwargs expected for this function plugin")
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
 
             @functools.wraps(original_call)
             def wrapped(*args, **kwargs):
-                # Check if the original callable expects 'self'
                 expects_self = params and params[0] == "self"
 
                 if expects_self:
-                    # It's a method - args[0] is 'self'
                     instance = args[0]
                     class_name = instance.__class__.__name__
                     if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
                         ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
                             original_call.__get__(instance, type(instance))
                         )
-                    # Do NOT forward 'self' to primitive!
                     return primitive.bind(*args[1:], **kwargs)
                 else:
-                    # Standalone function, no 'self'
-
                     ONNX_FUNCTION_PLUGIN_REGISTRY[self.name]._orig_fn = original_call
-                    # self._orig_fn = original_call
                     return primitive.bind(*args, **kwargs)
 
             return wrapped
@@ -109,14 +113,23 @@ class FunctionPlugin(PrimitivePlugin):
     def get_patch_params(self):
         return (self.target, "__call__", self.get_patch_fn(self.primitive))
 
-    # Add this implementation
-    def get_handler(self, converter: Any) -> Callable:
-        return lambda conv, eqn, params: self._function_handler(
-            converter, conv, eqn, params
-        )
+    def get_handler(self) -> Callable:
+        return lambda conv, eqn, params: self._function_handler(conv, eqn, params)
 
-    def _function_handler(self, plugin_converter, converter, eqn, params):
-        # Implementation for how this function plugin is handled during conversion
+    def _function_handler(self, converter, eqn, params):
+        # context = converter.context
+        # builder = converter.builder
+        #
+        # name = context.next_function_name(self.target.__name__)
+        #
+        # if not context.has_function(name):
+        #     # Example placeholder input/output lists for demonstration
+        #     inputs = ["input_0"]
+        #     outputs = ["output_0"]
+        #     fn_proto = self.to_function_proto(context, builder, inputs, outputs)
+        #     context.set_function(name, fn_proto)
+        #     builder.add_function(fn_proto)
+
         function_handler(self.name, converter, eqn, self._orig_fn, params)
 
 

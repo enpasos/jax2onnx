@@ -75,3 +75,25 @@ def allclose(callable, onnx_model_path, *xs):
             else "ONNX and JAX outputs do not match :-("
         ),
     )
+
+
+from collections import defaultdict
+
+
+class ModelExportContext:
+    """
+    Holds model-specific state for naming and caching.
+    """
+
+    def __init__(self, model_id: str = None):
+        self.model_id = model_id or "default_model"
+        self.function_cache = {}
+        self.instance_counters = defaultdict(int)
+
+    def next_function_name(self, base_name: str) -> str:
+        """
+        Generates a unique ONNX function name scoped to this model.
+        E.g., TransformerBlock_1, TransformerBlock_2, ...
+        """
+        self.instance_counters[base_name] += 1
+        return f"{base_name}_{self.instance_counters[base_name]}"
