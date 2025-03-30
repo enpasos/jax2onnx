@@ -7,7 +7,6 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-# === Renamed ===
 @onnx_function
 class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
@@ -31,14 +30,12 @@ class FeedForward(nnx.Module):
         return x
 
 
-# === Renamed ===
 @onnx_function
 def attention(*args, **kwargs):
     # Assuming nnx.dot_product_attention is the intended JAX primitive/function
     return nnx.dot_product_attention(*args, **kwargs)
 
 
-# === Renamed ===
 @onnx_function
 class MultiHeadAttention(nnx.Module):
     def __init__(
@@ -67,7 +64,6 @@ class MultiHeadAttention(nnx.Module):
         return x
 
 
-# === Renamed ===
 @onnx_function
 class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
