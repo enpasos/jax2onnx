@@ -1,10 +1,11 @@
 # file: jax2onnx/converter/user_interface.py
 
 import onnx
-from typing import Any
+from typing import Any, Optional, Dict
 import numpy as np
 import onnxruntime as ort
 from jax2onnx.converter.jax_to_onnx import to_onnx as to_onnx_implementation
+from collections import defaultdict
 
 
 def to_onnx(
@@ -77,18 +78,15 @@ def allclose(callable, onnx_model_path, *xs):
     )
 
 
-from collections import defaultdict
-
-
 class ModelExportContext:
     """
     Holds model-specific state for naming and caching.
     """
 
-    def __init__(self, model_id: str = None):
-        self.model_id = model_id or "default_model"
-        self.function_cache = {}
-        self.instance_counters = defaultdict(int)
+    def __init__(self, model_id: Optional[str] = None):
+        self.model_id: str = model_id or "default_model"
+        self.function_cache: Dict[str, Any] = {}
+        self.instance_counters: Dict[str, int] = defaultdict(int)
 
     def next_function_name(self, base_name: str) -> str:
         """

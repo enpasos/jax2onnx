@@ -317,5 +317,5 @@ class OnnxBuilder:
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]
-        removed_count = initializers_count_before - len(self.initializers)
+        initializers_count_before - len(self.initializers)
         # if removed_count > 0: print(f"Removed {removed_count} unused initializers.")
