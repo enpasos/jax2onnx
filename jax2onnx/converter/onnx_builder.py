@@ -7,7 +7,6 @@ from onnx import (
     ModelProto,
     GraphProto,
     FunctionProto,
-    OperatorSetIdProto,
 )
 import numpy as np
 from typing import Dict, List, Any, Tuple
