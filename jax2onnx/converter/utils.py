@@ -137,7 +137,7 @@ def function_handler(
                 nested_func_name = node.op_type
                 if nested_func_name not in processed_funcs:
                     processed_funcs.add(nested_func_name)
-                    nested_func_proto = sub_builder.functions[nested_func_name]
+                    sub_builder.functions[nested_func_name]
                     # How to get parameters of nested function? Assume they are handled recursively.
                     # Just add its nodes to the scan? Risky.
                     # Let's rely on the direct scan for now, assuming propagation works.
