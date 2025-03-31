@@ -238,18 +238,22 @@ class OnnxBuilder:
     def add_function_call_node(
         self,
         function_name: str,
-        inputs: List[str],
-        outputs: List[str],
-    ) -> None:
-        # Original logic
-        if function_name not in self.functions:
-            raise ValueError(f"Function '{function_name}' not defined...")
-        call_node_name = self.get_unique_name(f"call_{function_name}")
+        input_names: List[str],
+        output_names: List[str],
+        node_name: Optional[str] = None,  # <-- NEW optional param
+    ):
+        """
+        Creates a call node for a previously defined ONNX function.
+        function_name: The unique function definition name (op_type).
+        node_name: Optional display name for the call node.
+        """
+        if node_name is None:
+            node_name = self.get_unique_instance_name(function_name)
         node = helper.make_node(
-            op_type=function_name,
-            inputs=inputs,
-            outputs=outputs,
-            name=call_node_name,
+            function_name,  # op_type
+            inputs=input_names,
+            outputs=output_names,
+            name=node_name,
             domain=CUSTOM_DOMAIN,
         )
         self.nodes.append(node)
