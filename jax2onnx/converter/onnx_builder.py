@@ -40,6 +40,7 @@ class OnnxBuilder:
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.function_name_cache: Dict[str, str] = {}
+        self.display_name_map: Dict[str, str] = {}
 
     def get_constant_name(self, val):
         if isinstance(val, Literal):
@@ -74,6 +75,7 @@ class OnnxBuilder:
         self.initializers = []
         self.value_info = []
         self.functions.clear()
+        self.display_name_map.clear()
 
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_counter.get(prefix)
@@ -159,8 +161,11 @@ class OnnxBuilder:
             ),
         ]
 
-        unique_functions_by_name = {f.name: f for f in self.functions.values()}
-        names = [f.name for f in self.functions.values()]
+        # ✅ Fix: remove alias duplicates (keep only unique FunctionProto objects)
+        unique_function_protos = list(
+            {f.SerializeToString(): f for f in self.functions.values()}.values()
+        )
+        names = [f.name for f in unique_function_protos]
         seen, duplicates = set(), set()
         for n in names:
             if n in seen:
@@ -174,7 +179,7 @@ class OnnxBuilder:
         model = helper.make_model(
             graph,
             opset_imports=opset_imports,
-            functions=list(unique_functions_by_name.values()),
+            functions=unique_function_protos,
         )
         return model
 
@@ -206,7 +211,7 @@ class OnnxBuilder:
         outputs = [vi.name for vi in function_graph.output]
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
-            fname=name,
+            fname=user_display_name or name,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
@@ -215,7 +220,11 @@ class OnnxBuilder:
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
         )
-        self.functions[name] = function_proto
+        self.functions[user_display_name or name] = function_proto
+
+        # Track mapping from display name to internal function name
+        if user_display_name and user_display_name != name:
+            self.display_name_map[user_display_name] = name
 
     def add_function_call_node(
         self,
@@ -229,7 +238,9 @@ class OnnxBuilder:
         if node_name is None:
             node_name = self.get_unique_instance_name(function_name)
         if op_type is None:
-            op_type = function_name
+            op_type = user_display_name or self.display_name_map.get(
+                function_name, function_name
+            )
         node = helper.make_node(
             op_type,
             inputs=input_names,

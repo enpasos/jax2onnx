@@ -157,10 +157,13 @@ def function_handler(
 
         # Add function definition using unique name
         parent_builder.add_function(
-            unique_func_name, sub_builder, final_param_input_names
+            unique_func_name,
+            sub_builder,
+            final_param_input_names,
+            user_display_name=name,
         )
 
-        parent_builder.functions[impl_key] = parent_builder.functions[unique_func_name]
+        parent_builder.functions[impl_key] = parent_builder.functions[name]
 
         _propagate_nested_functions(parent_builder, sub_builder)
         print(f"✅ Finished tracing function body: {unique_func_name}")
@@ -190,12 +193,16 @@ def function_handler(
     call_node_name = parent_builder.get_unique_instance_name(
         name
     )  # SuperBlock001_0 etc.
+    actual_function_name = (
+        name  # because the FunctionProto is registered under the display name
+    )
+
     parent_builder.add_function_call_node(
-        function_name=unique_func_name,  # e.g., SuperBlock001_def_1
+        function_name=actual_function_name,
         input_names=call_inputs,
         output_names=node_output_names,
-        node_name=call_node_name,  # e.g., SuperBlock001_0
-        user_display_name=name,  # e.g., SuperBlock001
+        node_name=call_node_name,
+        user_display_name=name,
     )
 
     print(f"   -> Added call node for: {unique_func_name}")
