@@ -33,5 +33,5 @@ class GlobalNameCounter:
     def get(self, prefix: str = "node") -> str:
         name = f"{prefix}_{self._counter}"
         self._counter += 1
-        print(f"Generated name: {name}")
+        # print(f"Generated name: {name}")
         return name
