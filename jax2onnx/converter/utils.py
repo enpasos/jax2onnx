@@ -191,10 +191,11 @@ def function_handler(
         name
     )  # SuperBlock001_0 etc.
     parent_builder.add_function_call_node(
-        function_name=unique_func_name,  # 👈 this is e.g. "SuperBlock001_def_1"
+        function_name=unique_func_name,  # e.g., SuperBlock001_def_1
         input_names=call_inputs,
         output_names=node_output_names,
-        node_name=call_node_name,  # 👈 this is e.g. "SuperBlock001_0"
+        node_name=call_node_name,  # e.g., SuperBlock001_0
+        user_display_name=name,  # e.g., SuperBlock001
     )
 
     print(f"   -> Added call node for: {unique_func_name}")
