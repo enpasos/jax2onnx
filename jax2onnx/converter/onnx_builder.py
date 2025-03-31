@@ -42,6 +42,7 @@ class OnnxBuilder:
         self.opset: int = opset
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
+        self.function_name_cache: Dict[str, str] = {}
 
     # =========================
 
@@ -161,6 +162,26 @@ class OnnxBuilder:
         # Original logic
         return self._build_graph(name)
 
+    def _get_unique_functions(self) -> List[FunctionProto]:
+        # Deduplicate FunctionProto objects by name
+        unique_functions_by_name = {f.name: f for f in self.functions.values()}
+
+        # Diagnostic print
+        function_names = [f.name for f in self.functions.values()]
+        seen = set()
+        duplicates = set()
+        for name in function_names:
+            if name in seen:
+                duplicates.add(name)
+            seen.add(name)
+
+        if duplicates:
+            print(f"⚠️ Duplicate ONNX functions detected: {sorted(duplicates)}")
+        else:
+            print("✅ No duplicate ONNX function names")
+
+        return list(unique_functions_by_name.values())
+
     def create_model(self, graph: GraphProto) -> ModelProto:
         # Original logic + adding functions
         opset_imports = [
@@ -172,9 +193,11 @@ class OnnxBuilder:
                 else []
             ),
         ]
+
         model = helper.make_model(
-            graph, opset_imports=opset_imports, functions=list(self.functions.values())
+            graph, opset_imports=opset_imports, functions=self._get_unique_functions()
         )
+
         return model
 
     def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
@@ -188,9 +211,11 @@ class OnnxBuilder:
                 else []
             ),
         ]
+
         model = helper.make_model(
-            graph, opset_imports=opset_imports, functions=list(self.functions.values())
+            graph, opset_imports=opset_imports, functions=self._get_unique_functions()
         )
+
         return model
 
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
@@ -216,12 +241,15 @@ class OnnxBuilder:
     def add_function(
         self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
     ) -> None:
-        # Original logic
-        if name in self.functions:
-            print(f"Warning: Function {name} already exists. Overwriting.")
+        # Use cache to avoid duplicate functions
+        builder_id = id(builder)
+        if builder_id in self.function_name_cache:
+            return  # Function already added
+
         function_graph = builder.create_graph(name + "_internal_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
+
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
@@ -234,26 +262,28 @@ class OnnxBuilder:
             ],
         )
         self.functions[name] = function_proto
+        self.function_name_cache[builder_id] = name  # Mark this builder as cached
 
     def add_function_call_node(
         self,
         function_name: str,
         input_names: List[str],
         output_names: List[str],
-        node_name: Optional[str] = None,  # <-- NEW optional param
+        node_name: Optional[str] = None,
     ):
         """
         Creates a call node for a previously defined ONNX function.
-        function_name: The unique function definition name (op_type).
-        node_name: Optional display name for the call node.
+        function_name: The name of the FunctionProto (must match exactly).
+        node_name: Optional user-friendly display name for the node (used in Netron).
         """
         if node_name is None:
             node_name = self.get_unique_instance_name(function_name)
+
         node = helper.make_node(
-            function_name,  # op_type
+            op_type=function_name,  # Must match FunctionProto.name
             inputs=input_names,
             outputs=output_names,
-            name=node_name,
+            name=node_name,  # Displayed name in Netron
             domain=CUSTOM_DOMAIN,
         )
         self.nodes.append(node)

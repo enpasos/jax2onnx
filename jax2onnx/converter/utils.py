@@ -67,6 +67,8 @@ def function_handler(
 
     print(f"\n🚀 Encountered function primitive: {name}")
 
+    impl_key = f"{orig_fn.__module__}.{orig_fn.__qualname__}"
+
     # Generate UNIQUE function name
     unique_func_name = converter.builder.get_unique_instance_name(name)
     print(f"   -> Generating unique ONNX name: {unique_func_name}")
@@ -109,7 +111,12 @@ def function_handler(
     parent_builder: OnnxBuilder = converter.builder
 
     # Trace/define the function only if this unique instance hasn't been seen
-    if unique_func_name not in parent_builder.functions:
+    impl_key = f"{orig_fn.__module__}.{orig_fn.__qualname__}"
+    if impl_key not in parent_builder.function_name_cache:
+        # Create + register function only once
+        unique_func_name = parent_builder.get_unique_name(name + "_def")
+        parent_builder.function_name_cache[impl_key] = unique_func_name
+
         print(f"   -> Tracing function body for: {unique_func_name}")
         # Create sub-builder (use parent's counter and initializers as per original stable logic)
         sub_builder = OnnxBuilder(
@@ -153,10 +160,13 @@ def function_handler(
             unique_func_name, sub_builder, final_param_input_names
         )
 
+        parent_builder.functions[impl_key] = parent_builder.functions[unique_func_name]
+
         _propagate_nested_functions(parent_builder, sub_builder)
         print(f"✅ Finished tracing function body: {unique_func_name}")
 
     else:
+        unique_func_name = parent_builder.function_name_cache[impl_key]
         # Function already defined, retrieve parameters - original stable logic
         print(f"   -> Function definition for {unique_func_name} already exists.")
         func_proto = parent_builder.functions[unique_func_name]
@@ -176,9 +186,15 @@ def function_handler(
     call_inputs = input_names + final_param_input_names
     node_output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
+    # Add function CALL node using user-friendly name
+    call_node_name = parent_builder.get_unique_instance_name(
+        name
+    )  # SuperBlock001_0 etc.
     parent_builder.add_function_call_node(
-        unique_func_name,
-        call_inputs,
-        node_output_names,
+        function_name=unique_func_name,  # 👈 this is e.g. "SuperBlock001_def_1"
+        input_names=call_inputs,
+        output_names=node_output_names,
+        node_name=call_node_name,  # 👈 this is e.g. "SuperBlock001_0"
     )
+
     print(f"   -> Added call node for: {unique_func_name}")

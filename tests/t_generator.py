@@ -173,6 +173,7 @@ def make_test_function(tp: Dict[str, Any]):
             )
             # Assert the function count
             num_found_funcs = len(onnx_model.functions)
+
             assert (
                 num_found_funcs == expected_num_funcs
             ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs} in generated model."
