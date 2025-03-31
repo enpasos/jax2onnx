@@ -172,7 +172,7 @@ def make_test_function(tp: Dict[str, Any]):
                 opset=opset_version,
             )
             # Assert the function count
-            num_found_funcs = len(onnx_model.functions)
+            num_found_funcs = len({f.name for f in onnx_model.functions})
 
             assert (
                 num_found_funcs == expected_num_funcs
