@@ -40,7 +40,6 @@ class OnnxBuilder:
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.function_name_cache: Dict[str, str] = {}
-        self.function_display_names: Dict[str, str] = {}
 
     def get_constant_name(self, val):
         if isinstance(val, Literal):
@@ -159,6 +158,7 @@ class OnnxBuilder:
                 else []
             ),
         ]
+
         unique_functions_by_name = {f.name: f for f in self.functions.values()}
         names = [f.name for f in self.functions.values()]
         seen, duplicates = set(), set()
@@ -195,16 +195,18 @@ class OnnxBuilder:
         return dtype_map.get(np_dtype, TensorProto.FLOAT)
 
     def add_function(
-        self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
+        self,
+        name: str,
+        builder: "OnnxBuilder",
+        param_input_names: List[str],
+        user_display_name: Optional[str] = None,
     ) -> None:
-        if name in self.functions:
-            print(f"Warning: Function {name} already exists. Overwriting.")
         function_graph = builder.create_graph(name + "_internal_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
-            fname=name.split("_def")[0],  # Strip _def_ suffix for display
+            fname=name,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
@@ -221,14 +223,15 @@ class OnnxBuilder:
         input_names: List[str],
         output_names: List[str],
         node_name: Optional[str] = None,
-        user_display_name: Optional[str] = None,  # <-- Add this line
+        op_type: Optional[str] = None,
+        user_display_name: Optional[str] = None,
     ):
-
         if node_name is None:
             node_name = self.get_unique_instance_name(function_name)
-        display_op_type = self.function_display_names.get(function_name, function_name)
+        if op_type is None:
+            op_type = function_name
         node = helper.make_node(
-            user_display_name or function_name,  # <-- Use user_display_name if provided
+            op_type,
             inputs=input_names,
             outputs=output_names,
             name=node_name,
