@@ -161,10 +161,12 @@ class OnnxBuilder:
             ),
         ]
 
-        # ✅ Fix: remove alias duplicates (keep only unique FunctionProto objects)
+        # ✅ Keep only distinct functions by name (not serialized body)
         unique_function_protos = list(
-            {f.SerializeToString(): f for f in self.functions.values()}.values()
+            {f.name: f for f in self.functions.values()}.values()
         )
+
+        # Optional: Log any duplicate names (should never happen)
         names = [f.name for f in unique_function_protos]
         seen, duplicates = set(), set()
         for n in names:
@@ -209,9 +211,10 @@ class OnnxBuilder:
         function_graph = builder.create_graph(name + "_internal_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
+        op_type = user_display_name or name
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
-            fname=user_display_name or name,
+            fname=op_type,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
@@ -220,11 +223,17 @@ class OnnxBuilder:
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
         )
-        self.functions[user_display_name or name] = function_proto
 
-        # Track mapping from display name to internal function name
+        # Register under internal name
+        self.functions[name] = function_proto
+
+        # Also register under alias if display name is provided
         if user_display_name and user_display_name != name:
+            self.functions[user_display_name] = function_proto
             self.display_name_map[user_display_name] = name
+            print(
+                f"🔄 Aliased function added to ONNX model: {user_display_name} -> {name}"
+            )
 
     def add_function_call_node(
         self,
