@@ -81,20 +81,18 @@ def function_handler(
         # === Fix: Correctly prepare example_args for tracing ===
         example_args = []
         for var in eqn.invars:
-            if isinstance(var, jax.core.Var):
+            # Ensure using correct Var/Literal types (adjust imports if needed)
+            if isinstance(var, jax.core.Var):  # Use jax.core based on converter.py
                 # Create placeholder for variable inputs based on aval
-                # Check if shape is empty tuple for scalar
-                # Let's try creating a 0-dim array for scalars
                 if var.aval.shape == ():
                     example_args.append(jnp.zeros((), dtype=var.aval.dtype))
                 else:
                     example_args.append(jnp.ones(var.aval.shape, dtype=var.aval.dtype))
 
-            elif isinstance(var, Literal):
+            elif isinstance(var, Literal):  # Use jax.extend.core.Literal
                 # Use the actual value for literal inputs
                 example_args.append(var.val)
             else:
-                # Handle unexpected types if necessary
                 raise TypeError(f"Unexpected type in eqn.invars: {type(var)}")
 
     except AttributeError as e:
@@ -113,13 +111,14 @@ def function_handler(
     # Trace/define the function only if this unique instance hasn't been seen
     if unique_func_name not in parent_builder.functions:
         print(f"   -> Tracing function body for: {unique_func_name}")
-        # Create sub-builder (use parent's counter and initializers as per stable logic)
+        # Create sub-builder (use parent's counter and initializers as per original stable logic)
         sub_builder = OnnxBuilder(
-            parent_builder.name_counter,
+            parent_builder.name_counter,  # Pass the counter from parent
             parent_builder.opset,
             unique_func_name + "_graph",
-            initializers=parent_builder.initializers,
+            initializers=parent_builder.initializers,  # Pass initializers reference
         )
+        # Use the same converter class, passing the new sub-builder
         sub_converter = converter.__class__(sub_builder)
 
         # Trace the function using the correctly prepared example_args
@@ -127,17 +126,16 @@ def function_handler(
             sub_converter.trace_jaxpr(
                 orig_fn,
                 example_args,  # Pass corrected args
-                preserve_graph=True,
+                preserve_graph=True,  # Preserve sub-builder state
             )
         except Exception as e:
             print(
                 f"Error during sub_converter.trace_jaxpr for {unique_func_name}. Error: {e}"
             )
-            # Optionally log example_args details here for debugging
             print(f"   -> Example Args causing error: {example_args}")
             raise e
 
-        # Identify parameters (constants used) - stable logic
+        # Identify parameters (constants used) - original stable logic
         initializers_in_shared_list = {
             init.name: init for init in parent_builder.initializers
         }
@@ -146,7 +144,6 @@ def function_handler(
             for inp_name in node.input:
                 if inp_name in initializers_in_shared_list:
                     all_constants_used_in_subgraph.add(inp_name)
-        # Basic scan needs refinement for deeply nested constant usage.
 
         final_param_input_names = sorted(list(all_constants_used_in_subgraph))
         print(f"   -> Identified parameters (constants): {final_param_input_names}")
@@ -160,7 +157,7 @@ def function_handler(
         print(f"✅ Finished tracing function body: {unique_func_name}")
 
     else:
-        # Function already defined, retrieve parameters - stable logic
+        # Function already defined, retrieve parameters - original stable logic
         print(f"   -> Function definition for {unique_func_name} already exists.")
         func_proto = parent_builder.functions[unique_func_name]
         num_expected_graph_inputs = len(input_names)
@@ -176,7 +173,6 @@ def function_handler(
             final_param_input_names = []  # Fallback
 
     # Add function CALL node using unique name
-    # Need to ensure final_param_input_names is correctly determined even if function wasn't traced this time.
     call_inputs = input_names + final_param_input_names
     node_output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
