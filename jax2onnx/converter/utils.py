@@ -82,8 +82,17 @@ def function_handler(
         example_args = []
         for var in eqn.invars:
             if isinstance(var, jax.core.Var):
-                # Create placeholder for variable inputs
-                example_args.append(jnp.ones(var.aval.shape, dtype=var.aval.dtype))
+                # Create placeholder for variable inputs based on aval
+                # Check if shape is empty tuple for scalar
+                shape = (
+                    var.aval.shape if var.aval.shape != () else (1,)
+                )  # Use (1,) for scalar placeholder? Or just pass scalar? Test.
+                # Let's try creating a 0-dim array for scalars
+                if var.aval.shape == ():
+                    example_args.append(jnp.zeros((), dtype=var.aval.dtype))
+                else:
+                    example_args.append(jnp.ones(var.aval.shape, dtype=var.aval.dtype))
+
             elif isinstance(var, Literal):
                 # Use the actual value for literal inputs
                 example_args.append(var.val)
@@ -128,6 +137,7 @@ def function_handler(
                 f"Error during sub_converter.trace_jaxpr for {unique_func_name}. Error: {e}"
             )
             # Optionally log example_args details here for debugging
+            print(f"   -> Example Args causing error: {example_args}")
             raise e
 
         # Identify parameters (constants used) - stable logic
@@ -139,7 +149,8 @@ def function_handler(
             for inp_name in node.input:
                 if inp_name in initializers_in_shared_list:
                     all_constants_used_in_subgraph.add(inp_name)
-        # Basic scan, might need refinement for nested calls if parameters are complex
+        # Basic scan needs refinement for deeply nested constant usage.
+
         final_param_input_names = sorted(list(all_constants_used_in_subgraph))
         print(f"   -> Identified parameters (constants): {final_param_input_names}")
 
@@ -168,6 +179,7 @@ def function_handler(
             final_param_input_names = []  # Fallback
 
     # Add function CALL node using unique name
+    # Need to ensure final_param_input_names is correctly determined even if function wasn't traced this time.
     call_inputs = input_names + final_param_input_names
     node_output_names = [converter.get_var_name(v) for v in eqn.outvars]
 

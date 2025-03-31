@@ -1,5 +1,5 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_008.py
-# Note: Original header comment mentioned 006, corrected to 008
+
 
 from flax import nnx
 import jax.numpy as jnp
@@ -126,6 +126,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 10, 256)],
+            "expected_number_of_function_instances": 4,
         },
     ],
 )
