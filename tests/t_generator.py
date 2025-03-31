@@ -251,7 +251,7 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
         f.write("from tests.t_generator import generate_test_class\n\n")
         for component in components:
             # Sanitize component name for class generation if needed
-            sanitized_component = component.replace(".", "_")
+            component.replace(".", "_")
             f.write(
                 f"generate_test_class({repr(context)}, {repr(component)}, globals())\n"
             )

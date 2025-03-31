@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class FeedForward(nnx.Module):
+class FeedForward010(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
@@ -37,7 +37,7 @@ def attention(*args, **kwargs):
 
 
 @onnx_function
-class MultiHeadAttention(nnx.Module):
+class MultiHeadAttention010(nnx.Module):
     def __init__(
         self,
         num_hiddens: int,
@@ -65,7 +65,7 @@ class MultiHeadAttention(nnx.Module):
 
 
 @onnx_function
-class TransformerBlock(nnx.Module):
+class TransformerBlock010(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
     def __init__(
@@ -80,7 +80,7 @@ class TransformerBlock(nnx.Module):
     ):
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         # === Updated internal reference ===
-        self.attention = MultiHeadAttention(
+        self.attention = MultiHeadAttention010(
             num_hiddens=num_hiddens,
             num_heads=num_heads,
             attention_dropout_rate=attention_dropout_rate,
@@ -88,7 +88,9 @@ class TransformerBlock(nnx.Module):
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         # === Updated internal reference ===
-        self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
+        self.mlp_block = FeedForward010(
+            num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs
+        )
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         r = self.layer_norm1(x)
@@ -98,7 +100,8 @@ class TransformerBlock(nnx.Module):
         return x + self.mlp_block(r)
 
 
-class TransformerStack(nnx.Module):
+@onnx_function
+class TransformerStack010(nnx.Module):
     """Stack of Transformer blocks."""
 
     def __init__(
@@ -113,7 +116,7 @@ class TransformerStack(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.blocks = [
-            TransformerBlock(
+            TransformerBlock010(
                 num_hiddens,
                 num_heads,
                 mlp_dim,
@@ -136,21 +139,22 @@ register_example(
     since="v0.4.0",
     context="examples.onnx_functions",
     # === Updated children names ===
-    children=["TransformerBlock"],
+    children=["TransformerBlock010"],
     testcases=[
-        # {
-        #     "testcase": "010_transformer_block",
-        #     # === Updated callable name ===
-        #     "callable": TransformerStack(
-        #         num_hiddens=256,
-        #         num_heads=8,
-        #         mlp_dim=512,
-        #         num_layers=6,
-        #         attention_dropout_rate=0.1,
-        #         mlp_dropout_rate=0.1,
-        #         rngs=nnx.Rngs(0),
-        #     ),
-        #     "input_shapes": [("B", 10, 256)],
-        # },
+        {
+            "testcase": "010_transformer_block",
+            # === Updated callable name ===
+            "callable": TransformerStack010(
+                num_hiddens=256,
+                num_heads=8,
+                mlp_dim=512,
+                num_layers=6,
+                attention_dropout_rate=0.1,
+                mlp_dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 10, 256)],
+            "expected_number_of_function_instances": 25,
+        },
     ],
 )
