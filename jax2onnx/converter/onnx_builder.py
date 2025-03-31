@@ -9,29 +9,26 @@ from onnx import (
     FunctionProto,
 )
 import numpy as np
-from typing import Dict, List, Any, Tuple, Optional  # <-- Use Optional
+from typing import Dict, List, Any, Tuple, Optional
 from jax.extend.core import Literal
 import onnx
 
 # === Import BOTH name generators ===
 from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGenerator
 
-
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
 
 
 class OnnxBuilder:
-    # === Original __init__ ===
     def __init__(
         self,
         name_counter: GlobalNameCounter,
         opset: int = 21,
         model_name: str = "",
-        initializers: Optional[List[Any]] = None,  # Use Optional
+        initializers: Optional[List[Any]] = None,
     ) -> None:
         self.name_counter: GlobalNameCounter = name_counter
-        # Add the separate generator for function instances
         self.name_generator: UniqueNameGenerator = UniqueNameGenerator()
 
         self.nodes: List[NodeProto] = []
@@ -43,11 +40,9 @@ class OnnxBuilder:
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.function_name_cache: Dict[str, str] = {}
-
-    # =========================
+        self.function_display_names: Dict[str, str] = {}
 
     def get_constant_name(self, val):
-        # Original logic
         if isinstance(val, Literal):
             val = val.val
         np_val = np.array(val)
@@ -72,10 +67,8 @@ class OnnxBuilder:
         return name
 
     def reset(self) -> None:
-        # Original logic + reset new generator
         self.name_counter = GlobalNameCounter()
-        self.name_generator = UniqueNameGenerator()  # Reset function name generator too
-
+        self.name_generator = UniqueNameGenerator()
         self.nodes = []
         self.inputs = []
         self.outputs = []
@@ -84,20 +77,16 @@ class OnnxBuilder:
         self.functions.clear()
 
     def get_unique_name(self, prefix: str = "node") -> str:
-        # Original logic (uses name_counter)
         return self.name_counter.get(prefix)
 
     def get_unique_instance_name(self, base_name: str) -> str:
-        # New method using name_generator
         return self.name_generator.get(base_name)
 
     def add_initializer(
         self, name, vals, data_type=helper.TensorProto.INT64, dims=None
     ):
-        # Original logic
         if dims is None:
             dims = [len(vals)] if isinstance(vals, (list, tuple)) else []
-        # Ensure vals is flattened if needed (original didn't explicitly flatten here)
         flat_vals = np.array(vals).flatten().tolist()
         tensor = helper.make_tensor(
             name=name, data_type=data_type, dims=dims, vals=flat_vals
@@ -112,7 +101,6 @@ class OnnxBuilder:
         shape: Tuple[int, ...],
         dtype: Any,
     ):
-        # Original logic
         tensor_def = helper.make_tensor_value_info(
             name, self._numpy_dtype_to_onnx(dtype), shape
         )
@@ -121,33 +109,27 @@ class OnnxBuilder:
     def add_input(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        # Original logic
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        # Original logic
         self._add_tensor(self.outputs, name, shape, dtype)
 
     def add_value_info(
         self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
     ) -> None:
-        # Original logic
         self._add_tensor(self.value_info, name, shape, dtype)
 
     def create_node(
         self, op_type: str, inputs: List[str], outputs: List[str], **kwargs: Any
     ) -> NodeProto:
-        # Original logic
         return helper.make_node(op_type, inputs, outputs, **kwargs)
 
     def add_node(self, node: NodeProto) -> None:
-        # Original logic
         self.nodes.append(node)
 
     def _build_graph(self, name: str) -> GraphProto:
-        # Original logic (implicitly calls filter method if defined)
         self.filter_unused_initializers()
         return helper.make_graph(
             nodes=self.nodes,
@@ -159,67 +141,44 @@ class OnnxBuilder:
         )
 
     def create_graph(self, name: str) -> GraphProto:
-        # Original logic
         return self._build_graph(name)
 
-    def _get_unique_functions(self) -> List[FunctionProto]:
-        # Deduplicate FunctionProto objects by name
+    def create_model(self, graph: GraphProto) -> ModelProto:
+        return self._finalize_model(graph)
+
+    def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
+        graph = self._build_graph(model_name)
+        return self._finalize_model(graph)
+
+    def _finalize_model(self, graph: GraphProto) -> ModelProto:
+        opset_imports = [
+            helper.make_opsetid("", self.opset),
+            *(
+                [helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION)]
+                if self.functions
+                else []
+            ),
+        ]
         unique_functions_by_name = {f.name: f for f in self.functions.values()}
-
-        # Diagnostic print
-        function_names = [f.name for f in self.functions.values()]
-        seen = set()
-        duplicates = set()
-        for name in function_names:
-            if name in seen:
-                duplicates.add(name)
-            seen.add(name)
-
+        names = [f.name for f in self.functions.values()]
+        seen, duplicates = set(), set()
+        for n in names:
+            if n in seen:
+                duplicates.add(n)
+            seen.add(n)
         if duplicates:
             print(f"⚠️ Duplicate ONNX functions detected: {sorted(duplicates)}")
         else:
             print("✅ No duplicate ONNX function names")
 
-        return list(unique_functions_by_name.values())
-
-    def create_model(self, graph: GraphProto) -> ModelProto:
-        # Original logic + adding functions
-        opset_imports = [
-            helper.make_opsetid("", self.opset),
-            # Add custom opset if functions exist
-            *(
-                [helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION)]
-                if self.functions
-                else []
-            ),
-        ]
-
         model = helper.make_model(
-            graph, opset_imports=opset_imports, functions=self._get_unique_functions()
+            graph,
+            opset_imports=opset_imports,
+            functions=list(unique_functions_by_name.values()),
         )
-
-        return model
-
-    def create_onnx_model(self, model_name: str) -> onnx.ModelProto:
-        # Original logic + adding functions
-        graph = self._build_graph(model_name)
-        opset_imports = [
-            helper.make_opsetid("", self.opset),
-            *(
-                [helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION)]
-                if self.functions
-                else []
-            ),
-        ]
-
-        model = helper.make_model(
-            graph, opset_imports=opset_imports, functions=self._get_unique_functions()
-        )
-
         return model
 
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
-        # Original logic
         try:
             np_dtype = np.dtype(dtype)
         except TypeError:
@@ -233,26 +192,19 @@ class OnnxBuilder:
             np.dtype(np.int8): TensorProto.INT8,
             np.dtype(np.uint8): TensorProto.UINT8,
         }
-        onnx_type = dtype_map.get(np_dtype)
-        if onnx_type is None:
-            return TensorProto.FLOAT
-        return onnx_type
+        return dtype_map.get(np_dtype, TensorProto.FLOAT)
 
     def add_function(
         self, name: str, builder: "OnnxBuilder", param_input_names: List[str]
     ) -> None:
-        # Use cache to avoid duplicate functions
-        builder_id = id(builder)
-        if builder_id in self.function_name_cache:
-            return  # Function already added
-
+        if name in self.functions:
+            print(f"Warning: Function {name} already exists. Overwriting.")
         function_graph = builder.create_graph(name + "_internal_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
-
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
-            fname=name,
+            fname=name.split("_def")[0],  # Strip _def_ suffix for display
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
@@ -262,7 +214,6 @@ class OnnxBuilder:
             ],
         )
         self.functions[name] = function_proto
-        self.function_name_cache[builder_id] = name  # Mark this builder as cached
 
     def add_function_call_node(
         self,
@@ -270,26 +221,22 @@ class OnnxBuilder:
         input_names: List[str],
         output_names: List[str],
         node_name: Optional[str] = None,
+        user_display_name: Optional[str] = None,  # <-- Add this line
     ):
-        """
-        Creates a call node for a previously defined ONNX function.
-        function_name: The name of the FunctionProto (must match exactly).
-        node_name: Optional user-friendly display name for the node (used in Netron).
-        """
+
         if node_name is None:
             node_name = self.get_unique_instance_name(function_name)
-
+        display_op_type = self.function_display_names.get(function_name, function_name)
         node = helper.make_node(
-            op_type=function_name,  # Must match FunctionProto.name
+            user_display_name or function_name,  # <-- Use user_display_name if provided
             inputs=input_names,
             outputs=output_names,
-            name=node_name,  # Displayed name in Netron
+            name=node_name,
             domain=CUSTOM_DOMAIN,
         )
         self.nodes.append(node)
 
     def _adjust_tensor_shape(self, tensor, shape_hint, batch_dims):
-        # Original logic
         if not tensor.type.HasField(
             "tensor_type"
         ) or not tensor.type.tensor_type.HasField("shape"):
@@ -308,7 +255,6 @@ class OnnxBuilder:
                 tensor_dims[idx].dim_param = "B"
 
     def adjust_dynamic_batch_dimensions(self, input_shapes):
-        # Original logic
         batch_dims = {
             idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
         }
@@ -325,14 +271,10 @@ class OnnxBuilder:
             self._adjust_tensor_shape(tensor, [], batch_dims)
 
     def filter_unused_initializers(self):
-        # Original logic + check function node inputs
         used_inputs = {inp for node in self.nodes for inp in node.input}
         for func_proto in self.functions.values():
             for node in func_proto.node:
                 used_inputs.update(node.input)
-        initializers_count_before = len(self.initializers)
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]
-        removed_count = initializers_count_before - len(self.initializers)
-        # if removed_count > 0: print(f"Removed {removed_count} unused initializers.")
