@@ -84,9 +84,6 @@ def function_handler(
             if isinstance(var, jax.core.Var):
                 # Create placeholder for variable inputs based on aval
                 # Check if shape is empty tuple for scalar
-                shape = (
-                    var.aval.shape if var.aval.shape != () else (1,)
-                )  # Use (1,) for scalar placeholder? Or just pass scalar? Test.
                 # Let's try creating a 0-dim array for scalars
                 if var.aval.shape == ():
                     example_args.append(jnp.zeros((), dtype=var.aval.dtype))

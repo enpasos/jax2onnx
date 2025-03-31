@@ -170,7 +170,7 @@ register_example(
 )
 
 
-@onnx_function
+# @onnx_function
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
@@ -211,7 +211,7 @@ register_example(
 )
 
 
-@onnx_function
+# @onnx_function
 class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
