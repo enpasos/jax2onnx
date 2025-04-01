@@ -40,7 +40,6 @@ class OnnxBuilder:
         self.opset: int = opset
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
-        self.function_name_cache: Dict[str, str] = {}
         self.display_name_map: Dict[str, str] = {}
 
     def get_constant_name(self, val):
@@ -208,20 +207,15 @@ class OnnxBuilder:
         sub_builder: "OnnxBuilder",
         param_input_names: List[str],
         user_display_name: Optional[str] = None,
-        allow_duplicates: bool = False,
     ) -> str:
-        # Determine unique internal function name
-        if not allow_duplicates and name in self.function_name_cache:
-            internal_name = self.function_name_cache[name]
-        else:
-            if user_display_name:
-                internal_name = f"{user_display_name}_def_{self.name_counter.get(user_display_name)}"
-            else:
-                internal_name = self.get_unique_name("custom_fn_def")
-            if name:
-                self.function_name_cache[name] = internal_name
 
-        # Create the function graph
+        if user_display_name:
+            internal_name = (
+                f"{user_display_name}_def_{self.name_counter.get(user_display_name)}"
+            )
+        else:
+            internal_name = self.get_unique_name("custom_fn_def")
+
         function_graph = sub_builder.create_graph(internal_name + "_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
