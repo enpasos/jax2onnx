@@ -110,7 +110,7 @@ def function_handler(
     # if impl_key not in parent_builder.function_name_cache:
     # unique_func_name = parent_builder.get_unique_name(name + "_def")
     unique_func_name = unique_node_name
-    parent_builder.function_name_cache[impl_key] = unique_func_name
+    # parent_builder.function_name_cache[impl_key] = unique_func_name
     print(f"   -> Tracing function body for: {unique_func_name}")
 
     sub_builder = OnnxBuilder(
@@ -143,7 +143,7 @@ def function_handler(
         sub_builder=sub_builder,
         param_input_names=param_inputs,
         user_display_name=name,
-        allow_duplicates=True,
+        # allow_duplicates=True,
     )
     parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
 
