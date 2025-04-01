@@ -47,8 +47,10 @@ class Jaxpr2OnnxConverter:
             if isinstance(plugin, (PrimitiveLeafPlugin)):
                 self.primitive_handlers[key] = plugin.get_handler(self)
 
-        for key, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-            self.primitive_handlers[key] = plugin.get_handler(self)
+        for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
+            primitive = plugin.primitive
+            # primitive_name = primitive.name  # already the qualified name set in onnx_function()
+            self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
         # for name, plugin in PLUGIN_REGISTRY.items():
         #     if isinstance(plugin, PrimitiveLeafPlugin):

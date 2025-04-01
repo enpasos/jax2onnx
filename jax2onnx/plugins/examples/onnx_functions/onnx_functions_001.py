@@ -10,7 +10,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 # === Renamed ===
 @onnx_function
-class MLPBlock001(nnx.Module):  # Renamed from MLPBlock001
+class MLPBlock(nnx.Module):  # Renamed from MLPBlock001
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
@@ -31,12 +31,12 @@ class MLPBlock001(nnx.Module):  # Renamed from MLPBlock001
         return x
 
 
-class SuperBlock001(nnx.Module):  # Keep outer block name as it's not decorated
+class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
     def __init__(self):
         rngs = nnx.Rngs(0)
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
         # === Updated internal reference ===
-        self.mlp = MLPBlock001(
+        self.mlp = MLPBlock(
             num_hiddens=256, mlp_dim=512, rngs=rngs
         )  # Use renamed class
 
@@ -52,11 +52,11 @@ register_example(
     since="v0.4.0",
     context="examples.onnx_functions",
     # === Updated children name ===
-    children=["MLPBlock001"],
+    children=["MLPBlock"],
     testcases=[
         {
             "testcase": "001_one_function_inner",
-            "callable": SuperBlock001(),  # Callable is the outer block
+            "callable": SuperBlock(),  # Callable is the outer block
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 1,
         },

@@ -14,7 +14,6 @@ from jax.extend.core import Literal
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
-from jax2onnx.converter.utils_naming import get_qualified_name
 
 # Conditionally import Jaxpr2OnnxConverter for type hinting only
 if TYPE_CHECKING:
@@ -67,14 +66,16 @@ def function_handler(
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
+    from jax2onnx.plugin_system import (
+        get_qualified_name,
+    )  # Local import to avoid circularity
+
     impl_key = get_qualified_name(orig_fn)
     print(f"\n🚀 Encountered function primitive: {impl_key}")
 
-    # Generate unique ONNX node name
     unique_node_name = converter.builder.get_unique_instance_name(name)
     print(f"   -> Generating unique ONNX node name: {unique_node_name}")
 
-    # Prepare example_args for tracing
     try:
         input_names = [
             converter.get_name(v) for v in eqn.invars if not isinstance(v, Literal)
@@ -82,25 +83,22 @@ def function_handler(
         example_args = []
         for var in eqn.invars:
             if isinstance(var, jax.core.Var):
-                shape = var.aval.shape
-                dtype = var.aval.dtype
-                x = (
-                    jnp.ones(shape, dtype=dtype)
-                    if shape
-                    else jnp.zeros((), dtype=dtype)
+                aval = var.aval
+                example_args.append(
+                    jnp.ones(aval.shape, dtype=aval.dtype)
+                    if aval.shape
+                    else jnp.zeros((), dtype=aval.dtype)
                 )
-                example_args.append(x)
             elif isinstance(var, Literal):
                 example_args.append(var.val)
             else:
-                raise TypeError(f"Unexpected type in eqn.invars: {type(var)}")
+                raise TypeError(f"Unexpected input var type: {type(var)}")
     except Exception as e:
-        print(f"❌ Error preparing example args for {impl_key}: {e}")
+        print(f"❌ Failed to prepare inputs for {impl_key}: {e}")
         raise
 
     parent_builder = converter.builder
 
-    # Check if this function has been defined already
     if impl_key not in parent_builder.function_name_cache:
         unique_func_name = parent_builder.get_unique_name(name + "_def")
         parent_builder.function_name_cache[impl_key] = unique_func_name
@@ -117,10 +115,9 @@ def function_handler(
         try:
             sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
         except Exception as e:
-            print(f"❌ Error tracing function {impl_key}: {e}")
+            print(f"❌ Failed to trace {impl_key}: {e}")
             raise
 
-        # Identify constants used in subgraph
         initializer_names = {i.name for i in parent_builder.initializers}
         used_constants = {
             inp
@@ -131,34 +128,32 @@ def function_handler(
         param_inputs = sorted(used_constants)
         print(f"   -> Identified parameters (constants): {param_inputs}")
 
-        # Register ONNX function
-        parent_builder.add_function(
+        internal_name = parent_builder.add_function(
             name=unique_func_name,
             sub_builder=sub_builder,
             param_input_names=param_inputs,
             user_display_name=name,
             allow_duplicates=True,
         )
-        parent_builder.functions[impl_key] = parent_builder.functions[name]
+        parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
 
         _propagate_nested_functions(parent_builder, sub_builder)
         print(f"✅ Finished tracing function body: {unique_func_name}")
     else:
-        unique_func_name = parent_builder.function_name_cache[impl_key]
-        print(f"   -> Function definition for {unique_func_name} already exists.")
-
-        func_proto = parent_builder.functions.get(unique_func_name)
-        num_input_names = len(input_names)
-        if func_proto and len(func_proto.input) >= num_input_names:
-            param_inputs = func_proto.input[num_input_names:]
+        internal_name = parent_builder.function_name_cache[impl_key]
+        print(f"   -> Function definition for {internal_name} already exists.")
+        func_proto = parent_builder.functions.get(internal_name)
+        num_inputs = len(input_names)
+        if func_proto and len(func_proto.input) >= num_inputs:
+            param_inputs = func_proto.input[num_inputs:]
             print(f"   -> Retrieved parameters: {param_inputs}")
         else:
-            print(f"⚠️ Warning: Could not recover parameter inputs for {impl_key}")
+            print(f"⚠️ Warning: Cannot extract parameters for {impl_key}")
             param_inputs = []
 
-    # Add function call node to parent graph
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
+
     parent_builder.add_function_call_node(
         function_name=name,
         input_names=call_inputs,
@@ -167,4 +162,4 @@ def function_handler(
         user_display_name=name,
     )
 
-    print(f"   -> Added call node for: {unique_func_name}")
+    print(f"   -> Added call node for: {internal_name}")
