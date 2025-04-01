@@ -4,6 +4,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING, Tuple, List, Union, Dict
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from jax.interpreters import batching
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -28,6 +29,13 @@ jnp.einsum_p.multiple_results = False  # Correct initialization
         {
             "testcase": "einsum",
             "callable": lambda a, b: jnp.einsum("ij,j->i", a, b, precision=None),
+            "input_shapes": [(3, 3), (3,)],
+        },
+        {
+            "testcase": "einsum_preferred_element_type",
+            "callable": lambda a, b: jnp.einsum(
+                "ij,j->i", a, b, precision=None, preferred_element_type=jnp.float32
+            ),
             "input_shapes": [(3, 3), (3,)],
         },
         {
@@ -112,7 +120,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         return tuple(output_shape)
 
     @staticmethod
-    def abstract_eval(*operands, equation, precision):
+    def abstract_eval(*operands, equation, precision, preferred_element_type=None):
         """Abstract evaluation function for Einsum."""
         input_shapes = [op.shape for op in operands]
         output_shape = EinsumPlugin._get_dynamic_output_shape(input_shapes, equation)
@@ -138,17 +146,29 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         s.add_shape_info(output_name, output_shape)
 
     @staticmethod
-    def _einsum(equation, *operands, precision=None):
+    def _einsum(equation, *operands, precision=None, preferred_element_type=None):
         """Defines the primitive binding for Einsum. Corrected version."""
-        # Pass only the operands as positional arguments, and equation/precision as keywords.
-        return jnp.einsum_p.bind(*operands, equation=equation, precision=precision)
+        # Pass only the operands as positional arguments, and equation/precision/preferred_element_type as keywords.
+        return jnp.einsum_p.bind(
+            *operands,
+            equation=equation,
+            precision=precision,
+            preferred_element_type=preferred_element_type,
+        )
 
     @staticmethod
     def get_monkey_patch():
         """Provides patching information for Einsum."""
 
-        def patched_einsum(equation, *operands, precision=None):
-            return EinsumPlugin._einsum(equation, *operands, precision=precision)
+        def patched_einsum(
+            equation, *operands, precision=None, preferred_element_type=None
+        ):
+            return EinsumPlugin._einsum(
+                equation,
+                *operands,
+                precision=precision,
+                preferred_element_type=preferred_element_type,
+            )
 
         return patched_einsum
 
@@ -164,3 +184,61 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
 # Register abstract evaluation function
 jnp.einsum_p.def_abstract_eval(EinsumPlugin.abstract_eval)
+
+
+def einsum_batching_rule(
+    batched_args, batch_dims, equation, precision, preferred_element_type=None
+):
+    """Batching rule for jnp.einsum."""
+    # Adjust the equation to account for the batch dimensions
+    input_terms, output_term = equation.split("->")
+    input_terms = input_terms.split(",")
+
+    new_input_terms = []
+    new_operands = []
+    new_batch_dims = []
+
+    for operand, batch_dim, term in zip(batched_args, batch_dims, input_terms):
+        if batch_dim is not None:
+            batch_label = "B"
+            if batch_label not in term:
+                term = (
+                    batch_label + term
+                )  # Add a batch dimension label if not already present
+            operand = batching.moveaxis(operand, batch_dim, 0)
+            new_batch_dims.append(0)
+        else:
+            new_batch_dims.append(None)
+
+        # Add ellipsis if the operand has more dimensions than the term specifies
+        if len(term) < operand.ndim:
+            term = "..." + term
+
+        new_input_terms.append(term)
+        new_operands.append(operand)
+
+    # Ensure the batch label is added to the output term only once
+    batch_label = "B"
+    if batch_label not in output_term:
+        output_term = batch_label + output_term
+
+    # Add ellipsis to the output term if necessary
+    if len(output_term) < max(len(term) for term in new_input_terms):
+        output_term = "..." + output_term
+
+    new_equation = ",".join(new_input_terms) + "->" + output_term
+
+    # Call the original einsum with the modified equation and operands
+    result = jnp.einsum(
+        new_equation,
+        *new_operands,
+        precision=precision,
+        preferred_element_type=preferred_element_type,
+    )
+
+    # The batch dimension is now the first dimension of the result
+    return result, 0
+
+
+# Update the registration of the batching rule
+batching.primitive_batchers[jnp.einsum_p] = einsum_batching_rule
