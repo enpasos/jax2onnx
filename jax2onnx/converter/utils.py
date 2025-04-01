@@ -49,7 +49,7 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
     for nested_func_name, nested_func_proto in sub_builder.functions.items():
         if nested_func_name not in parent_builder.functions:
             parent_builder.functions[nested_func_name] = nested_func_proto
-            print(f"🚀 Propagated nested ONNX function: {nested_func_name}")
+            print(f"Propagated nested ONNX function: {nested_func_name}")
 
 
 def function_handler(
@@ -67,20 +67,15 @@ def function_handler(
     )  # Local import to avoid circularity
 
     impl_key = get_qualified_name(orig_fn)
-    print(f"\n🚀 Encountered function primitive: {impl_key}")
+    print(f"Encountered function primitive: {impl_key}")
 
     instance_base_name = name.split(".")[-1]
 
-    if instance_base_name == "MultiHeadAttention":
-        print("⚠️ MultiHeadAttention ...")
+    if instance_base_name in ["MultiHeadAttention", "TransformerBlock"]:
+        print(f"Processing {instance_base_name}...")
 
-    if instance_base_name == "TransformerBlock":
-        print("⚠️ TransformerBlock ...")
-
-    unique_node_name = converter.builder.get_unique_instance_name(
-        instance_base_name
-    )  # 'attention_0'
-    print(f"   -> Generating unique ONNX node name: {unique_node_name}")
+    unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
+    print(f"Generating unique ONNX node name: {unique_node_name}")
 
     try:
         input_names = [
@@ -100,14 +95,14 @@ def function_handler(
             else:
                 raise TypeError(f"Unexpected input var type: {type(var)}")
     except Exception as e:
-        print(f"❌ Failed to prepare inputs for {impl_key}: {e}")
+        print(f"Failed to prepare inputs for {impl_key}: {e}")
         raise
 
     parent_builder = converter.builder
 
     unique_func_name = unique_node_name
 
-    print(f"   -> Tracing function body for: {unique_func_name}")
+    print(f"Tracing function body for: {unique_func_name}")
 
     sub_builder = OnnxBuilder(
         parent_builder.name_counter,
@@ -121,7 +116,7 @@ def function_handler(
     try:
         sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
     except Exception as e:
-        print(f"❌ Failed to trace {impl_key}: {e}")
+        print(f"Failed to trace {impl_key}: {e}")
         raise
 
     initializer_names = {i.name for i in parent_builder.initializers}
@@ -132,16 +127,16 @@ def function_handler(
         if inp in initializer_names
     }
     param_inputs = sorted(used_constants)
-    print(f"   -> Identified parameters (constants): {param_inputs}")
+    print(f"Identified parameters (constants): {param_inputs}")
 
     internal_name = parent_builder.add_function(
-        name=unique_func_name,  # 'attention_0'
+        name=unique_func_name,
         sub_builder=sub_builder,
         param_input_names=param_inputs,
     )
 
     _propagate_nested_functions(parent_builder, sub_builder)
-    print(f"✅ Finished tracing function body: {unique_func_name}")
+    print(f"Finished tracing function body: {unique_func_name}")
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
@@ -154,4 +149,4 @@ def function_handler(
         user_display_name=name,
     )
 
-    print(f"   -> Added call node for: {internal_name}")
+    print(f"Added call node for: {internal_name}")
