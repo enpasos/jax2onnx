@@ -267,18 +267,20 @@ class OnnxBuilder:
         user_display_name: Optional[str] = None,
     ):
         if node_name is None:
-            # Use readable base name for visual label
-            readable_base = user_display_name or function_name
-            readable_base = readable_base.split(".")[-1]
+            # Simplify the logic for generating node_name
+            readable_base = (user_display_name or function_name).split(".")[-1]
             node_name = self.get_unique_instance_name(readable_base)
         else:
             node_name = node_name.split(".")[-1]  # Use only the last part of the name
+
         if op_type is None:
+            # Simplify the logic for determining op_type
             op_type = (
                 user_display_name
                 or self.display_name_map.get(function_name, function_name)
             ).split(".")[-1]
 
+        # Ensure op_type is consistent with node_name
         op_type = node_name
 
         node = helper.make_node(
@@ -325,10 +327,15 @@ class OnnxBuilder:
             self._adjust_tensor_shape(tensor, [], batch_dims)
 
     def filter_unused_initializers(self):
+        """
+        Filters out initializers that are not used in any node or function.
+        """
         used_inputs = {inp for node in self.nodes for inp in node.input}
         for func_proto in self.functions.values():
             for node in func_proto.node:
                 used_inputs.update(node.input)
+
+        # Retain only initializers that are referenced in used_inputs
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]

@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 
 from jax2onnx.converter.utils import function_handler
 
-from jax2onnx.converter.utils_naming import get_qualified_name
+from jax2onnx.converter.name_generator import get_qualified_name
 
 PLUGIN_REGISTRY: Dict[
     str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
