@@ -224,7 +224,10 @@ class OnnxBuilder:
         function_graph = sub_builder.create_graph(internal_name + "_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
-        op_type = user_display_name or name
+
+        op_type = (user_display_name or internal_name).split(".")[
+            -1
+        ]  # ✅ simple readable op_type
 
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
@@ -259,11 +262,18 @@ class OnnxBuilder:
         user_display_name: Optional[str] = None,
     ):
         if node_name is None:
-            node_name = self.get_unique_instance_name(function_name)
+            # Use readable base name for visual label
+            readable_base = user_display_name or function_name
+            readable_base = readable_base.split(".")[-1]
+            node_name = self.get_unique_instance_name(readable_base)
+        else:
+            node_name = node_name.split(".")[-1]  # Use only the last part of the name
         if op_type is None:
-            op_type = user_display_name or self.display_name_map.get(
-                function_name, function_name
-            )
+            op_type = (
+                user_display_name
+                or self.display_name_map.get(function_name, function_name)
+            ).split(".")[-1]
+
         node = helper.make_node(
             op_type,
             inputs=input_names,

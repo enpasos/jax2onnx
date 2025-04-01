@@ -8,7 +8,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 
 @onnx_function
-class NestedBlock003(nnx.Module):
+class NestedBlock(nnx.Module):
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
         self.linear = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
@@ -18,10 +18,10 @@ class NestedBlock003(nnx.Module):
 
 
 @onnx_function
-class SuperBlock003(nnx.Module):
+class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
-        self.mlp = NestedBlock003(num_hiddens=256, mlp_dim=512, rngs=rngs)
+        self.mlp = NestedBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
         return self.mlp(x)
@@ -33,11 +33,11 @@ register_example(
     # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["NestedBlock003"],
+    children=["NestedBlock"],
     testcases=[
         {
             "testcase": "003_two_simple_nested_functions",
-            "callable": SuperBlock003(),
+            "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
         },
