@@ -207,11 +207,25 @@ class OnnxBuilder:
         builder: "OnnxBuilder",
         param_input_names: List[str],
         user_display_name: Optional[str] = None,
-    ) -> None:
-        function_graph = builder.create_graph(name + "_internal_graph")
+        allow_duplicates: bool = False,
+    ) -> str:
+        # Determine unique internal function name
+        if not allow_duplicates and name in self.function_name_cache:
+            internal_name = self.function_name_cache[name]
+        else:
+            if user_display_name:
+                internal_name = f"{user_display_name}_def_{self.name_counter.get(user_display_name)}"
+            else:
+                internal_name = self.get_unique_name("custom_fn_def")
+            if name:
+                self.function_name_cache[name] = internal_name
+
+        # Create the function graph
+        function_graph = builder.create_graph(internal_name + "_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
         op_type = user_display_name or name
+
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=op_type,
@@ -224,16 +238,16 @@ class OnnxBuilder:
             ],
         )
 
-        # Register under internal name
-        self.functions[name] = function_proto
+        # Register function
+        self.functions[internal_name] = function_proto
 
-        # Also register under alias if display name is provided
-        if user_display_name and user_display_name != name:
+        # Optional alias registration
+        if user_display_name and user_display_name != internal_name:
             self.functions[user_display_name] = function_proto
-            self.display_name_map[user_display_name] = name
-            print(
-                f"🔄 Aliased function added to ONNX model: {user_display_name} -> {name}"
-            )
+            self.display_name_map[user_display_name] = internal_name
+            print(f"🔄 Aliased function added: {user_display_name} -> {internal_name}")
+
+        return internal_name
 
     def add_function_call_node(
         self,
