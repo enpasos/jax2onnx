@@ -6,6 +6,7 @@ import importlib
 import os
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
+from abc import ABC, abstractmethod
 
 from jax2onnx.converter.utils import function_handler
 
@@ -26,13 +27,17 @@ ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
 #####################################
 
 
-class PrimitivePlugin:
+class PrimitivePlugin(ABC):
 
+    @abstractmethod
     def get_patch_params(self):
-        raise NotImplementedError("Subclasses should implement this method")
+        """Retrieve patch parameters for the plugin."""
+        pass
 
+    @abstractmethod
     def get_handler(self, converter: Any) -> Callable:
-        raise NotImplementedError("Subclasses should implement this method")
+        """Retrieve the handler function for the plugin."""
+        pass
 
 
 class PrimitiveLeafPlugin(PrimitivePlugin):
@@ -41,6 +46,8 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     patch_info: Optional[Callable[[], Dict[str, Any]]] = None
 
     def get_patch_params(self):
+        if not self.patch_info:
+            raise ValueError("patch_info is not defined for this plugin.")
         patch_info = self.patch_info()
         target = patch_info["patch_targets"][0]
         patch_func = patch_info["patch_function"]
@@ -52,10 +59,12 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
             converter, eqn.invars, eqn.outvars, params
         )
 
+    @abstractmethod
     def to_onnx(
         self, converter: Any, node_inputs: Any, node_outputs: Any, params: Any
     ) -> None:
-        raise NotImplementedError
+        """Convert the plugin to ONNX format."""
+        pass
 
 
 class FunctionPlugin(PrimitivePlugin):
