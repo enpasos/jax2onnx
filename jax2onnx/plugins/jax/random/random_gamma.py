@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from typing import TYPE_CHECKING
 from onnx import helper
-from jax2onnx.converter.name_generator import GlobalNameCounter
+from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
@@ -54,7 +54,7 @@ class RandomGammaPlugin(PrimitiveLeafPlugin):
         key = jax.random.PRNGKey(0)
         alpha = jnp.zeros(shape)
 
-        builder = OnnxBuilder(GlobalNameCounter())
+        builder = OnnxBuilder(GlobalNameCounter(), UniqueNameGenerator())
         subconverter = Jaxpr2OnnxConverter(builder)
 
         if params.get("log_space", False):

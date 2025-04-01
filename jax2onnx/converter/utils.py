@@ -73,7 +73,8 @@ def function_handler(
     impl_key = get_qualified_name(orig_fn)
     print(f"\n🚀 Encountered function primitive: {impl_key}")
 
-    unique_node_name = converter.builder.get_unique_instance_name(name)
+    instance_base_name = name.split(".")[-1]
+    unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
     print(f"   -> Generating unique ONNX node name: {unique_node_name}")
 
     try:
@@ -106,6 +107,7 @@ def function_handler(
 
         sub_builder = OnnxBuilder(
             parent_builder.name_counter,
+            parent_builder.name_generator,
             parent_builder.opset,
             unique_func_name + "_graph",
             initializers=parent_builder.initializers,
