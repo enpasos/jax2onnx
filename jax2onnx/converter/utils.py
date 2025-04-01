@@ -74,6 +74,13 @@ def function_handler(
     print(f"\n🚀 Encountered function primitive: {impl_key}")
 
     instance_base_name = name.split(".")[-1]
+
+    if instance_base_name == "MultiHeadAttention":
+        print("⚠️ MultiHeadAttention ...")
+
+    if instance_base_name == "TransformerBlock":
+        print("⚠️ TransformerBlock ...")
+
     unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
     print(f"   -> Generating unique ONNX node name: {unique_node_name}")
 
@@ -100,59 +107,59 @@ def function_handler(
 
     parent_builder = converter.builder
 
-    if impl_key not in parent_builder.function_name_cache:
-        # unique_func_name = parent_builder.get_unique_name(name + "_def")
-        unique_func_name = unique_node_name
-        parent_builder.function_name_cache[impl_key] = unique_func_name
-        print(f"   -> Tracing function body for: {unique_func_name}")
+    # if impl_key not in parent_builder.function_name_cache:
+    # unique_func_name = parent_builder.get_unique_name(name + "_def")
+    unique_func_name = unique_node_name
+    parent_builder.function_name_cache[impl_key] = unique_func_name
+    print(f"   -> Tracing function body for: {unique_func_name}")
 
-        sub_builder = OnnxBuilder(
-            parent_builder.name_counter,
-            parent_builder.name_generator,
-            parent_builder.opset,
-            unique_func_name + "_graph",
-            initializers=parent_builder.initializers,
-        )
-        sub_converter = converter.__class__(sub_builder)
+    sub_builder = OnnxBuilder(
+        parent_builder.name_counter,
+        parent_builder.name_generator,
+        parent_builder.opset,
+        unique_func_name + "_graph",
+        initializers=parent_builder.initializers,
+    )
+    sub_converter = converter.__class__(sub_builder)
 
-        try:
-            sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
-        except Exception as e:
-            print(f"❌ Failed to trace {impl_key}: {e}")
-            raise
+    try:
+        sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
+    except Exception as e:
+        print(f"❌ Failed to trace {impl_key}: {e}")
+        raise
 
-        initializer_names = {i.name for i in parent_builder.initializers}
-        used_constants = {
-            inp
-            for node in sub_builder.nodes
-            for inp in node.input
-            if inp in initializer_names
-        }
-        param_inputs = sorted(used_constants)
-        print(f"   -> Identified parameters (constants): {param_inputs}")
+    initializer_names = {i.name for i in parent_builder.initializers}
+    used_constants = {
+        inp
+        for node in sub_builder.nodes
+        for inp in node.input
+        if inp in initializer_names
+    }
+    param_inputs = sorted(used_constants)
+    print(f"   -> Identified parameters (constants): {param_inputs}")
 
-        internal_name = parent_builder.add_function(
-            name=unique_func_name,
-            sub_builder=sub_builder,
-            param_input_names=param_inputs,
-            user_display_name=name,
-            allow_duplicates=True,
-        )
-        parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
+    internal_name = parent_builder.add_function(
+        name=unique_func_name,
+        sub_builder=sub_builder,
+        param_input_names=param_inputs,
+        user_display_name=name,
+        allow_duplicates=True,
+    )
+    parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
 
-        _propagate_nested_functions(parent_builder, sub_builder)
-        print(f"✅ Finished tracing function body: {unique_func_name}")
-    else:
-        internal_name = parent_builder.function_name_cache[impl_key]
-        print(f"   -> Function definition for {internal_name} already exists.")
-        func_proto = parent_builder.functions.get(internal_name)
-        num_inputs = len(input_names)
-        if func_proto and len(func_proto.input) >= num_inputs:
-            param_inputs = func_proto.input[num_inputs:]
-            print(f"   -> Retrieved parameters: {param_inputs}")
-        else:
-            print(f"⚠️ Warning: Cannot extract parameters for {impl_key}")
-            param_inputs = []
+    _propagate_nested_functions(parent_builder, sub_builder)
+    print(f"✅ Finished tracing function body: {unique_func_name}")
+    # else:
+    #     internal_name = parent_builder.function_name_cache[impl_key]
+    #     print(f"   -> Function definition for {internal_name} already exists.")
+    #     func_proto = parent_builder.functions.get(internal_name)
+    #     num_inputs = len(input_names)
+    #     if func_proto and len(func_proto.input) >= num_inputs:
+    #         param_inputs = func_proto.input[num_inputs:]
+    #         print(f"   -> Retrieved parameters: {param_inputs}")
+    #     else:
+    #         print(f"⚠️ Warning: Cannot extract parameters for {impl_key}")
+    #         param_inputs = []
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
