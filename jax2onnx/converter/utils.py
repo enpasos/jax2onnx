@@ -15,12 +15,8 @@ from jax.extend.core import Literal
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 
-# Conditionally import Jaxpr2OnnxConverter for type hinting only
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
-
-
-# Helper functions (_tensorproto_dtype_to_numpy, _propagate_nested_functions) remain the same as previous stable version
 
 
 def _tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
@@ -107,10 +103,8 @@ def function_handler(
 
     parent_builder = converter.builder
 
-    # if impl_key not in parent_builder.function_name_cache:
-    # unique_func_name = parent_builder.get_unique_name(name + "_def")
     unique_func_name = unique_node_name
-    # parent_builder.function_name_cache[impl_key] = unique_func_name
+
     print(f"   -> Tracing function body for: {unique_func_name}")
 
     sub_builder = OnnxBuilder(
@@ -149,17 +143,6 @@ def function_handler(
 
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"✅ Finished tracing function body: {unique_func_name}")
-    # else:
-    #     internal_name = parent_builder.function_name_cache[impl_key]
-    #     print(f"   -> Function definition for {internal_name} already exists.")
-    #     func_proto = parent_builder.functions.get(internal_name)
-    #     num_inputs = len(input_names)
-    #     if func_proto and len(func_proto.input) >= num_inputs:
-    #         param_inputs = func_proto.input[num_inputs:]
-    #         print(f"   -> Retrieved parameters: {param_inputs}")
-    #     else:
-    #         print(f"⚠️ Warning: Cannot extract parameters for {impl_key}")
-    #         param_inputs = []
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
