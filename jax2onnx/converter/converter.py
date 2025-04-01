@@ -110,8 +110,8 @@ class Jaxpr2OnnxConverter:
         print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
         if not preserve_graph:
             self.builder.reset()
-            self.var_to_name = {}
-            self.name_to_const = {}
+            self.var_to_name.clear()
+            self.name_to_const.clear()
 
         with temporary_monkey_patches(allow_function_primitives=True):
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
