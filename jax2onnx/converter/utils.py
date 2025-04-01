@@ -77,7 +77,9 @@ def function_handler(
     if instance_base_name == "TransformerBlock":
         print("⚠️ TransformerBlock ...")
 
-    unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
+    unique_node_name = converter.builder.get_unique_instance_name(
+        instance_base_name
+    )  # 'attention_0'
     print(f"   -> Generating unique ONNX node name: {unique_node_name}")
 
     try:
@@ -133,13 +135,10 @@ def function_handler(
     print(f"   -> Identified parameters (constants): {param_inputs}")
 
     internal_name = parent_builder.add_function(
-        name=unique_func_name,
+        name=unique_func_name,  # 'attention_0'
         sub_builder=sub_builder,
         param_input_names=param_inputs,
-        user_display_name=name,
-        # allow_duplicates=True,
     )
-    # parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
 
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"✅ Finished tracing function body: {unique_func_name}")
@@ -148,7 +147,7 @@ def function_handler(
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
     parent_builder.add_function_call_node(
-        function_name=name,
+        function_name=unique_node_name,
         input_names=call_inputs,
         output_names=output_names,
         node_name=unique_node_name,
