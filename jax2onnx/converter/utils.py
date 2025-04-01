@@ -8,8 +8,7 @@ import jax.numpy as jnp
 from typing import TYPE_CHECKING, Callable
 
 # === Fix: Import core explicitly ===
-import jax.core
-from jax.extend.core import Literal
+from jax.extend.core import Literal, Var
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -83,7 +82,7 @@ def function_handler(
         ]
         example_args = []
         for var in eqn.invars:
-            if isinstance(var, jax.core.Var):
+            if isinstance(var, Var):
                 aval = var.aval
                 example_args.append(
                     jnp.ones(aval.shape, dtype=aval.dtype)

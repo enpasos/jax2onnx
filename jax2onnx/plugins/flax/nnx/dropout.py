@@ -1,11 +1,12 @@
 from typing import TYPE_CHECKING
 
 from flax import nnx
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Literal
+from jax.core import ShapedArray
 from onnx import helper
-from jax import core
 import numpy as np
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -50,7 +51,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, rate, deterministic):
         """Abstract evaluation function for dropout."""
-        return core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         input_name = s.get_name(node_inputs[0])
@@ -59,20 +60,16 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         rate = params.get("rate", 0.0)
         deterministic = params.get("deterministic", True)
 
-        # Training mode: False = inference, True = dropout active
-        # Convert even if it's a tracer or dynamic
         def extract_training_mode(val):
             try:
-                if isinstance(val, core.Literal):
+                if isinstance(val, Literal):
                     return not bool(val.val)
                 return not bool(val)  # assumes static bool or np.bool_
             except Exception:
-                # fallback: assume dropout active
-                return True
+                return True  # fallback: assume dropout active
 
         training_mode = extract_training_mode(deterministic)
 
-        # ONNX wants ratio and training_mode as *inputs*
         ratio_tensor = np.array(rate, dtype=np.float32)
         training_tensor = np.array(training_mode, dtype=bool)
 
@@ -88,40 +85,6 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("dropout"),
         )
         s.add_node(dropout_node)
-
-    # def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-    #     """Handles conversion of dropout to ONNX format."""
-    #     input_name = s.get_name(node_inputs[0])
-    #     output_name = s.get_name(node_outputs[0])
-
-    #     # Retrieve dropout parameters
-    #     rate = params.get("rate", 0.0)
-
-    #     # In the ONNX model, we always set training_mode to False.
-    #     # A switch from eval to training mode could be implemented
-    #     # using an input parameter for example
-    #     # for now it is simply a feature not implemented
-    #     deterministic = True
-
-    #     # ONNX Dropout expects:
-    #     # - ratio as a **second input** instead of an attribute in newer versions.
-    #     # - training_mode (bool) in newer versions.  We handle this implicitly.
-    #     dropout_inputs = [input_name]
-
-    #     if not deterministic:
-    #         ratio_name = s.get_constant_name(np.array(rate, dtype=np.float32))
-    #         dropout_inputs.append(
-    #             ratio_name
-    #         )  # Add ratio as an input instead of an attribute.
-
-    #     dropout_node = helper.make_node(
-    #         "Dropout",
-    #         inputs=dropout_inputs,
-    #         outputs=[output_name],
-    #         name=s.get_unique_name("dropout"),
-    #     )
-
-    #     s.add_node(dropout_node)
 
     @staticmethod
     def _dropout(x, rate, deterministic):
