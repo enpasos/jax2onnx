@@ -204,7 +204,7 @@ class OnnxBuilder:
     def add_function(
         self,
         name: str,
-        builder: "OnnxBuilder",
+        sub_builder: "OnnxBuilder",
         param_input_names: List[str],
         user_display_name: Optional[str] = None,
         allow_duplicates: bool = False,
@@ -221,7 +221,7 @@ class OnnxBuilder:
                 self.function_name_cache[name] = internal_name
 
         # Create the function graph
-        function_graph = builder.create_graph(internal_name + "_graph")
+        function_graph = sub_builder.create_graph(internal_name + "_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
         op_type = user_display_name or name

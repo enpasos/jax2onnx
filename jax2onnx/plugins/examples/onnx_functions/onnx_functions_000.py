@@ -7,9 +7,7 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-# === Renamed ===
-# Note: This block is NOT decorated with @onnx_function in this example
-class MLPBlock001(nnx.Module):  # Renamed from MLPBlock000
+class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
@@ -30,35 +28,27 @@ class MLPBlock001(nnx.Module):  # Renamed from MLPBlock000
         return x
 
 
-# === Renamed ===
-@onnx_function  # This outer block IS decorated
-class SuperBlock001(nnx.Module):  # Renamed from SuperBlock000
+@onnx_function
+class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
-        # === Updated internal reference ===
-        self.mlp = MLPBlock001(
-            num_hiddens=256, mlp_dim=512, rngs=rngs
-        )  # Use renamed class
+        self.mlp = MLPBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
-        # MLPBlock is called *within* the decorated SuperBlock
-        # So MLPBlock's layers will become nodes inside the FunctionProto for SuperBlock
         return self.mlp(self.layer_norm2(x))
 
 
 register_example(
-    component="onnx_functions_000",  # Keep component name matching file
+    component="onnx_functions_000",
     description="one function on an outer layer.",
     since="v0.4.0",
     context="examples.onnx_functions",
-    # === Updated children name ===
     children=["MLPBlock"],
     testcases=[
         {
             "testcase": "000_one_function_outer",
-            # === Updated callable name ===
-            "callable": SuperBlock001(),
+            "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 1,
         },
