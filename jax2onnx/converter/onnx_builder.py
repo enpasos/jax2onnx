@@ -24,12 +24,13 @@ class OnnxBuilder:
     def __init__(
         self,
         name_counter: GlobalNameCounter,
+        name_generator: UniqueNameGenerator,
         opset: int = 21,
         model_name: str = "",
         initializers: Optional[List[Any]] = None,
     ) -> None:
         self.name_counter: GlobalNameCounter = name_counter
-        self.name_generator: UniqueNameGenerator = UniqueNameGenerator()
+        self.name_generator: UniqueNameGenerator = name_generator
 
         self.nodes: List[NodeProto] = []
         self.inputs: List[ValueInfoProto] = []

@@ -22,7 +22,7 @@ class UniqueNameGenerator:
         count = self._counters[base_name]
         name = f"{base_name}_{count}"
         self._counters[base_name] += 1
-        # print(f"Generated name: {name}") # Keep or remove based on debug needs
+        print(f"Generated name: {name}")
         return name
 
 
