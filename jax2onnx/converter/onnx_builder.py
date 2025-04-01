@@ -205,29 +205,13 @@ class OnnxBuilder:
         self, name: str, sub_builder: "OnnxBuilder", param_input_names: List[str]
     ) -> str:
 
-        # Use 'name' (the unique instance name) for the graph name internally
-        function_graph = sub_builder.create_graph(name + "_graph")  # Use instance name
+        function_graph = sub_builder.create_graph(name + "_graph")
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
 
-        # op_type = (user_display_name or name).split(".")[
-        #     -1
-        # ]  # ✅ simple readable op_type
-
-        # op_type = name.split(".")[
-        #     -1
-        # ]  # ✅ simple readable op_type
-
-        # op_type = op_type.replace("_", "")
-
-        # let op_type  be the name where . is replaced with _
-        # op_type = name.replace(".", "_")
-
-        unique_fname = name
-
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
-            fname=unique_fname,
+            fname=name,
             inputs=inputs + param_input_names,
             outputs=outputs,
             nodes=function_graph.node,
@@ -237,22 +221,8 @@ class OnnxBuilder:
             ],
         )
 
-        # unique_fname = name # e.g., MultiHeadAttention_0
-
-        # function_proto = helper.make_function(
-        #     domain=CUSTOM_DOMAIN,
-        #     fname=unique_fname, # <--- Use the unique instance name here
-        #     inputs=inputs + param_input_names,
-        #     outputs=outputs,
-        #     nodes=function_graph.node,
-        #     opset_imports=[
-        #         helper.make_opsetid("", self.opset),
-        #         helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
-        #     ],
-        # )
-
         # Register function using the unique instance name as the key
-        self.functions[name] = function_proto  # Use instance name as key
+        self.functions[name] = function_proto
 
         # Return the unique instance name, which now identifies the definition
         return name
@@ -273,18 +243,8 @@ class OnnxBuilder:
         else:
             node_name = node_name.split(".")[-1]  # Use only the last part of the name
 
-        if op_type is None:
-            # Simplify the logic for determining op_type
-            op_type = (
-                user_display_name
-                or self.display_name_map.get(function_name, function_name)
-            ).split(".")[-1]
-
-        # Ensure op_type is consistent with node_name
-        op_type = node_name
-
         node = helper.make_node(
-            op_type,
+            op_type=node_name,
             inputs=input_names,
             outputs=output_names,
             name=node_name,
