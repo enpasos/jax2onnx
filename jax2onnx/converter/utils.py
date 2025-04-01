@@ -14,6 +14,8 @@ from jax.extend.core import Literal
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
+from jax2onnx.converter.utils_naming import get_qualified_name
+
 # Conditionally import Jaxpr2OnnxConverter for type hinting only
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -65,143 +67,103 @@ def function_handler(
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
-    print(f"\n🚀 Encountered function primitive: {name}")
+    impl_key = get_qualified_name(orig_fn)
+    print(f"\n🚀 Encountered function primitive: {impl_key}")
 
-    impl_key = f"{orig_fn.__module__}.{orig_fn.__qualname__}"
+    # Generate unique ONNX node name
+    unique_node_name = converter.builder.get_unique_instance_name(name)
+    print(f"   -> Generating unique ONNX node name: {unique_node_name}")
 
-    # Generate UNIQUE function name
-    unique_func_name = converter.builder.get_unique_instance_name(name)
-    print(f"   -> Generating unique ONNX name: {unique_func_name}")
-
+    # Prepare example_args for tracing
     try:
-        # Identify non-literal variables and their names in parent context
-        non_literal_invars = [v for v in eqn.invars if not isinstance(v, Literal)]
         input_names = [
-            converter.get_name(v) for v in non_literal_invars
-        ]  # Names for call node
-
-        # === Fix: Correctly prepare example_args for tracing ===
+            converter.get_name(v) for v in eqn.invars if not isinstance(v, Literal)
+        ]
         example_args = []
         for var in eqn.invars:
-            # Ensure using correct Var/Literal types (adjust imports if needed)
-            if isinstance(var, jax.core.Var):  # Use jax.core based on converter.py
-                # Create placeholder for variable inputs based on aval
-                if var.aval.shape == ():
-                    example_args.append(jnp.zeros((), dtype=var.aval.dtype))
-                else:
-                    example_args.append(jnp.ones(var.aval.shape, dtype=var.aval.dtype))
-
-            elif isinstance(var, Literal):  # Use jax.extend.core.Literal
-                # Use the actual value for literal inputs
+            if isinstance(var, jax.core.Var):
+                shape = var.aval.shape
+                dtype = var.aval.dtype
+                x = (
+                    jnp.ones(shape, dtype=dtype)
+                    if shape
+                    else jnp.zeros((), dtype=dtype)
+                )
+                example_args.append(x)
+            elif isinstance(var, Literal):
                 example_args.append(var.val)
             else:
                 raise TypeError(f"Unexpected type in eqn.invars: {type(var)}")
-
-    except AttributeError as e:
-        print(
-            f"Error accessing attributes in function_handler for {name}. eqn: {eqn}, Error: {e}"
-        )
-        raise e
     except Exception as e:
-        print(
-            f"Unexpected error processing inputs/example_args for {name}. eqn: {eqn}, Error: {e}"
-        )
-        raise e
+        print(f"❌ Error preparing example args for {impl_key}: {e}")
+        raise
 
-    parent_builder: OnnxBuilder = converter.builder
+    parent_builder = converter.builder
 
-    # Trace/define the function only if this unique instance hasn't been seen
-    impl_key = f"{orig_fn.__module__}.{orig_fn.__qualname__}"
+    # Check if this function has been defined already
     if impl_key not in parent_builder.function_name_cache:
-        # Create + register function only once
         unique_func_name = parent_builder.get_unique_name(name + "_def")
         parent_builder.function_name_cache[impl_key] = unique_func_name
-
         print(f"   -> Tracing function body for: {unique_func_name}")
-        # Create sub-builder (use parent's counter and initializers as per original stable logic)
+
         sub_builder = OnnxBuilder(
-            parent_builder.name_counter,  # Pass the counter from parent
+            parent_builder.name_counter,
             parent_builder.opset,
             unique_func_name + "_graph",
-            initializers=parent_builder.initializers,  # Pass initializers reference
+            initializers=parent_builder.initializers,
         )
-        # Use the same converter class, passing the new sub-builder
         sub_converter = converter.__class__(sub_builder)
 
-        # Trace the function using the correctly prepared example_args
         try:
-            sub_converter.trace_jaxpr(
-                orig_fn,
-                example_args,  # Pass corrected args
-                preserve_graph=True,  # Preserve sub-builder state
-            )
+            sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
         except Exception as e:
-            print(
-                f"Error during sub_converter.trace_jaxpr for {unique_func_name}. Error: {e}"
-            )
-            print(f"   -> Example Args causing error: {example_args}")
-            raise e
+            print(f"❌ Error tracing function {impl_key}: {e}")
+            raise
 
-        # Identify parameters (constants used) - original stable logic
-        initializers_in_shared_list = {
-            init.name: init for init in parent_builder.initializers
+        # Identify constants used in subgraph
+        initializer_names = {i.name for i in parent_builder.initializers}
+        used_constants = {
+            inp
+            for node in sub_builder.nodes
+            for inp in node.input
+            if inp in initializer_names
         }
-        all_constants_used_in_subgraph = set()
-        for node in sub_builder.nodes:
-            for inp_name in node.input:
-                if inp_name in initializers_in_shared_list:
-                    all_constants_used_in_subgraph.add(inp_name)
+        param_inputs = sorted(used_constants)
+        print(f"   -> Identified parameters (constants): {param_inputs}")
 
-        final_param_input_names = sorted(list(all_constants_used_in_subgraph))
-        print(f"   -> Identified parameters (constants): {final_param_input_names}")
-
-        # Add function definition using unique name
+        # Register ONNX function
         parent_builder.add_function(
-            unique_func_name,
-            sub_builder,
-            final_param_input_names,
+            name=unique_func_name,
+            sub_builder=sub_builder,
+            param_input_names=param_inputs,
             user_display_name=name,
+            allow_duplicates=True,
         )
-
         parent_builder.functions[impl_key] = parent_builder.functions[name]
 
         _propagate_nested_functions(parent_builder, sub_builder)
         print(f"✅ Finished tracing function body: {unique_func_name}")
-
     else:
         unique_func_name = parent_builder.function_name_cache[impl_key]
-        # Function already defined, retrieve parameters - original stable logic
         print(f"   -> Function definition for {unique_func_name} already exists.")
-        func_proto = parent_builder.functions[unique_func_name]
-        num_expected_graph_inputs = len(input_names)
-        if len(func_proto.input) >= num_expected_graph_inputs:
-            final_param_input_names = func_proto.input[num_expected_graph_inputs:]
-            print(
-                f"   -> Retrieved parameters (constants) from proto: {final_param_input_names}"
-            )
+
+        func_proto = parent_builder.functions.get(unique_func_name)
+        num_input_names = len(input_names)
+        if func_proto and len(func_proto.input) >= num_input_names:
+            param_inputs = func_proto.input[num_input_names:]
+            print(f"   -> Retrieved parameters: {param_inputs}")
         else:
-            print(
-                f"Warning: Could not determine parameters for existing function {unique_func_name}. Input count mismatch."
-            )
-            final_param_input_names = []  # Fallback
+            print(f"⚠️ Warning: Could not recover parameter inputs for {impl_key}")
+            param_inputs = []
 
-    # Add function CALL node using unique name
-    call_inputs = input_names + final_param_input_names
-    node_output_names = [converter.get_var_name(v) for v in eqn.outvars]
-
-    # Add function CALL node using user-friendly name
-    call_node_name = parent_builder.get_unique_instance_name(
-        name
-    )  # SuperBlock001_0 etc.
-    actual_function_name = (
-        name  # because the FunctionProto is registered under the display name
-    )
-
+    # Add function call node to parent graph
+    call_inputs = input_names + param_inputs
+    output_names = [converter.get_var_name(v) for v in eqn.outvars]
     parent_builder.add_function_call_node(
-        function_name=actual_function_name,
+        function_name=name,
         input_names=call_inputs,
-        output_names=node_output_names,
-        node_name=call_node_name,
+        output_names=output_names,
+        node_name=unique_node_name,
         user_display_name=name,
     )
 

@@ -9,6 +9,8 @@ from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
 
 from jax2onnx.converter.utils import function_handler
 
+from jax2onnx.converter.utils_naming import get_qualified_name
+
 PLUGIN_REGISTRY: Dict[
     str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
 ] = {}
@@ -96,14 +98,19 @@ class FunctionPlugin(PrimitivePlugin):
 
                 if expects_self:
                     instance = args[0]
-                    class_name = instance.__class__.__name__
-                    if class_name in ONNX_FUNCTION_PLUGIN_REGISTRY:
-                        ONNX_FUNCTION_PLUGIN_REGISTRY[class_name]._orig_fn = (
-                            original_call.__get__(instance, type(instance))
+                    qualname = get_qualified_name(instance.__class__)
+                    if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY:
+                        plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[qualname]
+                        plugin._orig_fn = original_call.__get__(
+                            instance, type(instance)
                         )
                     return primitive.bind(*args[1:], **kwargs)
                 else:
-                    ONNX_FUNCTION_PLUGIN_REGISTRY[self.name]._orig_fn = original_call
+                    # Non-class function
+                    qualname = self.name  # self.name is already qualified
+                    if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY:
+                        plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[qualname]
+                        plugin._orig_fn = original_call
                     return primitive.bind(*args, **kwargs)
 
             return wrapped
@@ -120,19 +127,6 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, plugin_converter, converter, eqn, params):
-        # context = converter.context
-        # builder = converter.builder
-        #
-        # name = context.next_function_name(self.name)
-        #
-        # if not context.has_function(name):
-        #     # Example placeholder input/output lists for demonstration
-        #     inputs = ["input_0"]
-        #     outputs = ["output_0"]
-        #     fn_proto = self.to_function_proto(context, builder, inputs, outputs)
-        #     context.set_function(name, fn_proto)
-        #     builder.add_function(fn_proto)
-
         function_handler(self.name, converter, eqn, self._orig_fn, params)
 
 
@@ -142,7 +136,7 @@ class FunctionPlugin(PrimitivePlugin):
 
 
 def onnx_function(target):
-    name = target.__name__
+    name = get_qualified_name(target)
     primitive = Primitive(name)
     primitive.def_abstract_eval(lambda x: x)
 
@@ -153,8 +147,6 @@ def onnx_function(target):
 
     plugin = FunctionPlugin(name, target)
     ONNX_FUNCTION_PLUGIN_REGISTRY[name] = plugin
-
-    # PLUGIN_REGISTRY[name] = plugin
 
     return target
 
