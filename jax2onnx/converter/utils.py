@@ -4,11 +4,10 @@ import numpy as np
 from onnx import TensorProto
 import jax.numpy as jnp
 
+from jax.extend.core import Literal, Var
+
 # Ensure all needed types are imported
 from typing import TYPE_CHECKING, Callable
-
-# === Fix: Import core explicitly ===
-from jax.extend.core import Literal, Var
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.onnx_builder import OnnxBuilder
