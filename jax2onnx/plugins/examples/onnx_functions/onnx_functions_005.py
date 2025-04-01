@@ -1,5 +1,4 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_005.py
-# Note: Original header comment mentioned 004, corrected to 005
 
 from flax import nnx
 import jax.numpy as jnp
@@ -7,9 +6,8 @@ import jax.numpy as jnp
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-# === Renamed ===
 @onnx_function
-class NestedBlock(nnx.Module):  # Renamed from NestedBlock005
+class NestedBlock(nnx.Module):
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
         self.layers = [
@@ -29,31 +27,27 @@ class NestedBlock(nnx.Module):  # Renamed from NestedBlock005
         return x
 
 
-# === Renamed ===
 @onnx_function
-class SuperBlock(nnx.Module):  # Renamed from SuperBlock005
+class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
         num_hiddens = 256
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        # === Updated internal reference ===
-        self.mlp = NestedBlock(num_hiddens, mlp_dim=512, rngs=rngs)  # Use renamed class
+        self.mlp = NestedBlock(num_hiddens, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
         return self.mlp(self.layer_norm2(x))
 
 
 register_example(
-    component="onnx_functions_005",  # Keep component name matching file
+    component="onnx_functions_005",
     description="nested function plus more components",
     since="v0.4.0",
     context="examples.onnx_functions",
-    # === Updated children name ===
     children=["NestedBlock"],
     testcases=[
         {
             "testcase": "005_nested_function_plus_component",
-            # === Updated callable name ===
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,

@@ -46,7 +46,6 @@ class MultiHeadAttention(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            # Assuming default attention_fn=nnx.dot_product_attention here
             rngs=rngs,
             decode=False,
         )
@@ -54,11 +53,10 @@ class MultiHeadAttention(nnx.Module):
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.attention(x)
-        x = self.dropout(x, deterministic)  # Pass deterministic flag
+        x = self.dropout(x, deterministic)
         return x
 
 
-# === Renamed ===
 @onnx_function
 class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
@@ -74,7 +72,7 @@ class TransformerBlock(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        # === Updated internal reference ===
+
         self.attention = MultiHeadAttention(
             num_hiddens=num_hiddens,
             num_heads=num_heads,
@@ -82,12 +80,11 @@ class TransformerBlock(nnx.Module):
             rngs=rngs,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        # === Updated internal reference ===
+
         self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         r = self.layer_norm1(x)
-        # Pass deterministic flag to attention and mlp_block
         r = self.attention(r, deterministic=deterministic)
         x = x + r
         r = self.layer_norm2(x)
@@ -95,15 +92,14 @@ class TransformerBlock(nnx.Module):
 
 
 register_example(
-    component="onnx_functions_007",  # Keep component name matching file
+    component="onnx_functions_007",
     description="transformer block with nested mlp block with call parameter",
     since="v0.4.0",
     context="examples.onnx_functions",
-    # === Updated children names ===
     children=[
         "FeedForward",
         "MultiHeadAttention",
-    ],  # Note: FeedForwardBlock007 was likely a typo
+    ],
     testcases=[
         # Testcase is commented out in original, keep it commented but update names
         # {

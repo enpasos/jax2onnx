@@ -1,6 +1,3 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_003.py
-
-
 from flax import nnx
 import jax.numpy as jnp
 
@@ -30,7 +27,6 @@ class SuperBlock(nnx.Module):
 register_example(
     component="onnx_functions_003",
     description="two nested functions.",
-    # source="https:/",
     since="v0.4.0",
     context="examples.onnx_functions",
     children=["NestedBlock"],
