@@ -139,7 +139,7 @@ def function_handler(
         user_display_name=name,
         # allow_duplicates=True,
     )
-    parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
+    # parent_builder.functions[impl_key] = parent_builder.functions[internal_name]
 
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"✅ Finished tracing function body: {unique_func_name}")
