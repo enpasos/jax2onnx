@@ -248,6 +248,9 @@ class Jaxpr2OnnxConverter:
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
 
+        # print name
+        # print(f"Processing primitive: {name}")
+
         handler(self, eqn, eqn.params)
 
         for outvar in eqn.outvars:
