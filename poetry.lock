@@ -548,21 +548,21 @@ scipy = ">=1.11.1"
 
 [[package]]
 name = "jaxtyping"
-version = "0.3.0"
+version = "0.3.1"
 description = "Type annotations and runtime checking for shape and dtype of JAX/NumPy/PyTorch/etc. arrays."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "jaxtyping-0.3.0-py3-none-any.whl", hash = "sha256:4b20d4e7c94d6a2850d78d7849cf33e38a87b993f2f78977d8093efb42cdb892"},
-    {file = "jaxtyping-0.3.0.tar.gz", hash = "sha256:b334b56436295332addd0b6c451548404d3700c9c35c7fa877c6b3b30ea968de"},
+    {file = "jaxtyping-0.3.1-py3-none-any.whl", hash = "sha256:44fbd091338f7f8d592e4e8c71123658feb35a23d07d095af67dbfa96010872d"},
+    {file = "jaxtyping-0.3.1.tar.gz", hash = "sha256:38bb47dc090696ed5959bf3c7e8659036d3cd2643f882c9208d5d9644ae789fe"},
 ]
 
 [package.dependencies]
 wadler-lindig = ">=0.1.3"
 
 [package.extras]
-docs = ["hippogriffe (==0.1.0)", "mkdocs (==1.6.1)", "mkdocs-include-exclude-files (==0.1.0)", "mkdocs-ipynb (==0.1.0)", "mkdocs-material (==9.6.7)", "mkdocstrings[python] (==0.28.3)", "pymdown-extensions (==10.14.3)"]
+docs = ["hippogriffe (==0.2.0)", "mkdocs (==1.6.1)", "mkdocs-include-exclude-files (==0.1.0)", "mkdocs-ipynb (==0.1.0)", "mkdocs-material (==9.6.7)", "mkdocstrings[python] (==0.28.3)", "pymdown-extensions (==10.14.3)"]
 
 [[package]]
 name = "jinja2"

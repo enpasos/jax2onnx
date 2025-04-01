@@ -240,14 +240,19 @@ class TransformerBlock(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        if len(x.shape) != 3:
+            raise ValueError("Input tensor 'x' must have shape (B, T, D).")
+
         # Pre-LN as it is more stable than Post-LN used in the original attention paper
         # x stays untached, the residual r is learned
         r = self.layer_norm1(x)
         r = self.attention(r)
         r = self.dropout(r, deterministic=deterministic)
         x = x + r
+
         r = self.layer_norm2(x)
-        return x + self.mlp_block(r, deterministic)
+        r = self.mlp_block(r, deterministic)
+        return x + r
 
 
 register_example(
