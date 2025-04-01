@@ -4,6 +4,8 @@ import jax.nn as nn
 from onnx import helper
 from typing import TYPE_CHECKING
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from jax.interpreters import batching
+import jax
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -98,3 +100,42 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
 # Register abstract evaluation function
 nn.softmax_p.def_abstract_eval(SoftmaxPlugin.abstract_eval)
+
+
+# Define the batching rule for nn.softmax
+def softmax_batching_rule(batched_args, batch_dims, axis=-1):
+    """Batching rule for jax.nn.softmax."""
+    (x,) = batched_args
+    (bdim,) = batch_dims
+
+    # If axis is negative, make it positive
+    if axis < 0:
+        axis = x.ndim + axis
+
+    # If the batched dimension is at or before the axis, we need to increment the axis
+    axis + (1 if bdim <= axis else 0)
+
+    # Move the batch dimension to the front
+    if bdim != 0:
+        x = batching.moveaxis(x, bdim, 0)
+
+    x_max_reduced = jax.lax.reduce_max(x, axes=(axis,))  # Use axis instead of new_axis
+    x_max = jax.lax.expand_dims(
+        x_max_reduced, dimensions=(axis,)
+    )  # Use axis instead of new_axis
+    shifted = x - x_max
+    exp_shifted = jax.lax.exp(shifted)
+    sum_exp_reduced = jax.lax.reduce_sum(
+        exp_shifted, axes=(axis,)
+    )  # Reduce without keepdims
+    sum_exp = jax.lax.expand_dims(
+        sum_exp_reduced, dimensions=(axis,)
+    )  # Add the dimension back
+    result = exp_shifted / sum_exp
+
+    # Return result with batch dimension at position 0
+    return result, 0
+
+
+# Register the batching rule
+batching.primitive_batchers[nn.softmax_p] = softmax_batching_rule
