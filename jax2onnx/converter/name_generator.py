@@ -35,3 +35,7 @@ class GlobalNameCounter:
         self._counter += 1
         # print(f"Generated name: {name}")
         return name
+
+
+def get_qualified_name(obj) -> str:
+    return f"{obj.__module__}.{obj.__qualname__}"
