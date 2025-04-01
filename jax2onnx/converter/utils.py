@@ -101,7 +101,8 @@ def function_handler(
     parent_builder = converter.builder
 
     if impl_key not in parent_builder.function_name_cache:
-        unique_func_name = parent_builder.get_unique_name(name + "_def")
+        # unique_func_name = parent_builder.get_unique_name(name + "_def")
+        unique_func_name = unique_node_name
         parent_builder.function_name_cache[impl_key] = unique_func_name
         print(f"   -> Tracing function body for: {unique_func_name}")
 
