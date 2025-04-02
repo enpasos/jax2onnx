@@ -281,38 +281,47 @@ class OnnxBuilder:
     def _register_value_info_for_function_inputs_outputs_and_intermediates(
         self, func: onnx.FunctionProto, inputs: List[str], outputs: List[str]
     ):
-        """
-        Registers type and shape information for all values used in the function:
-        - Inputs: take from outer graph inputs
-        - Outputs: same
-        - Intermediates: infer from inner function graph
-        """
-        # Map function input names to outer graph inputs
+        # Inputs
         for func_input_name, outer_input_name in zip(func.input, inputs):
             vi = next((v for v in self.value_info if v.name == outer_input_name), None)
             if vi:
                 self.add_value_info(
                     func_input_name, self._get_shape(vi), self._get_dtype(vi)
                 )
+            elif outer_input_name in self.value_info_metadata:
+                shape, dtype = self.value_info_metadata[outer_input_name]
+                self.add_value_info(func_input_name, shape, dtype)
 
-        # Register function outputs
+        # Outputs
         for func_output_name, outer_output_name in zip(func.output, outputs):
             vi = next((v for v in self.value_info if v.name == outer_output_name), None)
             if vi:
                 self.add_value_info(
                     func_output_name, self._get_shape(vi), self._get_dtype(vi)
                 )
+            elif outer_output_name in self.value_info_metadata:
+                shape, dtype = self.value_info_metadata[outer_output_name]
+                self.add_value_info(func_output_name, shape, dtype)
 
-        # Register intermediates (tensors used within the function body)
+        # Intermediates
         all_known = set(func.input) | set(func.output)
         for node in func.node:
             for name in list(node.input) + list(node.output):
-                if name and name not in all_known and name not in self.value_info:
-                    # Safe default: assign unknown shape and float32 type
+                if (
+                    name
+                    and name not in all_known
+                    and name not in self.value_info_metadata
+                ):
                     self.add_value_info(name, None, TensorProto.FLOAT)
+
+    def _register_value_info_if_missing(self, name: str):
+        if name not in self.value_info:
+            shape, dtype = self.value_info_metadata.get(name, (None, TensorProto.FLOAT))
+            self.add_value_info(name, shape, dtype)
 
     def add_function_call_node(
         self,
+        # converter,
         function_name: str,
         input_names: List[str],
         output_names: List[str],
@@ -328,13 +337,27 @@ class OnnxBuilder:
 
         # 🧠 Register value info for ONNX shape/type inference
         func = self.functions.get(function_name)
+        # 🧠 Register shape/type info for this function
         if func:
             self._register_value_info_for_function_inputs_outputs_and_intermediates(
                 func, input_names, output_names
             )
 
+            # 🧠 Recursively register for inner calls
+            for node in func.node:
+                if node.op_type in self.functions:
+                    inner_func = self.functions[node.op_type]
+                    inner_inputs = list(node.input)
+                    inner_outputs = list(node.output)
+                    self._register_value_info_for_function_inputs_outputs_and_intermediates(
+                        inner_func, inner_inputs, inner_outputs
+                    )
+
+        for input in input_names:
+            self._register_value_info_if_missing(input)
+
         node = helper.make_node(
-            op_type=node_name,
+            op_type=op_type or node_name,  # ✅ fixed
             inputs=input_names,
             outputs=output_names,
             name=node_name,

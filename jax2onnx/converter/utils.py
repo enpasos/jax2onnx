@@ -140,6 +140,7 @@ def function_handler(
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
     parent_builder.add_function_call_node(
+        # converter=converter,
         function_name=unique_node_name,
         input_names=call_inputs,
         output_names=output_names,
