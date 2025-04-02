@@ -1,4 +1,3 @@
-# file: jax2onnx/converter/onnx_builder.py
 from onnx import (
     helper,
     TensorProto,
@@ -18,6 +17,10 @@ from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGener
 
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
+
+
+def _as_tuple(x):
+    return tuple(x) if isinstance(x, (list, tuple)) else ()
 
 
 class OnnxBuilder:
@@ -41,6 +44,14 @@ class OnnxBuilder:
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.display_name_map: Dict[str, str] = {}
+        self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = (
+            {}
+        )  # name -> (shape, dtype)
+
+    def register_value_info_metadata(
+        self, name: str, shape: Tuple[int, ...], dtype: Any
+    ):
+        self.value_info_metadata[name] = (shape, dtype)
 
     def get_constant_name(self, val):
         if isinstance(val, Literal):
@@ -76,6 +87,7 @@ class OnnxBuilder:
         self.value_info = []
         self.functions.clear()
         self.display_name_map.clear()
+        self.value_info_metadata.clear()
 
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_counter.get(prefix)
@@ -99,26 +111,27 @@ class OnnxBuilder:
         self,
         collection: List[ValueInfoProto],
         name: str,
-        shape: Tuple[int, ...],
+        shape: Optional[Tuple[int, ...]],
         dtype: Any,
     ):
+        shape = _as_tuple(shape)
         tensor_def = helper.make_tensor_value_info(
             name, self._numpy_dtype_to_onnx(dtype), shape
         )
         collection.append(tensor_def)
 
     def add_input(
-        self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
+        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
-        self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
+        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
         self._add_tensor(self.outputs, name, shape, dtype)
 
     def add_value_info(
-        self, name: str, shape: Tuple[int, ...], dtype: Any = np.float32
+        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
         self._add_tensor(self.value_info, name, shape, dtype)
 
@@ -130,8 +143,24 @@ class OnnxBuilder:
     def add_node(self, node: NodeProto) -> None:
         self.nodes.append(node)
 
+    def _add_missing_value_info(self):
+        known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
+        known_names.update(init.name for init in self.initializers)
+        node_names = {
+            name for n in self.nodes for name in list(n.input) + list(n.output)
+        }
+        missing = node_names - known_names
+
+        for name in missing:
+            if name in self.value_info_metadata:
+                shape, dtype = self.value_info_metadata[name]
+                self.add_value_info(name, shape, dtype)
+            else:
+                print(f"⚠️ Skipping unknown value_info: {name}")
+
     def _build_graph(self, name: str) -> GraphProto:
         self.filter_unused_initializers()
+        self._add_missing_value_info()
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
@@ -161,12 +190,10 @@ class OnnxBuilder:
             ),
         ]
 
-        # ✅ Keep only distinct functions by name (not serialized body)
         unique_function_protos = list(
             {f.name: f for f in self.functions.values()}.values()
         )
 
-        # Optional: Log any duplicate names (should never happen)
         names = [f.name for f in unique_function_protos]
         seen, duplicates = set(), set()
         for n in names:
@@ -221,10 +248,8 @@ class OnnxBuilder:
             ],
         )
 
-        # Register function using the unique instance name as the key
         self.functions[name] = function_proto
 
-        # Return the unique instance name, which now identifies the definition
         return name
 
     def add_function_call_node(
@@ -237,11 +262,10 @@ class OnnxBuilder:
         user_display_name: Optional[str] = None,
     ):
         if node_name is None:
-            # Simplify the logic for generating node_name
             readable_base = (user_display_name or function_name).split(".")[-1]
             node_name = self.get_unique_instance_name(readable_base)
         else:
-            node_name = node_name.split(".")[-1]  # Use only the last part of the name
+            node_name = node_name.split(".")[-1]
 
         node = helper.make_node(
             op_type=node_name,
@@ -287,15 +311,11 @@ class OnnxBuilder:
             self._adjust_tensor_shape(tensor, [], batch_dims)
 
     def filter_unused_initializers(self):
-        """
-        Filters out initializers that are not used in any node or function.
-        """
         used_inputs = {inp for node in self.nodes for inp in node.input}
         for func_proto in self.functions.values():
             for node in func_proto.node:
                 used_inputs.update(node.input)
 
-        # Retain only initializers that are referenced in used_inputs
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]
