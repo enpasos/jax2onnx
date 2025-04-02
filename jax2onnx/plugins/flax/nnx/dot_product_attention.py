@@ -83,7 +83,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("einsum_qk"),
             )
         )
-        s.add_shape_info(attn_scores, (B, N, H, M))
+        s.add_shape_info(attn_scores, (B, N, H, M), dtype=q.aval.dtype)
 
         # Step 2: scale by sqrt(E)
         shape_q = s.get_unique_name("q_shape")
@@ -95,29 +95,32 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("shape_q"),
             )
         )
+        s.add_shape_info(shape_q, [4], dtype=np.int64)
 
-        idx_last = s.builder.get_constant_name(np.array([-1], dtype=np.int64))
-        e_dim = s.get_unique_name("e_val")
+        idx_last = s.get_constant_name(np.array([-1], dtype=np.int64))
+        e_val = s.get_unique_name("e_val")
         s.add_node(
             helper.make_node(
                 "Gather",
                 inputs=[shape_q, idx_last],
-                outputs=[e_dim],
+                outputs=[e_val],
                 axis=0,
                 name=s.get_unique_name("gather_e"),
             )
         )
+        s.add_shape_info(e_val, [], dtype=np.int64)
 
         e_float = s.get_unique_name("e_float")
         s.add_node(
             helper.make_node(
                 "Cast",
-                inputs=[e_dim],
+                inputs=[e_val],
                 outputs=[e_float],
                 to=TensorProto.FLOAT,
                 name=s.get_unique_name("cast_e"),
             )
         )
+        s.add_shape_info(e_float, [], dtype=np.float32)
 
         sqrt_e = s.get_unique_name("sqrt_e")
         s.add_node(
@@ -128,6 +131,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("sqrt_e"),
             )
         )
+        s.add_shape_info(sqrt_e, [], dtype=np.float32)
 
         scaled_scores = s.get_unique_name("scaled_scores")
         s.add_node(
@@ -138,9 +142,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("scale_scores"),
             )
         )
-        s.add_shape_info(scaled_scores, (B, N, H, M))
+        s.add_shape_info(scaled_scores, (B, N, H, M), dtype=q.aval.dtype)
 
-        # Step 3: Optional mask (Where to filter)
+        # Step 3: Optional mask
         if optional_inputs:
             mask_var = optional_inputs[-1]
             mask_name = s.get_name(mask_var)
@@ -155,8 +159,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("cast_mask"),
                 )
             )
+            s.add_shape_info(mask_bool, (B, N, H, M), dtype=bool)
 
-            neg_inf = s.builder.get_constant_name(np.array([-1e9], dtype=np.float32))
+            neg_inf = s.get_constant_name(np.array([-1e9], dtype=np.float32))
             masked_scores = s.get_unique_name("masked_scores")
             s.add_node(
                 helper.make_node(
@@ -166,7 +171,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("where_mask"),
                 )
             )
-            scaled_scores = masked_scores  # use masked scores from now on
+            s.add_shape_info(masked_scores, (B, N, H, M), dtype=q.aval.dtype)
+            scaled_scores = masked_scores
 
         # Step 4: Softmax
         attn_weights = s.get_unique_name("attn_weights")
@@ -179,9 +185,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("softmax"),
             )
         )
-        s.add_shape_info(attn_weights, (B, N, H, M))
+        s.add_shape_info(attn_weights, (B, N, H, M), dtype=q.aval.dtype)
 
-        # Step 5: Final einsum(attn_weights, V)
+        # Step 5: Einsum(attn_weights, V)
         s.add_node(
             helper.make_node(
                 "Einsum",
@@ -191,7 +197,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("einsum_weights_v"),
             )
         )
-        s.add_shape_info(out_name, (B, N, H, E))
+        s.add_shape_info(out_name, (B, N, H, E), dtype=q.aval.dtype)
 
     @staticmethod
     def _dot_product_attention(q, k, v, mask=None, axis=-1):

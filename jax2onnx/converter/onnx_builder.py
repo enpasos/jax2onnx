@@ -20,7 +20,7 @@ CUSTOM_DOMAIN_VERSION = 1
 
 
 def _as_tuple(x):
-    return tuple(x) if isinstance(x, (list, tuple)) else ()
+    return tuple(x) if isinstance(x, (list, tuple)) else (x,)
 
 
 class OnnxBuilder:
@@ -47,11 +47,20 @@ class OnnxBuilder:
         self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = (
             {}
         )  # name -> (shape, dtype)
+        self.dtype_env: Dict[str, onnx.TensorProto.DataType] = {}
 
     def register_value_info_metadata(
         self, name: str, shape: Tuple[int, ...], dtype: Any
     ):
         self.value_info_metadata[name] = (shape, dtype)
+
+    def find_missing_value_info(self) -> List[str]:
+        known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
+        known_names.update(init.name for init in self.initializers)
+        node_names = {
+            name for n in self.nodes for name in list(n.input) + list(n.output)
+        }
+        return sorted(name for name in node_names if name not in known_names)
 
     def get_constant_name(self, val):
         if isinstance(val, Literal):
@@ -75,6 +84,12 @@ class OnnxBuilder:
             vals=np_val.flatten().tolist(),
         )
         self.initializers.append(tensor)
+
+        # ✅ Register shape/type info so ONNX shape inference works
+        self.register_value_info_metadata(
+            name, shape=tuple(np_val.shape), dtype=np_val.dtype
+        )
+
         return name
 
     def reset(self) -> None:
@@ -123,16 +138,19 @@ class OnnxBuilder:
     def add_input(
         self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
+        self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
         self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
+        self.dtype_env[name] = dtype
         self._add_tensor(self.outputs, name, shape, dtype)
 
     def add_value_info(
         self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
+        self.dtype_env[name] = dtype
         self._add_tensor(self.value_info, name, shape, dtype)
 
     def create_node(
@@ -143,24 +161,13 @@ class OnnxBuilder:
     def add_node(self, node: NodeProto) -> None:
         self.nodes.append(node)
 
-    def _add_missing_value_info(self):
-        known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
-        known_names.update(init.name for init in self.initializers)
-        node_names = {
-            name for n in self.nodes for name in list(n.input) + list(n.output)
-        }
-        missing = node_names - known_names
-
-        for name in missing:
-            if name in self.value_info_metadata:
-                shape, dtype = self.value_info_metadata[name]
-                self.add_value_info(name, shape, dtype)
-            else:
-                print(f"⚠️ Skipping unknown value_info: {name}")
-
     def _build_graph(self, name: str) -> GraphProto:
         self.filter_unused_initializers()
-        self._add_missing_value_info()
+        missing = self.find_missing_value_info()
+        if missing:
+            raise RuntimeError(
+                f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
+            )
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
@@ -231,6 +238,11 @@ class OnnxBuilder:
     def add_function(
         self, name: str, sub_builder: "OnnxBuilder", param_input_names: List[str]
     ) -> str:
+        missing = sub_builder.find_missing_value_info()
+        if missing:
+            raise RuntimeError(
+                f"Missing value_info in function '{name}': {missing}\n\nFix the corresponding plugin using `register_value_info_metadata(...)`"
+            )
 
         function_graph = sub_builder.create_graph(name + "_graph")
         inputs = [vi.name for vi in function_graph.input]

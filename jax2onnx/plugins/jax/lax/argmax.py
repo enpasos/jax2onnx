@@ -41,10 +41,9 @@ class ArgMaxPlugin(PrimitiveLeafPlugin):
         """Handle JAX argmax primitive."""
         input_name = s.get_name(node_inputs[0])
         intermediate_name = s.get_unique_name("argmax_intermediate")
-        output_name = s.get_name(node_outputs[0])  # Corrected: get_name
+        output_name = s.get_name(node_outputs[0])
         axis = params["axes"][0]
-        # keepdims is always False for jax.lax.argmax
-        keepdims = 0  # Hardcoded: jax.lax.argmax always has keepdims=False
+        keepdims = 0  # jax.lax.argmax always has keepdims=False
 
         node_1 = helper.make_node(
             "ArgMax",
@@ -53,16 +52,17 @@ class ArgMaxPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("argmax"),
             axis=axis,
             keepdims=keepdims,
-            select_last_index=int(
-                params["index_dtype"] == jnp.int64
-            ),  # Properly set select_last_index, convert bool to int
+            select_last_index=int(params["index_dtype"] == jnp.int64),
         )
         s.add_node(node_1)
+
+        # ✅ Ensure ONNX gets the correct dtype for the ArgMax output (int64)
+        s.add_shape_info(intermediate_name, node_outputs[0].aval.shape, dtype="int64")
 
         node_2 = helper.make_node(
             "Cast",
             inputs=[intermediate_name],
             outputs=[output_name],
-            to=TensorProto.INT32,  # Cast to the correct output type (INT32)
+            to=TensorProto.INT32,
         )
         s.add_node(node_2)

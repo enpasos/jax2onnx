@@ -245,7 +245,6 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         )
 
         jax_shape = node_inputs[0].aval.shape
-        node_inputs[1].aval.shape
 
         if len(jax_shape) == 4:
             if isinstance(strides, int):
@@ -267,7 +266,11 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
                 jax_shape[1],
                 jax_shape[2],
             )
-            s.add_shape_info(pre_transpose_name, pre_transposed_shape)
+            s.add_shape_info(
+                pre_transpose_name,
+                pre_transposed_shape,
+                dtype=node_inputs[0].aval.dtype,
+            )
             input_to_conv = pre_transpose_name
 
             # Transpose weight for 2D convolution.
@@ -281,6 +284,13 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
                 perm=perm,
             )
             s.add_node(weight_transpose_node)
+            weight_shape = node_inputs[1].aval.shape
+            transposed_weight_shape = tuple(weight_shape[i] for i in perm)
+            s.add_shape_info(
+                weight_transpose_name,
+                transposed_weight_shape,
+                dtype=node_inputs[1].aval.dtype,
+            )
             weight_name = weight_transpose_name
 
             conv_output_name = s.get_unique_name("conv_transpose_output")
@@ -301,8 +311,12 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
             )
             s.add_node(conv_transpose_node)
 
+            conv_output_shape = node_outputs[0].aval.shape
+            s.add_shape_info(
+                conv_output_name, conv_output_shape, dtype=node_outputs[0].aval.dtype
+            )
+
             # Post-transpose output: NCHW -> NHWC.
-            s.get_unique_name("convtrans_post_transpose")
             post_transpose_node = helper.make_node(
                 "Transpose",
                 inputs=[conv_output_name],
@@ -314,7 +328,6 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
 
             if is_circular:
                 # Insert an Unsqueeze to add the extra singleton dimension.
-                s.get_unique_name("convtrans_unsqueeze")
                 unsqueeze_node = helper.make_node(
                     "Unsqueeze",
                     inputs=[final_output_name],
@@ -325,7 +338,6 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
 
         elif len(jax_shape) == 3:
             # 1D ConvTranspose branch.
-            # Transpose input: (batch, length, channels) -> (batch, channels, length)
             transpose_name = s.get_unique_name("convtrans_input_transpose")
             transpose_node = helper.make_node(
                 "Transpose",
@@ -336,10 +348,11 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
             )
             s.add_node(transpose_node)
             transposed_shape = (jax_shape[0], jax_shape[2], jax_shape[1])
-            s.add_shape_info(transpose_name, transposed_shape)
+            s.add_shape_info(
+                transpose_name, transposed_shape, dtype=node_inputs[0].aval.dtype
+            )
             input_to_conv = transpose_name
 
-            # Transpose weight for 1D convolution.
             weight_transpose_name = s.get_unique_name("convtrans_weight_transpose")
             perm = [1, 2, 0] if not transpose_kernel else [2, 1, 0]
             weight_transpose_node = helper.make_node(
@@ -350,6 +363,13 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
                 perm=perm,
             )
             s.add_node(weight_transpose_node)
+            weight_shape = node_inputs[1].aval.shape
+            transposed_weight_shape = tuple(weight_shape[i] for i in perm)
+            s.add_shape_info(
+                weight_transpose_name,
+                transposed_weight_shape,
+                dtype=node_inputs[1].aval.dtype,
+            )
             weight_name = weight_transpose_name
 
             if strides is None:
@@ -357,7 +377,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
             elif isinstance(strides, int):
                 strides = (strides,)
             if len(strides) == 1:
-                strides = (strides[0],)  # 1D strides remain as a 1-tuple.
+                strides = (strides[0],)
 
             conv_output_name = s.get_unique_name("conv_transpose_output")
             conv_inputs = [input_to_conv, weight_name]
@@ -376,9 +396,11 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
                 output_padding=output_padding,
             )
             s.add_node(conv_transpose_node)
+            conv_output_shape = node_outputs[0].aval.shape
+            s.add_shape_info(
+                conv_output_name, conv_output_shape, dtype=node_outputs[0].aval.dtype
+            )
 
-            # Post-transpose output: (batch, channels, length) -> (batch, length, channels)
-            s.get_unique_name("convtrans_output_transpose")
             post_transpose_node = helper.make_node(
                 "Transpose",
                 inputs=[conv_output_name],

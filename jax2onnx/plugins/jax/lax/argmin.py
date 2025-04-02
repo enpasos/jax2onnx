@@ -38,31 +38,42 @@ class ArgMinPlugin(PrimitiveLeafPlugin):
     """
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX argmin primitive."""
         input_name = s.get_name(node_inputs[0])
         intermediate_name = s.get_unique_name("argmin_intermediate")
-        output_name = s.get_name(node_outputs[0])  # Corrected: get_name
+        output_name = s.get_name(node_outputs[0])
         axis = params["axes"][0]
-        # keepdims is always False for jax.lax.argmin
-        keepdims = 0  # Hardcoded: jax.lax.argmin always has keepdims=False
 
-        node_1 = helper.make_node(
+        # ONNX ArgMin always returns int64
+        argmin_node = helper.make_node(
             "ArgMin",
             inputs=[input_name],
             outputs=[intermediate_name],
             name=s.get_unique_name("argmin"),
             axis=axis,
-            keepdims=keepdims,
-            select_last_index=int(
-                params["index_dtype"] == jnp.int64
-            ),  # Set select_last_index
+            keepdims=0,
+            select_last_index=0,  # You can parametrize this if needed
         )
-        s.add_node(node_1)
+        s.add_node(argmin_node)
+        # ✅ Add correct shape and int64 dtype for ArgMin output
+        s.add_shape_info(intermediate_name, node_outputs[0].aval.shape, dtype="int64")
 
-        node_2 = helper.make_node(
-            "Cast",
-            inputs=[intermediate_name],
-            outputs=[output_name],
-            to=TensorProto.INT32,  # Cast to the correct output type (INT32)
-        )
-        s.add_node(node_2)
+        # Cast to the requested JAX dtype (e.g., int32)
+        if params["index_dtype"] == jnp.int32:
+            cast_node = helper.make_node(
+                "Cast",
+                inputs=[intermediate_name],
+                outputs=[output_name],
+                name=s.get_unique_name("cast_argmin"),
+                to=TensorProto.INT32,
+            )
+            s.add_node(cast_node)
+        else:
+            identity_node = helper.make_node(
+                "Identity",
+                inputs=[intermediate_name],
+                outputs=[output_name],
+                name=s.get_unique_name("identity_argmin"),
+            )
+            s.add_node(identity_node)
+
+        s.add_shape_info(intermediate_name, node_outputs[0].aval.shape, dtype="int64")

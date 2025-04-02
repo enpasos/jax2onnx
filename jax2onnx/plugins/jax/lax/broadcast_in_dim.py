@@ -78,6 +78,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("reshape_for_broadcast"),
         )
         s.add_node(node_reshape)
+        s.add_shape_info(reshape_output, tuple(reshape_shape))
+
         # Then, expand to the target shape.
         node_expand = helper.make_node(
             "Expand",
@@ -86,3 +88,4 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("expand"),
         )
         s.add_node(node_expand)
+        s.add_shape_info(output_name, node_outputs[0].aval.shape)

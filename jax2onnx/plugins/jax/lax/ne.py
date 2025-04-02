@@ -38,6 +38,10 @@ class NePlugin(PrimitiveLeafPlugin):
         input_names = [s.get_name(inp) for inp in node_inputs]
         eq_output = s.get_unique_name("equal_output")
         output_name = s.get_var_name(node_outputs[0])
+
+        # Add value info for eq_output
+        s.add_shape_info(eq_output, shape=node_inputs[0].aval.shape, dtype="bool")
+
         node_1 = helper.make_node(
             "Equal",
             inputs=input_names,
@@ -45,6 +49,7 @@ class NePlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("ne_eq"),
         )
         s.add_node(node_1)
+
         node_2 = helper.make_node(
             "Not",
             inputs=[eq_output],

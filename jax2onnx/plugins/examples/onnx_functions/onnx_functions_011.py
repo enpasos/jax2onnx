@@ -76,7 +76,10 @@ class ConvEmbedding(nnx.Module):
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         for layer in self.layers:
-            x = layer(x)
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=True)
+            else:
+                x = layer(x)
         B, H, W, C = x.shape
         x = x.reshape(B, H * W, C)
         return x
@@ -253,8 +256,6 @@ class VisionTransformer(nnx.Module):
         embed_dims: List[int] = [32, 128, 256],
         kernel_size: int = 3,
         strides: List[int] = [1, 2, 2],
-        patch_size: int = 4,
-        embedding_type: str = "conv",  # "conv" or "patch"
         embedding_dropout_rate: float = 0.1,
         attention_dropout_rate: float = 0.1,
         mlp_dropout_rate: float = 0.1,
@@ -354,7 +355,6 @@ register_example(
                 num_heads=8,
                 mlp_dim=512,
                 num_classes=10,
-                embedding_type="conv",
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 1)],

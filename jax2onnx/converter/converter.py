@@ -30,6 +30,7 @@ class Jaxpr2OnnxConverter:
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
         self.primitive_handlers = {}
+        self.shape_env: Dict[str, Tuple[int, ...]] = {}  # <- added shape environment
 
         self.name_to_const: Dict[str, Any] = {}
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
@@ -49,15 +50,7 @@ class Jaxpr2OnnxConverter:
 
         for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
             primitive = plugin.primitive
-            # primitive_name = primitive.name  # already the qualified name set in onnx_function()
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
-
-        # for name, plugin in PLUGIN_REGISTRY.items():
-        #     if isinstance(plugin, PrimitiveLeafPlugin):
-        #         self.primitive_handlers[name] = plugin.get_handler(self)
-
-        # for name, function_plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-        #     self.primitive_handlers[name] = function_plugin.get_handler(self)
 
     def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
         return jax.core.Var(
@@ -72,7 +65,9 @@ class Jaxpr2OnnxConverter:
 
     def get_var_name(self, var):
         if var not in self.var_to_name:
-            self.var_to_name[var] = self.get_unique_name("var")
+            name = self.get_unique_name("var")
+            self.var_to_name[var] = name
+            self.name_to_var[name] = var
         return self.var_to_name[var]
 
     def get_constant_name(self, val):
@@ -81,15 +76,18 @@ class Jaxpr2OnnxConverter:
     def add_input(self, var, shape, dtype=np.float32):
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
+        self.shape_env[name] = shape  # <-- store shape
         return name
 
     def add_output(self, var, shape, dtype=np.float32):
         name = self.get_var_name(var)
         self.builder.add_output(name, shape, dtype)
+        self.shape_env[name] = shape  # <-- store shape
         return name
 
     def add_shape_info(self, name, shape, dtype=np.float32):
         self.builder.add_value_info(name, shape, dtype)
+        self.shape_env[name] = shape  # <-- store shape
         return name
 
     def get_name(self, var):
@@ -112,6 +110,7 @@ class Jaxpr2OnnxConverter:
             self.builder.reset()
             self.var_to_name.clear()
             self.name_to_const.clear()
+            self.shape_env.clear()  # <-- clear shape info
 
         with temporary_monkey_patches(allow_function_primitives=True):
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
@@ -226,6 +225,7 @@ class Jaxpr2OnnxConverter:
             const_name = self.get_constant_name(const)
             const_var = jaxpr.constvars[i]
             self.var_to_name[const_var] = const_name
+            self.name_to_var[const_name] = const_var
             self.name_to_const[const_name] = const
 
         # Process all equations in the JAXPR
@@ -247,9 +247,6 @@ class Jaxpr2OnnxConverter:
         handler = self.primitive_handlers.get(name)
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
-
-        # print name
-        # print(f"Processing primitive: {name}")
 
         handler(self, eqn, eqn.params)
 
