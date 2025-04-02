@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/onnx_builder.py
+
 from onnx import (
     helper,
     TensorProto,
@@ -85,10 +87,13 @@ class OnnxBuilder:
         )
         self.initializers.append(tensor)
 
-        # ✅ Register shape/type info so ONNX shape inference works
+        # ✅ Ensure shape is a tuple of integers
         self.register_value_info_metadata(
             name, shape=tuple(np_val.shape), dtype=np_val.dtype
         )
+
+        # ✅ Auto-fix fallback value_info for edge cases like tile_repeats, etc.
+        self._auto_fix_constant_value_info(name, np_val)
 
         return name
 
@@ -120,6 +125,10 @@ class OnnxBuilder:
             name=name, data_type=data_type, dims=dims, vals=flat_vals
         )
         self.initializers.append(tensor)
+
+        # ✅ Auto-fix value_info metadata
+        self._auto_fix_constant_value_info(name, np.array(flat_vals).reshape(dims))
+
         return name
 
     def _add_tensor(
@@ -279,10 +288,11 @@ class OnnxBuilder:
         return TensorProto.FLOAT  # default fallback
 
     def _register_value_info_for_function_inputs_outputs_and_intermediates(
-        self, func: onnx.FunctionProto, inputs: List[str], outputs: List[str]
+        self, func: onnx.FunctionProto, input_names: List[str], output_names: List[str]
     ):
+
         # Inputs
-        for func_input_name, outer_input_name in zip(func.input, inputs):
+        for func_input_name, outer_input_name in zip(func.input, input_names):
             vi = next((v for v in self.value_info if v.name == outer_input_name), None)
             if vi:
                 self.add_value_info(
@@ -293,7 +303,7 @@ class OnnxBuilder:
                 self.add_value_info(func_input_name, shape, dtype)
 
         # Outputs
-        for func_output_name, outer_output_name in zip(func.output, outputs):
+        for func_output_name, outer_output_name in zip(func.output, output_names):
             vi = next((v for v in self.value_info if v.name == outer_output_name), None)
             if vi:
                 self.add_value_info(
@@ -317,11 +327,35 @@ class OnnxBuilder:
     def _register_value_info_if_missing(self, name: str):
         if name not in self.value_info:
             shape, dtype = self.value_info_metadata.get(name, (None, TensorProto.FLOAT))
+            if shape is None:
+                # fallback for debugging
+                print(f"[WARN] Missing metadata for: {name} — using fallback")
+                shape = ()  # or None
+            print(
+                f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}"
+            )
             self.add_value_info(name, shape, dtype)
+
+    def _auto_fix_constant_value_info(self, name: str, value: np.ndarray):
+        if not isinstance(value, np.ndarray):
+            value = np.array(value)
+
+        # Shape + Type
+        shape = list(value.shape)
+        dtype = onnx.mapping.NP_TYPE_TO_TENSOR_TYPE.get(value.dtype)
+
+        # 👇 Patch: Special case for scalar lists that are meant to be INT64 (e.g. axes, shape)
+        if dtype == TensorProto.FLOAT and name.endswith(
+            ("_shape", "_axes", "_repeats", "_starts", "_ends")
+        ):
+            dtype = TensorProto.INT64
+            value = value.astype(np.int64)  # Also patch the initializer
+
+        # Ensure shape is a tuple of integers
+        self.register_value_info_metadata(name, shape=tuple(shape), dtype=dtype)
 
     def add_function_call_node(
         self,
-        # converter,
         function_name: str,
         input_names: List[str],
         output_names: List[str],
@@ -335,29 +369,93 @@ class OnnxBuilder:
         else:
             node_name = node_name.split(".")[-1]
 
-        # 🧠 Register value info for ONNX shape/type inference
         func = self.functions.get(function_name)
-        # 🧠 Register shape/type info for this function
+
+        # 🧠 Register value info for function inputs, outputs, and intermediates
         if func:
             self._register_value_info_for_function_inputs_outputs_and_intermediates(
                 func, input_names, output_names
             )
 
-            # 🧠 Recursively register for inner calls
+            # 🧠 Recursively register inner functions too
             for node in func.node:
                 if node.op_type in self.functions:
                     inner_func = self.functions[node.op_type]
-                    inner_inputs = list(node.input)
-                    inner_outputs = list(node.output)
                     self._register_value_info_for_function_inputs_outputs_and_intermediates(
-                        inner_func, inner_inputs, inner_outputs
+                        inner_func,
+                        input_names=list(node.input),
+                        output_names=list(node.output),
                     )
 
+        # 🧠 Ensure all input value info is available
         for input in input_names:
             self._register_value_info_if_missing(input)
 
+        # 🧠 Ensure all output value info is available
+        for output in output_names:
+            if not any(v.name == output for v in self.value_info):
+                dtype = None
+                if func:
+                    # Try from declared outputs
+                    for vi in func.output:
+                        if vi == output:
+                            # This is a string comparison — probably incorrect
+                            continue
+                        if hasattr(vi, "name") and vi.name == output:
+                            shape = self._get_shape(vi)
+                            dtype = self._get_dtype(vi)
+                            self.add_value_info(output, shape, dtype)
+                            break
+                    else:
+                        # Try to infer from writer node
+                        for node in func.node:
+                            if output in node.output:
+                                op = node.op_type
+                                if op in [
+                                    "Shape",
+                                    "Size",
+                                    "Range",
+                                    "Cast",
+                                    "Squeeze",
+                                    "Unsqueeze",
+                                    "Concat",
+                                    "Slice",
+                                    "ConstantOfShape",
+                                ]:
+                                    dtype = TensorProto.INT64
+                                elif op == "Cast":
+                                    for attr in node.attribute:
+                                        if attr.name == "to":
+                                            dtype = attr.i
+                                break
+
+                # If still not added
+                if not any(v.name == output for v in self.value_info):
+                    if dtype is None:
+                        if any(
+                            suffix in output
+                            for suffix in [
+                                "_shape",
+                                "_dims",
+                                "_axes",
+                                "_starts",
+                                "_ends",
+                                "_repeats",
+                            ]
+                        ):
+                            dtype = TensorProto.INT64
+                        else:
+                            dtype = TensorProto.FLOAT
+                    print(
+                        f"⚠️ Warning: output '{output}' missing type info, defaulting to {TensorProto.DataType.Name(dtype)}."
+                    )
+                    # shape =
+                    # self.register_value_info_metadata(output, shape=shape, dtype=dtype)
+                    self._register_value_info_if_missing(output)
+
+        # ✅ Create function call node
         node = helper.make_node(
-            op_type=op_type or node_name,  # ✅ fixed
+            op_type=op_type or node_name,
             inputs=input_names,
             outputs=output_names,
             name=node_name,
@@ -409,3 +507,15 @@ class OnnxBuilder:
         self.initializers = [
             init for init in self.initializers if init.name in used_inputs
         ]
+
+    def merge_value_info_metadata_from(self, other: "OnnxBuilder"):
+        for name, (shape, dtype) in other.value_info_metadata.items():
+            if name not in self.value_info_metadata:
+                self.value_info_metadata[name] = (shape, dtype)
+            else:
+                # Optional: warn if there's a mismatch
+                existing = self.value_info_metadata[name]
+                if existing != (shape, dtype):
+                    print(
+                        f"⚠️ [merge] Mismatch in value_info for '{name}': existing={existing}, new={(shape, dtype)}"
+                    )
