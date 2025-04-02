@@ -264,6 +264,53 @@ class OnnxBuilder:
 
         return name
 
+    def _get_shape(self, vi):
+        if hasattr(vi, "type") and hasattr(vi.type, "tensor_type"):
+            shape_proto = vi.type.tensor_type.shape
+            return [
+                d.dim_value if d.HasField("dim_value") else None
+                for d in shape_proto.dim
+            ]
+        return None
+
+    def _get_dtype(self, vi):
+        if hasattr(vi, "type") and hasattr(vi.type, "tensor_type"):
+            return vi.type.tensor_type.elem_type
+        return TensorProto.FLOAT  # default fallback
+
+    def _register_value_info_for_function_inputs_outputs_and_intermediates(
+        self, func: onnx.FunctionProto, inputs: List[str], outputs: List[str]
+    ):
+        """
+        Registers type and shape information for all values used in the function:
+        - Inputs: take from outer graph inputs
+        - Outputs: same
+        - Intermediates: infer from inner function graph
+        """
+        # Map function input names to outer graph inputs
+        for func_input_name, outer_input_name in zip(func.input, inputs):
+            vi = next((v for v in self.value_info if v.name == outer_input_name), None)
+            if vi:
+                self.add_value_info(
+                    func_input_name, self._get_shape(vi), self._get_dtype(vi)
+                )
+
+        # Register function outputs
+        for func_output_name, outer_output_name in zip(func.output, outputs):
+            vi = next((v for v in self.value_info if v.name == outer_output_name), None)
+            if vi:
+                self.add_value_info(
+                    func_output_name, self._get_shape(vi), self._get_dtype(vi)
+                )
+
+        # Register intermediates (tensors used within the function body)
+        all_known = set(func.input) | set(func.output)
+        for node in func.node:
+            for name in list(node.input) + list(node.output):
+                if name and name not in all_known and name not in self.value_info:
+                    # Safe default: assign unknown shape and float32 type
+                    self.add_value_info(name, None, TensorProto.FLOAT)
+
     def add_function_call_node(
         self,
         function_name: str,
@@ -279,6 +326,13 @@ class OnnxBuilder:
         else:
             node_name = node_name.split(".")[-1]
 
+        # 🧠 Register value info for ONNX shape/type inference
+        func = self.functions.get(function_name)
+        if func:
+            self._register_value_info_for_function_inputs_outputs_and_intermediates(
+                func, input_names, output_names
+            )
+
         node = helper.make_node(
             op_type=node_name,
             inputs=input_names,
@@ -286,6 +340,7 @@ class OnnxBuilder:
             name=node_name,
             domain=CUSTOM_DOMAIN,
         )
+
         self.nodes.append(node)
 
     def _adjust_tensor_shape(self, tensor, shape_hint, batch_dims):
