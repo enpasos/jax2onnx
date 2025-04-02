@@ -68,6 +68,10 @@ class SortPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("shape"),
             )
             s.add_node(node_shape)
+        s.add_shape_info(
+            shape_name, shape=(len(node_inputs[0].aval.shape),), dtype="int64"
+        )
+        s.add_shape_info(indices_name, shape=node_inputs[0].aval.shape, dtype="int64")
         node_topk = helper.make_node(
             "TopK",
             inputs=[input_name, shape_name],

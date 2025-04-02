@@ -62,21 +62,16 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         scale_name = s.get_name(node_inputs[1])
         final_output_name = s.get_name(node_outputs[0])
         epsilon = params.get("epsilon", 1e-5)
-        # is supported in ONNX implementation, yet ... coming soon
 
-        # try:
-        #     rms_node = helper.make_node(
-        #         "RMSNormalization",
-        #         inputs=[input_name, scale_name],
-        #         outputs=[final_output_name],
-        #         name=s.get_unique_name("RMSNormalization"),
-        #         epsilon=epsilon,
-        #         axes=[-1],
-        #     )
-        #     s.add_node(rms_node)
-        #     return
-        # except Exception:
-        #     # fallback implementation
+        input_shape = s.shape_env[input_name]
+        input_dtype = s.builder.dtype_env[
+            input_name
+        ]  # assuming dtype_env is attached to builder
+
+        def register(name):
+            s.builder.add_value_info(name, input_shape, input_dtype)
+
+        # === ReduceMean(input) ===
         mean_square_name = s.get_unique_name("mean_square")
         s.add_node(
             helper.make_node(
@@ -87,7 +82,9 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 keepdims=1,
             )
         )
+        register(mean_square_name)
 
+        # === Sub(input, mean_square) ===
         sub_name = s.get_unique_name("sub")
         s.add_node(
             helper.make_node(
@@ -97,17 +94,22 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("sub_mean_square"),
             )
         )
+        register(sub_name)
 
+        # === Pow(sub, 2.0) ===
         square_name = s.get_unique_name("square")
+        pow_const = s.get_constant_name(np.array(2.0, dtype=np.float32))
         s.add_node(
             helper.make_node(
                 "Pow",
-                [sub_name, s.get_constant_name(np.array(2.0, dtype=np.float32))],
+                [sub_name, pow_const],
                 [square_name],
                 name=s.get_unique_name("square"),
             )
         )
+        register(square_name)
 
+        # === ReduceMean(square) ===
         mean_square_2_name = s.get_unique_name("mean_square_2")
         s.add_node(
             helper.make_node(
@@ -118,27 +120,34 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 keepdims=1,
             )
         )
+        register(mean_square_2_name)
 
+        # === Add(epsilon) ===
         add_epsilon_name = s.get_unique_name("add_epsilon")
+        eps_const = s.get_constant_name(np.array(epsilon, dtype=np.float32))
         s.add_node(
             helper.make_node(
                 "Add",
-                [
-                    mean_square_2_name,
-                    s.get_constant_name(np.array(epsilon, dtype=np.float32)),
-                ],
+                [mean_square_2_name, eps_const],
                 [add_epsilon_name],
                 name=s.get_unique_name("add_epsilon"),
             )
         )
+        register(add_epsilon_name)
 
+        # === Sqrt ===
         sqrt_name = s.get_unique_name("sqrt")
         s.add_node(
             helper.make_node(
-                "Sqrt", [add_epsilon_name], [sqrt_name], name=s.get_unique_name("sqrt")
+                "Sqrt",
+                [add_epsilon_name],
+                [sqrt_name],
+                name=s.get_unique_name("sqrt"),
             )
         )
+        register(sqrt_name)
 
+        # === Div(input, sqrt) ===
         div_name = s.get_unique_name("div")
         s.add_node(
             helper.make_node(
@@ -148,7 +157,9 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("div"),
             )
         )
+        register(div_name)
 
+        # === Mul(div, scale) === final output
         s.add_node(
             helper.make_node(
                 "Mul",

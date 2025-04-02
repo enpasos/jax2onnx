@@ -1,32 +1,11 @@
 import jax
 import numpy as np
-from typing import TYPE_CHECKING, Tuple, Sequence
+from typing import TYPE_CHECKING
 from onnx import helper
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
-
-
-def _compute_conv_output_shape(
-    x_shape: Tuple[int, ...],
-    kernel_shape: Tuple[int, ...],
-    strides: Sequence[int] | int,
-    padding: str,
-) -> Tuple[int, ...]:
-    if isinstance(strides, int):
-        strides = (strides, strides)
-    N, H, W, _ = x_shape
-    filter_height, filter_width, _, out_channels = kernel_shape
-    if padding.upper() == "VALID":
-        out_H = (H - filter_height) // strides[0] + 1
-        out_W = (W - filter_width) // strides[1] + 1
-    elif padding.upper() == "SAME":
-        out_H = -(-H // strides[0])
-        out_W = -(-W // strides[1])
-    else:
-        raise ValueError("Unsupported padding: " + padding)
-    return (N, out_H, out_W, out_channels)
 
 
 def compute_same_pads(input_size, filter_size, stride):
@@ -75,7 +54,6 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
     """
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX conv_general_dilated primitive."""
         input_name = s.get_name(node_inputs[0])
         filter_var = node_inputs[1]
         output_name = s.get_name(node_outputs[0])
@@ -84,23 +62,23 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         window_strides = params["window_strides"]
         padding = params["padding"]
 
-        # Handle dimension numbers.
         lhs_spec, rhs_spec, out_spec = dimension_numbers
-        if lhs_spec == (0, 3, 1, 2) and rhs_spec == (3, 2, 0, 1):  # NHWC & HWIO
-            input_perm = [0, 3, 1, 2]  # NHWC -> NCHW
-            kernel_perm = [3, 2, 0, 1]  # HWIO -> OIHW
-            output_perm = [0, 2, 3, 1]  # NCHW -> NHWC
-        elif lhs_spec == (0, 1, 2, 3) and rhs_spec == (0, 1, 2, 3):  # NCHW & OIHW
+        if lhs_spec == (0, 3, 1, 2) and rhs_spec == (3, 2, 0, 1):
+            input_perm = [0, 3, 1, 2]
+            kernel_perm = [3, 2, 0, 1]
+            output_perm = [0, 2, 3, 1]
+        elif lhs_spec == (0, 1, 2, 3) and rhs_spec == (0, 1, 2, 3):
             input_perm = None
-            kernel_perm = [0, 1, 2, 3]  # already OIHW
-            output_perm = None  # already NCHW
+            kernel_perm = [0, 1, 2, 3]
+            output_perm = None
         else:
             raise ValueError(f"Unhandled dimension_numbers: {dimension_numbers}")
 
-        # Transpose input if necessary.
-        conv_input = s.get_name(node_inputs[0])
+        conv_input = input_name
         if input_perm:
             transposed_input = s.get_unique_name("input_transposed")
+            input_shape = node_inputs[0].aval.shape
+            transposed_input_shape = tuple(input_shape[i] for i in input_perm)
             s.add_node(
                 helper.make_node(
                     "Transpose",
@@ -110,20 +88,18 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("Transpose_input"),
                 )
             )
+            s.add_shape_info(transposed_input, transposed_input_shape)
+
             conv_input = transposed_input
 
-        # Handle kernel: constant branch or dynamic branch.
         filter_name = s.get_name(filter_var)
         if filter_name in s.name_to_const:
             kernel_const = s.name_to_const[filter_name]
             kernel_transposed = np.transpose(kernel_const, kernel_perm)
             transposed_kernel_name = s.get_constant_name(kernel_transposed)
             s.name_to_const[transposed_kernel_name] = kernel_transposed
-            kernel_shape = kernel_transposed.shape[
-                2:
-            ]  # OIHW: spatial dims at indices 2,3
+            kernel_shape = kernel_transposed.shape[2:]
         else:
-            # Dynamic branch: insert a Transpose node for the kernel.
             transposed_kernel_name = s.get_unique_name("kernel_transposed")
             s.add_node(
                 helper.make_node(
@@ -134,23 +110,20 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("Transpose_kernel"),
                 )
             )
-            # For dynamic kernels: if rhs_spec is HWIO, spatial dims are the first two elements;
-            # if rhs_spec is OIHW, they are the last two elements.
+            new_kernel_shape = tuple(
+                np.array(filter_var.aval.shape)[kernel_perm].tolist()
+            )
+            s.add_shape_info(transposed_kernel_name, new_kernel_shape)
             if rhs_spec == (3, 2, 0, 1):
-                kernel_shape = filter_var.aval.shape[
-                    :2
-                ]  # HWIO: (H, W, I, O) → spatial dims H, W
+                kernel_shape = filter_var.aval.shape[:2]
             else:
                 kernel_shape = filter_var.aval.shape[2:]
 
-        # Process padding.
         if isinstance(padding, str):
             if padding.upper() == "VALID":
                 pads = [0, 0, 0, 0]
             elif padding.upper() == "SAME":
-                # Compute SAME padding based on input and kernel shapes.
-                # For simplicity, assume symmetric padding.
-                if lhs_spec == (0, 3, 1, 2):  # Input in NHWC format
+                if lhs_spec == (0, 3, 1, 2):  # NHWC
                     H_in, W_in = node_inputs[0].aval.shape[1:3]
                 else:  # NCHW
                     H_in, W_in = node_inputs[0].aval.shape[2:4]
@@ -178,6 +151,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("Conv"),
         )
         s.add_node(conv_node)
+        s.add_shape_info(conv_output, node_outputs[0].aval.shape)
 
         if output_perm:
             s.add_node(
