@@ -197,6 +197,47 @@ class TransformerStack(nnx.Module):
 
 
 @onnx_function
+class ClassificationHead(nnx.Module):
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_classes: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
+        self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = self.layer_norm(x)
+        x = x[:, 0, :]
+        return nnx.log_softmax(self.dense(x))
+
+
+# @onnx_function
+# class ConcatClsToken(nnx.Module):
+
+#     def __init__(
+#         self,
+#         num_hiddens: int,
+#         *,
+#         rngs: nnx.Rngs,
+#     ):
+
+#         self.cls_token = nnx.Param(
+#             jax.random.normal(rngs.params(), (1, 1, num_hiddens))
+#         )
+
+
+#     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+#         batch_size = x.shape[0]
+#         cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
+#         x = jnp.concatenate([cls_tokens, x], axis=1)
+#         return x
+
+
+@onnx_function
 class VisionTransformer(nnx.Module):
     """Vision Transformer model for MNIST with configurable embedding type."""
 
@@ -232,6 +273,9 @@ class VisionTransformer(nnx.Module):
             dropout_rate=embedding_dropout_rate,
             rngs=rngs,
         )
+
+        # self.concat_cls_token = ConcatClsToken( num_hiddens=num_hiddens, rngs=rngs)
+
         num_patches = (height // 4) * (width // 4)
 
         self.cls_token = nnx.Param(
@@ -249,9 +293,11 @@ class VisionTransformer(nnx.Module):
             mlp_dropout_rate,
             rngs=rngs,
         )
-
-        self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
-        self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
+        self.classification_head = ClassificationHead(
+            num_hiddens=num_hiddens,
+            num_classes=num_classes,
+            rngs=rngs,
+        )
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
@@ -262,6 +308,8 @@ class VisionTransformer(nnx.Module):
             raise ValueError("Input tensor 'x' must have shape (B, H, W, 1).")
 
         x = self.embedding(x)
+        # x = self.concat_cls_token(x)
+
         batch_size = x.shape[0]
         cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
         x = jnp.concatenate([cls_tokens, x], axis=1)
@@ -273,9 +321,8 @@ class VisionTransformer(nnx.Module):
         x = x + pos_emb_expanded
 
         x = self.transformer_stack(x)
-        x = self.layer_norm(x)
-        x = x[:, 0, :]
-        return nnx.log_softmax(self.dense(x))
+        x = self.classification_head(x)
+        return x
 
 
 register_example(
@@ -288,6 +335,7 @@ register_example(
         "ConvEmbedding",
         "MLPBlock",
         "TransformerBlock",
+        "ClassificationHead",
         "nnx.MultiHeadAttention",
         "nnx.LayerNorm",
         "nnx.Linear",
