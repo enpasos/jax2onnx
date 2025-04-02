@@ -357,7 +357,7 @@ register_example(
                 embedding_type="conv",
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [("B", 28, 28, 1)],
+            "input_shapes": [(3, 28, 28, 1)],
         }
     ],
 )
