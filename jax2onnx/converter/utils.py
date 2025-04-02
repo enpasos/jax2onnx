@@ -133,6 +133,9 @@ def function_handler(
         param_input_names=param_inputs,
     )
 
+    # ✅ Propagate shape/type info from sub_builder to parent
+    parent_builder.merge_value_info_metadata_from(sub_builder)
+
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"Finished tracing function body: {unique_func_name}")
 
