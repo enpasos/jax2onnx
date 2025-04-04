@@ -152,7 +152,6 @@ def function_handler(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
-        # 🆕 If sub_name not found, fall back to sub_output_names[i]
         if sub_name not in sub_builder.value_info_metadata and i < len(
             sub_output_names
         ):
@@ -160,6 +159,10 @@ def function_handler(
             print(
                 f"[FALLBACK] Using subgraph output by position: '{fallback_sub_name}'"
             )
+            if fallback_sub_name != sub_name:
+                print(
+                    f"[WARN] Output name mismatch: expected '{sub_name}', fallback used: '{fallback_sub_name}'"
+                )
             sub_name = fallback_sub_name
 
         if parent_name in parent_builder.value_info:
