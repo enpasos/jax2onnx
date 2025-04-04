@@ -74,6 +74,20 @@ class OnnxBuilder:
             f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}, origin={origin}"
         )
 
+    def get_value_info_metadata_with_origin(
+        self, name: str
+    ) -> Optional[Tuple[Tuple[int, ...], Any, Optional[str]]]:
+        """
+        Retrieves (shape, dtype, origin) for a given value_info name.
+        Falls back to legacy metadata if origin is unavailable.
+        """
+        if name in self.value_info_metadata_with_origin:
+            return self.value_info_metadata_with_origin[name]
+        if name in self.value_info_metadata:
+            shape, dtype = self.value_info_metadata[name]
+            return shape, dtype, None  # origin unknown
+        return None
+
     def find_missing_value_info(self) -> List[str]:
         known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
         known_names.update(init.name for init in self.initializers)
