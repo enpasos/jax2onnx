@@ -74,10 +74,6 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
-    """
-    Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
-    Uses unique instance names for functions and ensures correct output metadata registration.
-    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -128,7 +124,6 @@ def function_handler(
     sub_converter = converter.__class__(sub_builder)
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
-    # Determine used constants
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
         inp
@@ -145,15 +140,10 @@ def function_handler(
         param_input_names=param_inputs,
     )
 
-    # 🆕 Step 2: Get subgraph output names (actual names from the sub_builder)
     sub_output_names = [vi.name for vi in sub_builder.outputs]
-
-    # ✅ Propagate shape/type info from sub_builder to parent
     parent_builder.merge_value_info_metadata_from(sub_builder)
-    # --- Ensure output value_info is registered ---
-    for i, var in enumerate(eqn.outvars):
-        sub_name = sub_output_names[i] if i < len(sub_output_names) else None
 
+    for i, var in enumerate(eqn.outvars):
         original_parent_name = converter.get_var_name(var)
         parent_name = original_parent_name
         sub_name = sub_converter.get_name(var)
@@ -162,8 +152,18 @@ def function_handler(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
+        # 🆕 If sub_name not found, fall back to sub_output_names[i]
+        if sub_name not in sub_builder.value_info_metadata and i < len(
+            sub_output_names
+        ):
+            fallback_sub_name = sub_output_names[i]
+            print(
+                f"[FALLBACK] Using subgraph output by position: '{fallback_sub_name}'"
+            )
+            sub_name = fallback_sub_name
+
         if parent_name in parent_builder.value_info:
-            continue  # already added explicitly
+            continue
 
         shape_dtype = sub_builder.value_info_metadata.get(
             sub_name
