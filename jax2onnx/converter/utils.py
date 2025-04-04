@@ -74,10 +74,6 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
-    """
-    Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
-    Uses unique instance names for functions and ensures correct output metadata registration.
-    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -129,7 +125,6 @@ def function_handler(
 
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
-    # Determine used constants
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
         inp
@@ -146,20 +141,16 @@ def function_handler(
         param_input_names=param_inputs,
     )
 
-    # 🆕 Step 2: Get subgraph output names (actual names from the sub_builder)
     sub_output_names = [vi.name for vi in sub_builder.outputs]
-
-    # ✅ Propagate shape/type info from sub_builder to parent
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
-    # --- Ensure output value_info is registered ---
     for i, var in enumerate(eqn.outvars):
         sub_name = sub_output_names[i] if i < len(sub_output_names) else None
 
         parent_name = converter.get_var_name(var)
         sub_name = sub_converter.get_name(var)
         if parent_name in parent_builder.value_info:
-            continue  # already added explicitly
+            continue
 
         shape_dtype = sub_builder.value_info_metadata.get(
             sub_name
@@ -172,7 +163,6 @@ def function_handler(
                 shape_dtype = (shape, dtype)
                 print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
 
-                # 🆕 Step 4: Check if subgraph metadata exists and mismatches
                 actual = sub_builder.value_info_metadata.get(sub_name)
                 if actual:
                     actual_shape, actual_dtype = actual
@@ -182,10 +172,13 @@ def function_handler(
                             f"subgraph has shape={actual_shape}, dtype={actual_dtype}; "
                             f"aval has shape={shape}, dtype={dtype}"
                         )
+                    origin = "recovered"
+                else:
+                    # 🆕 No actual subgraph value to cross-check
+                    origin = "aval+fallback"
 
-                # 🆕 Mark as recovered
                 parent_builder.register_value_info_metadata(
-                    parent_name, shape, dtype, origin="recovered"
+                    parent_name, shape, dtype, origin=origin
                 )
             else:
                 raise RuntimeError(
@@ -193,7 +186,6 @@ def function_handler(
                 )
         else:
             shape, dtype = shape_dtype
-            # 🆕 add origin marker here
             parent_builder.register_value_info_metadata(
                 parent_name, shape, dtype, origin=f"function_output:{unique_func_name}"
             )
