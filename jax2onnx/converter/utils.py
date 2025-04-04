@@ -193,9 +193,10 @@ def function_handler(
                 )
         else:
             shape, dtype = shape_dtype
+            # 🆕 add origin marker here
             parent_builder.register_value_info_metadata(
-                parent_name, shape, dtype
-            )  # default origin
+                parent_name, shape, dtype, origin=f"function_output:{unique_func_name}"
+            )
 
         parent_builder.add_value_info(parent_name, shape, dtype)
 
