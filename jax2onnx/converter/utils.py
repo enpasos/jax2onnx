@@ -182,17 +182,25 @@ def function_handler(
                             f"subgraph has shape={actual_shape}, dtype={actual_dtype}; "
                             f"aval has shape={shape}, dtype={dtype}"
                         )
+
+                # 🆕 Mark as recovered
+                parent_builder.register_value_info_metadata(
+                    parent_name, shape, dtype, origin="recovered"
+                )
             else:
                 raise RuntimeError(
                     f"Output '{parent_name}' missing metadata and has no aval. Cannot infer shape/type."
                 )
+        else:
+            shape, dtype = shape_dtype
+            parent_builder.register_value_info_metadata(
+                parent_name, shape, dtype
+            )  # default origin
 
-        shape, dtype = shape_dtype
-        parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)
 
     _propagate_nested_functions(parent_builder, sub_builder)
-    print(f"Finished tracing function body: {unique_func_name}")
+    print(f"Finished tracing function body: {unique_node_name}")
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]

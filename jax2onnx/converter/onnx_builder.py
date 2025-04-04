@@ -8,9 +8,10 @@ from onnx import (
     ModelProto,
     GraphProto,
     FunctionProto,
+    AttributeProto,
 )
 import numpy as np
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Union
 from jax.extend.core import Literal
 import onnx
 
@@ -50,9 +51,29 @@ class OnnxBuilder:
         self.dtype_env: Dict[str, onnx.TensorProto.DataType] = {}
 
     def register_value_info_metadata(
-        self, name: str, shape: Tuple[int, ...], dtype: Any
+        self,
+        name: str,
+        shape: Tuple[int, ...],
+        dtype: Union[np.dtype, int],  # `int` covers TensorProto enums
+        origin: Optional[str] = None,  # <-- NEW
     ):
+        """Register value_info metadata for a given variable name.
+
+        Args:
+            name: variable name
+            shape: shape tuple
+            dtype: numpy dtype or ONNX TensorProto enum
+            origin: optional string describing where the metadata came from
+        """
         self.value_info_metadata[name] = (shape, dtype)
+
+        # Optional: track metadata origin for debugging or validation
+        if not hasattr(self, "value_info_origin"):
+            self.value_info_origin = {}
+        self.value_info_origin[name] = origin or "traced"
+
+        self.value_info_metadata[name] = (shape, dtype)
+        #
 
     def find_missing_value_info(self) -> List[str]:
         known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
