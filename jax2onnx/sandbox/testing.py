@@ -2,8 +2,8 @@
 
 import onnx
 
-model = onnx.load("docs/onnx/examples/onnx_functions/000_one_function_outer.onnx")
-# model = onnx.load("docs/onnx/examples/onnx_functions/011_vit_conv_embedding.onnx")
+# model = onnx.load("docs/onnx/examples/onnx_functions/000_one_function_outer.onnx")
+model = onnx.load("docs/onnx/examples/onnx_functions/011_vit_conv_embedding.onnx")
 # model = onnx.load("docs/onnx/examples/onnx_functions/006_one_function_outer.onnx") #
 
 
@@ -84,10 +84,8 @@ print_shape_info(model)
 print("\n\n######### RUNNING SHAPE INFERENCE #########\n")
 # Note: Shape inference might populate value_info within functions
 try:
-    inferred_model = onnx.shape_inference.infer_shapes(model, strict_mode=True)
+    inferred_model = onnx.shape_inference.infer_shapes(model)
     print("Shape inference successful.")
     print_shape_info(inferred_model)
 except Exception as e:
     print(f"Shape inference failed: {e}")
-    print("--- Inspecting Model ---")
-    print_shape_info(model)
