@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from typing import Any
 
 # === Use original name generator import ===
-from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGenerator
+from jax2onnx.converter.name_generator import UniqueNameGenerator
 
 # ==========================================
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -47,10 +47,9 @@ def to_onnx(
     """
     example_args = prepare_example_args(input_shapes)
 
-    counter = GlobalNameCounter()
     unique_name_generator = UniqueNameGenerator()
 
-    builder = OnnxBuilder(counter, unique_name_generator, opset=opset)
+    builder = OnnxBuilder(unique_name_generator, opset=opset)
 
     # ============================================
     converter = Jaxpr2OnnxConverter(builder)

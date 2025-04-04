@@ -15,7 +15,7 @@ from jax.extend.core import Literal
 import onnx
 
 # === Import BOTH name generators ===
-from jax2onnx.converter.name_generator import GlobalNameCounter, UniqueNameGenerator
+from jax2onnx.converter.name_generator import UniqueNameGenerator
 
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
@@ -28,13 +28,11 @@ def _as_tuple(x):
 class OnnxBuilder:
     def __init__(
         self,
-        name_counter: GlobalNameCounter,
         name_generator: UniqueNameGenerator,
         opset: int = 21,
         model_name: str = "",
         initializers: Optional[List[Any]] = None,
     ) -> None:
-        self.name_counter: GlobalNameCounter = name_counter
         self.name_generator: UniqueNameGenerator = name_generator
 
         self.nodes: List[NodeProto] = []
@@ -98,7 +96,6 @@ class OnnxBuilder:
         return name
 
     def reset(self) -> None:
-        self.name_counter = GlobalNameCounter()
         self.name_generator = UniqueNameGenerator()
         self.nodes = []
         self.inputs = []
@@ -110,7 +107,7 @@ class OnnxBuilder:
         self.value_info_metadata.clear()
 
     def get_unique_name(self, prefix: str = "node") -> str:
-        return self.name_counter.get(prefix)
+        return self.name_generator.get(prefix)
 
     def get_unique_instance_name(self, base_name: str) -> str:
         return self.name_generator.get(base_name)
