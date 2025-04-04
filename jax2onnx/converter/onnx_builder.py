@@ -153,6 +153,8 @@ class OnnxBuilder:
     def add_output(
         self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
     ) -> None:
+        # if any(v.name == name for v in self.outputs):
+        #     return  # Already added
         self.dtype_env[name] = dtype
         self._add_tensor(self.outputs, name, shape, dtype)
 

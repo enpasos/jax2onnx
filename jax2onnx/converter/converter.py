@@ -111,7 +111,7 @@ class Jaxpr2OnnxConverter:
             self.builder.reset()
             self.var_to_name.clear()
             self.name_to_const.clear()
-            self.shape_env.clear()  # <-- clear shape info
+            self.shape_env.clear()
 
         with temporary_monkey_patches(allow_function_primitives=True):
             closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
