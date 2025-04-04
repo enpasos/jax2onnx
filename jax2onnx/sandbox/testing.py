@@ -1,3 +1,5 @@
+# file: jax2onnx/sandbox/testing.py
+
 import onnx
 
 # model = onnx.load("docs/onnx/examples/onnx_functions/011_vit_conv_embedding.onnx")
@@ -12,18 +14,26 @@ def print_single_shape_info(vi):
     print(f"{vi.name}: {shape}")
 
 
+def print_single_initializer(ini):
+    print(f"{ini.name}: {list(ini.dims)}")
+
+
 def print_shape_info(model):
     print("=== INPUT INFO ===")
-    for vi in model.graph.input:
+    for vi in list(model.graph.input):
         print_single_shape_info(vi)
+
+    print("=== INITIALIZER ===")
+    for ini in list(model.graph.initializer):
+        print_single_initializer(ini)
 
     print("=== VALUE INFO ===")
-    for vi in model.graph.value_info:
+    for vi in list(model.graph.value_info):
         print_single_shape_info(vi)
 
-    print("=== OUTPUT INFO ===")
-    for vi in model.graph.output:
-        print_single_shape_info(vi)
+    # print("=== OUTPUT INFO ===")
+    # for vi in list(model.graph.output):
+    #     print_single_shape_info(vi)
 
 
 print_shape_info(model)

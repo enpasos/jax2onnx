@@ -78,7 +78,7 @@ class OnnxBuilder:
             )
             return self.get_unique_name("invalid_const")
 
-        name = self.get_unique_name("const")
+        name = self.get_unique_instance_name("const")
         tensor = helper.make_tensor(
             name=name,
             data_type=onnx_dtype,
