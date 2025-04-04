@@ -76,23 +76,17 @@ def function_handler(
 ):
     """
     Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
-    Uses unique instance names for functions.
+    Uses unique instance names for functions and ensures correct output metadata registration.
     """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
-    from jax2onnx.plugin_system import (
-        get_qualified_name,
-    )  # Local import to avoid circularity
+    from jax2onnx.plugin_system import get_qualified_name
 
     impl_key = get_qualified_name(orig_fn)
     print(f"Encountered function primitive: {impl_key}")
 
     instance_base_name = name.split(".")[-1]
-
-    if instance_base_name in ["MultiHeadAttention", "TransformerBlock"]:
-        print(f"Processing {instance_base_name}...")
-
     unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
     print(f"Generating unique ONNX node name: {unique_node_name}")
 
@@ -133,12 +127,9 @@ def function_handler(
     )
     sub_converter = converter.__class__(sub_builder)
 
-    try:
-        sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
-    except Exception as e:
-        print(f"Failed to trace {impl_key}: {e}")
-        raise
+    sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
+    # Determine used constants
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
         inp

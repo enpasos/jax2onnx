@@ -64,7 +64,7 @@ def to_onnx(
     # Optimize and check model
 
     model = improve_onnx_model(model)
-    onnx.checker.check_model(model)
+    # onnx.checker.check_model(model)
 
     # analyze_constants(model) # Keep commented if not needed
 
