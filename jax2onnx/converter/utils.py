@@ -1,7 +1,7 @@
 # file: jax2onnx/converter/utils.py
 
 import numpy as np
-from onnx import TensorProto
+from onnx import TensorProto, helper
 import jax.numpy as jnp
 
 from jax.extend.core import Literal, Var
@@ -40,24 +40,27 @@ def tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
 
 
 def numpy_dtype_to_tensorproto(dtype):
-    # If already an ONNX TensorProto dtype enum (int), just return
-    if isinstance(dtype, int):
+    """Convert numpy dtype or int to ONNX TensorProto enum."""
+    if isinstance(dtype, int):  # Already ONNX enum
         return dtype
+    elif isinstance(dtype, np.dtype):
+        return {
+            np.dtype("float32"): TensorProto.FLOAT,
+            np.dtype("float64"): TensorProto.DOUBLE,
+            np.dtype("float16"): TensorProto.FLOAT16,
+            np.dtype("int32"): TensorProto.INT32,
+            np.dtype("int64"): TensorProto.INT64,
+            np.dtype("uint8"): TensorProto.UINT8,
+            np.dtype("int8"): TensorProto.INT8,
+            np.dtype("bool"): TensorProto.BOOL,
+        }[dtype]
+    else:
+        raise TypeError(f"Unsupported dtype: {dtype} ({type(dtype)})")
 
-    try:
-        np_dtype = np.dtype(dtype).type
-    except TypeError:
-        return TensorProto.FLOAT  # fallback
 
-    return {
-        np.float32: TensorProto.FLOAT,
-        np.float64: TensorProto.DOUBLE,
-        np.int32: TensorProto.INT32,
-        np.int64: TensorProto.INT64,
-        np.bool_: TensorProto.BOOL,
-        np.int8: TensorProto.INT8,
-        np.uint8: TensorProto.UINT8,
-    }.get(np_dtype, TensorProto.FLOAT)
+def make_value_info(name, shape, dtype):
+    onnx_dtype = numpy_dtype_to_tensorproto(dtype)
+    return helper.make_tensor_value_info(name, onnx_dtype, shape)
 
 
 def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBuilder):

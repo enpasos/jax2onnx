@@ -16,6 +16,7 @@ from jax.extend.core import Literal
 import onnx
 
 # === Import BOTH name generators ===
+from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 
 CUSTOM_DOMAIN = "custom"
@@ -24,6 +25,11 @@ CUSTOM_DOMAIN_VERSION = 1
 
 def _as_tuple(x):
     return tuple(x) if isinstance(x, (list, tuple)) else (x,)
+
+
+def make_value_info(name, shape, dtype):
+    onnx_dtype = numpy_dtype_to_tensorproto(dtype)
+    return helper.make_tensor_value_info(name, onnx_dtype, shape)
 
 
 class OnnxBuilder:
@@ -193,10 +199,19 @@ class OnnxBuilder:
         self._add_tensor(self.outputs, name, shape, dtype)
 
     def add_value_info(
-        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
-    ) -> None:
-        self.dtype_env[name] = dtype
-        self._add_tensor(self.value_info, name, shape, dtype)
+        self,
+        name: str,
+        shape: Tuple[int, ...],
+        dtype: Union[np.dtype, int],
+    ):
+        vi = make_value_info(name, shape, dtype)
+
+        # Optionally enrich doc_string with origin info (if available)
+        origin = getattr(self, "value_info_origin", {}).get(name)
+        if origin:
+            vi.doc_string = f"origin: {origin}"
+
+        self.value_info.append(vi)
 
     def create_node(
         self, op_type: str, inputs: List[str], outputs: List[str], **kwargs: Any
