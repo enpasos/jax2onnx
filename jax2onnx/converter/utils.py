@@ -74,10 +74,6 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
-    """
-    Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
-    Uses unique instance names for functions and ensures correct output metadata registration.
-    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -94,39 +90,32 @@ def function_handler(
     input_names = []
     example_args = []
 
-    try:
-        for var in eqn.invars:
-            if isinstance(var, Var):
-                aval = var.aval
-                name = converter.get_name(var)
-                input_names.append(name)
-                example_args.append(
-                    jnp.ones(aval.shape, dtype=aval.dtype)
-                    if aval.shape
-                    else jnp.zeros((), dtype=aval.dtype)
-                )
-                shape = tuple(aval.shape)
-                dtype = aval.dtype
-                parent_builder.register_value_info_metadata(name, shape, dtype)
-            elif isinstance(var, Literal):
-                example_args.append(var.val)
-            else:
-                raise TypeError(f"Unexpected input var type: {type(var)}")
-    except Exception as e:
-        print(f"Failed to prepare inputs for {impl_key}: {e}")
-        raise
+    for var in eqn.invars:
+        if isinstance(var, Var):
+            aval = var.aval
+            name = converter.get_name(var)
+            input_names.append(name)
+            example_args.append(
+                jnp.ones(aval.shape, dtype=aval.dtype)
+                if aval.shape
+                else jnp.zeros((), dtype=aval.dtype)
+            )
+            parent_builder.register_value_info_metadata(
+                name, tuple(aval.shape), aval.dtype
+            )
+        elif isinstance(var, Literal):
+            example_args.append(var.val)
+        else:
+            raise TypeError(f"Unexpected input var type: {type(var)}")
 
-    unique_func_name = unique_node_name
-    print(f"Tracing function body for: {unique_func_name}")
-
+    print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
         parent_builder.name_generator,
         parent_builder.opset,
-        unique_func_name + "_graph",
+        unique_node_name + "_graph",
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
-
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
     initializer_names = {i.name for i in parent_builder.initializers}
@@ -141,15 +130,16 @@ def function_handler(
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
 
+    # 🛡️ Validate subgraph outputs have metadata
     for name in sub_output_names:
         if name not in sub_builder.value_info_metadata:
             raise RuntimeError(
                 f"[❌] Subgraph output '{name}' is missing shape/type metadata. "
-                f"Cannot register function '{unique_func_name}'."
+                f"Cannot register function '{unique_node_name}'."
             )
 
     internal_name = parent_builder.add_function(
-        name=unique_func_name,
+        name=unique_node_name,
         sub_builder=sub_builder,
         param_input_names=param_inputs,
     )
@@ -157,44 +147,54 @@ def function_handler(
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
     for i, var in enumerate(eqn.outvars):
-        original_parent_name = converter.get_var_name(var)
-        parent_name = original_parent_name
+        parent_name = converter.get_var_name(var)
         sub_name = sub_converter.get_name(var)
 
         print(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
-        shape = dtype = origin = None
+        if parent_name in parent_builder.value_info:
+            continue
 
-        shape_dtype_origin = sub_builder.get_value_info_metadata_with_origin(
-            sub_name
-        ) or parent_builder.get_value_info_metadata_with_origin(parent_name)
+        shape_dtype = sub_builder.value_info_metadata.get(sub_name)
+        origin = None
 
-        if shape_dtype_origin:
-            shape, dtype, origin = shape_dtype_origin
-
-        if shape is None or dtype is None:
+        if not shape_dtype:
             if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
                 dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                shape_dtype = (shape, dtype)
                 origin = "recovered"
-                print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
+                print(f"[RECOVER] Inferred metadata from var.aval for '{parent_name}'")
 
                 sub_builder.register_value_info_metadata(sub_name, shape, dtype, origin)
-                parent_builder.register_value_info_metadata(
-                    parent_name, shape, dtype, origin
+                if all(vi.name != sub_name for vi in sub_builder.value_info):
+                    sub_builder.add_value_info(sub_name, shape, dtype)
+
+            elif i < len(sub_output_names):
+                sub_name = sub_output_names[i]
+                shape_dtype = sub_builder.value_info_metadata.get(sub_name)
+                origin = "fallback"
+                print(
+                    f"[FALLBACK] Using positional subgraph output '{sub_name}' for '{parent_name}'"
                 )
-            else:
-                raise RuntimeError(
-                    f"Output '{parent_name}' missing metadata and has no aval. Cannot infer shape/type."
+
+        if shape_dtype:
+            shape, dtype = shape_dtype
+            if sub_name in getattr(sub_builder, "value_info_origin", {}):
+                origin = sub_builder.value_info_origin[sub_name]
+                print(
+                    f"[TRACE] Output '{parent_name}' registered from subgraph with origin: {origin}"
                 )
-        else:
             parent_builder.register_value_info_metadata(
                 parent_name, shape, dtype, origin
             )
-
-        parent_builder.add_value_info(parent_name, shape, dtype)
+            parent_builder.add_value_info(parent_name, shape, dtype)
+        else:
+            raise RuntimeError(
+                f"[❌] Could not determine shape/type metadata for output '{parent_name}'"
+            )
 
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"Finished tracing function body: {unique_node_name}")
