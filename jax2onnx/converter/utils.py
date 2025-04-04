@@ -220,7 +220,21 @@ def function_handler(
                 )
         else:
             shape, dtype = shape_dtype
-            parent_builder.register_value_info_metadata(parent_name, shape, dtype)
+            origin = None
+            if sub_name in sub_builder.value_info_metadata_with_origin:
+                _, _, origin = sub_builder.value_info_metadata_with_origin[sub_name]
+            elif parent_name in parent_builder.value_info_metadata_with_origin:
+                _, _, origin = parent_builder.value_info_metadata_with_origin[
+                    parent_name
+                ]
+
+            parent_builder.register_value_info_metadata(
+                parent_name, shape, dtype, origin=origin or "subgraph"
+            )
+            if origin == "repaired":
+                print(
+                    f"[INFO] Propagated repaired shape/type for '{parent_name}' from subgraph."
+                )
 
         parent_builder.add_value_info(parent_name, shape, dtype)
 

@@ -45,9 +45,11 @@ class OnnxBuilder:
         self.functions: Dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.display_name_map: Dict[str, str] = {}
-        self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = (
-            {}
-        )  # name -> (shape, dtype)
+
+        self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = {}
+        self.value_info_metadata_with_origin: Dict[
+            str, Tuple[Tuple[int, ...], Any, Optional[str]]
+        ] = {}
         self.dtype_env: Dict[str, onnx.TensorProto.DataType] = {}
 
     def register_value_info_metadata(
@@ -55,7 +57,7 @@ class OnnxBuilder:
         name: str,
         shape: Tuple[int, ...],
         dtype: Union[np.dtype, int],  # `int` covers TensorProto enums
-        origin: Optional[str] = None,  # <-- NEW
+        origin: Optional[str] = None,
     ):
         """Register value_info metadata for a given variable name.
 
@@ -66,14 +68,11 @@ class OnnxBuilder:
             origin: optional string describing where the metadata came from
         """
         self.value_info_metadata[name] = (shape, dtype)
+        self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
 
-        # Optional: track metadata origin for debugging or validation
-        if not hasattr(self, "value_info_origin"):
-            self.value_info_origin = {}
-        self.value_info_origin[name] = origin or "traced"
-
-        self.value_info_metadata[name] = (shape, dtype)
-        #
+        print(
+            f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}, origin={origin}"
+        )
 
     def find_missing_value_info(self) -> List[str]:
         known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
