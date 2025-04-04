@@ -62,11 +62,9 @@ def to_onnx(
     model = builder.create_onnx_model(model_name)
 
     # Optimize and check model
-    try:
-        model = improve_onnx_model(model)
-        onnx.checker.check_model(model)
-    except Exception as e:
-        print(f"Warning: Post-conversion optimization or checking failed: {e}")
+
+    model = improve_onnx_model(model)
+    onnx.checker.check_model(model)
 
     # analyze_constants(model) # Keep commented if not needed
 

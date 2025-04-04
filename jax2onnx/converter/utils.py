@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-def _tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
+def tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
     """
     Converts ONNX TensorProto data types to NumPy data types.
     """
@@ -37,6 +37,27 @@ def _tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
         )
         return np.float32
     return np_dtype
+
+
+def numpy_dtype_to_tensorproto(dtype):
+    # If already an ONNX TensorProto dtype enum (int), just return
+    if isinstance(dtype, int):
+        return dtype
+
+    try:
+        np_dtype = np.dtype(dtype).type
+    except TypeError:
+        return TensorProto.FLOAT  # fallback
+
+    return {
+        np.float32: TensorProto.FLOAT,
+        np.float64: TensorProto.DOUBLE,
+        np.int32: TensorProto.INT32,
+        np.int64: TensorProto.INT64,
+        np.bool_: TensorProto.BOOL,
+        np.int8: TensorProto.INT8,
+        np.uint8: TensorProto.UINT8,
+    }.get(np_dtype, TensorProto.FLOAT)
 
 
 def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBuilder):
@@ -75,19 +96,24 @@ def function_handler(
     unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
     print(f"Generating unique ONNX node name: {unique_node_name}")
 
+    parent_builder = converter.builder
+    input_names = []
+    example_args = []
+
     try:
-        input_names = [
-            converter.get_name(v) for v in eqn.invars if not isinstance(v, Literal)
-        ]
-        example_args = []
         for var in eqn.invars:
             if isinstance(var, Var):
                 aval = var.aval
+                name = converter.get_name(var)
+                input_names.append(name)
                 example_args.append(
                     jnp.ones(aval.shape, dtype=aval.dtype)
                     if aval.shape
                     else jnp.zeros((), dtype=aval.dtype)
                 )
+                shape = tuple(aval.shape)
+                dtype = aval.dtype
+                parent_builder.register_value_info_metadata(name, shape, dtype)
             elif isinstance(var, Literal):
                 example_args.append(var.val)
             else:
@@ -96,10 +122,7 @@ def function_handler(
         print(f"Failed to prepare inputs for {impl_key}: {e}")
         raise
 
-    parent_builder = converter.builder
-
     unique_func_name = unique_node_name
-
     print(f"Tracing function body for: {unique_func_name}")
 
     sub_builder = OnnxBuilder(
@@ -134,6 +157,32 @@ def function_handler(
 
     # ✅ Propagate shape/type info from sub_builder to parent
     parent_builder.merge_value_info_metadata_from(sub_builder)
+
+    # --- Ensure output value_info is registered ---
+    for var in eqn.outvars:
+        parent_name = converter.get_var_name(var)
+        sub_name = sub_converter.get_name(var)
+        if parent_name in parent_builder.value_info:
+            continue  # already added explicitly
+
+        shape_dtype = sub_builder.value_info_metadata.get(
+            sub_name
+        ) or parent_builder.value_info_metadata.get(parent_name)
+
+        if not shape_dtype and hasattr(var, "aval"):
+            aval = var.aval
+            shape = tuple(aval.shape)
+            dtype = numpy_dtype_to_tensorproto(aval.dtype)
+            shape_dtype = (shape, dtype)
+
+        if not shape_dtype:
+            raise RuntimeError(
+                f"Output '{parent_name}' missing metadata; cannot register shape/type."
+            )
+
+        shape, dtype = shape_dtype
+        parent_builder.register_value_info_metadata(parent_name, shape, dtype)
+        parent_builder.add_value_info(parent_name, shape, dtype)
 
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"Finished tracing function body: {unique_func_name}")

@@ -2,7 +2,6 @@
 
 
 import onnx
-from onnx import shape_inference
 from typing import Dict, List, Optional
 from onnx import ModelProto
 from itertools import chain
@@ -13,11 +12,11 @@ logging.basicConfig(level=logging.INFO)
 
 def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
 
-    onnx_model = shape_inference.infer_shapes(onnx_model)
+    # onnx_model = shape_inference.infer_shapes(onnx_model)
     onnx_model = remove_redundant_casts(onnx_model)
     onnx_model = remove_redundant_reshapes(onnx_model)
     onnx_model = remove_redundant_transpose_pairs(onnx_model)
-    onnx_model = shape_inference.infer_shapes(onnx_model)
+    # onnx_model = shape_inference.infer_shapes(onnx_model)
     onnx_model = strip_unk_dim_names(onnx_model)
 
     return onnx_model
@@ -56,7 +55,8 @@ def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
         The optimized ONNX model with redundant Cast nodes removed.
     """
     # Run shape inference to obtain type information.
-    inferred_model = shape_inference.infer_shapes(onnx_model)
+    # inferred_model = shape_inference.infer_shapes(onnx_model)
+    inferred_model = onnx_model
     graph = inferred_model.graph
 
     # Build a mapping from tensor name to its element type.
