@@ -103,7 +103,6 @@ def function_handler(
     print(f"Tracing function body for: {unique_func_name}")
 
     sub_builder = OnnxBuilder(
-        parent_builder.name_counter,
         parent_builder.name_generator,
         parent_builder.opset,
         unique_func_name + "_graph",
@@ -143,7 +142,6 @@ def function_handler(
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
     parent_builder.add_function_call_node(
-        # converter=converter,
         function_name=unique_node_name,
         input_names=call_inputs,
         output_names=output_names,
