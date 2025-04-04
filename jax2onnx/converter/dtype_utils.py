@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/dtype_utils.py
+
 import numpy as np
 from onnx import TensorProto
 
@@ -29,13 +31,20 @@ def numpy_dtype_to_tensorproto(dtype):
     from onnx import TensorProto
 
     # Normalize input
+    if isinstance(dtype, int):  # Already ONNX enum
+        return dtype
+
+    if isinstance(dtype, str):
+        try:
+            dtype = np.dtype(dtype)
+        except TypeError:
+            raise TypeError(f"Unsupported dtype string: {dtype}")
+
     if isinstance(dtype, type) and issubclass(dtype, np.generic):
         dtype = np.dtype(dtype)
 
-    if isinstance(dtype, int):  # Already ONNX enum
-        return dtype
-    elif isinstance(dtype, np.dtype):
-        return {
+    if isinstance(dtype, np.dtype):
+        dtype_map = {
             np.dtype("float32"): TensorProto.FLOAT,
             np.dtype("float64"): TensorProto.DOUBLE,
             np.dtype("float16"): TensorProto.FLOAT16,
@@ -43,7 +52,13 @@ def numpy_dtype_to_tensorproto(dtype):
             np.dtype("int64"): TensorProto.INT64,
             np.dtype("uint8"): TensorProto.UINT8,
             np.dtype("int8"): TensorProto.INT8,
+            np.dtype("int16"): TensorProto.INT16,  # ✅ Add this line
             np.dtype("bool"): TensorProto.BOOL,
-        }[dtype]
-    else:
-        raise TypeError(f"Unsupported dtype: {dtype} ({type(dtype)})")
+        }
+
+        if dtype in dtype_map:
+            return dtype_map[dtype]
+        else:
+            raise TypeError(f"Unsupported dtype: {dtype} ({type(dtype)})")
+
+    raise TypeError(f"Unsupported dtype: {dtype} ({type(dtype)})")
