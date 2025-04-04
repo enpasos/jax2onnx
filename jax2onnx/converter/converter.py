@@ -15,6 +15,7 @@ from jax2onnx.plugin_system import (
     import_all_plugins,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
+from jax2onnx.converter.utils import numpy_dtype_to_tensorproto
 
 
 class Jaxpr2OnnxConverter:
@@ -119,6 +120,30 @@ class Jaxpr2OnnxConverter:
 
         jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
         self._process_jaxpr(jaxpr, consts)
+        # --- Register output value_info ---
+        for var in jaxpr.outvars:
+            name = self.get_var_name(var)
+            if name in self.builder.value_info:
+                continue  # already added
+
+            if name in self.builder.value_info_metadata:
+                shape, dtype = self.builder.value_info_metadata[name]
+            elif hasattr(var, "aval"):
+                shape = tuple(var.aval.shape)
+                # Force INT64 for variables whose name suggests they are shape-related.
+                if "shape" in name.lower() or "reshape" in name.lower():
+                    dtype = numpy_dtype_to_tensorproto(np.dtype("int64"))
+                else:
+                    dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                self.builder.register_value_info_metadata(name, shape, dtype)
+                # Re-read to ensure consistency
+                shape, dtype = self.builder.value_info_metadata[name]
+            else:
+                raise RuntimeError(
+                    f"Output var {name} does not have an aval; cannot infer shape and dtype."
+                )
+
+            self.builder.add_value_info(name, shape, dtype)
 
     def convert(
         self, fn, example_args, output_path="model.onnx", model_name="jax_model"

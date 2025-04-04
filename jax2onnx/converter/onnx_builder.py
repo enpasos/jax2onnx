@@ -323,7 +323,10 @@ class OnnxBuilder:
 
     def _register_value_info_if_missing(self, name: str):
         if name not in self.value_info:
-            shape, dtype = self.value_info_metadata.get(name, (None, TensorProto.FLOAT))
+            if name not in self.value_info_metadata:
+                raise RuntimeError(f"[STRICT] Missing value_info_metadata for '{name}'")
+            shape, dtype = self.value_info_metadata[name]
+
             if shape is None:
                 # fallback for debugging
                 print(f"[WARN] Missing metadata for: {name} — using fallback")
