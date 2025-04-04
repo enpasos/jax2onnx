@@ -549,3 +549,27 @@ class OnnxBuilder:
                     print(
                         f"⚠️ [merge] Mismatch in value_info for '{name}': existing={existing}, new={(shape, dtype)}"
                     )
+
+    def get_value_info_origins(self) -> Dict[str, str]:
+        """
+        Returns a dictionary mapping each value name to its metadata origin.
+        Example:
+            {
+                "var_0": "traced",
+                "var_1": "recovered",
+                ...
+            }
+        """
+        if hasattr(self, "value_info_origin"):
+            return dict(self.value_info_origin)
+        return {}
+
+    def print_value_info_summary(self) -> None:
+        """
+        Debug utility: prints all registered value_info entries with shape, dtype, and origin.
+        """
+        print("\n[🔎] ONNX ValueInfo Summary:")
+        for name in sorted(self.value_info_metadata):
+            shape, dtype = self.value_info_metadata[name]
+            origin = self.value_info_origin.get(name, "unknown")
+            print(f" - {name:30} shape={shape}, dtype={dtype}, origin={origin}")
