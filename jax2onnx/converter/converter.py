@@ -118,7 +118,10 @@ class Jaxpr2OnnxConverter:
 
         print(closed_jaxpr)
 
-        jaxpr, consts = closed_jaxpr.jaxpr, closed_jaxpr.consts
+        self.jaxpr = closed_jaxpr.jaxpr  # Save for debugging or introspection
+        self.output_vars = self.jaxpr.outvars  # New: record output variables
+        jaxpr, consts = self.jaxpr, closed_jaxpr.consts
+
         self._process_jaxpr(jaxpr, consts)
         # --- Register output value_info ---
         for var in jaxpr.outvars:
