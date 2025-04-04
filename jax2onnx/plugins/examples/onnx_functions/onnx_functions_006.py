@@ -3,7 +3,7 @@
 
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import onnx_function, register_example
 
 
 # class MLPBlock(nnx.Module):
@@ -27,7 +27,7 @@ from jax2onnx.plugin_system import register_example
 #         return x
 
 
-# @onnx_function
+@onnx_function
 class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
@@ -51,7 +51,7 @@ register_example(
             "testcase": "006_one_function_outer",
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 256)],
-            "expected_number_of_function_instances": 0,
+            "expected_number_of_function_instances": 1,
         },
     ],
 )
