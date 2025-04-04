@@ -165,16 +165,16 @@ def function_handler(
             sub_name
         ) or parent_builder.value_info_metadata.get(parent_name)
 
-        if not shape_dtype and hasattr(var, "aval"):
-            aval = var.aval
-            shape = tuple(aval.shape)
-            dtype = numpy_dtype_to_tensorproto(aval.dtype)
-            shape_dtype = (shape, dtype)
-
         if not shape_dtype:
-            raise RuntimeError(
-                f"Output '{parent_name}' missing metadata; cannot register shape/type."
-            )
+            if hasattr(var, "aval"):
+                shape = tuple(var.aval.shape)
+                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                shape_dtype = (shape, dtype)
+                print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
+            else:
+                raise RuntimeError(
+                    f"Output '{parent_name}' missing metadata and has no aval. Cannot infer shape/type."
+                )
 
         shape, dtype = shape_dtype
         parent_builder.register_value_info_metadata(parent_name, shape, dtype)
