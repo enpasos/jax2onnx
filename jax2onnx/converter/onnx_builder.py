@@ -85,13 +85,10 @@ class OnnxBuilder:
         )
         self.initializers.append(tensor)
 
-        # ✅ Ensure shape is a tuple of integers
+        # ✅ Directly use ONNX dtype from tensor
         self.register_value_info_metadata(
-            name, shape=tuple(np_val.shape), dtype=np_val.dtype
+            name, shape=tuple(np_val.shape), dtype=onnx_dtype
         )
-
-        # ✅ Auto-fix fallback value_info for edge cases like tile_repeats, etc.
-        self._auto_fix_constant_value_info(name, np_val)
 
         return name
 
@@ -123,8 +120,8 @@ class OnnxBuilder:
         )
         self.initializers.append(tensor)
 
-        # ✅ Auto-fix value_info metadata
-        self._auto_fix_constant_value_info(name, np.array(flat_vals).reshape(dims))
+        # ✅ Directly use ONNX dtype from tensor
+        self.register_value_info_metadata(name, shape=tuple(dims), dtype=data_type)
 
         return name
 
@@ -136,9 +133,14 @@ class OnnxBuilder:
         dtype: Any,
     ):
         shape = _as_tuple(shape)
-        tensor_def = helper.make_tensor_value_info(
-            name, self._numpy_dtype_to_onnx(dtype), shape
-        )
+
+        # ✅ If dtype is already an ONNX TensorProto enum, do not convert again!
+        if isinstance(dtype, int):  # ONNX enums are integers
+            onnx_dtype = dtype
+        else:
+            onnx_dtype = self._numpy_dtype_to_onnx(dtype)
+
+        tensor_def = helper.make_tensor_value_info(name, onnx_dtype, shape)
         collection.append(tensor_def)
 
     def add_input(
@@ -337,22 +339,13 @@ class OnnxBuilder:
             self.add_value_info(name, shape, dtype)
 
     def _auto_fix_constant_value_info(self, name: str, value: np.ndarray):
+        if name in self.value_info_metadata:
+            return  # ✅ NEVER overwrite already correctly set metadata
         if not isinstance(value, np.ndarray):
             value = np.array(value)
-
-        # Shape + Type
-        shape = list(value.shape)
-        dtype = onnx.mapping.NP_TYPE_TO_TENSOR_TYPE.get(value.dtype)
-
-        # 👇 Patch: Special case for scalar lists that are meant to be INT64 (e.g. axes, shape)
-        if dtype == TensorProto.FLOAT and name.endswith(
-            ("_shape", "_axes", "_repeats", "_starts", "_ends")
-        ):
-            dtype = TensorProto.INT64
-            value = value.astype(np.int64)  # Also patch the initializer
-
-        # Ensure shape is a tuple of integers
-        self.register_value_info_metadata(name, shape=tuple(shape), dtype=dtype)
+        shape = tuple(value.shape)
+        onnx_dtype = self._numpy_dtype_to_onnx(value.dtype)
+        self.register_value_info_metadata(name, shape=shape, dtype=onnx_dtype)
 
     def add_function_call_node(
         self,
