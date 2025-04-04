@@ -2,6 +2,8 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 from typing import TYPE_CHECKING, Union, Sequence, Tuple
+
+import onnx
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
 if TYPE_CHECKING:
@@ -86,6 +88,7 @@ class TilePlugin(PrimitiveLeafPlugin):
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
         input_shape = node_inputs[0].aval.shape
+        input_dtype = node_inputs[0].aval.dtype
 
         # ONNX requires repeats as an initializer.
         repeats_name = s.get_unique_name("tile_repeats")
@@ -93,7 +96,6 @@ class TilePlugin(PrimitiveLeafPlugin):
         # If repeats has more dimensions than input, reshape input first
         actual_input_name = input_name
         if len(repeats) > len(input_shape):
-            # Add leading dimensions of size 1
             reshaped_input_shape = (1,) * (
                 len(repeats) - len(input_shape)
             ) + input_shape
@@ -104,29 +106,41 @@ class TilePlugin(PrimitiveLeafPlugin):
                 name=shape_name, vals=np.array(reshaped_input_shape, dtype=np.int64)
             )
 
-            # Create reshape node
             reshaped_name = s.get_unique_name("reshaped_input")
             reshape_node = helper.make_node(
                 "Reshape",
                 inputs=[input_name, shape_name],
                 outputs=[reshaped_name],
                 name=s.get_unique_name("reshape"),
-                allowzero=0,  # Explicit allowzero
+                allowzero=0,
             )
             s.add_node(reshape_node)
-            s.add_shape_info(reshaped_name, reshaped_input_shape)  # Add shape info
 
-            # Update input name and shape for tile operation
+            # ✅ FIX: Register value_info *and* add it to the graph
+            s.builder.register_value_info_metadata(
+                reshaped_name,
+                shape=reshaped_input_shape,
+                dtype=input_dtype,
+            )
+            s.builder.add_value_info(
+                reshaped_name,
+                shape=reshaped_input_shape,
+                dtype=input_dtype,
+            )
+
             actual_input_name = reshaped_name
             input_shape = reshaped_input_shape
         elif len(repeats) < len(input_shape):
-            # Pad repeats to match input rank if needed, prepending 1s
             repeats = (1,) * (len(input_shape) - len(repeats)) + tuple(repeats)
 
-        # Add repeats as initializer
         s.add_initializer(name=repeats_name, vals=np.array(repeats, dtype=np.int64))
 
-        # Create tile node
+        s.builder.register_value_info_metadata(
+            repeats_name,
+            shape=(len(repeats),),
+            dtype=onnx.TensorProto.INT64,
+        )
+
         tile_node = helper.make_node(
             "Tile",
             inputs=[actual_input_name, repeats_name],
@@ -135,13 +149,11 @@ class TilePlugin(PrimitiveLeafPlugin):
         )
         s.add_node(tile_node)
 
-        # Calculate output shape
         output_shape = tuple(s * r for s, r in zip(input_shape, repeats))
         s.add_shape_info(output_name, output_shape)
 
     @staticmethod
     def _tile(a, reps: Union[int, Sequence[int]]):
-        """Defines the primitive binding for Tile."""
         reps_tuple = TilePlugin._determine_dimensions(reps, len(a.shape))
         return jnp.tile_p.bind(a, repeats=reps_tuple)
 
@@ -149,7 +161,6 @@ class TilePlugin(PrimitiveLeafPlugin):
     def _determine_dimensions(
         reps: Union[int, Sequence[int]], operand_ndim: int
     ) -> Tuple[int, ...]:
-        """Handle different representations of repetition dimensions."""
         if isinstance(reps, int):
             reps_tuple: Tuple[int, ...] = (reps,)
         else:
@@ -160,8 +171,6 @@ class TilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def get_monkey_patch():
-        """Provides patching information for Tile."""
-
         def patched_tile(a, reps: Union[int, Sequence[int]]):
             return TilePlugin._tile(a, reps)
 
@@ -169,7 +178,6 @@ class TilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def patch_info():
-        """Provides patching information for Tile."""
         return {
             "patch_targets": [jnp],
             "patch_function": lambda _: TilePlugin._tile,

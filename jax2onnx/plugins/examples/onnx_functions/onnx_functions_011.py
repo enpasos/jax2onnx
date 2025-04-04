@@ -218,26 +218,25 @@ class ClassificationHead(nnx.Module):
         return nnx.log_softmax(self.dense(x))
 
 
-# @onnx_function
-# class ConcatClsToken(nnx.Module):
+@onnx_function
+class ConcatClsToken(nnx.Module):
 
-#     def __init__(
-#         self,
-#         num_hiddens: int,
-#         *,
-#         rngs: nnx.Rngs,
-#     ):
+    def __init__(
+        self,
+        num_hiddens: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
 
-#         self.cls_token = nnx.Param(
-#             jax.random.normal(rngs.params(), (1, 1, num_hiddens))
-#         )
+        self.cls_token = nnx.Param(
+            jax.random.normal(rngs.params(), (1, 1, num_hiddens))
+        )
 
-
-#     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-#         batch_size = x.shape[0]
-#         cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
-#         x = jnp.concatenate([cls_tokens, x], axis=1)
-#         return x
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        batch_size = x.shape[0]
+        cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
+        x = jnp.concatenate([cls_tokens, x], axis=1)
+        return x
 
 
 @onnx_function
@@ -275,7 +274,7 @@ class VisionTransformer(nnx.Module):
             rngs=rngs,
         )
 
-        # self.concat_cls_token = ConcatClsToken( num_hiddens=num_hiddens, rngs=rngs)
+        self.concat_cls_token = ConcatClsToken(num_hiddens=num_hiddens, rngs=rngs)
 
         num_patches = (height // 4) * (width // 4)
 
@@ -309,20 +308,20 @@ class VisionTransformer(nnx.Module):
             raise ValueError("Input tensor 'x' must have shape (B, H, W, 1).")
 
         x = self.embedding(x)
-        # x = self.concat_cls_token(x)
+        x = self.concat_cls_token(x)
 
-        batch_size = x.shape[0]
-        cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
-        x = jnp.concatenate([cls_tokens, x], axis=1)
+        # batch_size = x.shape[0]
+        # cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
+        # x = jnp.concatenate([cls_tokens, x], axis=1)
 
-        pos_emb_expanded = jax.lax.dynamic_slice(
-            self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )
-        pos_emb_expanded = jnp.asarray(pos_emb_expanded)
-        x = x + pos_emb_expanded
+        # pos_emb_expanded = jax.lax.dynamic_slice(
+        #     self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
+        # )
+        # pos_emb_expanded = jnp.asarray(pos_emb_expanded)
+        # x = x + pos_emb_expanded
 
-        x = self.transformer_stack(x)
-        x = self.classification_head(x)
+        # x = self.transformer_stack(x)
+        # x = self.classification_head(x)
         return x
 
 

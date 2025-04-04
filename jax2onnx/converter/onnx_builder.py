@@ -85,9 +85,11 @@ class OnnxBuilder:
         )
         self.initializers.append(tensor)
 
-        # ✅ Directly use ONNX dtype from tensor
+        # 🚨 CRITICAL STEP: Register metadata immediately here
         self.register_value_info_metadata(
-            name, shape=tuple(np_val.shape), dtype=onnx_dtype
+            name,
+            shape=tuple(np_val.shape),
+            dtype=onnx_dtype,  # dtype is ONNX enum here!
         )
 
         return name
@@ -120,7 +122,6 @@ class OnnxBuilder:
         )
         self.initializers.append(tensor)
 
-        # ✅ Directly use ONNX dtype from tensor
         self.register_value_info_metadata(name, shape=tuple(dims), dtype=data_type)
 
         return name

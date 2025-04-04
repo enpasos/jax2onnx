@@ -133,12 +133,12 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         output_shape = ReshapePlugin._get_dynamic_output_shape(input_shape, newshape)
         processed_newshape = ReshapePlugin._process_newshape(newshape)
 
-        # Create a shape tensor for ONNX
-        shape_tensor_name = s.get_unique_name("reshape_shape")
-        onnx_shape = [dim if isinstance(dim, int) else -1 for dim in processed_newshape]
-        # Create a NumPy array with the correct dtype (int64)
-        onnx_shape_array = np.array(onnx_shape, dtype=np.int64)
-        s.add_initializer(name=shape_tensor_name, vals=onnx_shape_array)
+        shape_tensor_name = s.builder.get_constant_name(
+            np.array(
+                [dim if isinstance(dim, int) else -1 for dim in processed_newshape],
+                dtype=np.int64,
+            )
+        )
 
         reshape_node = helper.make_node(
             "Reshape",
@@ -148,7 +148,10 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             allowzero=0,  # Explicit allowzero=0
         )
         s.add_node(reshape_node)
-        s.add_shape_info(output_name, output_shape)
+
+        s.builder.add_value_info(
+            output_name, shape=output_shape, dtype=node_inputs[0].aval.dtype
+        )
 
     @staticmethod
     def _reshape(a, newshape, order="C"):
