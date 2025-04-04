@@ -134,13 +134,22 @@ def function_handler(
     param_inputs = sorted(used_constants)
     print(f"Identified parameters (constants): {param_inputs}")
 
+    sub_output_names = [vi.name for vi in sub_builder.outputs]
+
+    # 🛡️ Validate all subgraph outputs have metadata
+    for name in sub_output_names:
+        if name not in sub_builder.value_info_metadata:
+            raise RuntimeError(
+                f"[❌] Subgraph output '{name}' is missing shape/type metadata. "
+                f"Cannot register function '{unique_func_name}'."
+            )
+
     internal_name = parent_builder.add_function(
         name=unique_func_name,
         sub_builder=sub_builder,
         param_input_names=param_inputs,
     )
 
-    sub_output_names = [vi.name for vi in sub_builder.outputs]
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
     for i, var in enumerate(eqn.outvars):
@@ -152,18 +161,26 @@ def function_handler(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
-        if sub_name not in sub_builder.value_info_metadata and i < len(
-            sub_output_names
-        ):
-            fallback_sub_name = sub_output_names[i]
-            print(
-                f"[FALLBACK] Using subgraph output by position: '{fallback_sub_name}'"
-            )
-            if fallback_sub_name != sub_name:
-                print(
-                    f"[WARN] Output name mismatch: expected '{sub_name}', fallback used: '{fallback_sub_name}'"
+        if sub_name not in sub_builder.value_info_metadata:
+            if hasattr(var, "aval"):
+                shape = tuple(var.aval.shape)
+                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                sub_builder.register_value_info_metadata(
+                    sub_name, shape, dtype, origin="repaired"
                 )
-            sub_name = fallback_sub_name
+                print(
+                    f"[REPAIR] Injected missing shape/type for subgraph output '{sub_name}' using var.aval."
+                )
+            elif i < len(sub_output_names):
+                fallback_sub_name = sub_output_names[i]
+                print(
+                    f"[FALLBACK] Using subgraph output by position: '{fallback_sub_name}'"
+                )
+                if fallback_sub_name != sub_name:
+                    print(
+                        f"[WARN] Output name mismatch: expected '{sub_name}', fallback used: '{fallback_sub_name}'"
+                    )
+                sub_name = fallback_sub_name
 
         if parent_name in parent_builder.value_info:
             continue
