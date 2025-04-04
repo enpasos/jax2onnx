@@ -341,7 +341,7 @@ register_example(
 )
 
 
-@onnx_function
+# @onnx_function
 class VisionTransformer(nnx.Module):
     """Vision Transformer model for MNIST with configurable embedding type."""
 
