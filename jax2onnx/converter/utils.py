@@ -150,7 +150,6 @@ def function_handler(
 
     # ✅ Propagate shape/type info from sub_builder to parent
     parent_builder.merge_value_info_metadata_from(sub_builder)
-
     # --- Ensure output value_info is registered ---
     for i, var in enumerate(eqn.outvars):
         sub_name = sub_output_names[i] if i < len(sub_output_names) else None
@@ -158,6 +157,11 @@ def function_handler(
         original_parent_name = converter.get_var_name(var)
         parent_name = original_parent_name
         sub_name = sub_converter.get_name(var)
+
+        print(
+            f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
+        )
+
         if parent_name in parent_builder.value_info:
             continue  # already added explicitly
 
