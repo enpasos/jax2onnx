@@ -155,7 +155,8 @@ def function_handler(
     for i, var in enumerate(eqn.outvars):
         sub_name = sub_output_names[i] if i < len(sub_output_names) else None
 
-        parent_name = converter.get_var_name(var)
+        original_parent_name = converter.get_var_name(var)
+        parent_name = original_parent_name
         sub_name = sub_converter.get_name(var)
         if parent_name in parent_builder.value_info:
             continue  # already added explicitly
@@ -171,7 +172,6 @@ def function_handler(
                 shape_dtype = (shape, dtype)
                 print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
 
-                # 🆕 Step 4: Check if subgraph metadata exists and mismatches
                 actual = sub_builder.value_info_metadata.get(sub_name)
                 if actual:
                     actual_shape, actual_dtype = actual
@@ -182,13 +182,11 @@ def function_handler(
                             f"aval has shape={shape}, dtype={dtype}"
                         )
 
-                # 🆕 Step 5: Write shape into sub_builder if missing
                 if sub_name not in sub_builder.value_info_metadata:
                     sub_builder.register_value_info_metadata(
                         sub_name, shape, dtype, origin="recovered"
                     )
 
-                # Always register recovered in parent
                 parent_builder.register_value_info_metadata(
                     parent_name, shape, dtype, origin="recovered"
                 )
@@ -198,9 +196,7 @@ def function_handler(
                 )
         else:
             shape, dtype = shape_dtype
-            parent_builder.register_value_info_metadata(
-                parent_name, shape, dtype
-            )  # default origin
+            parent_builder.register_value_info_metadata(parent_name, shape, dtype)
 
         parent_builder.add_value_info(parent_name, shape, dtype)
 
