@@ -146,11 +146,16 @@ def function_handler(
         param_input_names=param_inputs,
     )
 
+    # 🆕 Step 2: Get subgraph output names (actual names from the sub_builder)
+    sub_output_names = [vi.name for vi in sub_builder.outputs]
+
     # ✅ Propagate shape/type info from sub_builder to parent
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
     # --- Ensure output value_info is registered ---
-    for var in eqn.outvars:
+    for i, var in enumerate(eqn.outvars):
+        sub_name = sub_output_names[i] if i < len(sub_output_names) else None
+
         parent_name = converter.get_var_name(var)
         sub_name = sub_converter.get_name(var)
         if parent_name in parent_builder.value_info:
