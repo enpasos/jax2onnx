@@ -2,6 +2,7 @@
 
 
 import onnx
+from onnx import shape_inference
 from typing import Dict, List, Optional
 from onnx import ModelProto
 from itertools import chain
@@ -12,11 +13,11 @@ logging.basicConfig(level=logging.INFO)
 
 def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
 
-    # onnx_model = shape_inference.infer_shapes(onnx_model)
+    onnx_model = shape_inference.infer_shapes(onnx_model)
     onnx_model = remove_redundant_casts(onnx_model)
     onnx_model = remove_redundant_reshapes(onnx_model)
     onnx_model = remove_redundant_transpose_pairs(onnx_model)
-    # onnx_model = shape_inference.infer_shapes(onnx_model)
+    onnx_model = shape_inference.infer_shapes(onnx_model)
     onnx_model = strip_unk_dim_names(onnx_model)
 
     return onnx_model
