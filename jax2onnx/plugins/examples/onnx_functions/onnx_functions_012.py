@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_011.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_012.py
 
 
 from typing import List
@@ -310,23 +310,19 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         x = self.concat_cls_token(x)
 
-        # batch_size = x.shape[0]
-        # cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
-        # x = jnp.concatenate([cls_tokens, x], axis=1)
-
         # pos_emb_expanded = jax.lax.dynamic_slice(
         #     self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
         # )
         # pos_emb_expanded = jnp.asarray(pos_emb_expanded)
         # x = x + pos_emb_expanded
 
-        # x = self.transformer_stack(x)
-        # x = self.classification_head(x)
+        x = self.transformer_stack(x)
+        x = self.classification_head(x)
         return x
 
 
 register_example(
-    component="onnx_functions_011",
+    component="onnx_functions_012",
     description="Vision Transformer (ViT)",
     since="v0.4.0",
     context="examples.onnx_functions",
@@ -345,7 +341,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "011_vit_conv_embedding",
+            "testcase": "012_vit_conv_embedding",
             "callable": VisionTransformer(
                 height=28,
                 width=28,

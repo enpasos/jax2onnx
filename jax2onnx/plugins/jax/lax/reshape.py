@@ -1,4 +1,5 @@
 import jax
+import numpy as np
 from typing import TYPE_CHECKING
 from onnx import helper
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
@@ -35,21 +36,14 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         output_name = s.get_var_name(node_outputs[0])
         new_shape = params["new_sizes"]
         input_shape = node_inputs[0].aval.shape
+        dtype = node_inputs[0].aval.dtype
 
         def _process_newshape(newshape):
             if isinstance(newshape, (int, str)):
                 newshape = [newshape]
             else:
                 newshape = list(newshape)
-            neg_one_count = 0
-            for dim in newshape:
-                if isinstance(dim, int):
-                    if dim == -1:
-                        neg_one_count += 1
-                    elif dim < 0:
-                        raise ValueError("Invalid shape dimension: {}".format(dim))
-                elif not isinstance(dim, str):
-                    raise ValueError("Invalid shape dimension: {}".format(dim))
+            neg_one_count = sum(1 for dim in newshape if dim == -1)
             if neg_one_count > 1:
                 raise ValueError("Only one dimension can be -1 (inferred).")
             return newshape
@@ -66,8 +60,10 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             s.var_to_name[node_outputs[0]] = input_name
             return
 
-        shape_name = s.get_unique_name("reshape_shape")
-        s.add_initializer(name=shape_name, vals=concrete_shape)
+        # ✅ FIX HERE: Use get_constant_name to reliably register metadata
+        shape_name = s.builder.get_constant_name(
+            np.array(concrete_shape, dtype=np.int64)
+        )
 
         node = helper.make_node(
             "Reshape",
@@ -76,3 +72,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("reshape"),
         )
         s.add_node(node)
+
+        s.builder.register_value_info_metadata(
+            output_name, shape=tuple(processed_newshape), dtype=dtype
+        )
