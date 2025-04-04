@@ -171,6 +171,17 @@ def function_handler(
                 dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
                 shape_dtype = (shape, dtype)
                 print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
+
+                # 🆕 Step 4: Check if subgraph metadata exists and mismatches
+                actual = sub_builder.value_info_metadata.get(sub_name)
+                if actual:
+                    actual_shape, actual_dtype = actual
+                    if (shape, dtype) != (actual_shape, actual_dtype):
+                        print(
+                            f"[WARN] Metadata mismatch for output '{parent_name}': "
+                            f"subgraph has shape={actual_shape}, dtype={actual_dtype}; "
+                            f"aval has shape={shape}, dtype={dtype}"
+                        )
             else:
                 raise RuntimeError(
                     f"Output '{parent_name}' missing metadata and has no aval. Cannot infer shape/type."
