@@ -74,6 +74,10 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
+    """
+    Handles nested JAX functions by creating a nested ONNX function and propagating it to the parent builder.
+    Uses unique instance names for functions and ensures correct output metadata registration.
+    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -122,6 +126,7 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
+
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
     initializer_names = {i.name for i in parent_builder.initializers}
@@ -136,7 +141,6 @@ def function_handler(
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
 
-    # 🛡️ Validate all subgraph outputs have metadata
     for name in sub_output_names:
         if name not in sub_builder.value_info_metadata:
             raise RuntimeError(
@@ -161,80 +165,34 @@ def function_handler(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
-        if sub_name not in sub_builder.value_info_metadata:
-            if hasattr(var, "aval"):
-                shape = tuple(var.aval.shape)
-                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
-                sub_builder.register_value_info_metadata(
-                    sub_name, shape, dtype, origin="repaired"
-                )
-                print(
-                    f"[REPAIR] Injected missing shape/type for subgraph output '{sub_name}' using var.aval."
-                )
-            elif i < len(sub_output_names):
-                fallback_sub_name = sub_output_names[i]
-                print(
-                    f"[FALLBACK] Using subgraph output by position: '{fallback_sub_name}'"
-                )
-                if fallback_sub_name != sub_name:
-                    print(
-                        f"[WARN] Output name mismatch: expected '{sub_name}', fallback used: '{fallback_sub_name}'"
-                    )
-                sub_name = fallback_sub_name
+        shape = dtype = origin = None
 
-        if parent_name in parent_builder.value_info:
-            continue
-
-        shape_dtype = sub_builder.value_info_metadata.get(
+        shape_dtype_origin = sub_builder.get_value_info_metadata_with_origin(
             sub_name
-        ) or parent_builder.value_info_metadata.get(parent_name)
+        ) or parent_builder.get_value_info_metadata_with_origin(parent_name)
 
-        if not shape_dtype:
+        if shape_dtype_origin:
+            shape, dtype, origin = shape_dtype_origin
+
+        if shape is None or dtype is None:
             if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
                 dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
-                shape_dtype = (shape, dtype)
+                origin = "recovered"
                 print(f"[INFO] Recovered shape/type for {parent_name} from var.aval")
 
-                actual = sub_builder.value_info_metadata.get(sub_name)
-                if actual:
-                    actual_shape, actual_dtype = actual
-                    if (shape, dtype) != (actual_shape, actual_dtype):
-                        print(
-                            f"[WARN] Metadata mismatch for output '{parent_name}': "
-                            f"subgraph has shape={actual_shape}, dtype={actual_dtype}; "
-                            f"aval has shape={shape}, dtype={dtype}"
-                        )
-
-                if sub_name not in sub_builder.value_info_metadata:
-                    sub_builder.register_value_info_metadata(
-                        sub_name, shape, dtype, origin="recovered"
-                    )
-
+                sub_builder.register_value_info_metadata(sub_name, shape, dtype, origin)
                 parent_builder.register_value_info_metadata(
-                    parent_name, shape, dtype, origin="recovered"
+                    parent_name, shape, dtype, origin
                 )
             else:
                 raise RuntimeError(
                     f"Output '{parent_name}' missing metadata and has no aval. Cannot infer shape/type."
                 )
         else:
-            shape, dtype = shape_dtype
-            origin = None
-            if sub_name in sub_builder.value_info_metadata_with_origin:
-                _, _, origin = sub_builder.value_info_metadata_with_origin[sub_name]
-            elif parent_name in parent_builder.value_info_metadata_with_origin:
-                _, _, origin = parent_builder.value_info_metadata_with_origin[
-                    parent_name
-                ]
-
             parent_builder.register_value_info_metadata(
-                parent_name, shape, dtype, origin=origin or "subgraph"
+                parent_name, shape, dtype, origin
             )
-            if origin == "repaired":
-                print(
-                    f"[INFO] Propagated repaired shape/type for '{parent_name}' from subgraph."
-                )
 
         parent_builder.add_value_info(parent_name, shape, dtype)
 
