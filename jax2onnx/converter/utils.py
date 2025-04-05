@@ -150,6 +150,17 @@ def function_handler(
                 f"[❌] Could not determine shape/type metadata for output '{parent_name}'"
             )
 
+    # ✅ DEBUG: Show final value_info and outputs before propagation
+    print("[DEBUG] Final parent value_info entries:")
+    for vi in parent_builder.value_info:
+        print(
+            f"  - {vi.name}: shape={list(vi.type.tensor_type.shape.dim)}, dtype={vi.type.tensor_type.elem_type}"
+        )
+
+    print("[DEBUG] Current registered outputs:")
+    for vi in parent_builder.outputs:
+        print(f"  - {vi.name}")
+
     _propagate_nested_functions(parent_builder, sub_builder)
     print(f"Finished tracing function body: {unique_node_name}")
 
