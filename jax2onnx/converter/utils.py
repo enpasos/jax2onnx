@@ -3,14 +3,18 @@
 import numpy as np
 from onnx import TensorProto, helper
 import jax.numpy as jnp
-
+from jax.core import ShapedArray
 from jax.extend.core import Literal, Var
+
 
 # Ensure all needed types are imported
 from typing import TYPE_CHECKING, Callable
 
 # Assuming these are correctly defined in your project:
-from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
+from jax2onnx.converter.dtype_utils import (
+    numpy_dtype_to_tensorproto,
+    tensorproto_dtype_to_numpy,
+)
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder, make_value_info
 
@@ -126,8 +130,15 @@ def function_handler(
 
         shape, dtype = shape_dtype
 
+        # here the original shape is wrong
+        # it was set to the shape of the input (intentionally in the primitive)
+        new_aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
+        var.aval = new_aval
+
         # ✅ Generate fresh output name to avoid conflict
         parent_output_name = parent_builder.get_unique_name("var")
+
+        # can I change the type of var
 
         converter.var_to_name[var] = parent_output_name
         converter.name_to_var[parent_output_name] = var

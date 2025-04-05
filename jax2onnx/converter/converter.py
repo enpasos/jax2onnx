@@ -287,7 +287,7 @@ class Jaxpr2OnnxConverter:
         primitive = eqn.primitive
         name = primitive.name
 
-        is_function_handler = name in ONNX_FUNCTION_PLUGIN_REGISTRY.values()
+        is_function_handler = name in ONNX_FUNCTION_PLUGIN_REGISTRY.keys()
 
         handler = self.primitive_handlers.get(name)
         if handler is None:
