@@ -399,6 +399,11 @@ class OnnxBuilder:
         onnx_dtype = self._numpy_dtype_to_onnx(value.dtype)
         self.register_value_info_metadata(name, shape=shape, dtype=onnx_dtype)
 
+    def merge_functions_from(self, other: "OnnxBuilder"):
+        for name, func in other.functions.items():
+            if name not in self.functions:
+                self.functions[name] = func
+
     def add_function_call_node(
         self,
         function_name: str,
