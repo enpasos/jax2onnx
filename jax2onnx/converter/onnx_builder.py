@@ -443,7 +443,15 @@ class OnnxBuilder:
 
         # 🧠 Ensure all output value info is available
         for output in output_names:
+            if output not in self.value_info_metadata:
+                print(
+                    f"[🚨DEBUG] Output '{output}' is missing from value_info_metadata"
+                )
             if not any(v.name == output for v in self.value_info):
+                print(
+                    f"[🚨DEBUG] Output '{output}' not found in value_info (will NOT register automatically)"
+                )
+
                 dtype = None
                 if func:
                     # Try from declared outputs
