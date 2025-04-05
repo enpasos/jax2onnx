@@ -85,6 +85,8 @@ def function_handler(
     param_inputs = sorted(used_constants)
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
+    print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
+    print(f"[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
 
     internal_name = parent_builder.add_function(
         name=unique_node_name,
@@ -97,17 +99,25 @@ def function_handler(
     for i, var in enumerate(eqn.outvars):
         parent_name = converter.get_var_name(var)
         sub_name = sub_output_names[i]
-
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
+
         if shape_dtype is None:
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
 
         shape, dtype = shape_dtype
+        print(f"    Output {i}: subgraph '{sub_name}' → top-level '{parent_name}'")
+
         print(
-            f"[DEBUG] Mapping subgraph output '{sub_name}' → top-level '{parent_name}' with shape={shape}, dtype={dtype}"
+            f"[DEBUG] Registering output '{parent_name}' with shape={shape}, dtype={dtype}"
         )
+        if parent_name in parent_builder.value_info_metadata:
+            old = parent_builder.value_info_metadata[parent_name]
+            print(
+                f"[⚠️ Overwrite] Output '{parent_name}' already registered with shape={old[0]}, dtype={old[1]}. Overwriting to shape={shape}, dtype={dtype}"
+            )
+
         parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)
 
@@ -122,6 +132,9 @@ def function_handler(
             f"but ONNX expects {len(output_names)}. Check your function return."
         )
 
+    print(
+        f"[DEBUG] Adding function call node: {unique_node_name} with inputs={call_inputs}, outputs={output_names}"
+    )
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
         input_names=call_inputs,
@@ -130,4 +143,4 @@ def function_handler(
         user_display_name=name,
     )
 
-    print(f"✅ Added call node for: {internal_name}")
+    print(f"✅ Added call node for: {unique_node_name}")
