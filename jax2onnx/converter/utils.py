@@ -52,14 +52,30 @@ def function_handler(
             aval = var.aval
             var_name = converter.get_name(var)
             input_names.append(var_name)
+
+            # Create example tensor
             example_args.append(
                 jnp.ones(aval.shape, dtype=aval.dtype)
                 if aval.shape
                 else jnp.zeros((), dtype=aval.dtype)
             )
+
+            # 🛡️ Protect against overwriting existing value info with conflicting shape/dtype
+            if var_name in parent_builder.value_info_metadata:
+                old_shape, old_dtype = parent_builder.value_info_metadata[var_name]
+                new_shape, new_dtype = tuple(aval.shape), aval.dtype
+                if old_shape != new_shape or old_dtype != new_dtype:
+                    print(
+                        f"[❌ OverwriteError] Refusing to overwrite '{var_name}' "
+                        f"(old shape={old_shape}, dtype={old_dtype}) with "
+                        f"(new shape={new_shape}, dtype={new_dtype})"
+                    )
+                    continue
+
             parent_builder.register_value_info_metadata(
                 var_name, tuple(aval.shape), aval.dtype
             )
+
         elif isinstance(var, Literal):
             example_args.append(var.val)
         else:
