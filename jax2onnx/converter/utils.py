@@ -86,6 +86,23 @@ def function_handler(
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
 
+    # Fallback shape/dtype registration from value_info if metadata missing
+    for vi in sub_builder.outputs:
+        name = vi.name
+        if (
+            name not in sub_builder.value_info_metadata
+            and name in sub_builder.value_info
+        ):
+            tensor_type = vi.type.tensor_type
+            shape = tuple(d.dim_value for d in tensor_type.shape.dim)
+            dtype = tensor_type.elem_type
+            print(
+                f"[⚠️] Registering missing metadata from ONNX value_info for '{name}' → shape={shape}, dtype={dtype}"
+            )
+            sub_builder.register_value_info_metadata(
+                name, shape, dtype, origin="from_onnx_value_info"
+            )
+
     internal_name = parent_builder.add_function(
         name=unique_node_name,
         sub_builder=sub_builder,
@@ -105,11 +122,9 @@ def function_handler(
             )
 
         shape, dtype = shape_dtype
-
         print(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → top-level '{parent_name}' with shape={shape}, dtype={dtype}"
         )
-
         parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)
 
@@ -132,4 +147,4 @@ def function_handler(
         user_display_name=name,
     )
 
-    print(f"Added call node for: {internal_name}")
+    print(f"✅ Added call node for: {unique_node_name}")
