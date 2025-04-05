@@ -57,10 +57,6 @@ def function_handler(
                 if aval.shape
                 else jnp.zeros((), dtype=aval.dtype)
             )
-            print(
-                f"[DEBUG] Mapping subgraph output '{sub_name}' → top-level '{parent_name}' with shape={shape}, dtype={dtype}"
-            )
-
             parent_builder.register_value_info_metadata(
                 var_name, tuple(aval.shape), aval.dtype
             )
@@ -109,6 +105,11 @@ def function_handler(
             )
 
         shape, dtype = shape_dtype
+
+        print(
+            f"[DEBUG] Mapping subgraph output '{sub_name}' → top-level '{parent_name}' with shape={shape}, dtype={dtype}"
+        )
+
         parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)
 
