@@ -163,6 +163,10 @@ def make_test_function(tp: Dict[str, Any]):
             model_name=testcase_name,
             opset=opset_version,
         )
+
+        onnx.save_model(onnx_model, model_path)
+        print(f"   Model saved to: {model_path}")
+
         num_found_funcs = len({f.name for f in onnx_model.functions})
         if expected_num_funcs is not None:
             assert (
@@ -183,9 +187,6 @@ def make_test_function(tp: Dict[str, Any]):
                 actual_output_shapes == expected_output_shapes
             ), f"[❌] Output shape mismatch.\nExpected: {expected_output_shapes}\nActual:   {actual_output_shapes}"
             print("-> Output shapes match expected values.")
-
-        onnx.save_model(onnx_model, model_path)
-        print(f"   Model saved to: {model_path}")
 
         # --- Numerical Check ---
         def generate_inputs(shapes, B=None):
