@@ -49,7 +49,7 @@ def function_handler(
     example_args = []
 
     for var in eqn.invars:
-        if isinstance(var, Var):
+        if hasattr(var, "aval"):
             aval = var.aval
             name = converter.get_name(var)
             input_names.append(name)
@@ -102,61 +102,40 @@ def function_handler(
 
     for i, var in enumerate(eqn.outvars):
         parent_name = converter.get_var_name(var)
-        sub_name = sub_converter.get_name(var)
+        sub_name = sub_output_names[i]  # <- Force use of subgraph output name
 
         print(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
         )
 
-        if parent_name in parent_builder.value_info:
-            continue
-
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-        origin = None
+        origin = "subgraph"
 
         if not shape_dtype:
-            print(f"[WARN] Missing metadata for '{sub_name}'")
             if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
                 dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
                 shape_dtype = (shape, dtype)
                 origin = "recovered"
                 print(f"[RECOVER] Inferred metadata from var.aval for '{parent_name}'")
-
                 sub_builder.register_value_info_metadata(sub_name, shape, dtype, origin)
-                if all(vi.name != sub_name for vi in sub_builder.value_info):
-                    sub_builder.add_value_info(sub_name, shape, dtype)
-            elif i < len(sub_output_names):
-                sub_name = sub_output_names[i]
-                shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-                origin = "fallback"
-                print(
-                    f"[FALLBACK] Using positional subgraph output '{sub_name}' for '{parent_name}'"
+            else:
+                raise RuntimeError(
+                    f"[❌] Missing metadata and .aval for '{parent_name}'"
                 )
 
         if shape_dtype:
             shape, dtype = shape_dtype
-            if sub_name in getattr(sub_builder, "value_info_origin", {}):
-                origin = sub_builder.value_info_origin[sub_name]
-                print(
-                    f"[TRACE] Output '{parent_name}' registered from subgraph with origin: {origin}"
-                )
             parent_builder.register_value_info_metadata(
                 parent_name, shape, dtype, origin
             )
             parent_builder.add_value_info(parent_name, shape, dtype)
-        else:
-            print(
-                f"[❌] Could not determine shape/type metadata for output '{parent_name}'"
-            )
-            raise RuntimeError(
-                f"Missing shape/type metadata for output '{parent_name}'"
-            )
 
     print("[DEBUG] Final parent value_info entries:")
     for vi in parent_builder.value_info:
         print(
-            f"  - {vi.name}: shape={list(vi.type.tensor_type.shape.dim)}, dtype={vi.type.tensor_type.elem_type}"
+            f"  - {vi.name}: shape={[d.dim_value for d in vi.type.tensor_type.shape.dim]}, "
+            f"dtype={vi.type.tensor_type.elem_type}"
         )
 
     print("[DEBUG] Current registered outputs:")
