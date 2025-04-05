@@ -17,6 +17,9 @@ from jax2onnx.plugin_system import (
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
 from jax2onnx.converter.utils import numpy_dtype_to_tensorproto
 
+# At the top of converter.py
+from jax2onnx.converter.utils import function_handler as core_function_handler
+
 
 class Jaxpr2OnnxConverter:
     """
@@ -251,22 +254,25 @@ class Jaxpr2OnnxConverter:
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
-        # Proposed corrected logic:
         for var in jaxpr.outvars:
-            output_name = self.get_var_name(var)
+            name = self.get_var_name(var)
+            shape = None
+            dtype = None
 
-            # First, attempt to use corrected shape from builder's metadata
-            metadata = self.builder.value_info_metadata.get(output_name)
-
+            metadata = self.builder.get_value_info_metadata_with_origin(name)
             if metadata:
-                shape, dtype = metadata
-                print(
-                    f"[INFO] Using corrected metadata for output '{output_name}': shape={shape}, dtype={dtype}"
-                )
+                shape, dtype_enum, _ = metadata
+                try:
+                    dtype = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[dtype_enum]
+                except Exception as e:
+                    print(
+                        f"[WARN] Could not convert dtype enum {dtype_enum} for {name}, fallback to var.aval"
+                    )
+                    shape = var.aval.shape
+                    dtype = var.aval.dtype
             else:
-                # If metadata is missing, fallback to original var.aval
                 print(
-                    f"[WARN] Metadata missing for output '{output_name}', falling back to original tracing shape."
+                    f"[WARN] No metadata found for output var '{name}', using fallback."
                 )
                 shape = var.aval.shape
                 dtype = var.aval.dtype
@@ -285,8 +291,22 @@ class Jaxpr2OnnxConverter:
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
 
+        # Identify whether this handler is function_handler (by reference or closure match)
+        is_function_handler = False
+        actual_func = getattr(handler, "__func__", None)  # method bound to plugin?
+        if handler is core_function_handler or actual_func is core_function_handler:
+            is_function_handler = True
+
         handler(self, eqn, eqn.params)
 
-        for outvar in eqn.outvars:
-            output_name = self.get_name(outvar)
-            self.add_shape_info(output_name, outvar.aval.shape)
+        if not is_function_handler:
+            for outvar in eqn.outvars:
+                output_name = self.get_name(outvar)
+                if hasattr(outvar, "aval"):
+                    self.add_shape_info(
+                        output_name, outvar.aval.shape, outvar.aval.dtype
+                    )
+                else:
+                    print(
+                        f"[WARN] Cannot add shape info for {output_name}, missing .aval."
+                    )
