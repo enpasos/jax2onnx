@@ -8,7 +8,6 @@ from onnx import (
     ModelProto,
     GraphProto,
     FunctionProto,
-    AttributeProto,
 )
 import numpy as np
 from typing import Dict, List, Any, Tuple, Optional, Union
@@ -57,6 +56,7 @@ class OnnxBuilder:
             str, Tuple[Tuple[int, ...], Any, Optional[str]]
         ] = {}
         self.dtype_env: Dict[str, onnx.TensorProto.DataType] = {}
+        self.value_info_origin: Dict[str, str] = {}  # Initialize value_info_origin
 
     def register_value_info_metadata(
         self,
@@ -207,7 +207,7 @@ class OnnxBuilder:
         vi = make_value_info(name, shape, dtype)
 
         # Optionally enrich doc_string with origin info (if available)
-        origin = getattr(self, "value_info_origin", {}).get(name)
+        origin = self.value_info_origin.get(name)  # Use initialized value_info_origin
         if origin:
             vi.doc_string = f"origin: {origin}"
 
@@ -373,7 +373,8 @@ class OnnxBuilder:
                     and name not in all_known
                     and name not in self.value_info_metadata
                 ):
-                    self.add_value_info(name, None, TensorProto.FLOAT)
+                    # Ensure shape is not None by providing a default empty tuple
+                    self.add_value_info(name, (), TensorProto.FLOAT)
 
     def _register_value_info_if_missing(self, name: str):
         if name not in self.value_info:

@@ -5,6 +5,7 @@ from onnx import helper
 import numpy as np
 from typing import Dict, Any, Tuple
 import jax.random
+from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
@@ -15,10 +16,9 @@ from jax2onnx.plugin_system import (
     import_all_plugins,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
-from jax2onnx.converter.utils import numpy_dtype_to_tensorproto
+
 
 # At the top of converter.py
-from jax2onnx.converter.utils import function_handler as core_function_handler
 
 
 class Jaxpr2OnnxConverter:
@@ -264,7 +264,7 @@ class Jaxpr2OnnxConverter:
                 shape, dtype_enum, _ = metadata
                 try:
                     dtype = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[dtype_enum]
-                except Exception as e:
+                except Exception:
                     print(
                         f"[WARN] Could not convert dtype enum {dtype_enum} for {name}, fallback to var.aval"
                     )

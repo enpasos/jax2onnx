@@ -1,10 +1,8 @@
 # file: jax2onnx/converter/utils.py
 
-import numpy as np
-from onnx import TensorProto, helper
 import jax.numpy as jnp
 from jax.core import ShapedArray
-from jax.extend.core import Literal, Var
+from jax.extend.core import Literal
 
 
 # Ensure all needed types are imported
@@ -12,11 +10,10 @@ from typing import TYPE_CHECKING, Callable
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.dtype_utils import (
-    numpy_dtype_to_tensorproto,
     tensorproto_dtype_to_numpy,
 )
 from jax2onnx.converter.name_generator import get_qualified_name
-from jax2onnx.converter.onnx_builder import OnnxBuilder, make_value_info
+from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 
 if TYPE_CHECKING:
@@ -106,7 +103,7 @@ def function_handler(
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
     print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
-    print(f"[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
+    print("[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
 
     parent_builder.add_function(
         name=unique_node_name,

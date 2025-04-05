@@ -149,8 +149,12 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         )
         s.add_node(reshape_node)
 
+        # Ensure shape contains only integers by replacing dynamic dimensions with -1
+        sanitized_output_shape = tuple(
+            dim if isinstance(dim, int) else -1 for dim in output_shape
+        )
         s.builder.add_value_info(
-            output_name, shape=output_shape, dtype=node_inputs[0].aval.dtype
+            output_name, shape=sanitized_output_shape, dtype=node_inputs[0].aval.dtype
         )
 
     @staticmethod
