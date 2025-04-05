@@ -102,7 +102,7 @@ def function_handler(
 
     for i, var in enumerate(eqn.outvars):
         parent_name = converter.get_var_name(var)
-        sub_name = sub_output_names[i]  # <- Force use of subgraph output name
+        sub_name = sub_output_names[i]
 
         print(
             f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
@@ -147,6 +147,13 @@ def function_handler(
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
+
+    # ✅ SAFEGUARD: Ensure traced output count matches expected
+    if len(output_names) != len(sub_output_names):
+        raise RuntimeError(
+            f"[ShapeMismatch] Function '{unique_node_name}' produces {len(sub_output_names)} outputs, "
+            f"but ONNX expects {len(output_names)}. Check your function return."
+        )
 
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
