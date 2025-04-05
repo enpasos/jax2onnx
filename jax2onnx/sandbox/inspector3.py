@@ -1,4 +1,4 @@
-from jax2onnx.plugins.examples.onnx_functions.onnx_functions_011 import (
+from jax2onnx.plugins.examples.onnx_functions.onnx_functions_012 import (
     VisionTransformer,
 )
 import jax.numpy as jnp

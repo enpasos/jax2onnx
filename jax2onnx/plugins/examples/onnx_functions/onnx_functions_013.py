@@ -315,19 +315,19 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         x = self.concat_cls_token(x)
 
-        pos_emb_expanded = jax.lax.dynamic_slice(
-            self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )
-        pos_emb_expanded = jnp.asarray(pos_emb_expanded)
-        x = x + pos_emb_expanded
+        # pos_emb_expanded = jax.lax.dynamic_slice(
+        #     self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
+        # )
+        # pos_emb_expanded = jnp.asarray(pos_emb_expanded)
+        # x = x + pos_emb_expanded
 
-        # x = self.transformer_stack(x)
-        # x = self.classification_head(x)
+        x = self.transformer_stack(x)
+        x = self.classification_head(x)
         return x
 
 
 register_example(
-    component="onnx_functions_012",
+    component="onnx_functions_013",
     description="Vision Transformer (ViT)",
     since="v0.4.0",
     context="examples.onnx_functions",
@@ -346,7 +346,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "012_vit_conv_embedding",
+            "testcase": "013_vit_conv_embedding",
             "callable": VisionTransformer(
                 height=28,
                 width=28,
@@ -357,7 +357,7 @@ register_example(
                 num_classes=10,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(3, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )
