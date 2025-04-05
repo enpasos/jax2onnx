@@ -1019,13 +1019,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.2.4"
+version = "8.2.5"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.2.4-py3-none-any.whl", hash = "sha256:ac2374d1a463cfe6d78fb713e7acd36f2c483ad3b3d49638198a0ea777118cbc"},
+    {file = "netron-8.2.5-py3-none-any.whl", hash = "sha256:e1eeb8c104e216cd181c513c480dce85d2b5d2a2b0d772890e7e657e13a71f5d"},
 ]
 
 [[package]]
