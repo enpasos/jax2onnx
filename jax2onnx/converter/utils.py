@@ -115,6 +115,7 @@ def function_handler(
         origin = None
 
         if not shape_dtype:
+            print(f"[WARN] Missing metadata for '{sub_name}'")
             if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
                 dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
@@ -125,7 +126,6 @@ def function_handler(
                 sub_builder.register_value_info_metadata(sub_name, shape, dtype, origin)
                 if all(vi.name != sub_name for vi in sub_builder.value_info):
                     sub_builder.add_value_info(sub_name, shape, dtype)
-
             elif i < len(sub_output_names):
                 sub_name = sub_output_names[i]
                 shape_dtype = sub_builder.value_info_metadata.get(sub_name)
@@ -146,11 +146,13 @@ def function_handler(
             )
             parent_builder.add_value_info(parent_name, shape, dtype)
         else:
-            raise RuntimeError(
+            print(
                 f"[❌] Could not determine shape/type metadata for output '{parent_name}'"
             )
+            raise RuntimeError(
+                f"Missing shape/type metadata for output '{parent_name}'"
+            )
 
-    # ✅ DEBUG: Show final value_info and outputs before propagation
     print("[DEBUG] Final parent value_info entries:")
     for vi in parent_builder.value_info:
         print(
