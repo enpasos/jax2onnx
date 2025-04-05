@@ -113,7 +113,6 @@ def function_handler(
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
     for i, var in enumerate(eqn.outvars):
-        parent_name = converter.get_var_name(var)
         sub_name = sub_output_names[i]
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
 
@@ -123,16 +122,16 @@ def function_handler(
             )
 
         shape, dtype = shape_dtype
-        print(f"    Output {i}: subgraph '{sub_name}' → top-level '{parent_name}'")
 
+        # ✅ Generate fresh output name to avoid conflict
+        parent_name = parent_builder.get_unique_name(f"{sub_name}_out")
+        converter.var_to_name[var] = parent_name
+        converter.name_to_var[parent_name] = var
+
+        print(f"    Output {i}: subgraph '{sub_name}' → top-level '{parent_name}'")
         print(
             f"[DEBUG] Registering output '{parent_name}' with shape={shape}, dtype={dtype}"
         )
-        if parent_name in parent_builder.value_info_metadata:
-            old = parent_builder.value_info_metadata[parent_name]
-            print(
-                f"[⚠️ Overwrite] Output '{parent_name}' already registered with shape={old[0]}, dtype={old[1]}. Overwriting to shape={shape}, dtype={dtype}"
-            )
 
         parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)

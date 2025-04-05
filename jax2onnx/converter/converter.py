@@ -251,9 +251,27 @@ class Jaxpr2OnnxConverter:
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
-        # Setup outputs
+        # Proposed corrected logic:
         for var in jaxpr.outvars:
-            self.add_output(var, var.aval.shape, var.aval.dtype)
+            output_name = self.get_var_name(var)
+
+            # First, attempt to use corrected shape from builder's metadata
+            metadata = self.builder.value_info_metadata.get(output_name)
+
+            if metadata:
+                shape, dtype = metadata
+                print(
+                    f"[INFO] Using corrected metadata for output '{output_name}': shape={shape}, dtype={dtype}"
+                )
+            else:
+                # If metadata is missing, fallback to original var.aval
+                print(
+                    f"[WARN] Metadata missing for output '{output_name}', falling back to original tracing shape."
+                )
+                shape = var.aval.shape
+                dtype = var.aval.dtype
+
+            self.add_output(var, shape, dtype)
 
     def _process_eqn(self, eqn):
         """Process a single JAXPR equation."""
