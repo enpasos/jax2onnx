@@ -164,29 +164,10 @@ def make_test_function(tp: Dict[str, Any]):
             opset=opset_version,
         )
 
+        # Save the model to the specified path
+
         onnx.save_model(onnx_model, model_path)
         print(f"   Model saved to: {model_path}")
-
-        num_found_funcs = len({f.name for f in onnx_model.functions})
-        if expected_num_funcs is not None:
-            assert (
-                num_found_funcs == expected_num_funcs
-            ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs} in generated model."
-        print(f"-> Found expected {num_found_funcs} functions.")
-
-        # === Output shape validation (before saving) ===
-        if expected_output_shapes:
-            print("== Checking model output shapes ==")
-            actual_output_shapes = []
-            for output in onnx_model.graph.output:
-                dims = [d.dim_value for d in output.type.tensor_type.shape.dim]
-                print(f"Output Name: {output.name}  Shape: {dims}")
-                actual_output_shapes.append(tuple(dims))
-
-            assert (
-                actual_output_shapes == expected_output_shapes
-            ), f"[❌] Output shape mismatch.\nExpected: {expected_output_shapes}\nActual:   {actual_output_shapes}"
-            print("-> Output shapes match expected values.")
 
         # --- Numerical Check ---
         def generate_inputs(shapes, B=None):
@@ -223,6 +204,28 @@ def make_test_function(tp: Dict[str, Any]):
                 callable_obj, model_path, *xs
             ), "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
+
+        # === Function instance validation ===
+        num_found_funcs = len({f.name for f in onnx_model.functions})
+        if expected_num_funcs is not None:
+            assert (
+                num_found_funcs == expected_num_funcs
+            ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs} in generated model."
+        print(f"-> Found expected {num_found_funcs} functions.")
+
+        # === Output shape validation ===
+        if expected_output_shapes:
+            print("== Checking model output shapes ==")
+            actual_output_shapes = []
+            for output in onnx_model.graph.output:
+                dims = [d.dim_value for d in output.type.tensor_type.shape.dim]
+                print(f"Output Name: {output.name}  Shape: {dims}")
+                actual_output_shapes.append(tuple(dims))
+
+            assert (
+                actual_output_shapes == expected_output_shapes
+            ), f"[❌] Output shape mismatch.\nExpected: {expected_output_shapes}\nActual:   {actual_output_shapes}"
+            print("-> Output shapes match expected values.")
 
     test_func.__name__ = func_name
     return test_func

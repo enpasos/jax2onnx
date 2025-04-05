@@ -404,6 +404,15 @@ class OnnxBuilder:
             if name not in self.functions:
                 self.functions[name] = func
 
+    def get_shape_dtype(self, var_name: str) -> tuple[tuple[int, ...], int]:
+        metadata = self.value_info_metadata.get(var_name)
+        if metadata is None:
+            raise ValueError(
+                f"[❌] Variable '{var_name}' not found in value_info_metadata."
+            )
+        shape, dtype = metadata
+        return shape, dtype
+
     def add_function_call_node(
         self,
         function_name: str,
