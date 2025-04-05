@@ -118,35 +118,26 @@ class Jaxpr2OnnxConverter:
 
         print(closed_jaxpr)
 
-        self.jaxpr = closed_jaxpr.jaxpr  # Save for debugging or introspection
-        self.output_vars = self.jaxpr.outvars  # New: record output variables
+        self.jaxpr = closed_jaxpr.jaxpr
+        self.output_vars = self.jaxpr.outvars
         jaxpr, consts = self.jaxpr, closed_jaxpr.consts
 
         self._process_jaxpr(jaxpr, consts)
-        # --- Register output value_info ---
+
         for var in jaxpr.outvars:
             name = self.get_var_name(var)
             if name in self.builder.value_info:
-                continue  # already added
+                continue
 
-            if name in self.builder.value_info_metadata:
-                shape, dtype = self.builder.value_info_metadata[name]
-            elif hasattr(var, "aval"):
+            if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
-                # Force INT64 for variables whose name suggests they are shape-related.
-                if "shape" in name.lower() or "reshape" in name.lower():
-                    dtype = numpy_dtype_to_tensorproto(np.dtype("int64"))
-                else:
-                    dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
                 self.builder.register_value_info_metadata(name, shape, dtype)
-                # Re-read to ensure consistency
-                shape, dtype = self.builder.value_info_metadata[name]
+                self.builder.add_value_info(name, shape, dtype)
             else:
                 raise RuntimeError(
-                    f"Output var {name} does not have an aval; cannot infer shape and dtype."
+                    f"[MissingShape] Cannot infer shape for output var {name}"
                 )
-
-            self.builder.add_value_info(name, shape, dtype)
 
     def convert(
         self, fn, example_args, output_path="model.onnx", model_name="jax_model"

@@ -87,7 +87,6 @@ def function_handler(
     print(f"Identified parameters (constants): {param_inputs}")
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
-
     for name in sub_output_names:
         if name not in sub_builder.value_info_metadata:
             print(f"[WARNING] Subgraph output '{name}' is missing value_info metadata.")
@@ -109,27 +108,16 @@ def function_handler(
         )
 
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-        origin = "subgraph"
-
         if not shape_dtype:
-            if hasattr(var, "aval"):
-                shape = tuple(var.aval.shape)
-                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
-                shape_dtype = (shape, dtype)
-                origin = "recovered"
-                print(f"[RECOVER] Inferred metadata from var.aval for '{parent_name}'")
-                sub_builder.register_value_info_metadata(sub_name, shape, dtype, origin)
-            else:
-                raise RuntimeError(
-                    f"[❌] Missing metadata and .aval for '{parent_name}'"
-                )
-
-        if shape_dtype:
-            shape, dtype = shape_dtype
-            parent_builder.register_value_info_metadata(
-                parent_name, shape, dtype, origin
+            raise RuntimeError(
+                f"[❌] Output '{sub_name}' of '{unique_node_name}' has no metadata in sub_builder"
             )
-            parent_builder.add_value_info(parent_name, shape, dtype)
+
+        shape, dtype = shape_dtype
+        parent_builder.register_value_info_metadata(
+            parent_name, shape, dtype, origin="subgraph"
+        )
+        parent_builder.add_value_info(parent_name, shape, dtype)
 
     print("[DEBUG] Final parent value_info entries:")
     for vi in parent_builder.value_info:
