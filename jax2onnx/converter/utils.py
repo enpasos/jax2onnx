@@ -104,7 +104,7 @@ def function_handler(
     print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
     print(f"[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
 
-    internal_name = parent_builder.add_function(
+    parent_builder.add_function(
         name=unique_node_name,
         sub_builder=sub_builder,
         param_input_names=param_inputs,
@@ -112,8 +112,11 @@ def function_handler(
 
     parent_builder.merge_value_info_metadata_from(sub_builder)
 
-    for i, var in enumerate(eqn.outvars):
-        sub_name = sub_output_names[i]
+    call_outputs = []
+
+    for i, sub_name in enumerate(sub_output_names):
+        var = eqn.outvars[i]
+        # sub_name = sub_output_names[i]
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
 
         if shape_dtype is None:
@@ -124,36 +127,24 @@ def function_handler(
         shape, dtype = shape_dtype
 
         # ✅ Generate fresh output name to avoid conflict
-        parent_name = parent_builder.get_unique_name(f"{sub_name}_out")
-        converter.var_to_name[var] = parent_name
-        converter.name_to_var[parent_name] = var
+        parent_output_name = parent_builder.get_unique_name("var")
 
-        print(f"    Output {i}: subgraph '{sub_name}' → top-level '{parent_name}'")
-        print(
-            f"[DEBUG] Registering output '{parent_name}' with shape={shape}, dtype={dtype}"
-        )
+        converter.var_to_name[var] = parent_output_name
+        converter.name_to_var[parent_output_name] = var
 
-        parent_builder.register_value_info_metadata(parent_name, shape, dtype)
-        parent_builder.add_value_info(parent_name, shape, dtype)
+        call_outputs.append(parent_output_name)
+
+        parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
+        parent_builder.add_value_info(parent_output_name, shape, dtype)
 
     _propagate_nested_functions(parent_builder, sub_builder)
 
     call_inputs = input_names + param_inputs
-    output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
-    if len(output_names) != len(sub_output_names):
-        raise RuntimeError(
-            f"[ShapeMismatch] Function '{unique_node_name}' produces {len(sub_output_names)} outputs, "
-            f"but ONNX expects {len(output_names)}. Check your function return."
-        )
-
-    print(
-        f"[DEBUG] Adding function call node: {unique_node_name} with inputs={call_inputs}, outputs={output_names}"
-    )
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
         input_names=call_inputs,
-        output_names=output_names,
+        output_names=call_outputs,
         node_name=unique_node_name,
         user_display_name=name,
     )

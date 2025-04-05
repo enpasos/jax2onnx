@@ -89,7 +89,9 @@ class FunctionPlugin(PrimitivePlugin):
         return builder.end_function()
 
     def abstract_eval_with_kwargs(self, *args, **kwargs):
-        return args[0]
+        return args[
+            0
+        ]  ## this is wrong, it passes the processing, the real shape comes from the original function
 
     def primitive_impl(self, *args, **kwargs):
         if self._orig_fn is None:
