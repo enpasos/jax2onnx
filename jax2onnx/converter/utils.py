@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Callable
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
-from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.converter.name_generator import get_qualified_name
+from jax2onnx.converter.onnx_builder import OnnxBuilder, make_value_info
 
 
 if TYPE_CHECKING:
@@ -35,8 +36,6 @@ def function_handler(
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
-    from jax2onnx.plugin_system import get_qualified_name
-
     impl_key = get_qualified_name(orig_fn)
     print(f"Encountered function primitive: {impl_key}")
 
@@ -51,15 +50,15 @@ def function_handler(
     for var in eqn.invars:
         if hasattr(var, "aval"):
             aval = var.aval
-            name = converter.get_name(var)
-            input_names.append(name)
+            var_name = converter.get_name(var)
+            input_names.append(var_name)
             example_args.append(
                 jnp.ones(aval.shape, dtype=aval.dtype)
                 if aval.shape
                 else jnp.zeros((), dtype=aval.dtype)
             )
             parent_builder.register_value_info_metadata(
-                name, tuple(aval.shape), aval.dtype
+                var_name, tuple(aval.shape), aval.dtype
             )
         elif isinstance(var, Literal):
             example_args.append(var.val)
@@ -84,12 +83,8 @@ def function_handler(
         if inp in initializer_names
     }
     param_inputs = sorted(used_constants)
-    print(f"Identified parameters (constants): {param_inputs}")
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
-    for name in sub_output_names:
-        if name not in sub_builder.value_info_metadata:
-            print(f"[WARNING] Subgraph output '{name}' is missing value_info metadata.")
 
     internal_name = parent_builder.add_function(
         name=unique_node_name,
@@ -103,40 +98,21 @@ def function_handler(
         parent_name = converter.get_var_name(var)
         sub_name = sub_output_names[i]
 
-        print(
-            f"[DEBUG] Mapping subgraph output '{sub_name}' → parent output '{parent_name}'"
-        )
-
         shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-        if not shape_dtype:
+        if shape_dtype is None:
             raise RuntimeError(
-                f"[❌] Output '{sub_name}' of '{unique_node_name}' has no metadata in sub_builder"
+                f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
 
         shape, dtype = shape_dtype
-        parent_builder.register_value_info_metadata(
-            parent_name, shape, dtype, origin="subgraph"
-        )
+        parent_builder.register_value_info_metadata(parent_name, shape, dtype)
         parent_builder.add_value_info(parent_name, shape, dtype)
 
-    print("[DEBUG] Final parent value_info entries:")
-    for vi in parent_builder.value_info:
-        print(
-            f"  - {vi.name}: shape={[d.dim_value for d in vi.type.tensor_type.shape.dim]}, "
-            f"dtype={vi.type.tensor_type.elem_type}"
-        )
-
-    print("[DEBUG] Current registered outputs:")
-    for vi in parent_builder.outputs:
-        print(f"  - {vi.name}")
-
     _propagate_nested_functions(parent_builder, sub_builder)
-    print(f"Finished tracing function body: {unique_node_name}")
 
     call_inputs = input_names + param_inputs
     output_names = [converter.get_var_name(v) for v in eqn.outvars]
 
-    # ✅ SAFEGUARD: Ensure traced output count matches expected
     if len(output_names) != len(sub_output_names):
         raise RuntimeError(
             f"[ShapeMismatch] Function '{unique_node_name}' produces {len(sub_output_names)} outputs, "
