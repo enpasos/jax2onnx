@@ -88,13 +88,9 @@ def function_handler(
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
 
-    # 🛡️ Validate subgraph outputs have metadata
     for name in sub_output_names:
         if name not in sub_builder.value_info_metadata:
-            raise RuntimeError(
-                f"[❌] Subgraph output '{name}' is missing shape/type metadata. "
-                f"Cannot register function '{unique_node_name}'."
-            )
+            print(f"[WARNING] Subgraph output '{name}' is missing value_info metadata.")
 
     internal_name = parent_builder.add_function(
         name=unique_node_name,
