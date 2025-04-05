@@ -136,7 +136,6 @@ def get_plugin_grouping(reset=False) -> Dict[Tuple[str, str], List[Dict[str, Any
     return _GLOBAL_PLUGIN_GROUPING
 
 
-# --- Test Function Creation (MODIFIED) ---
 def make_test_function(tp: Dict[str, Any]):
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
     func_name = f"test_{test_case_name_safe}"
@@ -145,9 +144,8 @@ def make_test_function(tp: Dict[str, Any]):
         callable_obj = tp["callable"]
         input_shapes = tp["input_shapes"]
         testcase_name = tp["testcase"]
-        # === Get expected function count ===
         expected_num_funcs = tp.get("expected_number_of_function_instances")
-        # ===================================
+        expected_output_shapes = tp.get("expected_output_shapes")
         rng = jax.random.PRNGKey(1001)
         context_path = tp["context"].split(".")
         opset_version = 21
@@ -159,48 +157,41 @@ def make_test_function(tp: Dict[str, Any]):
         if hasattr(callable_obj, "eval"):
             callable_obj.eval()
 
-        # === Conditionally generate model and check function count ===
+        onnx_model = to_onnx(
+            callable_obj,
+            input_shapes,
+            model_name=testcase_name,
+            opset=opset_version,
+        )
+        num_found_funcs = len({f.name for f in onnx_model.functions})
         if expected_num_funcs is not None:
-            print(
-                f"\nGenerating model for {testcase_name} (expecting {expected_num_funcs} functions)..."
-            )
-            # Generate the model object first using to_onnx
-            onnx_model = to_onnx(
-                callable_obj,
-                input_shapes,
-                model_name=testcase_name,
-                opset=opset_version,
-            )
-            # Assert the function count
-            num_found_funcs = len({f.name for f in onnx_model.functions})
-
             assert (
                 num_found_funcs == expected_num_funcs
             ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs} in generated model."
-            print(f"-> Found expected {num_found_funcs} functions.")
-            # Save the model manually
-            onnx.save_model(onnx_model, model_path)
-            print(f"   Model saved to: {model_path}")
-        else:
-            # Original behavior if no expectation is set
-            print(f"\nGenerating model for {testcase_name}...")
-            save_onnx(
-                callable_obj,
-                input_shapes,
-                model_path,
-                model_name=testcase_name,
-                opset=opset_version,
-            )
-            print(f"   Model saved to: {model_path}")
-        # ===========================================================
+        print(f"-> Found expected {num_found_funcs} functions.")
+
+        # === Output shape validation (before saving) ===
+        if expected_output_shapes:
+            print("== Checking model output shapes ==")
+            actual_output_shapes = []
+            for output in onnx_model.graph.output:
+                dims = [d.dim_value for d in output.type.tensor_type.shape.dim]
+                print(f"Output Name: {output.name}  Shape: {dims}")
+                actual_output_shapes.append(tuple(dims))
+
+            assert (
+                actual_output_shapes == expected_output_shapes
+            ), f"[❌] Output shape mismatch.\nExpected: {expected_output_shapes}\nActual:   {actual_output_shapes}"
+            print("-> Output shapes match expected values.")
+
+        onnx.save_model(onnx_model, model_path)
+        print(f"   Model saved to: {model_path}")
 
         # --- Numerical Check ---
         def generate_inputs(shapes, B=None):
             actual_shapes = []
-            # Ensure shapes is iterable
             if not isinstance(shapes, (list, tuple)):
                 shapes = [shapes]
-
             for shape in shapes:
                 current_shape = shape if isinstance(shape, (list, tuple)) else (shape,)
                 actual_shapes.append(
@@ -208,7 +199,6 @@ def make_test_function(tp: Dict[str, Any]):
                     if B is not None
                     else current_shape
                 )
-            # Default dtype to float32
             return [
                 jax.random.normal(rng, shape=s, dtype=jnp.float32)
                 for s in actual_shapes
@@ -232,7 +222,6 @@ def make_test_function(tp: Dict[str, Any]):
                 callable_obj, model_path, *xs
             ), "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
-        # --- End Numerical Check ---
 
     test_func.__name__ = func_name
     return test_func

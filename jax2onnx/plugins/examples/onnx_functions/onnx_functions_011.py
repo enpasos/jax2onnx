@@ -357,6 +357,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 1)],
+            "expected_output_shapes": [(3, 50, 256)],
         }
     ],
 )
