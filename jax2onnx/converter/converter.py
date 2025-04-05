@@ -287,15 +287,16 @@ class Jaxpr2OnnxConverter:
         primitive = eqn.primitive
         name = primitive.name
 
+        is_function_handler = name in ONNX_FUNCTION_PLUGIN_REGISTRY.values()
+
         handler = self.primitive_handlers.get(name)
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
 
         # Identify whether this handler is function_handler (by reference or closure match)
-        is_function_handler = False
-        actual_func = getattr(handler, "__func__", None)  # method bound to plugin?
-        if handler is core_function_handler or actual_func is core_function_handler:
-            is_function_handler = True
+
+        # actual_func = getattr(handler, "__func__", None)  # method bound to plugin?
+        # is_function_handler = (handler is core_function_handler or actual_func is core_function_handler)
 
         handler(self, eqn, eqn.params)
 
