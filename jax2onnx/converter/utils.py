@@ -129,8 +129,7 @@ def function_handler(
 
         # here the original shape is wrong
         # it was set to the shape of the input (intentionally in the primitive)
-        new_aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
-        var.aval = new_aval
+        var.aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
 
         # ✅ Generate fresh output name to avoid conflict
         parent_output_name = parent_builder.get_unique_name("var")

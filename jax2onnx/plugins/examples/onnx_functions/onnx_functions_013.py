@@ -303,6 +303,9 @@ class VisionTransformer(nnx.Module):
             num_classes=num_classes,
             rngs=rngs,
         )
+        self.positional_embedding = nnx.Param(
+            create_sinusoidal_embeddings(num_patches, num_hiddens)
+        )
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
@@ -314,6 +317,8 @@ class VisionTransformer(nnx.Module):
 
         x = self.embedding(x)
         x = self.concat_cls_token(x)
+
+        # x = x + self.positional_embedding.value
 
         # pos_emb_expanded = jax.lax.dynamic_slice(
         #     self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])

@@ -407,17 +407,16 @@ class VisionTransformer(nnx.Module):
         )
         self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
+        self.seq_dim = num_patches + 1
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.embedding(x)
         batch_size = x.shape[0]
         cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
         x = jnp.concatenate([cls_tokens, x], axis=1)
-        pos_emb_expanded = jax.lax.dynamic_slice(
-            self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )
-        pos_emb_expanded = jnp.asarray(pos_emb_expanded)
-        x = x + pos_emb_expanded
+
+        x = x + self.positional_embedding.value
+
         x = self.transformer_stack(x, deterministic)
         x = self.layer_norm(x)
         x = x[:, 0, :]
