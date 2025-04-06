@@ -150,17 +150,17 @@ def generate_markdown_table(
     """Generates markdown table for README, ensuring all metadata is included."""
     if is_example:
         header = (
-            "| Component | Description | Children | Testcases | Since |\n"
-            "|:----------|:------------|:---------|:---------|:------|"
+            "| Component | Description | Testcases | Since |\n"
+            "|:----------|:------------|:----------|:------|"
         )
         rows = []
         for (context, component), data in sorted(grouped.items()):
             description = data[0].get("description", "➖")
-            children = data[0].get("children", [])
-            children_str = "<br>".join(children) if children else "➖"
+            # children = data[0].get("children", [])
+            # children_str = "<br>".join(children) if children else "➖"
             testcases_str = "<br>".join(tc["result"] for tc in data) if data else "➖"
             since = data[0].get("since", "➖")  # Ensure "since" is included
-            row = f"| {component} | {description} | {children_str} | {testcases_str} | {since} |"
+            row = f"| {component} | {description} | {testcases_str} | {since} |"
             rows.append(row)
 
     else:
