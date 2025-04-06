@@ -39,6 +39,7 @@ nnx.batch_norm_p.multiple_results = False  # Set once at initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="batch_norm",
     testcases=[
         {
             "testcase": "batch_norm",

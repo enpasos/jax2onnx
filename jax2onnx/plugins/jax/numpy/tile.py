@@ -27,6 +27,7 @@ jnp.tile_p.multiple_results = False
     ],
     since="v0.1.0",
     context="primitives.jnp",
+    component="tile",
     testcases=[
         {
             "testcase": "tile_a",

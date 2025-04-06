@@ -23,6 +23,7 @@ jnp.matmul_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.jnp",
+    component="matmul",
     testcases=[
         {
             "testcase": "matmul_2d",

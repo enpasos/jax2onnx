@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     ],
     since="v0.1.0",
     context="primitives.lax",
+    component="slice",
     testcases=[
         {
             "testcase": "slice_test1",

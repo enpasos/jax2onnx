@@ -40,6 +40,7 @@ nnx.linear_general_p = Primitive("nnx.linear_general")
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="linear_general",
     testcases=[
         {
             "testcase": "linear_general",

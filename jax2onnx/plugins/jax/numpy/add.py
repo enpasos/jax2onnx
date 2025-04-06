@@ -14,6 +14,9 @@ jnp.add_p.multiple_results = False  # Correct initialization
 
 @register_primitive(
     jaxpr_primitive=jnp.add_p.name,
+    since="v0.1.0",
+    context="primitives.jnp",
+    component="add",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
     onnx=[
         {
@@ -21,8 +24,6 @@ jnp.add_p.multiple_results = False  # Correct initialization
             "doc": "https://onnx.ai/onnx/operators/onnx__Add.html",
         }
     ],
-    since="v0.1.0",
-    context="primitives.jnp",
     testcases=[
         {
             "testcase": "add",

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     ],
     since="v0.2.0",
     context="primitives.lax",
+    component="select_n",
     testcases=[
         # {
         #     "testcase": "select_n",

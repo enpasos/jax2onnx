@@ -37,6 +37,7 @@ def gamma_log(key, alpha):
     onnx=[],
     since="v0.2.0",
     context="primitives.random",
+    component="random_gamma",
     testcases=[
         # {
         #     "testcase": "random_gamma_test1",

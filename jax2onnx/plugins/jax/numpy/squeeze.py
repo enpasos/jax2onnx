@@ -25,6 +25,7 @@ jnp.squeeze_p.multiple_results = False
     ],
     since="v0.1.0",
     context="primitives.jnp",
+    component="squeeze",
     testcases=[
         {
             "testcase": "squeeze_single_dim",

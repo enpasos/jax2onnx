@@ -33,6 +33,7 @@ nnx.rms_norm_p.multiple_results = False
     ],
     since="v0.3.0",
     context="primitives.nnx",
+    component="rms_norm",
     testcases=[
         {
             "testcase": "rms_norm",

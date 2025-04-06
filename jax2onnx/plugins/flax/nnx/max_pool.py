@@ -28,6 +28,7 @@ nnx.max_pool_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="max_pool",
     testcases=[
         {
             "testcase": "max_pool",

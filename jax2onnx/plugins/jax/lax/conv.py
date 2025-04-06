@@ -27,6 +27,7 @@ def compute_same_pads(input_size, filter_size, stride):
     ],
     since="v0.2.0",
     context="primitives.lax",
+    component="conv",
     testcases=[
         {
             "testcase": "conv",  # NCHW & OIHW: no transposition needed.

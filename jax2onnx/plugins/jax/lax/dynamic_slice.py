@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     ],
     since="v0.1.0",
     context="primitives.lax",
+    component="dynamic_slice",
     testcases=[
         {
             "testcase": "dynamic_slice_test1",

@@ -27,6 +27,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="layer_norm",
     testcases=[
         {
             "testcase": "layer_norm",

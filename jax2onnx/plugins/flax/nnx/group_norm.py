@@ -32,6 +32,7 @@ nnx.group_norm_p.multiple_results = False  # Set at initialization
     ],
     since="v0.3.0",
     context="primitives.nnx",
+    component="group_norm",
     testcases=[
         {
             "testcase": "group_norm",
