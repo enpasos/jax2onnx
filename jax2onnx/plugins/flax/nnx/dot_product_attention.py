@@ -40,6 +40,7 @@ nnx.dot_product_attention_p.multiple_results = False
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="dot_product_attention",
     testcases=[
         {
             "testcase": "dot_product_attention",

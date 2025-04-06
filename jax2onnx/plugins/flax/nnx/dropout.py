@@ -27,6 +27,7 @@ nnx.dropout_p.multiple_results = False  # Correctly set at initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="dropout",
     testcases=[
         {
             "testcase": "dropout_inference",

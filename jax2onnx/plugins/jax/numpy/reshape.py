@@ -25,6 +25,7 @@ jnp.reshape_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.jnp",
+    component="reshape",
     testcases=[
         {
             "testcase": "reshape_1",

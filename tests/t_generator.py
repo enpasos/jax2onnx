@@ -43,28 +43,19 @@ def clean_generated_test_dirs():
 # --- Metadata Loading ---
 def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     metadata_list = []
+
     for entry in mds:
         testcases = entry.get("testcases", [])
         for testcase in testcases:
-            # === Combine testcase with parent metadata ===
-            combined_testcase = entry.copy()
-            combined_testcase.pop("testcases", None)
-            combined_testcase.update(testcase)
-
-            # Ensure necessary keys exist
-            combined_testcase.setdefault("context", "default")
-            combined_testcase.setdefault("component", entry.get("component", "default"))
-            combined_testcase.setdefault(
-                "jaxpr_primitive", entry.get("jaxpr_primitive")
-            )
-            combined_testcase.setdefault("jax_doc", "")
-            combined_testcase.setdefault("onnx", "")
-            combined_testcase.setdefault("source", "")
-            combined_testcase.setdefault("since", "")
-            combined_testcase.setdefault("description", "")
-            combined_testcase.setdefault("children", [])
-            metadata_list.append(combined_testcase)
-            # ============================================
+            testcase["context"] = entry.get("context", "default")
+            testcase["component"] = entry.get("component", "default")
+            testcase["jax_doc"] = entry.get("jax_doc", "")
+            testcase["onnx"] = entry.get("onnx", "")
+            testcase["source"] = entry.get("source", "")
+            testcase["since"] = entry.get("since", "")
+            testcase["description"] = entry.get("description", "")
+            testcase["children"] = entry.get("children", [])
+            metadata_list.append(testcase)
     return metadata_list
 
 

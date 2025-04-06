@@ -29,6 +29,7 @@ nnx.avg_pool_p.multiple_results = False  # Correctly set at initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="avg_pool",
     testcases=[
         {
             "testcase": "avg_pool",

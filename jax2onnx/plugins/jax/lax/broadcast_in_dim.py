@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     ],
     since="v0.2.0",
     context="primitives.lax",
+    component="broadcast_in_dim",
     testcases=[
         {
             "testcase": "broadcast_in_dim",

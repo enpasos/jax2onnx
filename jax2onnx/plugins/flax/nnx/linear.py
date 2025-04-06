@@ -29,6 +29,7 @@ nnx.linear_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="linear",
     testcases=[
         {
             "testcase": "linear_2d",

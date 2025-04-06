@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     ],
     since="v0.2.0",
     context="primitives.lax",
+    component="convert_element_type",
     testcases=[
         {
             "testcase": "convert_element_type",

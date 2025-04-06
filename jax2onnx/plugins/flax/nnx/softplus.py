@@ -24,6 +24,7 @@ nnx.softplus_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="softplus",
     testcases=[
         {
             "testcase": "softplus",

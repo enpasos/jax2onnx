@@ -24,6 +24,7 @@ nnx.leaky_relu_p.multiple_results = False  # Correctly set at initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="leaky_relu",
     testcases=[
         {
             "testcase": "leaky_relu",

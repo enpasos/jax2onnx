@@ -24,6 +24,7 @@ nnx.tanh_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.nnx",
+    component="tanh",
     testcases=[
         {
             "testcase": "tanh",

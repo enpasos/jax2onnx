@@ -44,6 +44,7 @@ def _convert_padding(padding):
     ],
     since="v0.3.0",
     context="primitives.nnx",
+    component="conv_transpose",
     testcases=[
         {
             "testcase": "conv_transpose_valid_padding",

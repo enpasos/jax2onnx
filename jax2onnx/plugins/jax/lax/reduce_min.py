@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     ],
     since="v0.2.0",
     context="primitives.lax",
+    component="reduce_min",
     testcases=[
         {
             "testcase": "reduce_min",

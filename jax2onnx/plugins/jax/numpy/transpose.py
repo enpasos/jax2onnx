@@ -23,6 +23,7 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.jnp",
+    component="transpose",
     testcases=[
         {
             "testcase": "transpose_basic",

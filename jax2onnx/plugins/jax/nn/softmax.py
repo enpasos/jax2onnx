@@ -26,6 +26,7 @@ nn.softmax_p.multiple_results = False  # Correct initialization
     ],
     since="v0.1.0",
     context="primitives.nn",
+    component="softmax",
     testcases=[
         {
             "testcase": "softmax",
