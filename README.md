@@ -62,8 +62,8 @@ onnx.save_model(onnx_model, "jax_callable.onnx")
 
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.0**: Clean up ONNX function support.
-- **0.4.0** *(Upcoming)*: Introducing ONNX function support ... somehow like this [`ViT_Encoder.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/013_vit_conv_embedding.onnx)
+- **0.5.0**: Clean up.
+- **0.4.0** *(Upcoming)*: Introducing ONNX function support ... somehow like this [`ViT_Encoder.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/012_vit_conv_embedding.onnx)
 ... click on the [f] to drill in the function. ... Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator on your callable definition.
 
 
