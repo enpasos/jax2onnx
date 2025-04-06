@@ -240,6 +240,20 @@ class ConcatClsToken(nnx.Module):
 
 
 @onnx_function
+class PositionalEmbedding(nnx.Module):
+
+    def __init__(self, num_patches: int, num_hiddens: int):
+
+        self.positional_embedding = nnx.Param(
+            create_sinusoidal_embeddings(num_patches, num_hiddens)
+        )
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = x + self.positional_embedding.value
+        return x
+
+
+@onnx_function
 class VisionTransformer(nnx.Module):
     """Vision Transformer model for MNIST with configurable embedding type."""
 
@@ -281,8 +295,8 @@ class VisionTransformer(nnx.Module):
         self.cls_token = nnx.Param(
             jax.random.normal(rngs.params(), (1, 1, num_hiddens))
         )
-        self.positional_embedding = nnx.Param(
-            create_sinusoidal_embeddings(num_patches, num_hiddens)
+        self.positional_embedding = PositionalEmbedding(
+            num_hiddens=num_hiddens, num_patches=num_patches
         )
 
         self.transformer_stack = TransformerStack(
@@ -311,10 +325,10 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         x = self.concat_cls_token(x)
 
-        x = x + self.positional_embedding.value
+        x = self.positional_embedding(x)
 
-        # x = self.transformer_stack(x)
-        # x = self.classification_head(x)
+        x = self.transformer_stack(x)
+        x = self.classification_head(x)
         return x
 
 
@@ -349,7 +363,7 @@ register_example(
                 num_classes=10,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(3, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )
