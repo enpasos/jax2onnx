@@ -284,10 +284,6 @@ class VisionTransformer(nnx.Module):
         self.positional_embedding = nnx.Param(
             create_sinusoidal_embeddings(num_patches, num_hiddens)
         )
-        # pos_emb_expanded = jax.lax.dynamic_slice(
-        #      self.positional_embedding.value, (0, 0, 0), (1, height, width)
-        # )
-        # self.pos_emb_expanded = jnp.asarray(pos_emb_expanded)
 
         self.transformer_stack = TransformerStack(
             num_hiddens,
@@ -315,11 +311,7 @@ class VisionTransformer(nnx.Module):
         x = self.embedding(x)
         x = self.concat_cls_token(x)
 
-        pos_emb_expanded = jax.lax.dynamic_slice(
-            self.positional_embedding.value, (0, 0, 0), (1, x.shape[1], x.shape[2])
-        )
-        pos_emb_expanded = jnp.asarray(pos_emb_expanded)
-        x = x + pos_emb_expanded
+        x = x + self.positional_embedding.value
 
         # x = self.transformer_stack(x)
         # x = self.classification_head(x)

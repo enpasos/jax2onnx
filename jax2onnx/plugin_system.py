@@ -4,6 +4,8 @@ import inspect
 import pkgutil
 import importlib
 import os
+import jax
+from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
 from abc import ABC, abstractmethod
@@ -88,10 +90,55 @@ class FunctionPlugin(PrimitivePlugin):
 
         return builder.end_function()
 
+    @staticmethod
+    def _aval_to_shaped_array(aval):
+        """Converts a ShapeDtypeStruct or other aval to ShapedArray."""
+        if isinstance(aval, ShapedArray):
+            # It's already the type we need
+            return aval
+        elif hasattr(aval, "shape") and hasattr(aval, "dtype"):
+            # Covers ShapeDtypeStruct and other array-like abstract values
+            return ShapedArray(aval.shape, aval.dtype)
+        else:
+            # Handle non-array abstract values if necessary, or raise error
+            raise TypeError(
+                f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
+            )
+
     def abstract_eval_with_kwargs(self, *args, **kwargs):
-        return args[
-            0
-        ]  ## this is wrong, it passes the processing, the real shape comes from the original function
+        """
+        Correctly performs abstract evaluation using the original function
+        and jax.eval_shape, handling ShapeDtypeStruct outputs.
+
+        Args:
+            *args: Tuple of abstract values (e.g., ShapedArray) for positional inputs.
+            **kwargs: Dictionary of keyword arguments (static parameters).
+
+        Returns:
+            A ShapedArray or a pytree (tuple/list/dict) of ShapedArray instances.
+        """
+        if self._orig_fn is None:
+            raise ValueError(
+                f"Original function (_orig_fn) not set for abstract evaluation of primitive {self.name}"
+            )
+
+        try:
+            # Get the abstract value(s) from eval_shape
+            # This might be a single ShapeDtypeStruct or a pytree of them
+            output_aval_struct = jax.eval_shape(self._orig_fn, *args, **kwargs)
+
+            # Use tree_map to convert every leaf (ShapeDtypeStruct or similar)
+            # in the output structure to a ShapedArray.
+            output_aval = jax.tree_map(self._aval_to_shaped_array, output_aval_struct)
+
+            # print(f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}")
+            return output_aval
+
+        except Exception as e:
+            print(
+                f"[ERROR] jax.eval_shape or conversion failed during abstract evaluation for primitive {self.name} on function {self._orig_fn}: {e}"
+            )
+            raise e
 
     def primitive_impl(self, *args, **kwargs):
         if self._orig_fn is None:

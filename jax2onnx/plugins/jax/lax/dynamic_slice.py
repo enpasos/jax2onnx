@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from onnx import helper, TensorProto
 from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
+
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
@@ -35,6 +36,11 @@ if TYPE_CHECKING:
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 0, 2), (2, 3, 1)),
             "input_shapes": [(3, 4, 5)],
         },
+        # {
+        #     "testcase": "dynamic_slice_vit",
+        #     "callable": lambda x: jax.lax.dynamic_slice(x, (0, 0, 0), (1, 50, 256)),
+        #     "input_shapes": [(3, 4, 5)],
+        # },
     ],
 )
 class DynamicSlicePlugin(PrimitiveLeafPlugin):
