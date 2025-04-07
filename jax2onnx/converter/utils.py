@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.dtype_utils import (
+    numpy_dtype_to_tensorproto,
     tensorproto_dtype_to_numpy,
 )
 from jax2onnx.converter.name_generator import get_qualified_name
@@ -48,11 +49,14 @@ def function_handler(
     input_names = []
     example_args = []
 
+    outer_input_vars_avals = []  # Store tuples of (outer_var, aval)
+
     for var in eqn.invars:
         if hasattr(var, "aval"):
             aval = var.aval
             var_name = converter.get_name(var)
             input_names.append(var_name)
+            outer_input_vars_avals.append((var, aval))  # Store var and its aval
 
             # Create example tensor
             example_args.append(
@@ -89,8 +93,43 @@ def function_handler(
         unique_node_name + "_graph",
         initializers=parent_builder.initializers,
     )
+
     sub_converter = converter.__class__(sub_builder)
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
+
+    # --- Step 3: Add ValueInfo for inputs to sub_builder AFTER tracing ---
+    #    using outer shapes/types but internal names.
+
+    # Get the internal input variables/names generated during the trace
+    # Assuming sub_converter.jaxpr.invars holds the internal input vars in order
+    internal_input_vars = sub_converter.jaxpr.invars
+
+    # Check if the number of traced internal inputs matches the outer inputs passed
+    if len(internal_input_vars) != len(outer_input_vars_avals):
+        raise RuntimeError(
+            f"Mismatch between outer function inputs ({len(outer_input_vars_avals)}) "
+            f"and traced internal inputs ({len(internal_input_vars)}) for {name}."
+        )
+
+    # Now, iterate and add value info to sub_builder using internal names
+    for internal_var, (outer_var, outer_aval) in zip(
+        internal_input_vars, outer_input_vars_avals
+    ):
+        internal_name = sub_converter.get_name(internal_var)  # Get the internal name
+        shape = tuple(outer_aval.shape)
+        # Get dtype from outer_aval, convert to ONNX enum for metadata/value_info
+        onnx_dtype_enum = numpy_dtype_to_tensorproto(outer_aval.dtype)
+
+        # Register metadata in the sub_builder using the *internal* name
+        sub_builder.register_value_info_metadata(
+            internal_name, shape, onnx_dtype_enum, origin="function_input"
+        )
+
+        # Add to sub_builder's value_info list using the *internal* name
+        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+
+        # Note: sub_builder.add_input might have already been called during trace_jaxpr.
+        # Adding the value_info here ensures it's in the correct list for add_function.
 
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
