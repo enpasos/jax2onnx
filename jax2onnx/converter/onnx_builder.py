@@ -308,6 +308,11 @@ class OnnxBuilder:
         inputs = [vi.name for vi in function_graph.input]
         outputs = [vi.name for vi in function_graph.output]
 
+        # --- START PROPOSED CHANGE ---
+        # Extract value_info collected by the sub-builder for the function's body
+        function_internal_value_info = sub_builder.value_info
+        # --- END PROPOSED CHANGE ---
+
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
@@ -318,6 +323,10 @@ class OnnxBuilder:
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
+            # --- START PROPOSED CHANGE ---
+            # Pass the extracted value_info list to the make_function helper
+            value_info=function_internal_value_info,
+            # --- END PROPOSED CHANGE ---
         )
 
         self.functions[name] = function_proto
