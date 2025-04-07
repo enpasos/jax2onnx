@@ -32,8 +32,8 @@ class MLPBlock(nnx.Module):
 class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
-        self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
-        self.mlp = MLPBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
+        self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
+        self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
     def __call__(self, x):
         return self.mlp(self.layer_norm2(x))
@@ -49,7 +49,7 @@ register_example(
         {
             "testcase": "000_one_function_outer",
             "callable": SuperBlock(),
-            "input_shapes": [("B", 10, 256)],
+            "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
         },
     ],

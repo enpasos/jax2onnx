@@ -5,7 +5,7 @@ import sys
 import os
 
 # Replace with the actual path to your ONNX model
-onnx_model_path = "docs/onnx/sandbox/function_with_intermediate_shape.onnx"
+onnx_model_path = "docs/onnx/examples/onnx_functions/000_one_function_outer.onnx"
 # Example using one of the previous models:
 # onnx_model_path = "function_with_intermediate_shape.onnx"
 
