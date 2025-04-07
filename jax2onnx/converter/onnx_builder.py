@@ -298,35 +298,81 @@ class OnnxBuilder:
     def add_function(
         self, name: str, sub_builder: "OnnxBuilder", param_input_names: List[str]
     ) -> str:
-        missing = sub_builder.find_missing_value_info()
-        if missing:
-            raise RuntimeError(
+        missing = sub_builder.find_missing_value_info()  # Existing code
+        if missing:  # Existing code
+            raise RuntimeError(  # Existing code
                 f"Missing value_info in function '{name}': {missing}\n\nFix the corresponding plugin using `register_value_info_metadata(...)`"
             )
 
-        function_graph = sub_builder.create_graph(name + "_graph")
-        inputs = [vi.name for vi in function_graph.input]
-        outputs = [vi.name for vi in function_graph.output]
+        function_graph = sub_builder.create_graph(name + "_graph")  # Existing code
+        # These are the internal names used within the function graph for data inputs
+        internal_data_input_names = [
+            vi.name for vi in function_graph.input
+        ]  # Modified variable name for clarity
+        # These are the internal names used for function outputs
+        internal_output_names = [
+            vi.name for vi in function_graph.output
+        ]  # Modified variable name for clarity
 
-        # --- START PROPOSED CHANGE ---
-        # Extract value_info collected by the sub-builder for the function's body
-        function_internal_value_info = sub_builder.value_info
-        # --- END PROPOSED CHANGE ---
+        # --- START REFINED CHANGE ---
+
+        # 1. Get ValueInfo for intermediate/output tensors from the sub-builder
+        #    (This is what we added in the previous step)
+        intermediate_and_output_value_info = sub_builder.value_info
+
+        # 2. Create ValueInfo for the function's inputs (data inputs + params)
+        #    using metadata from the *main* builder (self).
+        input_value_infos = []
+        # Combine data inputs and parameter inputs known to the function signature
+        all_internal_input_names = internal_data_input_names + param_input_names
+
+        for input_name in all_internal_input_names:
+            try:
+                # Look up shape/dtype in the main builder's metadata
+                # NOTE: This assumes the internal input name directly corresponds
+                #       to a name known in the main builder's metadata.
+                #       This might need adjustment if name mapping occurs.
+                shape, dtype_enum = self.get_shape_dtype(input_name)
+
+                # Create ValueInfoProto for this input
+                vi = helper.make_tensor_value_info(input_name, dtype_enum, shape)
+                input_value_infos.append(vi)
+            except ValueError as e:
+                # Handle cases where metadata might be missing for an input
+                # (e.g., constants might not always have metadata registered)
+                # Depending on strictness, you might warn, error, or skip.
+                print(
+                    f"⚠️ [WARN] Could not find metadata for function input '{input_name}' in main builder: {e}. Skipping ValueInfo."
+                )
+
+        # 3. Combine input ValueInfo with intermediate/output ValueInfo
+        #    Ensure no duplicates if an input/output name somehow also appeared
+        #    in the sub_builder.value_info (unlikely but possible).
+        #    A simple way is to create a dict based on name first.
+        combined_value_info_dict = {vi.name: vi for vi in input_value_infos}
+        for vi in intermediate_and_output_value_info:
+            if (
+                vi.name not in combined_value_info_dict
+            ):  # Prioritize input VIs if name clash occurs
+                combined_value_info_dict[vi.name] = vi
+
+        final_function_value_info = list(combined_value_info_dict.values())
+
+        # --- END REFINED CHANGE ---
 
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
-            inputs=inputs + param_input_names,
-            outputs=outputs,
+            # Use the combined list of internal names for the function signature
+            inputs=all_internal_input_names,
+            outputs=internal_output_names,  # Use internal output names
             nodes=function_graph.node,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
-            # --- START PROPOSED CHANGE ---
-            # Pass the extracted value_info list to the make_function helper
-            value_info=function_internal_value_info,
-            # --- END PROPOSED CHANGE ---
+            # Pass the combined list including inputs, intermediates, and outputs
+            value_info=final_function_value_info,  # Use the final combined list
         )
 
         self.functions[name] = function_proto
