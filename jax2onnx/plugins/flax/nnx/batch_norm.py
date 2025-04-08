@@ -12,13 +12,13 @@ The conversion process involves:
   4. Monkey-patching BatchNorm.__call__ to redirect calls to our primitive.
 """
 
-import contextlib
 from typing import TYPE_CHECKING
 from flax import nnx
 from jax import core
 from onnx import helper
 from jax.extend.core import Primitive
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+import jax.numpy as jnp
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -51,6 +51,22 @@ nnx.batch_norm_p.multiple_results = False  # Set once at initialization
             "testcase": "batch_norm_2",
             "callable": nnx.BatchNorm(num_features=20, rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 20)],
+        },
+        {
+            "testcase": "batch_norm_3d",
+            "callable": nnx.BatchNorm(num_features=32, rngs=nnx.Rngs(0)),
+            "input_shapes": [(8, 32, 32)],
+        },
+        {
+            "testcase": "batch_norm_float64",
+            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
+            "input_shapes": [(11, 2, 2, 64)],
+            "input_dtype": jnp.float64,
+        },
+        {
+            "testcase": "batch_norm_single_batch",
+            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 2, 2, 64)],
         },
     ],
 )
@@ -122,7 +138,6 @@ class BatchNormPlugin(PrimitivePlugin):
                 perm=[0, 2, 3, 1],  # NCHW -> NHWC
             )
             s.add_node(post_transpose_node)
-
         else:
             batch_norm_node = helper.make_node(
                 "BatchNormalization",
