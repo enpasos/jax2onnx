@@ -57,12 +57,54 @@ onnx.save_model(onnx_model, "jax_callable.onnx")
 
 ---
 
+Awesome! Here's a clean and minimal ONNX function example section you can add right under your “Quickstart” section:
+
+---
+
+## 🧠 ONNX Functions — Minimal Example
+
+ONNX functions help encapsulate reusable subgraphs. 
+Each `@onnx_function` decorator creates a new ONNX function instance on the call graph (behaviour in v0.4.0).
+
+```python
+from jax2onnx import save_onnx, onnx_function
+from flax import nnx
+
+# just an @onnx_function decorator to make your callable an ONNX function
+@onnx_function
+class MLPBlock(nnx.Module):
+  def __init__(self, dim, *, rngs):
+    self.linear1 = nnx.Linear(dim, dim, rngs=rngs)
+    self.linear2 = nnx.Linear(dim, dim, rngs=rngs)
+    self.batchnorm = nnx.BatchNorm(dim, rngs=rngs)
+  def __call__(self, x):
+    return nnx.gelu(self.linear2(self.batchnorm(nnx.gelu(self.linear1(x)))))
+
+# Use it inside another module
+class MyModel(nnx.Module):
+  def __init__(self, dim, *, rngs):
+    self.block1 = MLPBlock(dim, rngs=rngs)
+    self.block2 = MLPBlock(dim, rngs=rngs)
+  def __call__(self, x):
+    return self.block2(self.block1(x))
+
+# Save model with function hierarchy preserved
+save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onnx")
+```
+
+🔎 See it visualized:  
+[`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
+
+---
+
+Would you like me to update this with a link to your own real `onnx_functions_000` example instead, or tailor it to a different function you want to showcase?
+
 ## 📅 Roadmap and Releases
 
 
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions. 
+- **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions.  
 - **0.4.0** *(Upcoming)*: Introducing simple ONNX function support, ... somehow like this [`ViT_Encoder.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/012_vit_conv_embedding.onnx)
 ... click on the [f] to drill in the function. ... Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator on your callable definition.
 
