@@ -113,7 +113,7 @@ register_example(
         #         mlp_dropout_rate=0.1,
         #         rngs=nnx.Rngs(0),
         #     ),
-        #     "input_shapes": [("B", 10, 256)],
+        #     "input_shapes": [(5, 10, 256)],
         # },
     ],
 )

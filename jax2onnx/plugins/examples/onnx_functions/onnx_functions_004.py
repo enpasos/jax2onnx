@@ -39,7 +39,7 @@ register_example(
         {
             "testcase": "004_nested_function_plus_component",
             "callable": SuperBlock(),
-            "input_shapes": [("B", 10, 256)],
+            "input_shapes": [(5, 10, 256)],
             "expected_number_of_function_instances": 2,
         },
     ],

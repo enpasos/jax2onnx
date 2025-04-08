@@ -49,7 +49,7 @@ register_example(
         {
             "testcase": "002_two_nested_functions",
             "callable": SuperBlock(),
-            "input_shapes": [("B", 10, 256)],
+            "input_shapes": [(5, 10, 256)],
             "expected_number_of_function_instances": 2,
         },
     ],

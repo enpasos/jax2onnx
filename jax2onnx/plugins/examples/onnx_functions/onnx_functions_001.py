@@ -57,7 +57,7 @@ register_example(
         {
             "testcase": "001_one_function_inner",
             "callable": SuperBlock(),  # Callable is the outer block
-            "input_shapes": [("B", 10, 256)],
+            "input_shapes": [(5, 10, 256)],
             "expected_number_of_function_instances": 1,
         },
     ],
