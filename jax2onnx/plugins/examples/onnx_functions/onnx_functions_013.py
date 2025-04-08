@@ -96,8 +96,7 @@ class FeedForward(nnx.Module):
             nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        deterministic = True
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -132,9 +131,9 @@ class MultiHeadAttention(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         x = self.attention(x)
-        x = self.dropout(x, deterministic=True)
+        x = self.dropout(x, deterministic=deterministic)
         return x
 
 
@@ -160,12 +159,12 @@ class TransformerBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         r = self.layer_norm1(x)
         r = self.attention(r)
         x = x + r
         r = self.layer_norm2(x)
-        return x + self.mlp_block(r)
+        return x + self.mlp_block(r, deterministic=deterministic)
 
 
 @onnx_function
@@ -193,9 +192,9 @@ class TransformerStack(nnx.Module):
             for _ in range(num_layers)
         ]
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for block in self.blocks:
-            x = block(x)
+            x = block(x, deterministic=deterministic)
         return x
 
 
@@ -314,7 +313,7 @@ class VisionTransformer(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
             raise ValueError("Input tensor 'x' must not be None or empty.")
 
@@ -322,12 +321,12 @@ class VisionTransformer(nnx.Module):
         if len(x.shape) != 4 or x.shape[-1] != 1:
             raise ValueError("Input tensor 'x' must have shape (B, H, W, 1).")
 
-        x = self.embedding(x)
+        x = self.embedding(x, deterministic)
         x = self.concat_cls_token(x)
 
         x = self.positional_embedding(x)
 
-        x = self.transformer_stack(x)
+        x = self.transformer_stack(x, deterministic=deterministic)
         x = self.classification_head(x)
         return x
 
