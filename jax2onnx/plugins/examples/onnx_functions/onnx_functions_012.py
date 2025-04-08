@@ -81,7 +81,7 @@ class ConvEmbedding(nnx.Module):
             else:
                 x = layer(x)
         B, H, W, C = x.shape
-        x = x.reshape(B, H * W, C)
+        x = jnp.reshape(x, (-1, H * W, C))
         return x
 
 

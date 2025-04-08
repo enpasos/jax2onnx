@@ -29,7 +29,7 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
     for nested_func_name, nested_func_proto in sub_builder.functions.items():
         if nested_func_name not in parent_builder.functions:
             parent_builder.functions[nested_func_name] = nested_func_proto
-            print(f"Propagated nested ONNX function: {nested_func_name}")
+            # print(f"Propagated nested ONNX function: {nested_func_name}")
 
 
 def function_handler(

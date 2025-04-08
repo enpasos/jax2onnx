@@ -94,6 +94,17 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             )
             for s in input_shapes
         ]
+        # if expected_output_shapes is not None:
+        if "expected_output_shapes" in entry:
+            concrete["expected_output_shapes"] = [
+                tuple(
+                    3 if dim == "B" else dim
+                    for dim in (s if isinstance(s, (list, tuple)) else (s,))
+                )
+                for s in entry["expected_output_shapes"]
+            ]
+        # else:
+
         return [dynamic, concrete]
     return [entry]
 
@@ -209,7 +220,31 @@ def make_test_function(tp: Dict[str, Any]):
             print("== Checking model output shapes ==")
             actual_output_shapes = []
             for output in onnx_model.graph.output:
-                dims = [d.dim_value for d in output.type.tensor_type.shape.dim]
+
+                dims = []
+                for d in output.type.tensor_type.shape.dim:
+                    # Check if dim_param is set (usually for dynamic dims)
+                    if d.HasField("dim_param") and d.dim_param == "B":
+                        dims.append("B")  # Use the symbolic name 'B'
+                    # Check if dim_value is set (for concrete dims)
+                    elif d.HasField("dim_value"):
+                        dims.append(d.dim_value)
+                    # Fallback for dimensions that might be neither (e.g., truly unknown)
+                    # Or handle cases where dim_value might be 0 even if param isn't 'B'
+                    else:
+                        # Using 0 might be okay if that's the default unset value,
+                        # but None might be clearer if JAX/ONNX uses it.
+                        # Let's stick to 0 for now if value field exists but isn't set?
+                        # Or check if the field exists at all
+                        if hasattr(d, "dim_value"):
+                            dims.append(
+                                d.dim_value
+                            )  # Append the value (likely 0 if unset)
+                        else:
+                            dims.append(
+                                None
+                            )  # Or placeholder like '?' if value field absent
+
                 print(f"Output Name: {output.name}  Shape: {dims}")
                 actual_output_shapes.append(tuple(dims))
 
