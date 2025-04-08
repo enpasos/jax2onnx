@@ -4,6 +4,7 @@ from flax import nnx
 from onnx import helper
 from typing import TYPE_CHECKING
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
+import numpy as np
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

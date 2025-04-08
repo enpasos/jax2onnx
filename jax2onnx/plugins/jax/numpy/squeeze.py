@@ -1,7 +1,7 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, List, Union, Optional, Sequence
+from typing import TYPE_CHECKING, Tuple, Union, Optional
 from jax2onnx.plugin_system import register_primitive, PrimitivePlugin
 
 if TYPE_CHECKING:

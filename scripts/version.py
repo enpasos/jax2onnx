@@ -3,7 +3,7 @@
 import datetime
 from pathlib import Path
 
-BASE_VERSION = "0.3.1"
+BASE_VERSION = "0.3.2"
 
 
 def generate_version():

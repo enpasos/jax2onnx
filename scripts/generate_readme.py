@@ -1,13 +1,11 @@
 from pathlib import Path
+import subprocess
 import time
 import logging
-import subprocess
 import json
 from typing import Any, Dict, List, Tuple
 from tests.t_generator import (
-    load_plugin_metadata,
     get_plugin_grouping,
-    organize_tests_by_context_and_component_from_params,
 )
 
 # Configure logging
@@ -33,16 +31,16 @@ def run_pytest() -> Dict[Tuple[str, str, str], str]:
     """Runs pytest and captures test results."""
     logging.info("🛠 Running tests...")
 
-    # try:
-    #     subprocess.run(
-    #         ["pytest", "--json-report", f"--json-report-file={REPORT_PATH}"],
-    #         capture_output=True,
-    #         text=True,
-    #         check=True,
-    #     )
-    # except subprocess.CalledProcessError as e:
-    #     logging.error(f"❌ Pytest execution failed: {e}")
-    #     return {}
+    try:
+        subprocess.run(
+            ["pytest", "--json-report", f"--json-report-file={REPORT_PATH}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ Pytest execution failed: {e}")
+        return {}
 
     return parse_pytest_results()
 
