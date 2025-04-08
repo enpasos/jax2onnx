@@ -12,7 +12,7 @@ class UniqueNameGenerator:
         count = self._counters[context_and_base_name]
         name = f"{base_name}_{count}"
         self._counters[context_and_base_name] += 1
-        print(f"Generated name: {name}")
+        # print(f"Generated name: {name}")
         return name
 
 

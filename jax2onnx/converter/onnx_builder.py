@@ -76,9 +76,9 @@ class OnnxBuilder:
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
 
-        print(
-            f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}, origin={origin}"
-        )
+        # print(
+        #    f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}, origin={origin}"
+        # )
 
     def get_value_info_metadata_with_origin(
         self, name: str
@@ -337,13 +337,14 @@ class OnnxBuilder:
                 # Create ValueInfoProto for this input
                 vi = helper.make_tensor_value_info(input_name, dtype_enum, shape)
                 input_value_infos.append(vi)
-            except ValueError as e:
+            except ValueError:
+                pass
                 # Handle cases where metadata might be missing for an input
                 # (e.g., constants might not always have metadata registered)
                 # Depending on strictness, you might warn, error, or skip.
-                print(
-                    f"⚠️ [WARN] Could not find metadata for function input '{input_name}' in main builder: {e}. Skipping ValueInfo."
-                )
+                # print(
+                #    f"⚠️ [WARN] Could not find metadata for function input '{input_name}' in main builder: {e}. Skipping ValueInfo."
+                # )
 
         # 3. Combine input ValueInfo with intermediate/output ValueInfo
         #    Ensure no duplicates if an input/output name somehow also appeared
@@ -441,9 +442,9 @@ class OnnxBuilder:
                 # fallback for debugging
                 print(f"[WARN] Missing metadata for: {name} — using fallback")
                 shape = ()  # or None
-            print(
-                f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}"
-            )
+            # print(
+            #    f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}"
+            # )
             self.add_value_info(name, shape, dtype)
 
     def _auto_fix_constant_value_info(self, name: str, value: np.ndarray):

@@ -39,8 +39,27 @@ class AddPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x, y):
-        """Abstract evaluation function for Add."""
-        return core.ShapedArray(x.shape, x.dtype)  # Should handle broadcasting
+        x_shape = x.shape
+        y_shape = y.shape
+        if len(x_shape) != len(y_shape):
+            raise ValueError(
+                f"Shapes of x {x_shape} and y {y_shape} must have the same number of dimensions."
+            )
+        z_shape = []
+        for i in range(len(x_shape)):
+            # Check if dimensions are compatible
+            # In case of abstract dimensions, do the best you can do: be optimistic
+            # if one of the dimensions is -1, it is compatible, and the other dimension is taken
+            if x_shape[i] == -1 or y_shape[i] == -1:
+                z_shape.append(max(x_shape[i], y_shape[i]))
+            elif x_shape[i] != y_shape[i] and x_shape[i] != 1 and y_shape[i] != 1:
+                raise ValueError(
+                    f"Shapes of x {x_shape} and y {y_shape} are not broadcastable."
+                )
+            else:
+                z_shape.append(max(x_shape[i], y_shape[i]))
+        # Return the shape of the result
+        return core.ShapedArray(tuple(z_shape), x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of Add to ONNX format."""
