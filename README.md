@@ -40,7 +40,7 @@ jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 save_onnx(jax_callable, [('B', 30)], "jax_callable.onnx")
 ```
 
-✅ Result: [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
+🔎 See it visualized:  [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
 
 ---
 
@@ -92,8 +92,7 @@ class MyModel(nnx.Module):
 save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onnx")
 ```
 
-🔎 See it visualized:  
-[`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
+🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
 
 ---
 
