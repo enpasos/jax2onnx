@@ -55,10 +55,7 @@ onnx_model = to_onnx(jax_callable, [('B', 30)])
 onnx.save_model(onnx_model, "jax_callable.onnx")
 ```
 
----
-
-Awesome! Here's a clean and minimal ONNX function example section you can add right under your “Quickstart” section:
-
+ 
 ---
 
 ## 🧠 ONNX Functions — Minimal Example
@@ -95,8 +92,6 @@ save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onn
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
 
 ---
-
-Would you like me to update this with a link to your own real `onnx_functions_000` example instead, or tailor it to a different function you want to showcase?
 
 ## 📅 Roadmap and Releases
 
