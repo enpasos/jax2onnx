@@ -4,7 +4,7 @@ import numpy as np
 from onnx import helper
 from typing import TYPE_CHECKING, Dict, Callable
 
-from jax.extend import core
+from jax.extend import core as extend_core
 
 if TYPE_CHECKING:
     from .converter import Jaxpr2OnnxConverter
@@ -123,7 +123,7 @@ class PrimitiveDispatcher:
         inp = eqn.invars[0]
         out = eqn.outvars[0]
 
-        if isinstance(inp, core.Literal):
+        if isinstance(inp, extend_core.Literal):
             val = inp.val
             np_val = np.array(val)
             if np_val.dtype == np.int64:
