@@ -19,25 +19,31 @@ from jax2onnx.converter.patch_utils import temporary_monkey_patches
 from jax.extend import core as extend_core
 
 
-# At the top of converter.py
-
-
+# Updated class-level docstring to clarify purpose.
 class Jaxpr2OnnxConverter:
     """
-    A translator that converts JAX's JAXPR representation to ONNX format.
+    Converts JAX's JAXPR representation to ONNX format, enabling interoperability
+    between JAX and ONNX-based tools.
     """
 
     def __init__(self, builder: OnnxBuilder):
-
+        # Initialize the converter with an ONNX builder instance.
         self.builder = builder
 
-        # Other converter state
+        # Mapping between variables and their names in the ONNX graph.
         self.var_to_name: Dict[Any, str] = {}
         self.name_to_var: Dict[str, Any] = {}
-        self.primitive_handlers = {}
-        self.shape_env: Dict[str, Tuple[int, ...]] = {}  # <- added shape environment
 
+        # Handlers for JAX primitives.
+        self.primitive_handlers = {}
+
+        # Environment to track variable shapes.
+        self.shape_env: Dict[str, Tuple[int, ...]] = {}
+
+        # Mapping for constants in the ONNX graph.
         self.name_to_const: Dict[str, Any] = {}
+
+        # Register handlers for random primitives.
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
         self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
         self.primitive_handlers[jax._src.prng.random_split_p] = (
@@ -47,10 +53,10 @@ class Jaxpr2OnnxConverter:
             self._handle_random_unwrap
         )
 
+        # Import and register plugins.
         import_all_plugins()
-
         for key, plugin in PLUGIN_REGISTRY.items():
-            if isinstance(plugin, (PrimitiveLeafPlugin)):
+            if isinstance(plugin, PrimitiveLeafPlugin):
                 self.primitive_handlers[key] = plugin.get_handler(self)
 
         for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
@@ -79,15 +85,17 @@ class Jaxpr2OnnxConverter:
         return self.builder.get_constant_name(val)
 
     def add_input(self, var, shape, dtype=np.float32):
+        # Add an input variable to the ONNX graph and store its shape.
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
-        self.shape_env[name] = shape  # <-- store shape
+        self.shape_env[name] = shape
         return name
 
     def add_output(self, var, shape, dtype=np.float32):
+        # Add an output variable to the ONNX graph and store its shape.
         name = self.get_var_name(var)
         self.builder.add_output(name, shape, dtype)
-        self.shape_env[name] = shape  # <-- store shape
+        self.shape_env[name] = shape
         return name
 
     def add_shape_info(self, name, shape, dtype=np.float32):
@@ -110,6 +118,7 @@ class Jaxpr2OnnxConverter:
         return output_path
 
     def trace_jaxpr(self, fn, example_args, preserve_graph=False):
+        # Trace a JAX function to generate its JAXPR representation.
         print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
         if not preserve_graph:
             self.builder.reset()
@@ -239,11 +248,11 @@ class Jaxpr2OnnxConverter:
     def _process_jaxpr(self, jaxpr, consts):
         """Process a JAXPR and convert it to ONNX nodes."""
 
-        # Setup inputs
+        # Add input variables to the ONNX graph.
         for var in jaxpr.invars:
             self.add_input(var, var.aval.shape, var.aval.dtype)
 
-        # Setup constants
+        # Add constants to the ONNX graph.
         for i, const in enumerate(consts):
             const_name = self.get_constant_name(const)
             const_var = jaxpr.constvars[i]
@@ -251,10 +260,11 @@ class Jaxpr2OnnxConverter:
             self.name_to_var[const_name] = const_var
             self.name_to_const[const_name] = const
 
-        # Process all equations in the JAXPR
+        # Process equations in the JAXPR.
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
+        # Add output variables to the ONNX graph.
         for var in jaxpr.outvars:
             name = self.get_var_name(var)
             shape = None
@@ -293,11 +303,6 @@ class Jaxpr2OnnxConverter:
         handler = self.primitive_handlers.get(name)
         if handler is None:
             raise NotImplementedError(f"Primitive {name} not implemented")
-
-        # Identify whether this handler is function_handler (by reference or closure match)
-
-        # actual_func = getattr(handler, "__func__", None)  # method bound to plugin?
-        # is_function_handler = (handler is core_function_handler or actual_func is core_function_handler)
 
         handler(self, eqn, eqn.params)
 
