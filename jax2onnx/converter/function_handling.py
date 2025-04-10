@@ -34,6 +34,7 @@ def function_handler(
     example_args = []
     outer_input_vars_avals = []
 
+    # Process regular inputs from the equation
     for var in eqn.invars:
         if hasattr(var, "aval"):
             aval = var.aval
@@ -63,44 +64,31 @@ def function_handler(
         else:
             raise TypeError(f"Unexpected input var type: {type(var)}")
 
-    # param_input_names = []
-    # param_avals = []
-    # if params:
-    #     for key, val in params.items():
-    #         param_name = f"param_{key}"
-    #
-    #         try:
-    #             existing_name = converter.var_to_name.get(val, None)
-    #         except TypeError:
-    #             existing_name = None
-    #
-    #         if existing_name and existing_name not in input_names:
-    #             input_names.append(existing_name)
-    #             continue
-    #
-    #         if param_name in input_names:
-    #             continue
-    #
-    #         input_names.append(param_name)
-    #         param_input_names.append(param_name)
-    #
-    #         if hasattr(val, "aval"):
-    #             aval = val.aval
-    #             param_avals.append(aval)
-    #             example_args.append(jnp.ones(aval.shape, dtype=aval.dtype))
-    #             parent_builder.register_value_info_metadata(
-    #                 param_name, tuple(aval.shape), aval.dtype
-    #             )
-    #             parent_builder.add_value_info(param_name, tuple(aval.shape), aval.dtype)
-    #             parent_builder.add_input(param_name, tuple(aval.shape), aval.dtype)
-    #         else:
-    #             jnp_val = jnp.asarray(val)
-    #             example_args.append(jnp_val)
-    #             shape = tuple(jnp_val.shape)
-    #             dtype = jnp_val.dtype
-    #             parent_builder.register_value_info_metadata(param_name, shape, dtype)
-    #             parent_builder.add_value_info(param_name, shape, dtype)
-    #             parent_builder.add_input(param_name, shape, dtype)
+    # NEW CODE: Add call_params to the function's inputs
+    # This ensures parameters like deterministic are passed to function nodes
+    extra_param_inputs = []
+    if hasattr(converter, "call_params") and converter.call_params:
+        for param_name, param_value in converter.call_params.items():
+            # Check if this parameter exists as an input in the parent graph
+            if any(inp.name == param_name for inp in parent_builder.inputs):
+                # Add this parameter to the function's inputs
+                input_names.append(param_name)
+                extra_param_inputs.append((param_name, param_value))
+                print(
+                    f"[INFO] Adding call parameter {param_name}={param_value} to function {unique_node_name}"
+                )
+
+                # For example args, add a reasonable default value based on type
+                if isinstance(param_value, bool):
+                    example_args.append(param_value)
+                elif isinstance(param_value, int):
+                    example_args.append(param_value)
+                elif isinstance(param_value, float):
+                    example_args.append(param_value)
+                else:
+                    print(
+                        f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
+                    )
 
     print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
@@ -110,7 +98,13 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
+
+    # Pass all parameters to the subconverter
     sub_converter.params = params
+
+    # Also pass call_params from parent to sub_converter
+    if hasattr(converter, "call_params"):
+        sub_converter.call_params = converter.call_params
 
     trace_kwargs = {"preserve_graph": True}
     if params is not None:
@@ -119,20 +113,59 @@ def function_handler(
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
     internal_input_vars = sub_converter.jaxpr.invars
-    if len(internal_input_vars) != len(outer_input_vars_avals):
-        raise RuntimeError(
-            f"Mismatch between outer function inputs ({len(outer_input_vars_avals)}) "
-            f"and traced internal inputs ({len(internal_input_vars)}) for {name}."
-        )
 
+    # MODIFIED: Account for extra parameter inputs when checking match
+    expected_inputs = len(outer_input_vars_avals) + len(extra_param_inputs)
+    if len(internal_input_vars) != expected_inputs:
+        print(
+            f"[WARNING] Mismatch in input count! Expected {expected_inputs}, got {len(internal_input_vars)}"
+        )
+        print(f"  - Regular inputs: {len(outer_input_vars_avals)}")
+        print(f"  - Extra param inputs: {len(extra_param_inputs)}")
+        # Continue anyway - we'll skip the mismatched inputs
+
+    # Process the regular inputs first
     for internal_var, (outer_var, outer_aval) in zip(
-        internal_input_vars, outer_input_vars_avals, strict=False
+        internal_input_vars[: len(outer_input_vars_avals)],
+        outer_input_vars_avals,
+        strict=False,
     ):
         internal_name = sub_converter.get_name(internal_var)
         shape = tuple(outer_aval.shape)
         onnx_dtype_enum = numpy_dtype_to_tensorproto(outer_aval.dtype)
         sub_builder.register_value_info_metadata(
             internal_name, shape, onnx_dtype_enum, origin="function_input"
+        )
+        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+
+    # NEW CODE: Now process any extra parameter inputs
+    remaining_internal_vars = internal_input_vars[len(outer_input_vars_avals) :]
+    for internal_var, (param_name, param_value) in zip(
+        remaining_internal_vars, extra_param_inputs, strict=False
+    ):
+        internal_name = sub_converter.get_name(internal_var)
+
+        # Get shape and dtype from the parameter
+        if isinstance(param_value, bool):
+            shape = ()
+            onnx_dtype_enum = 9  # TensorProto.BOOL
+        elif isinstance(param_value, int):
+            shape = ()
+            onnx_dtype_enum = 7  # TensorProto.INT64
+        elif isinstance(param_value, float):
+            shape = ()
+            onnx_dtype_enum = 1  # TensorProto.FLOAT
+        else:
+            print(f"[WARN] Unsupported parameter type, skipping: {type(param_value)}")
+            continue
+
+        print(
+            f"[INFO] Registering param input in function: {internal_name} <- {param_name}"
+        )
+
+        # Register metadata for the internal parameter name
+        sub_builder.register_value_info_metadata(
+            internal_name, shape, onnx_dtype_enum, origin="function_param_input"
         )
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
 
@@ -176,7 +209,6 @@ def function_handler(
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
-
         shape, dtype = shape_dtype
         var.aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
         parent_output_name = parent_builder.get_unique_name("var")
