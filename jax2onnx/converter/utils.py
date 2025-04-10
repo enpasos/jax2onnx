@@ -34,6 +34,19 @@ def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBu
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
+    """
+    Handles the conversion of a JAX function to an ONNX function.
+
+    Args:
+        name: The name of the function being converted.
+        converter: The Jaxpr2OnnxConverter instance handling the conversion.
+        eqn: The JAX equation representing the function.
+        orig_fn: The original JAX function to be converted.
+        params: Additional parameters for the function.
+
+    Raises:
+        RuntimeError: If the original function is not recorded.
+    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 

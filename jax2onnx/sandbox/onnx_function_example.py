@@ -12,14 +12,26 @@ from jax2onnx.plugin_system import onnx_function
 
 @onnx_function
 class MLPBlock(nnx.Module):
+    """
+    Represents a simple MLP block with a GELU activation function.
+    This block will be converted to an ONNX function.
+    """
+
     def __call__(self, x):
+        # Apply the GELU activation function to the input.
         return nnx.gelu(x)
 
 
 @onnx_function
 class TransformerBlock(nnx.Module):
+    """
+    Represents a transformer block. Additional details can be added here.
+    This block will also be converted to an ONNX function.
+    """
+
     def __init__(self):
-        self.mlp = MLPBlock()
+        # Initialization logic for the transformer block.
+        pass
 
     def __call__(self, x):
         return self.mlp(x) + x
