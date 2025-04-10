@@ -19,7 +19,7 @@ class MLPBlock(nnx.Module):
             nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -35,7 +35,7 @@ class SuperBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x, deterministic: bool = True):
         return self.mlp(self.layer_norm2(x))
 
 
@@ -51,6 +51,9 @@ register_example(
             "callable": SuperBlock(),
             "input_shapes": [(5, 10, 3)],
             "expected_number_of_function_instances": 1,
+            "input_params": {
+                "deterministic": True,
+            },
         },
     ],
 )
