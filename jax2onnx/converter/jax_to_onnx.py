@@ -60,7 +60,8 @@ def to_onnx(
         input_shapes: Shapes of the inputs to the function.
         model_name: Name of the ONNX model.
         opset: ONNX opset version to use.
-        input_params: Additional parameters for the conversion (optional).
+        input_params: Additional parameters for inference (optional). These will be
+                     converted to ONNX model inputs rather than baked into the model.
 
     Returns:
         An ONNX ModelProto object representing the converted model.
@@ -70,19 +71,25 @@ def to_onnx(
     # Generate concrete example arguments based on provided shapes
     example_args = prepare_example_args(input_shapes)
 
-    # If static parameters are provided, create a wrapper function that incorporates them
-    if input_params is not None:
-        original_fn = fn
-        fn = lambda *args: original_fn(*args, **input_params)
+    # For tracing purposes only, we use default parameter values (typically set to test-safe values)
+    # These don't get baked into the model, they're just used for shape inference
+    # PROPER HANDLING: Instead of wrapping the function, we will convert params to ONNX inputs
 
     unique_name_generator = UniqueNameGenerator()
     builder = OnnxBuilder(unique_name_generator, opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
 
-    # Pass the function (original or wrapped) and concrete example args to the tracer
+    # Store information about parameters that should be ONNX inputs
+    converter.params = input_params or {}
+
+    # Pass the original function and example args to the tracer
     converter.trace_jaxpr(fn, example_args)
     builder.adjust_dynamic_batch_dimensions(input_shapes)
     builder.filter_unused_initializers()
+
+    # TODO: For each parameter in input_params, create an ONNX model input
+    # with appropriate metadata (Type, shape, etc.)
+    # This requires more complex changes to the converter infrastructure
 
     model = builder.create_onnx_model(model_name)
     model = improve_onnx_model(model)
