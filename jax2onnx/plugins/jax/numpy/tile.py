@@ -1,7 +1,6 @@
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
 from typing import TYPE_CHECKING, Union, Sequence, Tuple
 
 import onnx
@@ -216,7 +215,7 @@ class TilePlugin(PrimitiveLeafPlugin):
         input_aval = node_inputs[0].aval
         input_shape = input_aval.shape
         input_dtype = input_aval.dtype
-        onnx_dtype_enum = NP_TYPE_TO_TENSOR_TYPE[np.dtype(input_dtype)]
+        onnx_dtype_enum = helper.np_dtype_to_tensor_dtype(np.dtype(input_dtype))
 
         if len(node_inputs) > 1:
             repeats_input_name = s.get_name(node_inputs[1])
@@ -292,7 +291,7 @@ class TilePlugin(PrimitiveLeafPlugin):
         # Register output shape and type explicitly
         out_aval = node_outputs[0].aval
         out_shape = out_aval.shape
-        out_dtype = NP_TYPE_TO_TENSOR_TYPE[np.dtype(out_aval.dtype)]
+        out_dtype = helper.np_dtype_to_tensor_dtype(np.dtype(out_aval.dtype))
         s.builder.register_value_info_metadata(
             output_name, shape=out_shape, dtype=out_dtype
         )
