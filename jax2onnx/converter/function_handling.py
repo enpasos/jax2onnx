@@ -16,12 +16,6 @@ if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
 
 
-def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBuilder):
-    for name, func in sub_builder.functions.items():
-        if name not in parent_builder.functions:
-            parent_builder.functions[name] = func
-
-
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -79,7 +73,7 @@ def function_handler(
     sub_converter = converter.__class__(sub_builder)
     sub_converter.params = params
 
-    trace_kwargs = {"preserve_graph": True}  # <-- PATCHED HERE
+    trace_kwargs = {"preserve_graph": True}
     if params is not None:
         trace_kwargs["params"] = params
 
@@ -153,7 +147,7 @@ def function_handler(
         parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
-    _propagate_nested_functions(parent_builder, sub_builder)
+    parent_builder._propagate_nested_functions(sub_builder)
     call_inputs = input_names + param_inputs
     parent_builder.add_function_call_node(
         function_name=unique_node_name,

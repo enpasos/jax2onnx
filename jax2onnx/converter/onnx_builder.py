@@ -582,18 +582,6 @@ class OnnxBuilder:
             init for init in self.initializers if init.name in used_inputs
         ]
 
-    def merge_value_info_metadata_from(self, other: "OnnxBuilder"):
-        for name, (shape, dtype) in other.value_info_metadata.items():
-            if name not in self.value_info_metadata:
-                self.value_info_metadata[name] = (shape, dtype)
-            else:
-                # Optional: warn if there's a mismatch
-                existing = self.value_info_metadata[name]
-                if existing != (shape, dtype):
-                    print(
-                        f"⚠️ [merge] Mismatch in value_info for '{name}': existing={existing}, new={(shape, dtype)}"
-                    )
-
     def get_value_info_origins(self) -> dict[str, str]:
         """
         Returns a dictionary mapping each value name to its metadata origin.
@@ -617,3 +605,37 @@ class OnnxBuilder:
             shape, dtype = self.value_info_metadata[name]
             origin = self.value_info_origin.get(name, "unknown")
             print(f" - {name:30} shape={shape}, dtype={dtype}, origin={origin}")
+
+    def merge_value_info_metadata_from(self, other: "OnnxBuilder"):
+        """
+        Merges value_info metadata from another OnnxBuilder into this one.
+
+        Only adds metadata if the name is not already present.
+        If a name already exists with a different shape or dtype, logs a warning.
+
+        Args:
+            other: Another OnnxBuilder instance whose metadata should be merged in.
+        """
+        for name, (shape, dtype) in other.value_info_metadata.items():
+            if name not in self.value_info_metadata:
+                self.value_info_metadata[name] = (shape, dtype)
+            else:
+                existing = self.value_info_metadata[name]
+                if existing != (shape, dtype):
+                    print(
+                        f"⚠️ [merge] Mismatch in value_info for '{name}': "
+                        f"existing={existing}, new={(shape, dtype)}"
+                    )
+
+    def _propagate_nested_functions(self, sub_builder: "OnnxBuilder"):
+        """
+        Merge all nested function definitions from a sub_builder into the current builder.
+        This ensures that functions defined within a function are preserved in the top-level model.
+        """
+        for name, func in sub_builder.functions.items():
+            if name not in self.functions:
+                self.functions[name] = func
+            else:
+                print(
+                    f"⚠️ [Duplicate function] Skipping already-registered function '{name}'"
+                )
