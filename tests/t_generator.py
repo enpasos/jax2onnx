@@ -79,7 +79,6 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         return []  # Skip if no callable
 
     input_shapes = entry.get("input_shapes", [])
-    # Ensure input_shapes is a list/tuple before checking for 'B'
     if isinstance(input_shapes, (list, tuple)) and any(
         "B" in shape for shape in input_shapes
     ):
@@ -87,14 +86,12 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         dynamic["testcase"] += "_dynamic"
         concrete = entry.copy()
         concrete["input_shapes"] = [
-            # Ensure shape is iterable before processing 'B'
             tuple(
                 3 if dim == "B" else dim
                 for dim in (s if isinstance(s, (list, tuple)) else (s,))
             )
             for s in input_shapes
         ]
-        # if expected_output_shapes is not None:
         if "expected_output_shapes" in entry:
             concrete["expected_output_shapes"] = [
                 tuple(
@@ -103,8 +100,6 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
                 )
                 for s in entry["expected_output_shapes"]
             ]
-        # else:
-
         return [dynamic, concrete]
     return [entry]
 
@@ -116,7 +111,7 @@ def organize_tests_by_context_and_component_from_params(
     grouping: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for param in params:
         context = param.get("context", "default")
-        component_name = param.get("component", "default").replace(".", "_")  # Sanitize
+        component_name = param.get("component", "default").replace(".", "_")
         grouping.setdefault((context, component_name), []).append(param)
     return grouping
 
@@ -166,12 +161,9 @@ def make_test_function(tp: Dict[str, Any]):
             opset=opset_version,
         )
 
-        # Save the model to the specified path
-
         onnx.save_model(onnx_model, model_path)
         print(f"   Model saved to: {model_path}")
 
-        # --- Numerical Check ---
         def generate_inputs(shapes, B=None):
             actual_shapes = []
             if not isinstance(shapes, (list, tuple)):
@@ -207,44 +199,25 @@ def make_test_function(tp: Dict[str, Any]):
             ), "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
 
-        # === Function instance validation ===
         num_found_funcs = len({f.name for f in onnx_model.functions})
         if expected_num_funcs is not None:
             assert (
                 num_found_funcs == expected_num_funcs
-            ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs} in generated model."
+            ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs}."
         print(f"-> Found expected {num_found_funcs} functions.")
 
-        # === Output shape validation ===
         if expected_output_shapes:
             print("== Checking model output shapes ==")
             actual_output_shapes = []
             for output in onnx_model.graph.output:
-
                 dims = []
                 for d in output.type.tensor_type.shape.dim:
-                    # Check if dim_param is set (usually for dynamic dims)
                     if d.HasField("dim_param") and d.dim_param == "B":
-                        dims.append("B")  # Use the symbolic name 'B'
-                    # Check if dim_value is set (for concrete dims)
+                        dims.append("B")
                     elif d.HasField("dim_value"):
                         dims.append(d.dim_value)
-                    # Fallback for dimensions that might be neither (e.g., truly unknown)
-                    # Or handle cases where dim_value might be 0 even if param isn't 'B'
                     else:
-                        # Using 0 might be okay if that's the default unset value,
-                        # but None might be clearer if JAX/ONNX uses it.
-                        # Let's stick to 0 for now if value field exists but isn't set?
-                        # Or check if the field exists at all
-                        if hasattr(d, "dim_value"):
-                            dims.append(
-                                d.dim_value
-                            )  # Append the value (likely 0 if unset)
-                        else:
-                            dims.append(
-                                None
-                            )  # Or placeholder like '?' if value field absent
-
+                        dims.append(d.dim_value if hasattr(d, "dim_value") else None)
                 print(f"Output Name: {output.name}  Shape: {dims}")
                 actual_output_shapes.append(tuple(dims))
 

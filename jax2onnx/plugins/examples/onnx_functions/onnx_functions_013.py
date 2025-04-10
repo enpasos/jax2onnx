@@ -321,7 +321,7 @@ class VisionTransformer(nnx.Module):
         if len(x.shape) != 4 or x.shape[-1] != 1:
             raise ValueError("Input tensor 'x' must have shape (B, H, W, 1).")
 
-        x = self.embedding(x, deterministic)
+        x = self.embedding(x, deterministic=deterministic)
         x = self.concat_cls_token(x)
 
         x = self.positional_embedding(x)
