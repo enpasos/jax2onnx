@@ -36,7 +36,9 @@ class SuperBlock(nnx.Module):
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
     def __call__(self, x, deterministic: bool = True):
-        return self.mlp(self.layer_norm2(x))
+        # Explicitly pass the deterministic parameter to the MLPBlock
+        x_normalized = self.layer_norm2(x)
+        return self.mlp(x_normalized, deterministic=deterministic)
 
 
 register_example(

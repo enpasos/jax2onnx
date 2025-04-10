@@ -639,3 +639,27 @@ class OnnxBuilder:
                 print(
                     f"⚠️ [Duplicate function] Skipping already-registered function '{name}'"
                 )
+
+    def add_scalar_input(self, name: str, dtype: int):
+        """
+        Add a scalar input to the ONNX model.
+        This is specifically for call-time parameters like "deterministic" flags.
+
+        Args:
+            name: Name of the parameter input
+            dtype: ONNX TensorProto data type (e.g., TensorProto.BOOL)
+        """
+        # Create a scalar shape (empty tuple for scalar)
+        shape = ()
+
+        # Create a tensor value info for the input
+        tensor_value_info = helper.make_tensor_value_info(name, dtype, shape)
+
+        # Add to the model's inputs
+        self.inputs.append(tensor_value_info)
+
+        # Register in metadata
+        self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
+
+        print(f"Added scalar parameter input: {name} (dtype: {dtype})")
+        return name

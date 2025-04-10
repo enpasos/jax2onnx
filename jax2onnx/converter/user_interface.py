@@ -70,11 +70,87 @@ def allclose(callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e
     # Extract actual input names from model
     input_names = [inp.name for inp in session.get_inputs()]
 
-    if len(input_names) != len(xs):
-        raise ValueError(f"Expected {len(input_names)} inputs, but got {len(xs)}.")
+    # Get input shapes to help identify scalar parameters
+    input_shapes = [tuple(inp.shape) for inp in session.get_inputs()]
 
-    # Prepare ONNX input dictionary
-    p = {name: np.array(x) for name, x in zip(input_names, xs, strict=False)}
+    # Scalars will have shape () - these are likely to be parameters
+    scalar_inputs = [
+        name for name, shape in zip(input_names, input_shapes) if shape == ()
+    ]
+
+    # If we have more inputs than tensor arguments, assume the extras are parameters
+    has_param_inputs = len(input_names) > len(xs)
+
+    # Determine how many inputs are tensors (should match xs)
+    tensor_input_count = len(xs)
+
+    # Get the tensor input names (the first n names)
+    tensor_input_names = input_names[:tensor_input_count]
+
+    # The rest are parameter inputs
+    param_input_names = input_names[tensor_input_count:]
+
+    # Print debug info to understand what's happening
+    print(f"ONNX model inputs: {input_names}")
+    print(f"Tensor inputs: {tensor_input_names}")
+    print(f"Parameter inputs: {param_input_names}")
+    print(f"JAX kwargs: {jax_kwargs}")
+
+    # Prepare ONNX input dictionary for tensor inputs
+    p = {name: np.array(x) for name, x in zip(tensor_input_names, xs, strict=False)}
+
+    # Get more detailed type information from ONNX model inputs
+    input_details = [(inp.name, inp.type, inp.shape) for inp in session.get_inputs()]
+    print(f"Detailed input info: {input_details}")
+
+    # Handle deterministic parameter and other parameters more carefully
+    for param_name in param_input_names:
+        if param_name == "deterministic":
+            # Special handling for deterministic parameter
+            det_value = jax_kwargs.get(
+                "deterministic", True
+            )  # Default to True if not specified
+
+            # Use bool_ type for deterministic parameter - ONNX expects boolean type
+            p[param_name] = np.array(det_value, dtype=np.bool_)
+
+            # Also pass it in jax_kwargs so the JAX model receives the same parameter
+            jax_kwargs[param_name] = det_value
+            print(f"Added deterministic={det_value} as bool_ value and to jax_kwargs")
+
+        elif param_name in jax_kwargs:
+            # General handling for other parameters
+            param_value = jax_kwargs[param_name]
+
+            # Convert the parameter to the appropriate numpy array based on its type
+            if isinstance(param_value, bool):
+                try:
+                    p[param_name] = np.array(
+                        int(param_value), dtype=np.int64
+                    )  # Use int64 for booleans
+                except (TypeError, ValueError):
+                    p[param_name] = np.array(
+                        param_value, dtype=np.bool_
+                    )  # Fallback to bool_
+            elif isinstance(param_value, int):
+                p[param_name] = np.array(param_value, dtype=np.int64)
+            elif isinstance(param_value, float):
+                p[param_name] = np.array(param_value, dtype=np.float32)
+            else:
+                print(
+                    f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
+                )
+        else:
+            # Parameter not found in jax_kwargs, provide a reasonable default
+            print(
+                f"Warning: Parameter {param_name} not provided in jax_kwargs, using default value"
+            )
+            # For boolean parameters, default to True
+            if param_name == "deterministic":
+                p[param_name] = np.array(True, dtype=np.bool_)
+            # For other parameters, we could add more default handling if needed
+
+    # Run ONNX model with both tensor and parameter inputs
     onnx_output = session.run(None, p)
 
     # Call JAX function directly with tensor args and keyword args

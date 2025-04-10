@@ -30,7 +30,8 @@ class Jaxpr2OnnxConverter:
         # Initialize the converter with an ONNX builder instance.
         self.builder = builder
 
-        self.params: Dict[str, Any] = {}  # Add this line
+        self.params: Dict[str, Any] = {}  # Parameters for tracing
+        self.call_params: Dict[str, Any] = {}  # Parameters that should be ONNX inputs
 
         # Mapping between variables and their names in the ONNX graph.
         self.var_to_name: dict[Any, str] = {}
@@ -128,8 +129,60 @@ class Jaxpr2OnnxConverter:
             self.name_to_const.clear()
             self.shape_env.clear()
 
+        # Store params for use during conversion
+        if params is not None:
+            self.params.update(params)
+
+        # Get the function signature to check which parameters it actually accepts
+        import inspect
+
+        signature_params = set()
+        try:
+            sig = inspect.signature(fn)
+            # Get all parameter names that have default values or are **kwargs
+            for param_name, param in sig.parameters.items():
+                if param.kind == param.VAR_KEYWORD:  # **kwargs
+                    # Function accepts any keyword args
+                    signature_params = None  # Indicates accepts any params
+                    break
+                if param.default != param.empty:  # Has a default value
+                    signature_params.add(param_name)
+        except (ValueError, TypeError):
+            # Can't get signature, assume no parameters
+            pass
+
+        # Create a wrapper function that only passes parameters the function can accept
+        if signature_params is None:
+            # Function accepts any params via **kwargs
+            tracing_params = {}
+            # Include regular params
+            if self.params:
+                tracing_params.update(self.params)
+            # Don't include call_params as they're for ONNX inputs, not for tracing
+            wrapped_fn = lambda *args: fn(*args, **tracing_params)
+        elif signature_params:
+            # Function accepts some specific params
+            tracing_params = {}
+            # Only include regular params that match the signature
+            if self.params:
+                tracing_params.update(
+                    {k: v for k, v in self.params.items() if k in signature_params}
+                )
+            if tracing_params:
+                wrapped_fn = lambda *args: fn(*args, **tracing_params)
+            else:
+                wrapped_fn = fn
+        else:
+            # Function doesn't accept any parameters
+            wrapped_fn = fn
+
+        print(
+            f"Tracing with parameters: {tracing_params if 'tracing_params' in locals() else 'None'}"
+        )
+
+        # Now trace the function
         with temporary_monkey_patches(allow_function_primitives=True):
-            closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+            closed_jaxpr = jax.make_jaxpr(wrapped_fn)(*example_args)
 
         print(closed_jaxpr)
 
