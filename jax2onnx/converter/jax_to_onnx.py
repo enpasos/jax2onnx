@@ -41,32 +41,25 @@ def to_onnx(
     input_shapes: Any,
     model_name: str = "jax_model",
     opset: int = 21,
+    input_params: dict = None,  # <-- 🔧 FIXED: now allowed
 ) -> onnx.ModelProto:
     """
-    Converts a JAX function into an ONNX model. (Original Version)
+    Converts a JAX function into an ONNX model.
     """
+    from jax2onnx.converter.jax_to_onnx import prepare_example_args
+
     example_args = prepare_example_args(input_shapes)
 
     unique_name_generator = UniqueNameGenerator()
-
     builder = OnnxBuilder(unique_name_generator, opset=opset)
-
-    # ============================================
     converter = Jaxpr2OnnxConverter(builder)
 
     converter.trace_jaxpr(fn, example_args)
-
     builder.adjust_dynamic_batch_dimensions(input_shapes)
-    builder.filter_unused_initializers()  # Call filter here
+    builder.filter_unused_initializers()
 
     model = builder.create_onnx_model(model_name)
-
-    # Optimize and check model
-
     model = improve_onnx_model(model)
-    # onnx.checker.check_model(model)
-
-    # analyze_constants(model) # Keep commented if not needed
 
     return model
 

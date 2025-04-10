@@ -63,62 +63,64 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         det_input = node_inputs[1]
         output_name = s.get_name(node_outputs[0])
 
+        print("[DEBUG] Dropout to_onnx called")
+        print(f"[DEBUG] Input tensor name: {x_name}")
+        print(f"[DEBUG] Deterministic input: {det_input}")
+        print(f"[DEBUG] Output name: {output_name}")
+
         # Static parameter: rate
         rate = params.get("rate", 0.0)
+        print(f"[DEBUG] Dropout rate: {rate}")
         ratio_tensor = np.array(rate, dtype=np.float32)
-        ratio_name = s.builder.get_constant_name(ratio_tensor)  # Use builder helper
+        ratio_name = s.builder.get_constant_name(ratio_tensor)
 
         # Handle deterministic: static or dynamic
         if isinstance(det_input, Literal):
             training_mode = not bool(det_input.val)
+            print(
+                f"[DEBUG] Static deterministic value: {det_input.val} → training_mode: {training_mode}"
+            )
             training_tensor = np.array(training_mode, dtype=bool)
-            training_mode_name = s.builder.get_constant_name(
-                training_tensor
-            )  # Use builder helper
+            training_mode_name = s.builder.get_constant_name(training_tensor)
         else:
-            # Dynamic: flip the value (ONNX: training_mode = not deterministic)
+            print("[DEBUG] Dynamic deterministic input detected")
             det_name = s.get_name(det_input)
-            # --- Get aval info for the dynamic deterministic input ---
             det_aval = det_input.aval
-            det_shape = det_aval.shape  # Should be scalar ()
-            det_dtype_enum = onnx.TensorProto.BOOL  # Expecting bool
+            det_shape = det_aval.shape
+            det_dtype_enum = onnx.TensorProto.BOOL
 
-            flipped_name = s.get_unique_name("training_mode")  # More descriptive name
+            flipped_name = s.get_unique_name("training_mode")
             not_node = helper.make_node(
                 "Not",
                 inputs=[det_name],
                 outputs=[flipped_name],
-                name=s.get_unique_name("not_deterministic"),  # Node name
+                name=s.get_unique_name("not_deterministic"),
             )
             s.add_node(not_node)
-            # --- ADD ValueInfo for the 'Not' node output ---
+            print(
+                f"[DEBUG] Added NOT node to invert deterministic: input={det_name}, output={flipped_name}"
+            )
+
             s.builder.register_value_info_metadata(
                 flipped_name, shape=det_shape, dtype=det_dtype_enum
             )
             s.builder.add_value_info(
                 flipped_name, shape=det_shape, dtype=det_dtype_enum
             )
-            # --- END Add ValueInfo ---
             training_mode_name = flipped_name
 
         # ONNX Dropout node
-        # Inputs: data, ratio (optional float scalar), training_mode (optional bool scalar)
-        # Dropout op version >= 12: ratio and training_mode are optional inputs
-        dropout_inputs = [x_name]
-        # Only add ratio if rate > 0 (it's optional)
-        if rate > 0.0:
-            dropout_inputs.append(ratio_name)
-            # Only add training_mode if ratio is also present (as per ONNX spec order)
-            dropout_inputs.append(training_mode_name)
-        # If rate is 0, dropout is identity, no need for ratio or training_mode
-
+        dropout_inputs = [x_name, ratio_name, training_mode_name]
         dropout_node = helper.make_node(
             "Dropout",
             inputs=dropout_inputs,
-            outputs=[output_name],  # Only specify first output (data)
-            name=s.get_unique_name("dropout"),
+            outputs=[output_name],
+            name=s.get_unique_name("Dropout"),
         )
         s.add_node(dropout_node)
+        print(
+            f"[DEBUG] Added Dropout node with inputs: {dropout_inputs}, output: {output_name}"
+        )
 
     @staticmethod
     def _dropout(x, deterministic, rate):

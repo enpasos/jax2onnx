@@ -159,12 +159,13 @@ def make_test_function(tp: Dict[str, Any]):
             input_shapes,
             model_name=testcase_name,
             opset=opset_version,
+            kwargs={"input_params": tp.get("input_params", {})},
         )
 
         onnx.save_model(onnx_model, model_path)
         print(f"   Model saved to: {model_path}")
 
-        def generate_inputs(shapes, B=None):
+        def generate_inputs(shapes, input_params=None, B=None):
             actual_shapes = []
             if not isinstance(shapes, (list, tuple)):
                 shapes = [shapes]
@@ -175,10 +176,15 @@ def make_test_function(tp: Dict[str, Any]):
                     if B is not None
                     else current_shape
                 )
-            return [
+
+            inputs = [
                 jax.random.normal(rng, shape=s, dtype=jnp.float32)
                 for s in actual_shapes
             ]
+
+            # Do not re-append input_params – they are already included in input_shapes!
+
+            return inputs
 
         if isinstance(input_shapes, (list, tuple)) and any(
             "B" in shape for shape in input_shapes
@@ -186,14 +192,17 @@ def make_test_function(tp: Dict[str, Any]):
             print("Running numerical checks for dynamic batch sizes [2, 3]...")
             for B in [2, 3]:
                 print(f"  Batch size B={B}")
-                xs = generate_inputs(input_shapes, B=B)
+                xs = generate_inputs(
+                    input_shapes, input_params=tp.get("input_params", {}), B=B
+                )
                 assert allclose(
                     callable_obj, model_path, *xs
                 ), f"Numerical check failed for B={B}"
                 print(f"  Numerical check passed for B={B}.")
         else:
             print("Running numerical check for static shape...")
-            xs = generate_inputs(input_shapes)
+            xs = generate_inputs(input_shapes, input_params=tp.get("input_params", {}))
+
             assert allclose(
                 callable_obj, model_path, *xs
             ), "Numerical check failed for static shape."
