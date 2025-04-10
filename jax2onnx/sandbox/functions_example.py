@@ -1,12 +1,13 @@
 # file: jax2onnx/sandbox/functions_example.py
 
 import os
-import onnx
+
 import jax.numpy as jnp
+import onnx
 from flax import nnx
-from onnx import helper, TensorProto
+from onnx import GraphProto, TensorProto, helper
+
 from jax2onnx import to_onnx
-from onnx import GraphProto
 
 
 class MLPBlock(nnx.Module):

@@ -1,8 +1,11 @@
-from jax import core, numpy as jnp
+from typing import TYPE_CHECKING
+
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, Union, Optional
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -75,7 +78,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
     """
 
     @staticmethod
-    def _squeeze_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+    def _squeeze_abstract_eval(x, axes: tuple[int, ...] | None):
         """
         Compute the output shape for squeeze.
         - If no axes are provided, squeeze all dimensions that are 1.
@@ -104,7 +107,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         return core.ShapedArray(new_shape, x.dtype)
 
     @staticmethod
-    def abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+    def abstract_eval(x, axes: tuple[int, ...] | None):
         return SqueezePlugin._squeeze_abstract_eval(x, axes)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
@@ -138,7 +141,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         s.add_shape_info(output_name, output_shape)
 
     @staticmethod
-    def _squeeze(a, axis: Optional[Union[int, Tuple[int, ...]]] = None):
+    def _squeeze(a, axis: int | tuple[int, ...] | None = None):
         """Defines the primitive binding for Squeeze."""
         if axis is None:
             axes = tuple(
@@ -154,7 +157,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
     def get_monkey_patch():
         """Provides patching information for Squeeze."""
 
-        def patched_squeeze(a, axis: Optional[Union[int, Tuple[int, ...]]] = None):
+        def patched_squeeze(a, axis: int | tuple[int, ...] | None = None):
             return SqueezePlugin._squeeze(a, axis)
 
         return patched_squeeze

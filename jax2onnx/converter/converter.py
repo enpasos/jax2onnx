@@ -1,22 +1,22 @@
 # file: jax2onnx/converter/converter.py
+from typing import Any
+
 import jax
-import onnx
-from onnx import helper
-import numpy as np
-from typing import Dict, Any, Tuple
 import jax.random
+import numpy as np
+import onnx
+from jax.extend import core as extend_core
+from onnx import helper
+
 from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
 from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.converter.patch_utils import temporary_monkey_patches
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
-    PrimitiveLeafPlugin,
-)
-from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
     import_all_plugins,
 )
-from jax2onnx.converter.patch_utils import temporary_monkey_patches
-from jax.extend import core as extend_core
 
 
 # Updated class-level docstring to clarify purpose.
@@ -31,17 +31,17 @@ class Jaxpr2OnnxConverter:
         self.builder = builder
 
         # Mapping between variables and their names in the ONNX graph.
-        self.var_to_name: Dict[Any, str] = {}
-        self.name_to_var: Dict[str, Any] = {}
+        self.var_to_name: dict[Any, str] = {}
+        self.name_to_var: dict[str, Any] = {}
 
         # Handlers for JAX primitives.
         self.primitive_handlers = {}
 
         # Environment to track variable shapes.
-        self.shape_env: Dict[str, Tuple[int, ...]] = {}
+        self.shape_env: dict[str, tuple[int, ...]] = {}
 
         # Mapping for constants in the ONNX graph.
-        self.name_to_const: Dict[str, Any] = {}
+        self.name_to_const: dict[str, Any] = {}
 
         # Register handlers for random primitives.
         self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
@@ -63,7 +63,7 @@ class Jaxpr2OnnxConverter:
             primitive = plugin.primitive
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
-    def new_var(self, dtype: np.dtype, shape: Tuple[int, ...]):
+    def new_var(self, dtype: np.dtype, shape: tuple[int, ...]):
         return jax.core.Var(
             self.builder.get_unique_name(""), jax.core.ShapedArray(shape, dtype)
         )

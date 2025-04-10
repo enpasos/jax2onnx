@@ -1,6 +1,6 @@
+import jax.numpy as jnp
 from jax import eval_shape
 from jax.core import ShapedArray
-import jax.numpy as jnp
 
 # ShapedArray inputs
 a = ShapedArray((2, 3), jnp.float32)

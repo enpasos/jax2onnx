@@ -1,21 +1,29 @@
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 import jax
 import jax.random
 import numpy as np
-from onnx import helper
-from typing import TYPE_CHECKING, Dict, Callable
-
-from jax.extend import core as extend_core
 
 # Ensure JaxprEqn is accessible
 from jax.core import JaxprEqn
+from jax.extend import core as extend_core
+from onnx import helper
 
 if TYPE_CHECKING:
     from .converter import Jaxpr2OnnxConverter
 
 
 class PrimitiveDispatcher:
+    """
+    Manages the dispatching of JAX primitives to their corresponding handlers.
+    """
+
     def __init__(self):
-        self.builtin_handlers: Dict[str, Callable] = {}
+        # Dictionary to store handlers for built-in JAX primitives.
+        self.builtin_handlers: dict[str, Callable] = {}
+
+        # Initialize the built-in handlers.
         self._define_builtin_handlers()
 
     def _define_builtin_handlers(self):

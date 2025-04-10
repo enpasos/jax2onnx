@@ -1,9 +1,10 @@
 import contextlib
 import inspect
+
 from jax2onnx.plugin_system import (
+    ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
-    ONNX_FUNCTION_PLUGIN_REGISTRY,
 )
 
 

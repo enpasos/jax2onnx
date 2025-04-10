@@ -1,11 +1,13 @@
+from typing import TYPE_CHECKING
+
+import jax
+import jax.nn as nn
 from jax import core
 from jax.extend.core import Primitive
-import jax.nn as nn
-from onnx import helper
-from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 from jax.interpreters import batching
-import jax
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

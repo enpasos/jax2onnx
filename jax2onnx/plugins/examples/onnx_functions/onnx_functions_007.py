@@ -1,8 +1,8 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_007.py
 # Note: Original header comment mentioned 006, corrected to 007
 
-from flax import nnx
 import jax.numpy as jnp
+from flax import nnx
 
 from jax2onnx.plugin_system import onnx_function, register_example
 

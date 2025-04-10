@@ -1,10 +1,12 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
+from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
-from flax import nnx
-from typing import TYPE_CHECKING
-from onnx import helper, TensorProto
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from onnx import TensorProto, helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

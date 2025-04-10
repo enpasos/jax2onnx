@@ -1,8 +1,12 @@
-from jax import core, numpy as jnp
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, Union, Sequence, Optional
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -68,7 +72,7 @@ class TransposePlugin(PrimitiveLeafPlugin):
     """
 
     @staticmethod
-    def _transpose_abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+    def _transpose_abstract_eval(x, axes: tuple[int, ...] | None):
         """Computes the output shape for jnp.transpose."""
         x_shape = list(x.shape)
         if axes is None:
@@ -82,7 +86,7 @@ class TransposePlugin(PrimitiveLeafPlugin):
         return core.ShapedArray(tuple(output_shape), x.dtype)
 
     @staticmethod
-    def abstract_eval(x, axes: Optional[Tuple[int, ...]]):
+    def abstract_eval(x, axes: tuple[int, ...] | None):
         return TransposePlugin._transpose_abstract_eval(x, axes)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
@@ -115,7 +119,7 @@ class TransposePlugin(PrimitiveLeafPlugin):
         s.add_shape_info(output_name, output_shape)
 
     @staticmethod
-    def _transpose(a, axes: Optional[Union[Sequence[int], int]] = None):
+    def _transpose(a, axes: Sequence[int] | int | None = None):
         """Defines the primitive binding for Transpose."""
         n = len(a.shape)
         if axes is None:
@@ -132,7 +136,7 @@ class TransposePlugin(PrimitiveLeafPlugin):
     def get_monkey_patch():
         """Provides patching information for Transpose."""
 
-        def patched_transpose(a, axes: Optional[Union[Sequence[int], int]] = None):
+        def patched_transpose(a, axes: Sequence[int] | int | None = None):
             return TransposePlugin._transpose(a, axes)
 
         return patched_transpose

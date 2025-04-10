@@ -1,8 +1,9 @@
 # file: jax2onnx/examples/mlp.py
 
-from flax import nnx
 import jax
-from flax.nnx import Linear, Dropout, BatchNorm
+from flax import nnx
+from flax.nnx import BatchNorm, Dropout, Linear
+
 from jax2onnx.plugin_system import register_example
 
 

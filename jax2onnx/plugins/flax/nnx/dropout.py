@@ -3,13 +3,14 @@
 
 from typing import TYPE_CHECKING
 
-from flax import nnx
-from jax.extend.core import Primitive, Literal
-from jax.core import ShapedArray
-from onnx import helper
 import numpy as np
 import onnx
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from flax import nnx
+from jax.core import ShapedArray
+from jax.extend.core import Literal, Primitive
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

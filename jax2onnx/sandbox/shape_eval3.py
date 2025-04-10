@@ -1,7 +1,8 @@
+from functools import partial
+
+import jax.numpy as jnp
 from jax import eval_shape
 from jax.core import ShapedArray
-import jax.numpy as jnp
-from functools import partial
 
 # ShapedArray inputs
 a = ShapedArray((2, 3), jnp.float32)

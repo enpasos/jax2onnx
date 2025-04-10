@@ -1,6 +1,7 @@
 # file: jax2onnx/examples/autoencoder.py
-from flax import nnx
 import jax
+from flax import nnx
+
 from jax2onnx.plugin_system import register_example
 
 

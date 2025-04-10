@@ -1,10 +1,13 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
-from jax import core, numpy as jnp
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
-from onnx import helper
-from typing import TYPE_CHECKING, Tuple, List, Union, Dict
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 from jax.interpreters import batching
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -82,7 +85,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
     """
 
     @staticmethod
-    def _parse_einsum_equation(equation: str) -> Tuple[List[str], str]:
+    def _parse_einsum_equation(equation: str) -> tuple[list[str], str]:
         """Parses the einsum equation into input and output terms."""
         parts = equation.split("->")
         if len(parts) != 2:
@@ -92,8 +95,8 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _get_dynamic_output_shape(
-        input_shapes: List[Tuple[Union[int, str], ...]], equation: str
-    ) -> Tuple[Union[int, str], ...]:
+        input_shapes: list[tuple[int | str, ...]], equation: str
+    ) -> tuple[int | str, ...]:
         """Calculates the output shape while handling dynamic dimensions."""
 
         dummy_inputs = [
@@ -104,9 +107,9 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         output_shape = list(dummy_output.shape)
 
         input_terms, output_term = EinsumPlugin._parse_einsum_equation(equation)
-        index_to_label: Dict[str, Union[int, str]] = {}
+        index_to_label: dict[str, int | str] = {}
 
-        for term, shape in zip(input_terms, input_shapes):
+        for term, shape in zip(input_terms, input_shapes, strict=False):
             for i, label in enumerate(term):
                 if label not in index_to_label:
                     try:
@@ -199,7 +202,9 @@ def einsum_batching_rule(
     new_operands = []
     new_batch_dims = []
 
-    for operand, batch_dim, term in zip(batched_args, batch_dims, input_terms):
+    for operand, batch_dim, term in zip(
+        batched_args, batch_dims, input_terms, strict=False
+    ):
         if batch_dim is not None:
             batch_label = "B"
             if batch_label not in term:

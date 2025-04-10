@@ -1,8 +1,10 @@
-import jax
 from typing import TYPE_CHECKING
-from onnx import helper, TensorProto
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+import jax
 import jax.numpy as jnp
+from onnx import TensorProto, helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

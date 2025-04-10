@@ -2,8 +2,10 @@
 
 import os
 import shutil
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 import jax
+import jax.numpy as jnp  # <<< Add jnp import for generate_inputs
 import onnx  # <<< Add onnx import
 
 # === Add imports for to_onnx and save_onnx ===
@@ -18,7 +20,6 @@ from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,
 )
-import jax.numpy as jnp  # <<< Add jnp import for generate_inputs
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
@@ -41,7 +42,7 @@ def clean_generated_test_dirs():
 
 
 # --- Metadata Loading ---
-def extract_from_metadata(mds) -> List[Dict[str, Any]]:
+def extract_from_metadata(mds) -> list[dict[str, Any]]:
     metadata_list = []
 
     for entry in mds:
@@ -59,7 +60,7 @@ def extract_from_metadata(mds) -> List[Dict[str, Any]]:
     return metadata_list
 
 
-def load_metadata_from_plugins() -> List[Dict[str, Any]]:
+def load_metadata_from_plugins() -> list[dict[str, Any]]:
     import_all_plugins()
     return [
         {**plugin.metadata, "jaxpr_primitive": name}
@@ -68,13 +69,13 @@ def load_metadata_from_plugins() -> List[Dict[str, Any]]:
     ]
 
 
-def load_plugin_metadata() -> List[Dict[str, Any]]:
+def load_plugin_metadata() -> list[dict[str, Any]]:
     md = load_metadata_from_plugins()
     return extract_from_metadata(md)
 
 
 # --- Test Param Generation ---
-def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     if "callable" not in entry:
         return []  # Skip if no callable
 
@@ -106,9 +107,9 @@ def generate_test_params(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 # --- Organizing Tests ---
 def organize_tests_by_context_and_component_from_params(
-    params: List[Dict[str, Any]],
-) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
-    grouping: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    params: list[dict[str, Any]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    grouping: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for param in params:
         context = param.get("context", "default")
         component_name = param.get("component", "default").replace(".", "_")
@@ -119,7 +120,7 @@ def organize_tests_by_context_and_component_from_params(
 _GLOBAL_PLUGIN_GROUPING = None
 
 
-def get_plugin_grouping(reset=False) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+def get_plugin_grouping(reset=False) -> dict[tuple[str, str], list[dict[str, Any]]]:
     global _GLOBAL_PLUGIN_GROUPING
     if reset:
         _GLOBAL_PLUGIN_GROUPING = None
@@ -133,7 +134,7 @@ def get_plugin_grouping(reset=False) -> Dict[Tuple[str, str], List[Dict[str, Any
     return _GLOBAL_PLUGIN_GROUPING
 
 
-def make_test_function(tp: Dict[str, Any]):
+def make_test_function(tp: dict[str, Any]):
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
     func_name = f"test_{test_case_name_safe}"
 
@@ -260,7 +261,7 @@ def generate_test_class(context: str, component: str, namespace: dict):
 
 
 # --- Minimal Test File Generation ---
-def create_minimal_test_file(directory: str, context: str, components: List[str]):
+def create_minimal_test_file(directory: str, context: str, components: list[str]):
     folder_parts = context.split(".")
     folder_name = folder_parts[0]
     sub_folder_name = folder_parts[-1] if len(folder_parts) > 1 else folder_name
@@ -291,10 +292,10 @@ def create_minimal_test_file(directory: str, context: str, components: List[str]
 
 
 def create_minimal_test_files(
-    grouping: Dict[Tuple[str, str], List[Dict[str, Any]]], directory: str
+    grouping: dict[tuple[str, str], list[dict[str, Any]]], directory: str
 ):
     """Creates minimal test files, grouping components by context."""
-    context_components: Dict[str, List[str]] = {}
+    context_components: dict[str, list[str]] = {}
     for context, component_key in grouping.keys():  # component_key might be sanitized
         # Need to map back or store original component name if sanitized key is used
         # Assuming the component name used in grouping keys is sufficient for now

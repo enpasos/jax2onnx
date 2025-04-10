@@ -1,7 +1,9 @@
-import jax
 from typing import TYPE_CHECKING
+
+import jax
 from onnx import helper
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

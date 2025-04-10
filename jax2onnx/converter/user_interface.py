@@ -1,12 +1,14 @@
 # file: jax2onnx/converter/user_interface.py
 
-import onnx
-from typing import Any, Optional, Dict
-import numpy as np
-import onnxruntime as ort
-from jax2onnx.converter.jax_to_onnx import to_onnx as core_to_onnx
 from collections import defaultdict
+from typing import Any
+
 import jax.numpy as jnp
+import numpy as np
+import onnx
+import onnxruntime as ort
+
+from jax2onnx.converter.jax_to_onnx import to_onnx as core_to_onnx
 
 
 def to_onnx(
@@ -15,7 +17,7 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,
-    kwargs: Optional[Dict[str, Any]] = None,
+    kwargs: dict[str, Any] | None = None,
 ) -> onnx.ModelProto:
     """Convert a JAX function or Module to an ONNX model."""
     kwargs = kwargs or {}
@@ -36,7 +38,7 @@ def to_onnx(
             param_values = args[n_tensor_args:]
 
             converted_kwargs = {}
-            for k, v in zip(param_keys, param_values):
+            for k, v in zip(param_keys, param_values, strict=False):
                 expected_type = type(input_params[k])
                 if expected_type is bool:
                     converted_kwargs[k] = jnp.asarray(v, dtype=jnp.bool_).reshape(())
@@ -94,7 +96,7 @@ def allclose(callable, onnx_model_path, *xs):
         param_names[: len(tensor_args)]
         scalar_names = param_names[len(tensor_args) :]
 
-        kwargs = dict(zip(scalar_names, scalar_args))
+        kwargs = dict(zip(scalar_names, scalar_args, strict=False))
 
         try:
             return fn(*tensor_args, **kwargs)
@@ -111,7 +113,7 @@ def allclose(callable, onnx_model_path, *xs):
         raise ValueError(f"Expected {len(input_names)} inputs, but got {len(xs)}.")
 
     # Prepare ONNX input dictionary
-    p = {name: np.array(x) for name, x in zip(input_names, xs)}
+    p = {name: np.array(x) for name, x in zip(input_names, xs, strict=False)}
     onnx_output = session.run(None, p)
 
     jax_output = safe_call_with_kwargs(callable, *xs)
@@ -122,7 +124,8 @@ def allclose(callable, onnx_model_path, *xs):
         onnx_output = [onnx_output]
 
     isOk = all(
-        np.allclose(o, j, rtol=1e-3, atol=1e-5) for o, j in zip(onnx_output, jax_output)
+        np.allclose(o, j, rtol=1e-3, atol=1e-5)
+        for o, j in zip(onnx_output, jax_output, strict=False)
     )
 
     return (
@@ -140,10 +143,10 @@ class ModelExportContext:
     Holds model-specific state for naming and caching.
     """
 
-    def __init__(self, model_id: Optional[str] = None):
+    def __init__(self, model_id: str | None = None):
         self.model_id: str = model_id or "default_model"
-        self.function_cache: Dict[str, Any] = {}
-        self.instance_counters: Dict[str, int] = defaultdict(int)
+        self.function_cache: dict[str, Any] = {}
+        self.instance_counters: dict[str, int] = defaultdict(int)
 
     def next_function_name(self, base_name: str) -> str:
         """

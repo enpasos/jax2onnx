@@ -1,10 +1,12 @@
+from typing import TYPE_CHECKING
+
 import jax
 import jax.numpy as jnp
-from typing import TYPE_CHECKING
 from onnx import helper
+
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -63,7 +65,9 @@ class RandomGammaPlugin(PrimitiveLeafPlugin):
         else:
             subconverter.trace_jaxpr(gamma, (key, alpha))
 
-        for outer_var, inner_tensor in zip(node_inputs, subconverter.builder.inputs):
+        for outer_var, inner_tensor in zip(
+            node_inputs, subconverter.builder.inputs, strict=False
+        ):
             outer_name = s.get_name(outer_var)
             inner_name = inner_tensor.name
             id_node = helper.make_node(
@@ -77,7 +81,9 @@ class RandomGammaPlugin(PrimitiveLeafPlugin):
         s.builder.nodes.extend(subconverter.builder.nodes)
         s.builder.initializers.extend(subconverter.builder.initializers)
 
-        for outer_var, inner_tensor in zip(node_outputs, subconverter.builder.outputs):
+        for outer_var, inner_tensor in zip(
+            node_outputs, subconverter.builder.outputs, strict=False
+        ):
             outer_name = s.get_name(outer_var)
             inner_name = inner_tensor.name
             id_node = helper.make_node(

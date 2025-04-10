@@ -1,5 +1,6 @@
-from jax2onnx import save_onnx, onnx_function
 from flax import nnx
+
+from jax2onnx import onnx_function, save_onnx
 
 
 # just an @onnx_function decorator to make your callable an ONNX function

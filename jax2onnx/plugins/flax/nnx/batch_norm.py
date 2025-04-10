@@ -13,12 +13,14 @@ The conversion process involves:
 """
 
 from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
 from flax import nnx
 from jax import core
-from onnx import helper
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
-import jax.numpy as jnp
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

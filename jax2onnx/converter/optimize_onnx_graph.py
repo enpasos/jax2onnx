@@ -1,23 +1,32 @@
 # file: jax2onnx/converter/optimize_onnx_graph.py
 
 
-import onnx
-from onnx import shape_inference
-from typing import Dict, List, Optional
-from onnx import ModelProto
-from itertools import chain
 import logging
+from itertools import chain
+
+import onnx
+from onnx import ModelProto, shape_inference
 
 logging.basicConfig(level=logging.INFO)
 
 
 def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
+    # Perform shape inference to populate tensor shapes in the ONNX model.
+    onnx_model = shape_inference.infer_shapes(onnx_model)
 
-    onnx_model = shape_inference.infer_shapes(onnx_model)
+    # Remove unnecessary cast operations to simplify the model.
     onnx_model = remove_redundant_casts(onnx_model)
+
+    # Eliminate redundant reshape operations to optimize the graph.
     onnx_model = remove_redundant_reshapes(onnx_model)
+
+    # Remove pairs of transpose operations that cancel each other out.
     onnx_model = remove_redundant_transpose_pairs(onnx_model)
+
+    # Perform shape inference again to ensure consistency after optimizations.
     onnx_model = shape_inference.infer_shapes(onnx_model)
+
+    # Uncomment the following line to strip unknown dimension names if needed.
     # onnx_model = strip_unk_dim_names(onnx_model)
 
     return onnx_model
@@ -61,7 +70,7 @@ def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
     graph = inferred_model.graph
 
     # Build a mapping from tensor name to its element type.
-    type_dict: Dict[str, int] = {}
+    type_dict: dict[str, int] = {}
 
     def update_type_info(values):
         for value in values:
@@ -74,7 +83,7 @@ def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
     for init in graph.initializer:
         type_dict[init.name] = init.data_type
 
-    nodes_to_remove: List[onnx.NodeProto] = []
+    nodes_to_remove: list[onnx.NodeProto] = []
 
     # Iterate over nodes to find redundant Casts.
     for node in graph.node:
@@ -155,13 +164,13 @@ def remove_redundant_transpose_pairs(onnx_model: onnx.ModelProto) -> onnx.ModelP
     graph = onnx_model.graph
 
     # Build a mapping from tensor name to list of consumer nodes.
-    output_to_consumers: Dict[str, List[onnx.NodeProto]] = {}
+    output_to_consumers: dict[str, list[onnx.NodeProto]] = {}
     for node in graph.node:
         for inp in node.input:
             output_to_consumers.setdefault(inp, []).append(node)
 
     # Use a list to track nodes to remove.
-    nodes_to_remove: List[onnx.NodeProto] = []
+    nodes_to_remove: list[onnx.NodeProto] = []
 
     # Iterate over a snapshot of nodes.
     for node in list(graph.node):
@@ -251,7 +260,7 @@ def remove_redundant_transpose_pairs(onnx_model: onnx.ModelProto) -> onnx.ModelP
     return onnx_model
 
 
-def get_tensor_shape(name: str, model: onnx.ModelProto) -> Optional[List[int]]:
+def get_tensor_shape(name: str, model: onnx.ModelProto) -> list[int] | None:
     for vi in chain(model.graph.value_info, model.graph.input, model.graph.output):
         if vi.name == name:
             return [dim.dim_value for dim in vi.type.tensor_type.shape.dim]
@@ -262,7 +271,7 @@ def remove_redundant_reshapes(onnx_model: ModelProto) -> ModelProto:
     graph = onnx_model.graph
 
     # Build mapping from output name to consumer nodes.
-    output_to_consumers: Dict[str, List[onnx.NodeProto]] = {}
+    output_to_consumers: dict[str, list[onnx.NodeProto]] = {}
     for node in graph.node:
         for inp in node.input:
             output_to_consumers.setdefault(inp, []).append(node)

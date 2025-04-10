@@ -1,11 +1,12 @@
 # file: scripts/generate_readme.py
 
-from pathlib import Path
+import json
+import logging
 import subprocess
 import time
-import logging
-import json
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any
+
 from tests.t_generator import (
     get_plugin_grouping,
 )
@@ -29,7 +30,7 @@ NETRON_BASE_URL = "https://netron.app/?url=https://enpasos.github.io/jax2onnx/on
 
 
 # --- Running Tests ---
-def run_pytest() -> Dict[Tuple[str, str, str], str]:
+def run_pytest() -> dict[tuple[str, str, str], str]:
     """Runs pytest and captures test results."""
     logging.info("🛠 Running tests...")
 
@@ -47,7 +48,7 @@ def run_pytest() -> Dict[Tuple[str, str, str], str]:
     return parse_pytest_results()
 
 
-def parse_pytest_results() -> Dict[Tuple[str, str, str], str]:
+def parse_pytest_results() -> dict[tuple[str, str, str], str]:
     """Parses pytest JSON report and extracts test results."""
     if not REPORT_PATH.exists():
         logging.warning("⚠️ No pytest report found.")
@@ -95,8 +96,8 @@ def parse_pytest_results() -> Dict[Tuple[str, str, str], str]:
 
 # --- Metadata Processing ---
 def merge_test_results(
-    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]], test_results: Dict
-) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]], test_results: dict
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
     """Ensures all metadata appears in tables, even if no test result exists."""
     for (context, component), testcases in grouped.items():
         for tc in testcases:
@@ -115,7 +116,7 @@ def merge_test_results(
 
 # --- README Update ---
 def update_readme(
-    grouped_metadata: Dict[Tuple[str, str], List[Dict[str, Any]]], test_results: Dict
+    grouped_metadata: dict[tuple[str, str], list[dict[str, Any]]], test_results: dict
 ):
     """Updates README.md with new plugin and example tables."""
     plugins_grouped = {
@@ -145,7 +146,7 @@ def update_readme(
 
 
 def generate_markdown_table(
-    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]], is_example: bool
+    grouped: dict[tuple[str, str], list[dict[str, Any]]], is_example: bool
 ) -> str:
     """Generates markdown table for README, ensuring all metadata is included."""
     if is_example:

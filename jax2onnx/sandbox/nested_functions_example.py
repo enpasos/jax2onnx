@@ -1,9 +1,10 @@
 # file: jax2onnx/sandbox/nested_functions_example.py
 
 import os
+
 import numpy as np
 import onnx
-from onnx import helper, TensorProto
+from onnx import TensorProto, helper
 
 # === Define Function: LinearLayer ===
 # Computes: Y = X @ W + B
