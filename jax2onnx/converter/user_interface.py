@@ -64,15 +64,8 @@ def save_onnx(
     output_path: str = "model.onnx",
     model_name: str = "jax_model",
     opset: int = 21,
-    hierarchical: bool = False,
 ):
-    onnx_model = to_onnx(
-        fn,
-        input_shapes,
-        model_name=model_name,
-        opset=opset,
-        hierarchical=hierarchical,
-    )
+    onnx_model = to_onnx(fn, input_shapes, model_name=model_name, opset=opset)
     onnx.save_model(onnx_model, output_path)
 
 
@@ -98,7 +91,7 @@ def allclose(callable, onnx_model_path, *xs):
             except Exception:
                 return fn(*inputs)
 
-        tensor_names = param_names[: len(tensor_args)]
+        param_names[: len(tensor_args)]
         scalar_names = param_names[len(tensor_args) :]
 
         kwargs = dict(zip(scalar_names, scalar_args))

@@ -6,6 +6,9 @@ from typing import TYPE_CHECKING, Dict, Callable
 
 from jax.extend import core as extend_core
 
+# Ensure JaxprEqn is accessible
+from jax.core import JaxprEqn
+
 if TYPE_CHECKING:
     from .converter import Jaxpr2OnnxConverter
 
@@ -33,9 +36,7 @@ class PrimitiveDispatcher:
         )
         self.builtin_handlers[jax.lax.device_put_p.name] = self._handle_device_put
 
-    def dispatch_and_execute(
-        self, converter: "Jaxpr2OnnxConverter", eqn: core.JaxprEqn
-    ):
+    def dispatch_and_execute(self, converter: "Jaxpr2OnnxConverter", eqn: JaxprEqn):
         primitive = eqn.primitive
         handler_key = primitive.name
         handler = converter.primitive_handlers.get(
@@ -54,9 +55,7 @@ class PrimitiveDispatcher:
             # Fallback: legacy-style handlers
             handler(eqn.invars, eqn.outvars, eqn.params)
 
-    def _create_identity_node(
-        self, converter: "Jaxpr2OnnxConverter", eqn: core.JaxprEqn
-    ):
+    def _create_identity_node(self, converter: "Jaxpr2OnnxConverter", eqn: JaxprEqn):
         input_names = [converter.get_name(inp) for inp in eqn.invars]
         output_names = [converter.get_name(out) for out in eqn.outvars]
         if not output_names:

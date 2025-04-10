@@ -1,7 +1,7 @@
 # file: jax2onnx/converter/jax_to_onnx.py
 import onnx
 import jax.numpy as jnp
-from typing import Any
+from typing import Any, Optional  # <-- 🔧 FIXED: now allowed
 
 # === Use original name generator import ===
 from jax2onnx.converter.name_generator import UniqueNameGenerator
@@ -41,7 +41,7 @@ def to_onnx(
     input_shapes: Any,
     model_name: str = "jax_model",
     opset: int = 21,
-    input_params: dict = None,  # <-- 🔧 FIXED: now allowed
+    input_params: Optional[dict] = None,  # <-- 🔧 FIXED: now allowed
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
