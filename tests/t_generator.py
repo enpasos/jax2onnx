@@ -157,8 +157,8 @@ def make_test_function(tp: dict[str, Any]):
         )
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
-        if hasattr(callable_obj, "eval"):
-            callable_obj.eval()
+        # if hasattr(callable_obj, "eval"):
+        #     callable_obj.eval()
 
         # --- Step 1.2: Prepare lambda wrapper and concrete trace args (but don't use them for to_onnx yet) ---
         # # 1. Generate CONCRETE example arguments for tracing (code defined but not used in to_onnx call yet)

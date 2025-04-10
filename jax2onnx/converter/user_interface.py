@@ -21,11 +21,17 @@ def to_onnx(
     kwargs: dict[str, Any] | None = None,
 ) -> onnx.ModelProto:
 
+    # Extract input_params from kwargs if present
+    input_params = None
+    if kwargs is not None and "input_params" in kwargs:
+        input_params = kwargs.get("input_params")
+
     return core_to_onnx(
         fn=fn,
         input_shapes=input_shapes,
         model_name=model_name,
         opset=opset,
+        input_params=input_params,
     )
 
 
@@ -40,37 +46,23 @@ def save_onnx(
     onnx.save_model(onnx_model, output_path)
 
 
-def allclose(callable, onnx_model_path, *xs):
-    import inspect
+def allclose(callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e-5):
+    """
+    Checks if JAX and ONNX Runtime outputs are close.
 
-    def safe_call_with_kwargs(fn, *inputs):
-        # Heuristically separate scalar and tensor arguments
-        tensor_args = [
-            x for x in inputs if isinstance(x, jnp.ndarray) and x.shape != ()
-        ]
-        scalar_args = [
-            x for x in inputs if isinstance(x, jnp.ndarray) and x.shape == ()
-        ]
+    Args:
+        callable: JAX function to test
+        onnx_model_path: Path to the ONNX model
+        *xs: Tensor arguments to pass to both JAX and ONNX
+        jax_kwargs: Optional keyword arguments to pass to the JAX function
+        rtol: Relative tolerance for comparison (default: 1e-3)
+        atol: Absolute tolerance for comparison (default: 1e-5)
 
-        try:
-            sig = inspect.signature(fn.__call__)
-            param_names = list(sig.parameters)[1:]  # skip self
-        except (AttributeError, TypeError):
-            try:
-                sig = inspect.signature(fn)
-                param_names = list(sig.parameters)
-            except Exception:
-                return fn(*inputs)
-
-        param_names[: len(tensor_args)]
-        scalar_names = param_names[len(tensor_args) :]
-
-        kwargs = dict(zip(scalar_names, scalar_args, strict=False))
-
-        try:
-            return fn(*tensor_args, **kwargs)
-        except TypeError:
-            return fn(*inputs)
+    Returns:
+        Tuple of (is_match: bool, message: str)
+    """
+    if jax_kwargs is None:
+        jax_kwargs = {}
 
     # Load ONNX model and create inference session
     session = ort.InferenceSession(onnx_model_path)
@@ -85,7 +77,8 @@ def allclose(callable, onnx_model_path, *xs):
     p = {name: np.array(x) for name, x in zip(input_names, xs, strict=False)}
     onnx_output = session.run(None, p)
 
-    jax_output = safe_call_with_kwargs(callable, *xs)
+    # Call JAX function directly with tensor args and keyword args
+    jax_output = callable(*xs, **jax_kwargs)
 
     if not isinstance(jax_output, list):
         jax_output = [jax_output]
@@ -93,7 +86,7 @@ def allclose(callable, onnx_model_path, *xs):
         onnx_output = [onnx_output]
 
     isOk = all(
-        np.allclose(o, j, rtol=1e-3, atol=1e-5)
+        np.allclose(o, j, rtol=rtol, atol=atol)
         for o, j in zip(onnx_output, jax_output, strict=False)
     )
 
@@ -126,149 +119,149 @@ class ModelExportContext:
         return f"{base_name}_{self.instance_counters[base_name]}"
 
 
-# === NEW V2 Function: to_onnx_v2 ===
-def to_onnx_v2(
-    fn: Callable,  # Can be original or lambda wrapper
-    example_args: (
-        list[jax.Array] | tuple[jax.Array, ...]
-    ),  # Accepts concrete tensor args
-    model_name: str = "jax_model",
-    opset: int = 21,
-    verbose: bool = False,  # Added verbose based on previous exploration
-    **kwargs,  # Pass other kwargs to core_to_onnx
-) -> onnx.ModelProto:
-    """
-    Converts a JAX callable (potentially wrapped) into an ONNX model. (V2 - Corrected Approach)
+# # === NEW V2 Function: to_onnx_v2 ===
+# def to_onnx_v2(
+#     fn: Callable,  # Can be original or lambda wrapper
+#     example_args: (
+#         list[jax.Array] | tuple[jax.Array, ...]
+#     ),  # Accepts concrete tensor args
+#     model_name: str = "jax_model",
+#     opset: int = 21,
+#     verbose: bool = False,  # Added verbose based on previous exploration
+#     **kwargs,  # Pass other kwargs to core_to_onnx
+# ) -> onnx.ModelProto:
+#     """
+#     Converts a JAX callable (potentially wrapped) into an ONNX model. (V2 - Corrected Approach)
 
-    Args:
-        fn: The JAX function (or lambda wrapper) to convert.
-        example_args: Concrete JAX arrays for tracing (only tensor inputs).
-        model_name: Name for the ONNX model.
-        opset: ONNX opset version.
-        verbose: Enable verbose logging.
-        **kwargs: Additional options passed to the core converter.
-    """
-    print(f"\n[V2] Starting ONNX conversion for '{model_name}' (opset {opset})...")
-    # Calls core_to_onnx correctly with positional fn and example_args
-    # Assumes core_to_onnx expects fn, example_args positionally,
-    # then keyword args like model_name, default_opset (or opset).
-    # Adjust keyword names like 'default_opset' vs 'opset' if needed based on core_to_onnx definition.
-    try:
-        # Try passing opset as default_opset first, as seen in converter logic
-        result = core_to_onnx(
-            fn,  # Positional arg 1 (potentially wrapped fn)
-            example_args,  # Positional arg 2 (concrete tensor args)
-            # Keyword arguments for the rest
-            model_name=model_name,
-            default_opset=opset,  # Assuming core expects default_opset
-            verbose=verbose,
-            **kwargs,  # Pass through other kwargs
-        )
-        print(f"[V2] Conversion successful for '{model_name}'.")
-        return result
-    except TypeError as e:
-        # Fallback if default_opset caused TypeError, try 'opset'
-        if "default_opset" in str(e):
-            print(
-                "[V2 Warning] 'default_opset' unexpected, trying 'opset' keyword for core_to_onnx."
-            )
-            result = core_to_onnx(
-                fn,
-                example_args,  # Positional
-                model_name=model_name,
-                opset=opset,  # Use 'opset' keyword
-                verbose=verbose,
-                **kwargs,
-            )
-            print(f"[V2] Conversion successful for '{model_name}' (using 'opset').")
-            return result
-        else:
-            print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
-            raise  # Re-raise original error if not related to opset keyword
-    except Exception as e:
-        print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
-        raise
+#     Args:
+#         fn: The JAX function (or lambda wrapper) to convert.
+#         example_args: Concrete JAX arrays for tracing (only tensor inputs).
+#         model_name: Name for the ONNX model.
+#         opset: ONNX opset version.
+#         verbose: Enable verbose logging.
+#         **kwargs: Additional options passed to the core converter.
+#     """
+#     print(f"\n[V2] Starting ONNX conversion for '{model_name}' (opset {opset})...")
+#     # Calls core_to_onnx correctly with positional fn and example_args
+#     # Assumes core_to_onnx expects fn, example_args positionally,
+#     # then keyword args like model_name, default_opset (or opset).
+#     # Adjust keyword names like 'default_opset' vs 'opset' if needed based on core_to_onnx definition.
+#     try:
+#         # Try passing opset as default_opset first, as seen in converter logic
+#         result = core_to_onnx(
+#             fn,  # Positional arg 1 (potentially wrapped fn)
+#             example_args,  # Positional arg 2 (concrete tensor args)
+#             # Keyword arguments for the rest
+#             model_name=model_name,
+#             default_opset=opset,  # Assuming core expects default_opset
+#             verbose=verbose,
+#             **kwargs,  # Pass through other kwargs
+#         )
+#         print(f"[V2] Conversion successful for '{model_name}'.")
+#         return result
+#     except TypeError as e:
+#         # Fallback if default_opset caused TypeError, try 'opset'
+#         if "default_opset" in str(e):
+#             print(
+#                 "[V2 Warning] 'default_opset' unexpected, trying 'opset' keyword for core_to_onnx."
+#             )
+#             result = core_to_onnx(
+#                 fn,
+#                 example_args,  # Positional
+#                 model_name=model_name,
+#                 opset=opset,  # Use 'opset' keyword
+#                 verbose=verbose,
+#                 **kwargs,
+#             )
+#             print(f"[V2] Conversion successful for '{model_name}' (using 'opset').")
+#             return result
+#         else:
+#             print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
+#             raise  # Re-raise original error if not related to opset keyword
+#     except Exception as e:
+#         print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
+#         raise
 
 
-# === NEW V2 Function: allclose_v2 ===
-def allclose_v2(
-    jax_callable: Callable,
-    onnx_model_path: str,
-    *xs: jax.Array,  # Tensor arguments only
-    rtol=1e-03,  # Using baseline tolerances
-    atol=1e-05,  # Using baseline tolerances
-    jax_kwargs=None,  # Accepts static kwargs for JAX call
-):
-    """Checks if JAX and ONNX Runtime outputs are close. (V2 - Corrected Approach)"""
-    if jax_kwargs is None:
-        jax_kwargs = {}
+# # === NEW V2 Function: allclose_v2 ===
+# def allclose_v2(
+#     jax_callable: Callable,
+#     onnx_model_path: str,
+#     *xs: jax.Array,  # Tensor arguments only
+#     rtol=1e-03,  # Using baseline tolerances
+#     atol=1e-05,  # Using baseline tolerances
+#     jax_kwargs=None,  # Accepts static kwargs for JAX call
+# ):
+#     """Checks if JAX and ONNX Runtime outputs are close. (V2 - Corrected Approach)"""
+#     if jax_kwargs is None:
+#         jax_kwargs = {}
 
-    print(f"\n[V2] Running allclose for {onnx_model_path}...")
-    # --- JAX Execution using jax_kwargs ---
-    try:
-        print(
-            f"  [V2] Calling JAX function with {len(xs)} tensor args and kwargs: {list(jax_kwargs.keys())}"
-        )
-        jax_results = jax_callable(*xs, **jax_kwargs)  # Use kwargs here
-        print("  [V2] JAX function call successful.")
-    except Exception as e:
-        print(f"[Error] V2 allclose: JAX function call failed: {e}")
-        raise
+#     print(f"\n[V2] Running allclose for {onnx_model_path}...")
+#     # --- JAX Execution using jax_kwargs ---
+#     try:
+#         print(
+#             f"  [V2] Calling JAX function with {len(xs)} tensor args and kwargs: {list(jax_kwargs.keys())}"
+#         )
+#         jax_results = jax_callable(*xs, **jax_kwargs)  # Use kwargs here
+#         print("  [V2] JAX function call successful.")
+#     except Exception as e:
+#         print(f"[Error] V2 allclose: JAX function call failed: {e}")
+#         raise
 
-    if not isinstance(jax_results, (list, tuple)):
-        jax_results = (jax_results,)
-    jax_results_np = [np.array(res) for res in jax_results]
+#     if not isinstance(jax_results, (list, tuple)):
+#         jax_results = (jax_results,)
+#     jax_results_np = [np.array(res) for res in jax_results]
 
-    # --- ONNX Execution ---
-    try:
-        session = ort.InferenceSession(onnx_model_path)
-        print("  [V2] ONNX model loaded.")
-    except Exception as e:
-        print(
-            f"[Error] V2 allclose: Failed to load ONNX model '{onnx_model_path}': {e}"
-        )
-        raise
+#     # --- ONNX Execution ---
+#     try:
+#         session = ort.InferenceSession(onnx_model_path)
+#         print("  [V2] ONNX model loaded.")
+#     except Exception as e:
+#         print(
+#             f"[Error] V2 allclose: Failed to load ONNX model '{onnx_model_path}': {e}"
+#         )
+#         raise
 
-    input_names = [inp.name for inp in session.get_inputs()]
-    output_names = [out.name for out in session.get_outputs()]
-    print(f"  [V2] ONNX expected inputs: {input_names} ({len(input_names)})")
-    print(f"  [V2] Provided tensor args for ONNX: {len(xs)}")
+#     input_names = [inp.name for inp in session.get_inputs()]
+#     output_names = [out.name for out in session.get_outputs()]
+#     print(f"  [V2] ONNX expected inputs: {input_names} ({len(input_names)})")
+#     print(f"  [V2] Provided tensor args for ONNX: {len(xs)}")
 
-    if len(input_names) != len(xs):
-        # This error indicates the V2 conversion still produced wrong number of inputs
-        raise ValueError(
-            f"[V2 Error] ONNX model '{onnx_model_path}' expects {len(input_names)} inputs "
-            f"({input_names}), but got {len(xs)} tensor arguments for comparison."
-        )
+#     if len(input_names) != len(xs):
+#         # This error indicates the V2 conversion still produced wrong number of inputs
+#         raise ValueError(
+#             f"[V2 Error] ONNX model '{onnx_model_path}' expects {len(input_names)} inputs "
+#             f"({input_names}), but got {len(xs)} tensor arguments for comparison."
+#         )
 
-    onnx_inputs = {name: np.array(arg) for name, arg in zip(input_names, xs)}
+#     onnx_inputs = {name: np.array(arg) for name, arg in zip(input_names, xs)}
 
-    try:
-        onnx_results = session.run(output_names, onnx_inputs)
-        print("  [V2] ONNX inference successful.")
-    except Exception as e:
-        print(f"[Error] V2 allclose: ONNX Runtime inference failed: {e}")
-        raise
+#     try:
+#         onnx_results = session.run(output_names, onnx_inputs)
+#         print("  [V2] ONNX inference successful.")
+#     except Exception as e:
+#         print(f"[Error] V2 allclose: ONNX Runtime inference failed: {e}")
+#         raise
 
-    if not isinstance(onnx_results, (list, tuple)):
-        onnx_results = (onnx_results,)
+#     if not isinstance(onnx_results, (list, tuple)):
+#         onnx_results = (onnx_results,)
 
-    # --- Comparison ---
-    if len(jax_results_np) != len(onnx_results):
-        raise ValueError(
-            f"[V2 Error] Output count mismatch: JAX {len(jax_results_np)}, ONNX {len(onnx_results)}"
-        )
+#     # --- Comparison ---
+#     if len(jax_results_np) != len(onnx_results):
+#         raise ValueError(
+#             f"[V2 Error] Output count mismatch: JAX {len(jax_results_np)}, ONNX {len(onnx_results)}"
+#         )
 
-    is_ok = True
-    max_diff = 0.0
-    for i, (jax_res_np, onnx_res) in enumerate(zip(jax_results_np, onnx_results)):
-        diff = np.max(np.abs(jax_res_np - onnx_res))
-        max_diff = max(max_diff, diff)
-        if not np.allclose(jax_res_np, onnx_res, rtol=rtol, atol=atol):
-            print(f"  [V2 FAIL] Output {i} mismatch!")
-            is_ok = False
-            # Don't break, report max diff across all outputs
+#     is_ok = True
+#     max_diff = 0.0
+#     for i, (jax_res_np, onnx_res) in enumerate(zip(jax_results_np, onnx_results)):
+#         diff = np.max(np.abs(jax_res_np - onnx_res))
+#         max_diff = max(max_diff, diff)
+#         if not np.allclose(jax_res_np, onnx_res, rtol=rtol, atol=atol):
+#             print(f"  [V2 FAIL] Output {i} mismatch!")
+#             is_ok = False
+#             # Don't break, report max diff across all outputs
 
-    print(f"  [V2] Comparison complete. Max difference: {max_diff:.6g}")
-    # Match the return type of the original allclose (tuple)
-    return (is_ok, "[V2] Match :-)" if is_ok else "[V2] Mismatch :-(")
+#     print(f"  [V2] Comparison complete. Max difference: {max_diff:.6g}")
+#     # Match the return type of the original allclose (tuple)
+#     return (is_ok, "[V2] Match :-)" if is_ok else "[V2] Mismatch :-(")
