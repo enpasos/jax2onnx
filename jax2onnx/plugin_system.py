@@ -15,6 +15,8 @@ from jax2onnx.converter.utils import function_handler
 
 from jax2onnx.converter.name_generator import get_qualified_name
 
+# A global registry to store plugins for extending functionality.
+# Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
 PLUGIN_REGISTRY: Dict[
     str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
 ] = {}

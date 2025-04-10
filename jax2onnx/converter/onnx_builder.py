@@ -23,15 +23,40 @@ CUSTOM_DOMAIN_VERSION = 1
 
 
 def _as_tuple(x):
+    """
+    Converts the input into a tuple if it is not already a tuple or list.
+
+    Args:
+        x: Input value, which can be a list, tuple, or other type.
+
+    Returns:
+        A tuple containing the input value(s).
+    """
     return tuple(x) if isinstance(x, (list, tuple)) else (x,)
 
 
 def make_value_info(name, shape, dtype):
+    """
+    Creates an ONNX ValueInfoProto object for a tensor.
+
+    Args:
+        name: Name of the tensor.
+        shape: Shape of the tensor as a tuple.
+        dtype: Data type of the tensor (NumPy or ONNX TensorProto enum).
+
+    Returns:
+        An ONNX ValueInfoProto object.
+    """
     onnx_dtype = numpy_dtype_to_tensorproto(dtype)
     return helper.make_tensor_value_info(name, onnx_dtype, shape)
 
 
 class OnnxBuilder:
+    """
+    A builder class for constructing ONNX models, including nodes, inputs, outputs,
+    initializers, and metadata.
+    """
+
     def __init__(
         self,
         name_generator: UniqueNameGenerator,
@@ -39,6 +64,7 @@ class OnnxBuilder:
         model_name: str = "",
         initializers: Optional[List[Any]] = None,
     ) -> None:
+        # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
 
         self.nodes: List[NodeProto] = []
@@ -51,6 +77,7 @@ class OnnxBuilder:
         self.model_name: str = model_name
         self.display_name_map: Dict[str, str] = {}
 
+        # Metadata for value information.
         self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = {}
         self.value_info_metadata_with_origin: Dict[
             str, Tuple[Tuple[int, ...], Any, Optional[str]]
@@ -65,27 +92,29 @@ class OnnxBuilder:
         dtype: Union[np.dtype, int],  # `int` covers TensorProto enums
         origin: Optional[str] = None,
     ):
-        """Register value_info metadata for a given variable name.
+        """
+        Register metadata for a value_info entry, including shape, dtype, and origin.
 
         Args:
-            name: variable name
-            shape: shape tuple
-            dtype: numpy dtype or ONNX TensorProto enum
-            origin: optional string describing where the metadata came from
+            name: Name of the variable.
+            shape: Shape of the variable as a tuple.
+            dtype: Data type of the variable (NumPy dtype or ONNX TensorProto enum).
+            origin: Optional description of the metadata's origin.
         """
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
-
-        # print(
-        #    f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}, origin={origin}"
-        # )
 
     def get_value_info_metadata_with_origin(
         self, name: str
     ) -> Optional[Tuple[Tuple[int, ...], Any, Optional[str]]]:
         """
-        Retrieves (shape, dtype, origin) for a given value_info name.
-        Falls back to legacy metadata if origin is unavailable.
+        Retrieve metadata (shape, dtype, origin) for a given value_info name.
+
+        Args:
+            name: Name of the value_info entry.
+
+        Returns:
+            A tuple containing shape, dtype, and origin, or None if not found.
         """
         if name in self.value_info_metadata_with_origin:
             return self.value_info_metadata_with_origin[name]
@@ -95,6 +124,12 @@ class OnnxBuilder:
         return None
 
     def find_missing_value_info(self) -> List[str]:
+        """
+        Identify value_info entries that are referenced in nodes but not defined.
+
+        Returns:
+            A list of names for missing value_info entries.
+        """
         known_names = {vi.name for vi in self.inputs + self.outputs + self.value_info}
         known_names.update(init.name for init in self.initializers)
         node_names = {
