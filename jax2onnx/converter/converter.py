@@ -1,5 +1,5 @@
 # file: jax2onnx/converter/converter.py
-from typing import Any
+from typing import Any, Dict
 
 import jax
 import jax.random
@@ -29,6 +29,8 @@ class Jaxpr2OnnxConverter:
     def __init__(self, builder: OnnxBuilder):
         # Initialize the converter with an ONNX builder instance.
         self.builder = builder
+
+        self.params: Dict[str, Any] = {}  # Add this line
 
         # Mapping between variables and their names in the ONNX graph.
         self.var_to_name: dict[Any, str] = {}
