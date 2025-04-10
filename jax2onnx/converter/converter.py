@@ -10,7 +10,7 @@ from onnx import helper
 
 from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.patch_utils import temporary_monkey_patches
+from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
