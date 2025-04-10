@@ -79,7 +79,7 @@ def function_handler(
     sub_converter = converter.__class__(sub_builder)
     sub_converter.params = params
 
-    trace_kwargs = {"preserve_graph": True}
+    trace_kwargs = {"preserve_graph": True}  # <-- PATCHED HERE
     if params is not None:
         trace_kwargs["params"] = params
 
@@ -126,11 +126,24 @@ def function_handler(
     call_outputs = []
     for i, sub_name in enumerate(sub_output_names):
         var = eqn.outvars[i]
-        shape_dtype = sub_builder.value_info_metadata[sub_name]
+
+        if sub_name not in sub_builder.value_info_metadata:
+            sub_var = sub_converter.name_to_var.get(sub_name)
+            if sub_var and hasattr(sub_var, "aval"):
+                aval = sub_var.aval
+                shape = tuple(aval.shape)
+                dtype = numpy_dtype_to_tensorproto(aval.dtype)
+                sub_builder.register_value_info_metadata(
+                    sub_name, shape, dtype, origin="function_output"
+                )
+                sub_builder.add_value_info(sub_name, shape, dtype)
+
+        shape_dtype = sub_builder.value_info_metadata.get(sub_name)
         if shape_dtype is None:
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
+
         shape, dtype = shape_dtype
         var.aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
         parent_output_name = parent_builder.get_unique_name("var")
