@@ -1,5 +1,5 @@
 from jax import core, numpy as jnp
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Literal
 from onnx import helper
 from typing import TYPE_CHECKING, Union, Sequence, Tuple
 
@@ -122,7 +122,7 @@ class TilePlugin(PrimitiveLeafPlugin):
             else:
                 raise TypeError("Tile repeats array must be 1D")
         # Check Literal tracer SECOND (represents constants)
-        elif isinstance(repeats, core.Literal):
+        elif isinstance(repeats, Literal):
             print("Repeats type: core.Literal")  # DEBUG
             val = repeats.val
             if isinstance(val, (int, np.integer)):
