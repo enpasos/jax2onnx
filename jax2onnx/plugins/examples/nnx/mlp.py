@@ -10,12 +10,14 @@ from jax2onnx.plugin_system import register_example
 class MLP(nnx.Module):
     def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
         self.linear1 = Linear(din, dmid, rngs=rngs)
-        self.dropout = Dropout(rate=0.1, rngs=rngs)
+        self.dropout = Dropout(rate=0.1, deterministic=False, rngs=rngs)
         self.bn = BatchNorm(dmid, rngs=rngs)
         self.linear2 = Linear(dmid, dout, rngs=rngs)
 
-    def __call__(self, x: jax.Array):
-        x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
+    def __call__(self, x: jax.Array, *, deterministic: bool = False):
+        x = nnx.gelu(
+            self.dropout(self.bn(self.linear1(x)), deterministic=deterministic)
+        )
         return self.linear2(x)
 
 
@@ -28,9 +30,17 @@ register_example(
     children=["nnx.Linear", "nnx.Dropout", "nnx.BatchNorm", "nnx.gelu"],
     testcases=[
         {
-            "testcase": "mlp",
+            "testcase": "simple_mlp",
             "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
             "input_shapes": [("B", 30)],
-        }
+        },
+        {
+            "testcase": "simple_mlp_with_call_params",
+            "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+            "input_shapes": [("B", 30)],
+            "input_params": {
+                "deterministic": True,
+            },
+        },
     ],
 )

@@ -350,7 +350,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "013_vit_conv_embedding",
+            "testcase": "013_vit_conv_embedding_with_call_params",
             "callable": VisionTransformer(
                 height=28,
                 width=28,
@@ -362,6 +362,9 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(5, 28, 28, 1)],
+            "input_params": {
+                "deterministic": True,
+            },
         }
     ],
 )

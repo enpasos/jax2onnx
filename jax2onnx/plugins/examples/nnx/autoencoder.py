@@ -34,7 +34,7 @@ register_example(
     children=["Encoder", "Decoder"],
     testcases=[
         {
-            "testcase": "autoencoder",
+            "testcase": "simple_autoencoder",
             "callable": AutoEncoder(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 2)],
         }
