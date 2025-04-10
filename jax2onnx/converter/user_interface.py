@@ -107,7 +107,11 @@ def allclose(callable, onnx_model_path, *xs):
 
     dynamic_kwargs = dict(zip(scalar_names, scalar_args))
 
-    jax_output = callable(*tensor_args, **dynamic_kwargs)
+    try:
+        jax_output = callable(*tensor_args, **dynamic_kwargs)
+    except TypeError:
+        # fallback for lambdas or callables that don't accept kwargs
+        jax_output = callable(*xs)
 
     if not isinstance(jax_output, list):
         jax_output = [jax_output]
