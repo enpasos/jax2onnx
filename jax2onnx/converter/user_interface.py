@@ -19,38 +19,38 @@ def to_onnx(
     *,
     kwargs: dict[str, Any] | None = None,
 ) -> onnx.ModelProto:
-    """Convert a JAX function or Module to an ONNX model."""
-    kwargs = kwargs or {}
-    input_params = kwargs.pop("input_params", {})
+    # """Convert a JAX function or Module to an ONNX model."""
+    # kwargs = kwargs or {}
+    # input_params = kwargs.pop("input_params", {})
 
-    if input_params:
-        if not isinstance(input_shapes, (list, tuple)):
-            input_shapes = [input_shapes]
-        for _ in input_params.values():
-            input_shapes.append(())
+    # if input_params:
+    #     if not isinstance(input_shapes, (list, tuple)):
+    #         input_shapes = [input_shapes]
+    #     for _ in input_params.values():
+    #         input_shapes.append(())
 
-        old_fn = fn
+    #     old_fn = fn
 
-        def wrapped_fn(*args):
-            n_tensor_args = len(args) - len(input_params)
-            call_args = args[:n_tensor_args]
-            param_keys = list(input_params.keys())
-            param_values = args[n_tensor_args:]
+    #     def wrapped_fn(*args):
+    #         n_tensor_args = len(args) - len(input_params)
+    #         call_args = args[:n_tensor_args]
+    #         param_keys = list(input_params.keys())
+    #         param_values = args[n_tensor_args:]
 
-            converted_kwargs = {}
-            for k, v in zip(param_keys, param_values, strict=False):
-                expected_type = type(input_params[k])
-                if expected_type is bool:
-                    converted_kwargs[k] = jnp.asarray(v, dtype=jnp.bool_).reshape(())
-                elif expected_type is int:
-                    converted_kwargs[k] = jnp.asarray(v, dtype=jnp.int32).reshape(())
-                elif expected_type is float:
-                    converted_kwargs[k] = jnp.asarray(v, dtype=jnp.float32).reshape(())
-                else:
-                    raise ValueError(f"Unsupported input_param type: {expected_type}")
-            return old_fn(*call_args, **converted_kwargs)
+    #         converted_kwargs = {}
+    #         for k, v in zip(param_keys, param_values, strict=False):
+    #             expected_type = type(input_params[k])
+    #             if expected_type is bool:
+    #                 converted_kwargs[k] = jnp.asarray(v, dtype=jnp.bool_).reshape(())
+    #             elif expected_type is int:
+    #                 converted_kwargs[k] = jnp.asarray(v, dtype=jnp.int32).reshape(())
+    #             elif expected_type is float:
+    #                 converted_kwargs[k] = jnp.asarray(v, dtype=jnp.float32).reshape(())
+    #             else:
+    #                 raise ValueError(f"Unsupported input_param type: {expected_type}")
+    #         return old_fn(*call_args, **converted_kwargs)
 
-        fn = wrapped_fn
+    #     fn = wrapped_fn
 
     return core_to_onnx(
         fn=fn,
