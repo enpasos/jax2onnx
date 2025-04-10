@@ -63,6 +63,45 @@ def function_handler(
         else:
             raise TypeError(f"Unexpected input var type: {type(var)}")
 
+    # param_input_names = []
+    # param_avals = []
+    # if params:
+    #     for key, val in params.items():
+    #         param_name = f"param_{key}"
+    #
+    #         try:
+    #             existing_name = converter.var_to_name.get(val, None)
+    #         except TypeError:
+    #             existing_name = None
+    #
+    #         if existing_name and existing_name not in input_names:
+    #             input_names.append(existing_name)
+    #             continue
+    #
+    #         if param_name in input_names:
+    #             continue
+    #
+    #         input_names.append(param_name)
+    #         param_input_names.append(param_name)
+    #
+    #         if hasattr(val, "aval"):
+    #             aval = val.aval
+    #             param_avals.append(aval)
+    #             example_args.append(jnp.ones(aval.shape, dtype=aval.dtype))
+    #             parent_builder.register_value_info_metadata(
+    #                 param_name, tuple(aval.shape), aval.dtype
+    #             )
+    #             parent_builder.add_value_info(param_name, tuple(aval.shape), aval.dtype)
+    #             parent_builder.add_input(param_name, tuple(aval.shape), aval.dtype)
+    #         else:
+    #             jnp_val = jnp.asarray(val)
+    #             example_args.append(jnp_val)
+    #             shape = tuple(jnp_val.shape)
+    #             dtype = jnp_val.dtype
+    #             parent_builder.register_value_info_metadata(param_name, shape, dtype)
+    #             parent_builder.add_value_info(param_name, shape, dtype)
+    #             parent_builder.add_input(param_name, shape, dtype)
+
     print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
         parent_builder.name_generator,
