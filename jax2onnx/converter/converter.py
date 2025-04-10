@@ -263,7 +263,7 @@ class Jaxpr2OnnxConverter:
             if metadata:
                 shape, dtype_enum, _ = metadata
                 try:
-                    dtype = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[dtype_enum]
+                    dtype = helper.tensor_dtype_to_np_dtype(dtype_enum)
                 except Exception:
                     print(
                         f"[WARN] Could not convert dtype enum {dtype_enum} for {name}, fallback to var.aval"

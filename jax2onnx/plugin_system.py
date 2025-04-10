@@ -9,6 +9,7 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
 from abc import ABC, abstractmethod
+from jax import tree_util
 
 from jax2onnx.converter.utils import function_handler
 
@@ -129,7 +130,9 @@ class FunctionPlugin(PrimitivePlugin):
 
             # Use tree_map to convert every leaf (ShapeDtypeStruct or similar)
             # in the output structure to a ShapedArray.
-            output_aval = jax.tree_map(self._aval_to_shaped_array, output_aval_struct)
+            output_aval = tree_util.tree_map(
+                self._aval_to_shaped_array, output_aval_struct
+            )
 
             # print(f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}")
             return output_aval
