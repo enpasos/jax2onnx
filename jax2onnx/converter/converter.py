@@ -117,7 +117,7 @@ class Jaxpr2OnnxConverter:
         onnx.save_model(onnx_model, output_path)
         return output_path
 
-    def trace_jaxpr(self, fn, example_args, preserve_graph=False):
+    def trace_jaxpr(self, fn, example_args, preserve_graph=False, params=None):
         # Trace a JAX function to generate its JAXPR representation.
         print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
         if not preserve_graph:
