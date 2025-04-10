@@ -15,6 +15,13 @@ from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 def prepare_example_args(input_shapes, default_batch_size=2):
     """
     Prepares example arguments for tracing by replacing dynamic batch dimensions ('B') with a default value.
+
+    Args:
+        input_shapes: List of input shapes, where 'B' represents a dynamic batch dimension.
+        default_batch_size: Default value to replace 'B' with.
+
+    Returns:
+        List of NumPy arrays with the specified shapes, filled with zeros.
     """
     dynamic_dim_found = False
     processed_shapes = []
@@ -45,6 +52,16 @@ def to_onnx(
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
+
+    Args:
+        fn: JAX function to convert.
+        input_shapes: Shapes of the inputs to the function.
+        model_name: Name of the ONNX model.
+        opset: ONNX opset version to use.
+        input_params: Additional parameters for the conversion (optional).
+
+    Returns:
+        An ONNX ModelProto object representing the converted model.
     """
     from jax2onnx.converter.jax_to_onnx import prepare_example_args
 
@@ -65,7 +82,12 @@ def to_onnx(
 
 
 def analyze_constants(model: onnx.ModelProto):
-    # Original debugging function
+    """
+    Analyzes constants in an ONNX model and prints a detailed report.
+
+    Args:
+        model: The ONNX model to analyze.
+    """
     print("\n🔍 Constant Analysis Report (Verbose)")
     graph = model.graph
     graph_inputs = {inp.name for inp in graph.input}

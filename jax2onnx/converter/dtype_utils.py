@@ -7,6 +7,12 @@ from onnx import TensorProto
 def tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
     """
     Converts ONNX TensorProto data types to NumPy data types.
+
+    Args:
+        onnx_dtype: ONNX data type as an integer.
+
+    Returns:
+        Corresponding NumPy data type.
     """
     dtype_map = {
         TensorProto.FLOAT: np.float32,
@@ -20,13 +26,25 @@ def tensorproto_dtype_to_numpy(onnx_dtype: int) -> np.dtype:
     np_dtype = dtype_map.get(onnx_dtype)
     if np_dtype is None:
         print(
-            f"Warning: Unsupported ONNX dtype {onnx_dtype} encountered in _tensorproto_dtype_to_numpy. Defaulting to np.float32."
+            f"Warning: Unsupported ONNX dtype {onnx_dtype} encountered. Defaulting to np.float32."
         )
         return np.float32
     return np_dtype
 
 
 def numpy_dtype_to_tensorproto(dtype):
+    """
+    Converts NumPy data types to ONNX TensorProto data types.
+
+    Args:
+        dtype: NumPy data type or equivalent representation.
+
+    Returns:
+        Corresponding ONNX TensorProto data type.
+
+    Raises:
+        TypeError: If the input dtype is unsupported.
+    """
     import numpy as np
     from onnx import TensorProto
 
