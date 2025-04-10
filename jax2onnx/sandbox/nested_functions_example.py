@@ -9,16 +9,21 @@ from onnx import TensorProto, helper
 # === Define Function: LinearLayer ===
 # Computes: Y = X @ W + B
 
-linear_inputs = ["X", "W", "B"]
-linear_outputs = ["Y"]
+# Define the inputs and outputs for the linear layer function.
+linear_inputs = ["X", "W", "B"]  # Input tensors: X (data), W (weights), B (bias)
+linear_outputs = ["Y"]  # Output tensor: Y (result of the linear transformation)
+
+# Create ONNX nodes for the linear layer computation.
 linear_nodes = [
-    helper.make_node("MatMul", ["X", "W"], ["XM"]),
-    helper.make_node("Add", ["XM", "B"], ["Y"]),
+    helper.make_node("MatMul", ["X", "W"], ["XM"]),  # Matrix multiplication: X @ W
+    helper.make_node("Add", ["XM", "B"], ["Y"]),  # Add bias: XM + B
 ]
 
-# Shape annotations (optional for debugging / Netron)
+# Optional: Add shape annotations for debugging or visualization in tools like Netron.
 linear_value_info = [
-    helper.make_tensor_value_info("XM", TensorProto.FLOAT, [1, 6]),
+    helper.make_tensor_value_info(
+        "XM", TensorProto.FLOAT, [1, 6]
+    ),  # Intermediate tensor XM
     helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 6]),
 ]
 
