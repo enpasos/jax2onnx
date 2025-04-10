@@ -77,6 +77,37 @@ def save_onnx(
 
 
 def allclose(callable, onnx_model_path, *xs):
+    import inspect
+
+    def safe_call_with_kwargs(fn, *inputs):
+        # Heuristically separate scalar and tensor arguments
+        tensor_args = [
+            x for x in inputs if isinstance(x, jnp.ndarray) and x.shape != ()
+        ]
+        scalar_args = [
+            x for x in inputs if isinstance(x, jnp.ndarray) and x.shape == ()
+        ]
+
+        try:
+            sig = inspect.signature(fn.__call__)
+            param_names = list(sig.parameters)[1:]  # skip self
+        except (AttributeError, TypeError):
+            try:
+                sig = inspect.signature(fn)
+                param_names = list(sig.parameters)
+            except Exception:
+                return fn(*inputs)
+
+        tensor_names = param_names[: len(tensor_args)]
+        scalar_names = param_names[len(tensor_args) :]
+
+        kwargs = dict(zip(scalar_names, scalar_args))
+
+        try:
+            return fn(*tensor_args, **kwargs)
+        except TypeError:
+            return fn(*inputs)
+
     # Load ONNX model and create inference session
     session = ort.InferenceSession(onnx_model_path)
 
@@ -86,39 +117,20 @@ def allclose(callable, onnx_model_path, *xs):
     if len(input_names) != len(xs):
         raise ValueError(f"Expected {len(input_names)} inputs, but got {len(xs)}.")
 
-    # Run ONNX
+    # Prepare ONNX input dictionary
     p = {name: np.array(x) for name, x in zip(input_names, xs)}
     onnx_output = session.run(None, p)
 
-    # Split positional inputs vs dynamic kwargs (heuristic: last N are scalars)
-    def is_scalar(x):
-        return isinstance(x, jnp.ndarray) and x.shape == ()
-
-    tensor_args = [x for x in xs if not is_scalar(x)]
-    scalar_args = [x for x in xs if is_scalar(x)]
-
-    # Dynamically guess input_param names based on Dropout.__call__ signature
-    import inspect
-
-    sig = inspect.signature(callable.__call__)
-    param_names = list(sig.parameters)[1:]  # skip self
-    tensor_names = param_names[: len(tensor_args)]
-    scalar_names = param_names[len(tensor_args) :]
-
-    dynamic_kwargs = dict(zip(scalar_names, scalar_args))
-
-    try:
-        jax_output = callable(*tensor_args, **dynamic_kwargs)
-    except TypeError:
-        # fallback for lambdas or callables that don't accept kwargs
-        jax_output = callable(*xs)
+    jax_output = safe_call_with_kwargs(callable, *xs)
 
     if not isinstance(jax_output, list):
         jax_output = [jax_output]
     if not isinstance(onnx_output, list):
         onnx_output = [onnx_output]
 
-    isOk = np.allclose(onnx_output, jax_output, rtol=1e-3, atol=1e-5)
+    isOk = all(
+        np.allclose(o, j, rtol=1e-3, atol=1e-5) for o, j in zip(onnx_output, jax_output)
+    )
 
     return (
         isOk,
