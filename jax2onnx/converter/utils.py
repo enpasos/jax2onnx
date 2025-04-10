@@ -78,7 +78,7 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
-    sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
+    sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True, params=params)
 
     internal_input_vars = sub_converter.jaxpr.invars
     if len(internal_input_vars) != len(outer_input_vars_avals):
