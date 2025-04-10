@@ -16,6 +16,7 @@ from jax2onnx.plugin_system import (
     import_all_plugins,
 )
 from jax2onnx.converter.patch_utils import temporary_monkey_patches
+from jax.extend import core as extend_core
 
 
 # At the top of converter.py
@@ -97,7 +98,7 @@ class Jaxpr2OnnxConverter:
     def get_name(self, var):
         if isinstance(var, jax._src.core.Var):
             return self.get_var_name(var)
-        elif isinstance(var, jax._src.core.Literal):
+        elif isinstance(var, extend_core.Literal):
             return self.get_constant_name(var)
         else:
             raise NotImplementedError("not yet implemented")
