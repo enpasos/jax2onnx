@@ -1,6 +1,3 @@
-# file: jax2onnx/converter/utils.py
-
-# Ensure all needed types are imported
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -8,7 +5,6 @@ import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
 
-# Assuming these are correctly defined in your project:
 from jax2onnx.converter.dtype_utils import (
     numpy_dtype_to_tensorproto,
     tensorproto_dtype_to_numpy,
@@ -21,32 +17,14 @@ if TYPE_CHECKING:
 
 
 def _propagate_nested_functions(parent_builder: OnnxBuilder, sub_builder: OnnxBuilder):
-    """
-    Propagates nested ONNX functions from a sub-builder to a parent builder.
-    Ensures nested functions are added only once.
-    """
-    for nested_func_name, nested_func_proto in sub_builder.functions.items():
-        if nested_func_name not in parent_builder.functions:
-            parent_builder.functions[nested_func_name] = nested_func_proto
-            # print(f"Propagated nested ONNX function: {nested_func_name}")
+    for name, func in sub_builder.functions.items():
+        if name not in parent_builder.functions:
+            parent_builder.functions[name] = func
 
 
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
-    """
-    Handles the conversion of a JAX function to an ONNX function.
-
-    Args:
-        name: The name of the function being converted.
-        converter: The Jaxpr2OnnxConverter instance handling the conversion.
-        eqn: The JAX equation representing the function.
-        orig_fn: The original JAX function to be converted.
-        params: Additional parameters for the function.
-
-    Raises:
-        RuntimeError: If the original function is not recorded.
-    """
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
@@ -60,24 +38,20 @@ def function_handler(
     parent_builder = converter.builder
     input_names = []
     example_args = []
-
-    outer_input_vars_avals = []  # Store tuples of (outer_var, aval)
+    outer_input_vars_avals = []
 
     for var in eqn.invars:
         if hasattr(var, "aval"):
             aval = var.aval
             var_name = converter.get_name(var)
             input_names.append(var_name)
-            outer_input_vars_avals.append((var, aval))  # Store var and its aval
-
-            # Create example tensor
+            outer_input_vars_avals.append((var, aval))
             example_args.append(
                 jnp.ones(aval.shape, dtype=aval.dtype)
                 if aval.shape
                 else jnp.zeros((), dtype=aval.dtype)
             )
-
-            # 🛡️ Protect against overwriting existing value info with conflicting shape/dtype
+            # 🔧 Avoid overwriting existing value info
             if var_name in parent_builder.value_info_metadata:
                 old_shape, old_dtype = parent_builder.value_info_metadata[var_name]
                 new_shape, new_dtype = tuple(aval.shape), aval.dtype
@@ -88,11 +62,9 @@ def function_handler(
                         f"(new shape={new_shape}, dtype={new_dtype})"
                     )
                     continue
-
             parent_builder.register_value_info_metadata(
                 var_name, tuple(aval.shape), aval.dtype
             )
-
         elif isinstance(var, Literal):
             example_args.append(var.val)
         else:
@@ -105,43 +77,26 @@ def function_handler(
         unique_node_name + "_graph",
         initializers=parent_builder.initializers,
     )
-
     sub_converter = converter.__class__(sub_builder)
     sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True)
 
-    # --- Step 3: Add ValueInfo for inputs to sub_builder AFTER tracing ---
-    #    using outer shapes/types but internal names.
-
-    # Get the internal input variables/names generated during the trace
-    # Assuming sub_converter.jaxpr.invars holds the internal input vars in order
     internal_input_vars = sub_converter.jaxpr.invars
-
-    # Check if the number of traced internal inputs matches the outer inputs passed
     if len(internal_input_vars) != len(outer_input_vars_avals):
         raise RuntimeError(
             f"Mismatch between outer function inputs ({len(outer_input_vars_avals)}) "
             f"and traced internal inputs ({len(internal_input_vars)}) for {name}."
         )
 
-    # Now, iterate and add value info to sub_builder using internal names
     for internal_var, (outer_var, outer_aval) in zip(
         internal_input_vars, outer_input_vars_avals, strict=False
     ):
-        internal_name = sub_converter.get_name(internal_var)  # Get the internal name
+        internal_name = sub_converter.get_name(internal_var)
         shape = tuple(outer_aval.shape)
-        # Get dtype from outer_aval, convert to ONNX enum for metadata/value_info
         onnx_dtype_enum = numpy_dtype_to_tensorproto(outer_aval.dtype)
-
-        # Register metadata in the sub_builder using the *internal* name
         sub_builder.register_value_info_metadata(
             internal_name, shape, onnx_dtype_enum, origin="function_input"
         )
-
-        # Add to sub_builder's value_info list using the *internal* name
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
-
-        # Note: sub_builder.add_input might have already been called during trace_jaxpr.
-        # Adding the value_info here ensures it's in the correct list for add_function.
 
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
@@ -163,42 +118,25 @@ def function_handler(
     )
 
     parent_builder.merge_value_info_metadata_from(sub_builder)
-
     call_outputs = []
-
     for i, sub_name in enumerate(sub_output_names):
         var = eqn.outvars[i]
-        # sub_name = sub_output_names[i]
-        shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-
+        shape_dtype = sub_builder.value_info_metadata[sub_name]
         if shape_dtype is None:
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
-
         shape, dtype = shape_dtype
-
-        # here the original shape is wrong
-        # it was set to the shape of the input (intentionally in the primitive)
         var.aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
-
-        # ✅ Generate fresh output name to avoid conflict
         parent_output_name = parent_builder.get_unique_name("var")
-
-        # can I change the type of var
-
         converter.var_to_name[var] = parent_output_name
         converter.name_to_var[parent_output_name] = var
-
         call_outputs.append(parent_output_name)
-
         parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
     _propagate_nested_functions(parent_builder, sub_builder)
-
     call_inputs = input_names + param_inputs
-
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
         input_names=call_inputs,
