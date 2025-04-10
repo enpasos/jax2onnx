@@ -50,7 +50,7 @@ def to_onnx(
     input_shapes: Any,
     model_name: str = "jax_model",
     opset: int = 21,
-    input_params: dict | None = None,  # <-- 🔧 FIXED: now allowed
+    input_params: dict | None = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
@@ -67,12 +67,19 @@ def to_onnx(
     """
     from jax2onnx.converter.jax_to_onnx import prepare_example_args
 
+    # Generate concrete example arguments based on provided shapes
     example_args = prepare_example_args(input_shapes)
+
+    # If static parameters are provided, create a wrapper function that incorporates them
+    if input_params is not None:
+        original_fn = fn
+        fn = lambda *args: original_fn(*args, **input_params)
 
     unique_name_generator = UniqueNameGenerator()
     builder = OnnxBuilder(unique_name_generator, opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
 
+    # Pass the function (original or wrapped) and concrete example args to the tracer
     converter.trace_jaxpr(fn, example_args)
     builder.adjust_dynamic_batch_dimensions(input_shapes)
     builder.filter_unused_initializers()
