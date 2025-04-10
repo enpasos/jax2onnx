@@ -51,7 +51,6 @@ def function_handler(
                 if aval.shape
                 else jnp.zeros((), dtype=aval.dtype)
             )
-            # 🛡️ Avoid overwriting existing value info
             if var_name in parent_builder.value_info_metadata:
                 old_shape, old_dtype = parent_builder.value_info_metadata[var_name]
                 new_shape, new_dtype = tuple(aval.shape), aval.dtype
@@ -78,11 +77,13 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
-
-    # ✅ Store params in sub_converter
     sub_converter.params = params
 
-    sub_converter.trace_jaxpr(orig_fn, example_args, preserve_graph=True, params=params)
+    trace_kwargs = {"preserve_graph": True}
+    if params is not None:
+        trace_kwargs["params"] = params
+
+    sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
     internal_input_vars = sub_converter.jaxpr.invars
     if len(internal_input_vars) != len(outer_input_vars_avals):
