@@ -1,8 +1,11 @@
-from jax import core, numpy as jnp
+from typing import TYPE_CHECKING
+
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, List, Union
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -74,8 +77,8 @@ class MatMulPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _get_dynamic_output_shape(
-        a_shape: Tuple[Union[int, str], ...], b_shape: Tuple[Union[int, str], ...]
-    ) -> Tuple[Union[int, str], ...]:
+        a_shape: tuple[int | str, ...], b_shape: tuple[int | str, ...]
+    ) -> tuple[int | str, ...]:
         """Calculates the output shape of jnp.matmul while handling dynamic dimensions."""
         a_rank, b_rank = len(a_shape), len(b_shape)
 
@@ -99,7 +102,7 @@ class MatMulPlugin(PrimitiveLeafPlugin):
         ):
             raise ValueError(f"Incompatible shapes for matmul: {a_shape} and {b_shape}")
 
-        batch_dims: List[Union[int, str]] = []
+        batch_dims: list[int | str] = []
         max_rank = max(a_rank, b_rank)
         for i in range(max_rank - 2):
             a_dim = a_shape[i] if i < a_rank - 2 else 1

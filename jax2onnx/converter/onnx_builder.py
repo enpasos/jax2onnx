@@ -1,18 +1,19 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from onnx import (
-    helper,
-    TensorProto,
-    NodeProto,
-    ValueInfoProto,
-    ModelProto,
-    GraphProto,
-    FunctionProto,
-)
+from typing import Any
+
 import numpy as np
-from typing import Dict, List, Any, Tuple, Optional, Union
-from jax.extend.core import Literal
 import onnx
+from jax.extend.core import Literal
+from onnx import (
+    FunctionProto,
+    GraphProto,
+    ModelProto,
+    NodeProto,
+    TensorProto,
+    ValueInfoProto,
+    helper,
+)
 
 # === Import BOTH name generators ===
 from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
@@ -62,35 +63,35 @@ class OnnxBuilder:
         name_generator: UniqueNameGenerator,
         opset: int = 21,
         model_name: str = "",
-        initializers: Optional[List[Any]] = None,
+        initializers: list[Any] | None = None,
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
 
-        self.nodes: List[NodeProto] = []
-        self.inputs: List[ValueInfoProto] = []
-        self.outputs: List[ValueInfoProto] = []
-        self.initializers: List[Any] = initializers if initializers is not None else []
-        self.value_info: List[ValueInfoProto] = []
+        self.nodes: list[NodeProto] = []
+        self.inputs: list[ValueInfoProto] = []
+        self.outputs: list[ValueInfoProto] = []
+        self.initializers: list[Any] = initializers if initializers is not None else []
+        self.value_info: list[ValueInfoProto] = []
         self.opset: int = opset
-        self.functions: Dict[str, FunctionProto] = {}
+        self.functions: dict[str, FunctionProto] = {}
         self.model_name: str = model_name
-        self.display_name_map: Dict[str, str] = {}
+        self.display_name_map: dict[str, str] = {}
 
         # Metadata for value information.
-        self.value_info_metadata: Dict[str, Tuple[Tuple[int, ...], Any]] = {}
-        self.value_info_metadata_with_origin: Dict[
-            str, Tuple[Tuple[int, ...], Any, Optional[str]]
+        self.value_info_metadata: dict[str, tuple[tuple[int, ...], Any]] = {}
+        self.value_info_metadata_with_origin: dict[
+            str, tuple[tuple[int, ...], Any, str | None]
         ] = {}
-        self.dtype_env: Dict[str, onnx.TensorProto.DataType] = {}
-        self.value_info_origin: Dict[str, str] = {}  # Initialize value_info_origin
+        self.dtype_env: dict[str, onnx.TensorProto.DataType] = {}
+        self.value_info_origin: dict[str, str] = {}  # Initialize value_info_origin
 
     def register_value_info_metadata(
         self,
         name: str,
-        shape: Tuple[int, ...],
-        dtype: Union[np.dtype, int],  # `int` covers TensorProto enums
-        origin: Optional[str] = None,
+        shape: tuple[int, ...],
+        dtype: np.dtype | int,  # `int` covers TensorProto enums
+        origin: str | None = None,
     ):
         """
         Register metadata for a value_info entry, including shape, dtype, and origin.
@@ -106,7 +107,7 @@ class OnnxBuilder:
 
     def get_value_info_metadata_with_origin(
         self, name: str
-    ) -> Optional[Tuple[Tuple[int, ...], Any, Optional[str]]]:
+    ) -> tuple[tuple[int, ...], Any, str | None] | None:
         """
         Retrieve metadata (shape, dtype, origin) for a given value_info name.
 
@@ -123,7 +124,7 @@ class OnnxBuilder:
             return shape, dtype, None  # origin unknown
         return None
 
-    def find_missing_value_info(self) -> List[str]:
+    def find_missing_value_info(self) -> list[str]:
         """
         Identify value_info entries that are referenced in nodes but not defined.
 
@@ -203,9 +204,9 @@ class OnnxBuilder:
 
     def _add_tensor(
         self,
-        collection: List[ValueInfoProto],
+        collection: list[ValueInfoProto],
         name: str,
-        shape: Optional[Tuple[int, ...]],
+        shape: tuple[int, ...] | None,
         dtype: Any,
     ):
         shape = _as_tuple(shape)
@@ -220,13 +221,13 @@ class OnnxBuilder:
         collection.append(tensor_def)
 
     def add_input(
-        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
+        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
     ) -> None:
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
-        self, name: str, shape: Optional[Tuple[int, ...]], dtype: Any = np.float32
+        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
     ) -> None:
         # if any(v.name == name for v in self.outputs):
         #     return  # Already added
@@ -236,8 +237,8 @@ class OnnxBuilder:
     def add_value_info(
         self,
         name: str,
-        shape: Tuple[int, ...],
-        dtype: Union[np.dtype, int],
+        shape: tuple[int, ...],
+        dtype: np.dtype | int,
     ):
         vi = make_value_info(name, shape, dtype)
 
@@ -249,7 +250,7 @@ class OnnxBuilder:
         self.value_info.append(vi)
 
     def create_node(
-        self, op_type: str, inputs: List[str], outputs: List[str], **kwargs: Any
+        self, op_type: str, inputs: list[str], outputs: list[str], **kwargs: Any
     ) -> NodeProto:
         return helper.make_node(op_type, inputs, outputs, **kwargs)
 
@@ -331,7 +332,7 @@ class OnnxBuilder:
         return dtype_map.get(np_dtype, TensorProto.FLOAT)
 
     def add_function(
-        self, name: str, sub_builder: "OnnxBuilder", param_input_names: List[str]
+        self, name: str, sub_builder: "OnnxBuilder", param_input_names: list[str]
     ) -> str:
         missing = sub_builder.find_missing_value_info()  # Existing code
         if missing:  # Existing code
@@ -430,11 +431,13 @@ class OnnxBuilder:
         return TensorProto.FLOAT  # default fallback
 
     def _register_value_info_for_function_inputs_outputs_and_intermediates(
-        self, func: onnx.FunctionProto, input_names: List[str], output_names: List[str]
+        self, func: onnx.FunctionProto, input_names: list[str], output_names: list[str]
     ):
 
         # Inputs
-        for func_input_name, outer_input_name in zip(func.input, input_names):
+        for func_input_name, outer_input_name in zip(
+            func.input, input_names, strict=False
+        ):
             vi = next((v for v in self.value_info if v.name == outer_input_name), None)
             if vi:
                 self.add_value_info(
@@ -445,7 +448,9 @@ class OnnxBuilder:
                 self.add_value_info(func_input_name, shape, dtype)
 
         # Outputs
-        for func_output_name, outer_output_name in zip(func.output, output_names):
+        for func_output_name, outer_output_name in zip(
+            func.output, output_names, strict=False
+        ):
             vi = next((v for v in self.value_info if v.name == outer_output_name), None)
             if vi:
                 self.add_value_info(
@@ -508,11 +513,11 @@ class OnnxBuilder:
     def add_function_call_node(
         self,
         function_name: str,
-        input_names: List[str],
-        output_names: List[str],
-        node_name: Optional[str] = None,
-        op_type: Optional[str] = None,
-        user_display_name: Optional[str] = None,
+        input_names: list[str],
+        output_names: list[str],
+        node_name: str | None = None,
+        op_type: str | None = None,
+        user_display_name: str | None = None,
     ):
         if node_name is None:
             readable_base = (user_display_name or function_name).split(".")[-1]
@@ -560,7 +565,9 @@ class OnnxBuilder:
         if num_hints != num_inputs:
             print("Warning: Input shapes hints != model inputs. Skipping.")
         else:
-            for tensor, input_shape_hint in zip(self.inputs, input_shapes):
+            for tensor, input_shape_hint in zip(
+                self.inputs, input_shapes, strict=False
+            ):
                 self._adjust_tensor_shape(tensor, input_shape_hint, batch_dims)
         for tensor in self.outputs:
             self._adjust_tensor_shape(tensor, [], batch_dims)
@@ -587,7 +594,7 @@ class OnnxBuilder:
                         f"⚠️ [merge] Mismatch in value_info for '{name}': existing={existing}, new={(shape, dtype)}"
                     )
 
-    def get_value_info_origins(self) -> Dict[str, str]:
+    def get_value_info_origins(self) -> dict[str, str]:
         """
         Returns a dictionary mapping each value name to its metadata origin.
         Example:

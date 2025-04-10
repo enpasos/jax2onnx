@@ -1,5 +1,5 @@
 import onnx
-from onnx import helper, TensorProto, ValueInfoProto, TypeProto, TensorShapeProto
+from onnx import TensorProto, TensorShapeProto, TypeProto, ValueInfoProto, helper
 
 # Define constants for clarity
 OPSET_VERSION = 14  # Use a reasonably recent opset

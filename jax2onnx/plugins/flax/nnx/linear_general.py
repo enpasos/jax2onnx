@@ -13,13 +13,15 @@ The conversion process involves:
   4. Monkey-patching LinearGeneral.__call__ to redirect calls to our primitive.
 """
 
-import numpy as np
-from jax import core
-from flax import nnx
-from onnx import helper
-from jax.extend.core import Primitive
 from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+import numpy as np
+from flax import nnx
+from jax import core
+from jax.extend.core import Primitive
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

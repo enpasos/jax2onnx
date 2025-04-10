@@ -1,9 +1,11 @@
-from jax import core, numpy as jnp
+from typing import TYPE_CHECKING
+
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
 
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

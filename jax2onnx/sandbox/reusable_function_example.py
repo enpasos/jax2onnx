@@ -1,6 +1,7 @@
-import onnx
-from onnx import helper, TensorProto
 import os
+
+import onnx
+from onnx import TensorProto, helper
 
 # Define a unique domain for our custom functions
 CUSTOM_DOMAIN = "my.custom.domain.embedded"

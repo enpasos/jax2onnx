@@ -1,8 +1,9 @@
+import flax.nnx as nnx
+import jax.numpy as jnp
+
 from jax2onnx.plugins.examples.onnx_functions.onnx_functions_012 import (
     VisionTransformer,
 )
-import jax.numpy as jnp
-import flax.nnx as nnx
 
 vit = VisionTransformer(
     height=28,

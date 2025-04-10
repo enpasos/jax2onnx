@@ -1,14 +1,15 @@
 # file: jax2onnx/plugins/jax/numpy/shape.py
 
-from jax import numpy as jnp
-from jax.extend.core import Primitive  # If defined in this file
-import numpy as np
-import jax.core as core
-import onnx
-from onnx import helper
 from typing import TYPE_CHECKING
 
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+import jax.core as core
+import numpy as np
+import onnx
+from jax import numpy as jnp
+from jax.extend.core import Primitive  # If defined in this file
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter

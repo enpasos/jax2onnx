@@ -1,12 +1,12 @@
 # file: jax2onnx/sandbox/onnx_functions_example2.py
 
 
-from flax import nnx
 import os
-import onnx
-from typing import List
+
 import jax
 import jax.numpy as jnp
+import onnx
+from flax import nnx
 
 from jax2onnx import to_onnx
 from jax2onnx.plugin_system import onnx_function
@@ -72,9 +72,9 @@ class ConvEmbedding(nnx.Module):
         self,
         W: int = 28,
         H: int = 28,
-        embed_dims: List[int] = [32, 64, 128],
+        embed_dims: list[int] = [32, 64, 128],
         kernel_size: int = 3,
-        strides: List[int] = [1, 2, 2],
+        strides: list[int] = [1, 2, 2],
         dropout_rate: float = 0.5,
         *,
         rngs=nnx.Rngs(0),
@@ -196,9 +196,9 @@ class VisionTransformer(nnx.Module):
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        embed_dims: List[int] = [32, 128, 256],
+        embed_dims: list[int] = [32, 128, 256],
         kernel_size: int = 3,
-        strides: List[int] = [1, 2, 2],
+        strides: list[int] = [1, 2, 2],
         patch_size: int = 4,
         embedding_type: str = "conv",  # "conv" or "patch"
         embedding_dropout_rate: float = 0.1,

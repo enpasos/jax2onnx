@@ -1,12 +1,13 @@
 # file: jax2onnx/sandbox/onnx_functions_example.py
 
 
-from jax2onnx import to_onnx
-from flax import nnx
 import os
-import onnx
-import jax.numpy as jnp
 
+import jax.numpy as jnp
+import onnx
+from flax import nnx
+
+from jax2onnx import to_onnx
 from jax2onnx.plugin_system import onnx_function
 
 

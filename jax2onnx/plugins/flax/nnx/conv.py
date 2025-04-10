@@ -1,10 +1,13 @@
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 import numpy as np
-from jax import core
 from flax import nnx
-from onnx import helper
+from jax import core
 from jax.extend.core import Primitive
-from typing import TYPE_CHECKING, Tuple, Sequence
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -84,11 +87,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _compute_conv_output_shape(
-        x_shape: Tuple[int, ...],
-        kernel_shape: Tuple[int, ...],
+        x_shape: tuple[int, ...],
+        kernel_shape: tuple[int, ...],
         strides: Sequence[int] | int,
         padding: str,
-    ) -> Tuple[int, ...]:
+    ) -> tuple[int, ...]:
         """
         Compute the output shape for a 2D convolution.
         Assumes:

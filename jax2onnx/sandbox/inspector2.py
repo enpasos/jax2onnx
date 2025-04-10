@@ -1,12 +1,11 @@
 import onnx
-from onnx import shape_inference, TensorProto
-from typing import List, Tuple, Dict
+from onnx import TensorProto, shape_inference
 
 
 # Helper to extract shape and dtype from ValueInfoProto
 def extract_value_info_shape_dtype(
     value_info: onnx.ValueInfoProto,
-) -> Tuple[List[str], str]:
+) -> tuple[list[str], str]:
     """Extracts shape and dtype from a ValueInfoProto."""
     try:
         t = value_info.type.tensor_type
@@ -36,7 +35,7 @@ def extract_value_info_shape_dtype(
 # Helper to extract shape and dtype from Initializer (TensorProto)
 def extract_initializer_shape_dtype(
     initializer: onnx.TensorProto,
-) -> Tuple[List[str], str]:
+) -> tuple[list[str], str]:
     """Extracts shape and dtype from a TensorProto (Initializer)."""
     try:
         dtype = TensorProto.DataType.Name(initializer.data_type)
@@ -50,7 +49,7 @@ def extract_initializer_shape_dtype(
 # --- Enhanced Collection Function ---
 def collect_all_tensor_details(
     model: onnx.ModelProto,
-) -> Dict[str, Tuple[List[str], str]]:
+) -> dict[str, tuple[list[str], str]]:
     """
     Collects shape and dtype for all known tensors in the model (after shape inference).
     Includes graph inputs, outputs, initializers, and value_info.

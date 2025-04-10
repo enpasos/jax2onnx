@@ -1,10 +1,11 @@
 # file: jax2onnx/examples/mnist_vit.py
 
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
+
 from jax2onnx.plugin_system import register_example
-from typing import List
 
 
 # ---------------------------------------------------------------------------
@@ -89,9 +90,9 @@ class ConvEmbedding(nnx.Module):
         self,
         W: int = 28,
         H: int = 28,
-        embed_dims: List[int] = [32, 64, 128],
+        embed_dims: list[int] = [32, 64, 128],
         kernel_size: int = 3,
-        strides: List[int] = [1, 2, 2],
+        strides: list[int] = [1, 2, 2],
         dropout_rate: float = 0.5,
         *,
         rngs=nnx.Rngs(0),
@@ -354,9 +355,9 @@ class VisionTransformer(nnx.Module):
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        embed_dims: List[int] = [32, 128, 256],
+        embed_dims: list[int] = [32, 128, 256],
         kernel_size: int = 3,
-        strides: List[int] = [1, 2, 2],
+        strides: list[int] = [1, 2, 2],
         patch_size: int = 4,
         embedding_type: str = "conv",  # "conv" or "patch"
         embedding_dropout_rate: float = 0.1,

@@ -2,8 +2,8 @@
 # Note: Original header comment mentioned sandbox, corrected path
 
 
-from flax import nnx
 import jax.numpy as jnp
+from flax import nnx
 
 from jax2onnx.plugin_system import onnx_function, register_example
 

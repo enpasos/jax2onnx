@@ -1,12 +1,12 @@
 # file: jax2onnx/converter/utils.py
 
+# Ensure all needed types are imported
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
-
-
-# Ensure all needed types are imported
-from typing import TYPE_CHECKING, Callable
 
 # Assuming these are correctly defined in your project:
 from jax2onnx.converter.dtype_utils import (
@@ -15,7 +15,6 @@ from jax2onnx.converter.dtype_utils import (
 )
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -113,7 +112,7 @@ def function_handler(
 
     # Now, iterate and add value info to sub_builder using internal names
     for internal_var, (outer_var, outer_aval) in zip(
-        internal_input_vars, outer_input_vars_avals
+        internal_input_vars, outer_input_vars_avals, strict=False
     ):
         internal_name = sub_converter.get_name(internal_var)  # Get the internal name
         shape = tuple(outer_aval.shape)

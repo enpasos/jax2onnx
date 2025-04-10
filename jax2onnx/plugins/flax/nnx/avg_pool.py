@@ -1,10 +1,13 @@
 # file: jax2onnx/plugins/flax/nnx/avg_pool.py
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
-from flax import nnx
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, Sequence
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -59,12 +62,12 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _compute_avg_pool_output_shape(
-        x_shape: Tuple[int, ...],
+        x_shape: tuple[int, ...],
         window_shape: Sequence[int],
         strides: Sequence[int],
         padding: str,
         input_format: str = "NHWC",
-    ) -> Tuple[int, ...]:
+    ) -> tuple[int, ...]:
         """Computes the output shape of avg_pool operation."""
         if input_format == "NHWC":
             spatial_dims = x_shape[1:-1]  # Extract H, W from NHWC
@@ -78,7 +81,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             raise ValueError("Invalid input_format. Must be 'NHWC' or 'NCHW'.")
 
         out_dims = []
-        for dim, w, s in zip(spatial_dims, window_shape, strides):
+        for dim, w, s in zip(spatial_dims, window_shape, strides, strict=False):
             if padding.upper() == "VALID":
                 out_dim = (dim - w) // s + 1
             elif padding.upper() == "SAME":

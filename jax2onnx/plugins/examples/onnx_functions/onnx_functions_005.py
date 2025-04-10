@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_005.py
 
-from flax import nnx
 import jax.numpy as jnp
+from flax import nnx
 
 from jax2onnx.plugin_system import onnx_function, register_example
 

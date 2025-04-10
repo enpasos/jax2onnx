@@ -1,30 +1,31 @@
 # file: jax2onnx/plugin_system.py
 import functools
-import inspect
-import pkgutil
 import importlib
+import inspect
 import os
+import pkgutil
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from typing import Any, Union
+
 import jax
+from jax import tree_util
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
-from typing import Optional, Callable, Dict, Any, Tuple, Type, Union
-from abc import ABC, abstractmethod
-from jax import tree_util
-
-from jax2onnx.converter.utils import function_handler
 
 from jax2onnx.converter.name_generator import get_qualified_name
+from jax2onnx.converter.utils import function_handler
 
 # A global registry to store plugins for extending functionality.
 # Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
-PLUGIN_REGISTRY: Dict[
+PLUGIN_REGISTRY: dict[
     str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
 ] = {}
 
 # Track ONNX-decorated modules and their plugins
-ONNX_FUNCTION_REGISTRY: Dict[str, Any] = {}
-ONNX_FUNCTION_PRIMITIVE_REGISTRY: Dict[str, Tuple[Primitive, Any]] = {}
-ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
+ONNX_FUNCTION_REGISTRY: dict[str, Any] = {}
+ONNX_FUNCTION_PRIMITIVE_REGISTRY: dict[str, tuple[Primitive, Any]] = {}
+ONNX_FUNCTION_PLUGIN_REGISTRY: dict[str, "FunctionPlugin"] = {}
 
 
 #####################################
@@ -47,8 +48,8 @@ class PrimitivePlugin(ABC):
 
 class PrimitiveLeafPlugin(PrimitivePlugin):
     primitive: str
-    metadata: Dict[str, Any]
-    patch_info: Optional[Callable[[], Dict[str, Any]]] = None
+    metadata: dict[str, Any]
+    patch_info: Callable[[], dict[str, Any]] | None = None
 
     def get_patch_params(self):
         if not self.patch_info:
@@ -215,7 +216,7 @@ def onnx_function(target):
 
 
 class ExamplePlugin:
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 def register_example(**metadata: Any) -> ExamplePlugin:
@@ -229,10 +230,10 @@ def register_example(**metadata: Any) -> ExamplePlugin:
 
 def register_primitive(
     **metadata: Any,
-) -> Callable[[Type[PrimitiveLeafPlugin]], Type[PrimitiveLeafPlugin]]:
+) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
     primitive = metadata.get("jaxpr_primitive", "")
 
-    def decorator(cls: Type[PrimitiveLeafPlugin]) -> Type[PrimitiveLeafPlugin]:
+    def decorator(cls: type[PrimitiveLeafPlugin]) -> type[PrimitiveLeafPlugin]:
         if not issubclass(cls, PrimitiveLeafPlugin):
             raise TypeError("Plugin must subclass PrimitivePlugin")
 
@@ -241,7 +242,7 @@ def register_primitive(
         instance.metadata = metadata or {}
 
         if hasattr(cls, "patch_info"):
-            instance.patch_info = getattr(cls, "patch_info")
+            instance.patch_info = cls.patch_info
 
         if isinstance(primitive, str):
             PLUGIN_REGISTRY[primitive] = instance

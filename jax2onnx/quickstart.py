@@ -2,6 +2,7 @@
 
 import onnx
 from flax import nnx
+
 from jax2onnx import to_onnx
 
 

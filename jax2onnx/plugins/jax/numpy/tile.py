@@ -1,11 +1,14 @@
-from jax import core, numpy as jnp
-from jax.extend.core import Primitive, Literal
-from onnx import helper
-from typing import TYPE_CHECKING, Union, Sequence, Tuple
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-import onnx
 import numpy as np
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+import onnx
+from jax import core
+from jax import numpy as jnp
+from jax.extend.core import Literal, Primitive
+from onnx import helper
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -73,8 +76,8 @@ class TilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x, repeats):  # Keep signature matching primitive def
-        from jax import core
         import numpy as np
+        from jax import core
 
         # --- Input Validation and Info Extraction ---
         if not hasattr(x, "shape") or not hasattr(x, "dtype"):
@@ -298,7 +301,7 @@ class TilePlugin(PrimitiveLeafPlugin):
         s.builder.add_value_info(output_name, shape=out_shape, dtype=out_dtype)
 
     @staticmethod
-    def _tile(a, reps: Union[int, Sequence[int], core.Tracer]):
+    def _tile(a, reps: int | Sequence[int] | core.Tracer):
         if isinstance(reps, core.Tracer) or isinstance(reps, core.ShapedArray):
             return jnp.tile_p.bind(a, reps)
         else:
@@ -307,8 +310,8 @@ class TilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _determine_dimensions(
-        reps: Union[int, Sequence[int]], operand_ndim: int
-    ) -> Tuple[int, ...]:
+        reps: int | Sequence[int], operand_ndim: int
+    ) -> tuple[int, ...]:
         reps_tuple = (reps,) if isinstance(reps, int) else tuple(reps)
         if len(reps_tuple) < operand_ndim:
             reps_tuple = (1,) * (operand_ndim - len(reps_tuple)) + reps_tuple

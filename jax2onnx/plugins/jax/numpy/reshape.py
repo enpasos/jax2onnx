@@ -1,8 +1,12 @@
-from jax import core, numpy as jnp
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+from jax import core
+from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
-from typing import TYPE_CHECKING, Tuple, List, Union, Sequence
-from jax2onnx.plugin_system import register_primitive, PrimitiveLeafPlugin
+
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -65,7 +69,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     """
 
     @staticmethod
-    def _process_newshape(newshape: Sequence[Union[int, str]]) -> List[Union[int, str]]:
+    def _process_newshape(newshape: Sequence[int | str]) -> list[int | str]:
         """Validates and processes the newshape argument for reshape."""
         if isinstance(newshape, (int, str)):
             newshape = [newshape]
@@ -80,8 +84,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _get_dynamic_output_shape(
-        input_shape: Tuple[Union[int, str], ...], newshape: Sequence[Union[int, str]]
-    ) -> Tuple[Union[int, str], ...]:
+        input_shape: tuple[int | str, ...], newshape: Sequence[int | str]
+    ) -> tuple[int | str, ...]:
         """Computes the output shape for jnp.reshape while handling dynamic dimensions."""
         newshape = ReshapePlugin._process_newshape(newshape)
         input_shape_list = list(input_shape)
@@ -111,7 +115,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         output_shape = [
             orig if isinstance(orig, str) else dummy
-            for orig, dummy in zip(newshape, dummy_newshape)
+            for orig, dummy in zip(newshape, dummy_newshape, strict=False)
         ]
         return tuple(output_shape)
 
