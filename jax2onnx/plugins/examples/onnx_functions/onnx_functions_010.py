@@ -129,7 +129,7 @@ register_example(
     children=["TransformerBlock"],
     testcases=[
         {
-            "testcase": "010_transformer_block",
+            "testcase": "010_transformer_stack",
             "callable": TransformerStack(
                 num_hiddens=256,
                 num_heads=8,

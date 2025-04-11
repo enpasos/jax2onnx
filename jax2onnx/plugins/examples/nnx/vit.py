@@ -1,11 +1,11 @@
-# file: jax2onnx/examples/mnist_vit.py
+# file: jax2onnx/plugins/examples/nnx/vit.py
 
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import onnx_function, register_example
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndar
 # ---------------------------------------------------------------------------
 # Model components
 # ---------------------------------------------------------------------------
-# @onnx_function
+@onnx_function
 class PatchEmbedding(nnx.Module):
     """Patch embedding for Vision Transformers."""
 
@@ -82,7 +82,7 @@ register_example(
 )
 
 
-# @onnx_function
+@onnx_function
 class ConvEmbedding(nnx.Module):
     """Convolutional embedding for MNIST."""
 
@@ -138,9 +138,12 @@ class ConvEmbedding(nnx.Module):
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         for layer in self.layers:
-            x = layer(x)
+            if isinstance(layer, nnx.Dropout):
+                x = layer(x, deterministic=True)
+            else:
+                x = layer(x)
         B, H, W, C = x.shape
-        x = x.reshape(B, H * W, C)
+        x = jnp.reshape(x, (B, H * W, C))
         return x
 
 
@@ -171,20 +174,21 @@ register_example(
 )
 
 
-# @onnx_function
-class MLPBlock(nnx.Module):
+@onnx_function
+class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
         self.layers = [
             nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
             lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
             nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        deterministic = True
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -194,7 +198,7 @@ class MLPBlock(nnx.Module):
 
 
 register_example(
-    component="MLPBlock",
+    component="FeedForward",
     description="MLP in Transformer",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
@@ -202,8 +206,8 @@ register_example(
     children=["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
     testcases=[
         {
-            "testcase": "mlp_block",
-            "callable": MLPBlock(
+            "testcase": "feed_forward",
+            "callable": FeedForward(
                 num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 10, 256)],
@@ -212,7 +216,39 @@ register_example(
 )
 
 
-# @onnx_function
+@onnx_function
+def attention(*args, **kwargs):
+    return nnx.dot_product_attention(*args, **kwargs)
+
+
+@onnx_function
+class MultiHeadAttention(nnx.Module):
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_heads: int,
+        attention_dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.attention = nnx.MultiHeadAttention(
+            num_heads=num_heads,
+            qkv_features=num_hiddens,
+            out_features=num_hiddens,
+            in_features=num_hiddens,
+            attention_fn=lambda *args, **kwargs: attention(*args),
+            rngs=rngs,
+            decode=False,
+        )
+        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = self.attention(x)
+        x = self.dropout(x, deterministic=True)
+        return x
+
+
+@onnx_function
 class TransformerBlock(nnx.Module):
     """Transformer block with multi-head attention and MLP."""
 
@@ -226,34 +262,22 @@ class TransformerBlock(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.rng_collection = rngs
         self.layer_norm1 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.attention = nnx.MultiHeadAttention(
+        self.attention = MultiHeadAttention(
+            num_hiddens=num_hiddens,
             num_heads=num_heads,
-            qkv_features=num_hiddens,
-            out_features=num_hiddens,
-            in_features=num_hiddens,
+            attention_dropout_rate=attention_dropout_rate,
             rngs=rngs,
-            decode=False,
         )
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
-        self.mlp_block = MLPBlock(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
+        self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        if len(x.shape) != 3:
-            raise ValueError("Input tensor 'x' must have shape (B, T, D).")
-
-        # Pre-LN as it is more stable than Post-LN used in the original attention paper
-        # x stays untached, the residual r is learned
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         r = self.layer_norm1(x)
         r = self.attention(r)
-        r = self.dropout(r, deterministic=deterministic)
         x = x + r
-
         r = self.layer_norm2(x)
-        r = self.mlp_block(r, deterministic)
-        return x + r
+        return x + self.mlp_block(r)
 
 
 register_example(
@@ -285,6 +309,7 @@ register_example(
 )
 
 
+@onnx_function
 class TransformerStack(nnx.Module):
     """Stack of Transformer blocks."""
 
@@ -311,9 +336,9 @@ class TransformerStack(nnx.Module):
             for _ in range(num_layers)
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         for block in self.blocks:
-            x = block(x, deterministic)
+            x = block(x)
         return x
 
 
@@ -342,7 +367,120 @@ register_example(
 )
 
 
-# @onnx_function
+@onnx_function
+class ClassificationHead(nnx.Module):
+    """Classification head for Vision Transformer."""
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        num_classes: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
+        self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = self.layer_norm(x)
+        x = x[:, 0, :]
+        return nnx.log_softmax(self.dense(x))
+
+
+register_example(
+    component="ClassificationHead",
+    description="Classification head for Vision Transformer",
+    since="v0.4.0",
+    context="examples.nnx",
+    children=["flax.nnx.LayerNorm", "flax.nnx.Linear", "flax.nnx.log_softmax"],
+    testcases=[
+        {
+            "testcase": "classification_head",
+            "callable": ClassificationHead(
+                num_hiddens=256,
+                num_classes=10,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(1, 10, 256)],
+        },
+    ],
+)
+
+
+@onnx_function
+class ConcatClsToken(nnx.Module):
+    """Concatenate CLS token to the input embedding."""
+
+    def __init__(
+        self,
+        num_hiddens: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.cls_token = nnx.Param(
+            jax.random.normal(rngs.params(), (1, 1, num_hiddens))
+        )
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        batch_size = x.shape[0]
+        cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
+        x = jnp.concatenate([cls_tokens, x], axis=1)
+        return x
+
+
+register_example(
+    component="ConcatClsToken",
+    description="Concatenate CLS token to the input embedding",
+    since="v0.4.0",
+    context="examples.nnx",
+    children=["flax.nnx.Param", "jax.numpy.tile", "jax.numpy.concatenate"],
+    testcases=[
+        {
+            "testcase": "concat_cls_token",
+            "callable": ConcatClsToken(
+                num_hiddens=256,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(1, 49, 256)],
+        },
+    ],
+)
+
+
+@onnx_function
+class PositionalEmbedding(nnx.Module):
+    """Add positional embedding to the input embedding."""
+
+    def __init__(self, num_patches: int, num_hiddens: int):
+        self.positional_embedding = nnx.Param(
+            create_sinusoidal_embeddings(num_patches, num_hiddens)
+        )
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = x + self.positional_embedding.value
+        return x
+
+
+register_example(
+    component="PositionalEmbedding",
+    description="Add positional embedding to the input embedding",
+    since="v0.4.0",
+    context="examples.nnx",
+    children=["flax.nnx.Param"],
+    testcases=[
+        {
+            "testcase": "positional_embedding",
+            "callable": PositionalEmbedding(
+                num_patches=49,
+                num_hiddens=256,
+            ),
+            "input_shapes": [(1, 50, 256)],
+        },
+    ],
+)
+
+
+@onnx_function
 class VisionTransformer(nnx.Module):
     """Vision Transformer model for MNIST with configurable embedding type."""
 
@@ -391,12 +529,12 @@ class VisionTransformer(nnx.Module):
                 rngs=rngs,
             )
             num_patches = (height // patch_size) * (width // patch_size)
-        self.cls_token = nnx.Param(
-            jax.random.normal(rngs.params(), (1, 1, num_hiddens))
+
+        self.concat_cls_token = ConcatClsToken(num_hiddens=num_hiddens, rngs=rngs)
+        self.positional_embedding = PositionalEmbedding(
+            num_hiddens=num_hiddens, num_patches=num_patches
         )
-        self.positional_embedding = nnx.Param(
-            create_sinusoidal_embeddings(num_patches, num_hiddens)
-        )
+
         self.transformer_stack = TransformerStack(
             num_hiddens,
             num_heads,
@@ -406,22 +544,28 @@ class VisionTransformer(nnx.Module):
             mlp_dropout_rate,
             rngs=rngs,
         )
-        self.layer_norm = nnx.LayerNorm(num_features=num_hiddens, rngs=rngs)
-        self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
-        self.seq_dim = num_patches + 1
+        self.classification_head = ClassificationHead(
+            num_hiddens=num_hiddens,
+            num_classes=num_classes,
+            rngs=rngs,
+        )
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        if x is None or x.shape[0] == 0:
+            raise ValueError("Input tensor 'x' must not be None or empty.")
+
+        # Ensure input tensor has the expected shape
+        if len(x.shape) != 4 or x.shape[-1] != 1:
+            raise ValueError("Input tensor 'x' must have shape (B, H, W, 1).")
+
         x = self.embedding(x)
-        batch_size = x.shape[0]
-        cls_tokens = jnp.tile(self.cls_token.value, (batch_size, 1, 1))
-        x = jnp.concatenate([cls_tokens, x], axis=1)
+        x = self.concat_cls_token(x)
+        x = self.positional_embedding(x)
 
-        x = x + self.positional_embedding.value
+        x = self.transformer_stack(x)
+        x = self.classification_head(x)
 
-        x = self.transformer_stack(x, deterministic)
-        x = self.layer_norm(x)
-        x = x[:, 0, :]
-        return nnx.log_softmax(self.dense(x))
+        return x
 
 
 register_example(
