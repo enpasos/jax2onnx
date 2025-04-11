@@ -20,10 +20,9 @@ def to_onnx(
 ) -> onnx.ModelProto:
 
     # Extract input_params from kwargs if present
-    input_params = None
-    if kwargs is not None and "input_params" in kwargs:
-        input_params = kwargs.get("input_params")
-        print(f"Found input_params in kwargs: {input_params}")
+    kwargs = kwargs or {}
+    input_params = kwargs.get("input_params", {})
+    print(f"Found input_params in kwargs: {input_params}")
 
     return core_to_onnx(
         fn=fn,
