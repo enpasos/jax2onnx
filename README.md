@@ -108,15 +108,15 @@ save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onn
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
 - **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions, allow user friendly var names  
-- **0.4.0** *(Upcoming)*: Introducing simple ONNX function support, ... somehow like this [`ViT_Encoder.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/012_vit_conv_embedding.onnx)
-... click on the [f] to drill in the function. ... Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator on your callable definition.
 
 
 ### **Current Productive Version**
-- **0.3.2** relaxed the minimum Python version to 3.10.
+- **0.4.0** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator on your callable definition.
+
 
 ### **Past Versions**
-- **0.3.0** Streamlined the plugin system with automatic registration and simplified integration of custom primitives.
+- **0.3.2**: relaxed the minimum Python version to 3.10.
+- **0.3.0**: Streamlined the plugin system with automatic registration and simplified integration of custom primitives.
 - **0.2.0** *(First PyPI Release)*: Rebased the implementation on `jaxpr`, improving usability and adding low-level `lax` components.
 - **0.1.0** *(Initial Approach, Not Released to PyPI)*: Produced ONNX exports for some `nnx` components and `nnx`-based examples, including a VisualTransformer.
 
@@ -228,10 +228,10 @@ If conversion doesn't work out of the box, it could be due to:
 
 | Component | Description | Testcases | Since |
 |:----------|:------------|:----------|:------|
-| AutoEncoder | A simple autoencoder example. | [`autoencoder`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/autoencoder.onnx) ✅ | v0.2.0 |
-| CNN | A simple convolutional neural network (CNN). | [`cnn`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/cnn.onnx) ✅ | v0.1.0 |
+| AutoEncoder | A simple autoencoder example. | [`simple_autoencoder`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_autoencoder.onnx) ✅ | v0.2.0 |
+| CNN | A simple convolutional neural network (CNN). | [`simple_cnn`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_cnn.onnx) ✅ | v0.1.0 |
 | ConvEmbedding | Convolutional Token Embedding for MNIST with hierarchical downsampling. | [`mnist_conv_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/mnist_conv_embedding.onnx) ✅ | v0.1.0 |
-| MLP | A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation. | [`mlp_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/mlp_dynamic.onnx) ✅<br>[`mlp`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/mlp.onnx) ✅ | v0.1.0 |
+| MLP | A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation. | [`simple_mlp_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_mlp_dynamic.onnx) ✅<br>[`simple_mlp`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_mlp.onnx) ✅<br>[`simple_mlp_with_call_params_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_mlp_with_call_params_dynamic.onnx) ✅<br>[`simple_mlp_with_call_params`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/simple_mlp_with_call_params.onnx) ✅ | v0.1.0 |
 | MLPBlock | MLP in Transformer | [`mlp_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/mlp_block.onnx) ✅ | v0.1.0 |
 | MultiHeadAttention | This is a multi-head attention module implemented by Flax/nnx that has no ONNX correspondent on the same granularity. | [`multihead_attention`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/multihead_attention.onnx) ✅ | v0.2.0 |
 | PatchEmbedding | Cutting the image into patches and linearly embedding them. | [`patch_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/nnx/patch_embedding.onnx) ✅ | v0.1.0 |
@@ -245,11 +245,10 @@ If conversion doesn't work out of the box, it could be due to:
 | onnx_functions_004 | nested function plus component | [`004_nested_function_plus_component`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/004_nested_function_plus_component.onnx) ✅ | v0.4.0 |
 | onnx_functions_005 | nested function plus more components | [`005_nested_function_plus_component`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/005_nested_function_plus_component.onnx) ✅ | v0.4.0 |
 | onnx_functions_006 | one function on an outer layer. | [`006_one_function_outer`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/006_one_function_outer.onnx) ✅ | v0.4.0 |
-| onnx_functions_008 | transformer block with nested mlp block no call parameter | [`008_transformer_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/008_transformer_block.onnx) ✅ | v0.4.0 |
 | onnx_functions_009 | transformer block using decorator on class and function | [`009_transformer_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/009_transformer_block.onnx) ✅ | v0.4.0 |
 | onnx_functions_010 | transformer stack | [`010_transformer_block`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/010_transformer_block.onnx) ✅ | v0.4.0 |
 | onnx_functions_012 | Vision Transformer (ViT) | [`012_vit_conv_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/012_vit_conv_embedding.onnx) ✅ | v0.4.0 |
-| onnx_functions_013 | Vision Transformer (ViT) | [`013_vit_conv_embedding`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/013_vit_conv_embedding.onnx) ✅ | v0.4.0 |
+| onnx_functions_013 | Vision Transformer (ViT) | [`013_vit_conv_embedding_with_call_params`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/examples/onnx_functions/013_vit_conv_embedding_with_call_params.onnx) ✅ | v0.4.0 |
 
 <!-- AUTOGENERATED EXAMPLES TABLE END -->
 
