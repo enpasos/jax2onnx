@@ -111,7 +111,7 @@ save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onn
 
 
 ### **Current Productive Version**
-- **0.4.0** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator on your callable definition.
+- **0.4.0** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
 
 
 ### **Past Versions**
