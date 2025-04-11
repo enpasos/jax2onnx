@@ -555,22 +555,51 @@ class OnnxBuilder:
                 tensor_dims[idx].dim_param = "B"
 
     def adjust_dynamic_batch_dimensions(self, input_shapes):
+        # Identify which dimensions should be dynamic (marked as 'B')
         batch_dims = {
             idx for shape in input_shapes for idx, dim in enumerate(shape) if dim == "B"
         }
         if not batch_dims:
             return
-        num_hints = len(input_shapes)
-        num_inputs = len(self.inputs)
-        if num_hints != num_inputs:
-            print("Warning: Input shapes hints != model inputs. Skipping.")
-        else:
-            for tensor, input_shape_hint in zip(
-                self.inputs, input_shapes, strict=False
-            ):
-                self._adjust_tensor_shape(tensor, input_shape_hint, batch_dims)
+
+        print(f"Making dimensions {batch_dims} dynamic in the ONNX model")
+
+        # First, identify which inputs are tensor inputs vs scalar parameter inputs
+        tensor_inputs = []
+        param_inputs = []
+
+        for inp in self.inputs:
+            # Check if this input has dimensions
+            has_dims = (
+                inp.type.HasField("tensor_type")
+                and inp.type.tensor_type.HasField("shape")
+                and inp.type.tensor_type.shape.dim
+            )
+
+            if has_dims:
+                tensor_inputs.append(inp)
+            else:
+                param_inputs.append(inp)
+
+        print(
+            f"Found {len(tensor_inputs)} tensor inputs and {len(param_inputs)} parameter inputs"
+        )
+
+        # Apply dynamic dimensions to all tensor inputs
+        for i, tensor in enumerate(tensor_inputs):
+            if i < len(input_shapes):
+                print(f"Making dimensions dynamic for input: {tensor.name}")
+                self._adjust_tensor_shape(tensor, input_shapes[i], batch_dims)
+            else:
+                print(f"No shape hint available for input: {tensor.name}")
+
+        # Make all outputs dynamic as well
         for tensor in self.outputs:
             self._adjust_tensor_shape(tensor, [], batch_dims)
+
+        # Also update all value_info to make batch dimensions dynamic
+        for value_info in self.value_info:
+            self._adjust_tensor_shape(value_info, [], batch_dims)
 
     def filter_unused_initializers(self):
         used_inputs = {inp for node in self.nodes for inp in node.input}
