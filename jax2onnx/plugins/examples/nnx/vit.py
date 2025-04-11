@@ -52,7 +52,7 @@ class PatchEmbedding(nnx.Module):
             ),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
             x = layer(x)
         return x
@@ -136,7 +136,7 @@ class ConvEmbedding(nnx.Module):
             nnx.Dropout(rate=dropout_rate, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -187,7 +187,7 @@ class FeedForward(nnx.Module):
             nnx.Dropout(rate=0.1, rngs=rngs),
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -241,7 +241,7 @@ class MultiHeadAttention(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         x = self.attention(x)
         x = self.dropout(x, deterministic=deterministic)
         return x
@@ -271,9 +271,11 @@ class TransformerBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         r = self.layer_norm1(x)
-        r = self.attention(r, deterministic=deterministic)
+        r = self.attention(
+            r
+        )  # Do NOT pass deterministic here, matching onnx_functions_013.py
         x = x + r
         r = self.layer_norm2(x)
         return x + self.mlp_block(r, deterministic=deterministic)
@@ -303,6 +305,9 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 10, 256)],
+            "input_params": {
+                "deterministic": True,
+            },
         },
     ],
 )
@@ -310,8 +315,6 @@ register_example(
 
 @onnx_function
 class TransformerStack(nnx.Module):
-    """Stack of Transformer blocks."""
-
     def __init__(
         self,
         num_hiddens: int,
@@ -335,7 +338,7 @@ class TransformerStack(nnx.Module):
             for _ in range(num_layers)
         ]
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for block in self.blocks:
             x = block(x, deterministic=deterministic)
         return x
@@ -361,6 +364,9 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 10, 256)],
+            "input_params": {
+                "deterministic": True,
+            },
         },
     ],
 )
@@ -474,6 +480,9 @@ register_example(
                 num_hiddens=256,
             ),
             "input_shapes": [(1, 50, 256)],
+            "input_params": {
+                "deterministic": True,
+            },
         },
     ],
 )
@@ -496,15 +505,24 @@ class VisionTransformer(nnx.Module):
         kernel_size: int = 3,
         strides: list[int] = [1, 2, 2],
         patch_size: int = 4,
-        embedding_type: str = "conv",  # "conv" or "patch"
+        embedding_type: str = "conv",
+        # Add support for legacy code
+        dropout_rate: float | None = None,
         embedding_dropout_rate: float = 0.1,
         attention_dropout_rate: float = 0.1,
         mlp_dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
     ):
+        # Handle legacy code that passes dropout_rate
+        if dropout_rate is not None:
+            embedding_dropout_rate = dropout_rate
+            attention_dropout_rate = dropout_rate
+            mlp_dropout_rate = dropout_rate
+
         if embedding_type not in ["conv", "patch"]:
             raise ValueError("embedding_type must be either 'conv' or 'patch'")
+
         if embedding_type == "conv":
             if len(embed_dims) != 3 or embed_dims[2] != num_hiddens:
                 raise ValueError(
@@ -549,7 +567,7 @@ class VisionTransformer(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
             raise ValueError("Input tensor 'x' must not be None or empty.")
 
@@ -600,6 +618,9 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 28, 28, 1)],
+            "input_params": {
+                "deterministic": True,
+            },
         },
         {
             "testcase": "vit_patch_embedding",
@@ -616,6 +637,9 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 28, 28, 1)],
+            "input_params": {
+                "deterministic": True,
+            },
         },
     ],
 )
