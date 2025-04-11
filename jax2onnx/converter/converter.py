@@ -3,8 +3,10 @@ from typing import Any, Dict
 
 import jax
 import jax.random
+import jax.numpy as jnp
 import numpy as np
 import onnx
+import jax.numpy as jnp
 from jax.extend import core as extend_core
 from onnx import helper
 
@@ -255,7 +257,12 @@ class Jaxpr2OnnxConverter:
         # Add input variables to the ONNX graph, skipping any that are already added
         # (such as parameters added via add_scalar_input)
         for var in jaxpr.invars:
-            var_name = self.get_var_name(var)
+            # here we need to call a function that returns the name of the variable
+            # match_call_param_by_type_and_order may use call_params
+            # call_params should be stored by name and type (not value)
+            var_name = self.match_call_param_by_type_and_order(var)
+            if var_name is None:
+                var_name = self.get_var_name(var)
             # Check if this input is already in the builder's inputs
             # This avoids duplicate inputs for parameters that were added as scalar inputs
             if not any(
@@ -328,3 +335,65 @@ class Jaxpr2OnnxConverter:
                     print(
                         f"[WARN] Cannot add shape info for {output_name}, missing .aval."
                     )
+
+    def match_call_param_by_type_and_order(self, var):
+        """
+        Match a variable to a parameter in call_params based on type and order.
+
+        Args:
+            var: The variable to match
+
+        Returns:
+            The name of the matched parameter, or None if no match is found
+        """
+        if not self.call_params or not hasattr(var, "aval"):
+            return None
+
+        # Check if this variable matches any parameter by type and shape
+        var_dtype = var.aval.dtype
+        var_shape = tuple(var.aval.shape)
+
+        # Special handling for boolean parameters like 'deterministic'
+        if var_dtype == jnp.bool_ and var_shape == ():
+            # Look for boolean parameters in call_params
+            for param_name, param_value in self.call_params.items():
+                if isinstance(param_value, bool):
+                    # Skip parameters that have already been matched
+                    param_key = f"{param_name}"
+                    if param_key in self.var_to_name.values():
+                        continue
+
+                    print(
+                        f"[INFO] Matching boolean variable to parameter '{param_name}'"
+                    )
+                    # Store this mapping
+                    self.var_to_name[var] = param_name
+                    self.name_to_var[param_name] = var
+                    return param_name
+
+        # Track position to maintain matching by order for non-boolean parameters
+        matched_params = []
+
+        for param_name, param_value in self.call_params.items():
+            # Skip parameters that have already been matched
+            param_key = f"{param_name}"
+            if param_key in self.var_to_name.values():
+                continue
+
+            # Check if parameter type and shape match the variable
+            if hasattr(param_value, "dtype") and hasattr(param_value, "shape"):
+                param_dtype = param_value.dtype
+                param_shape = tuple(param_value.shape)
+
+                if param_dtype == var_dtype and param_shape == var_shape:
+                    matched_params.append((param_name, param_value))
+
+        # If we found matches, use the first one
+        if matched_params:
+            param_name, _ = matched_params[0]
+            # Store this mapping
+            self.var_to_name[var] = param_name
+            self.name_to_var[param_name] = var
+            return param_name
+
+        return None

@@ -141,16 +141,21 @@ def function_handler(
         # something to check!!!!!!!  here we can identify the parameter by position
         # but it is actually a keyword param ... there this has to be handled better!!!!!!!
         # so here we do the best we can locally here
-        offset = len(eqn.invars)
+        # offset = len(eqn.invars)
         # iterate params.items()
         for i, param in enumerate(params.items()):
             param_name, param_value = param
             # check if param_name is in parent_builder.inputs
             # if not, add it to the parent_builder inputs
-            param_name_in_parent = parent_builder.inputs[i + offset].name
+            # if i + offset >= len(outer_input_vars_avals):
+            # raise RuntimeError("not expected number of inputs")
+            # outer_input_vars_avals
 
-            input_names.append(param_name_in_parent)
-            extra_param_inputs.append((param_name_in_parent, param_value))
+            # outer_input_vars_avals
+            # param_name_in_parent = parent_builder.inputs[i + offset].name
+
+            input_names.append(param_name)
+            extra_param_inputs.append((param_name, param_value))
 
             # For example args, add a reasonable default value based on type
             if isinstance(param_value, bool):
@@ -161,7 +166,7 @@ def function_handler(
                 example_args.append(param_value)
             else:
                 print(
-                    f"[WARN] Unsupported parameter type for {param_name_in_parent}: {type(param_value)}"
+                    f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
                 )
 
     print(f"Tracing function body for: {unique_node_name}")
