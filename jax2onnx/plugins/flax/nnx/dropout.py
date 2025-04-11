@@ -75,58 +75,8 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ratio_tensor = np.array(rate, dtype=np.float32)
         ratio_name = s.builder.get_constant_name(ratio_tensor)
 
-        # Check if we should use a dynamic deterministic parameter if available in call_params
-        use_dynamic_deterministic = (
-            hasattr(s, "call_params") and "deterministic" in s.call_params
-        )
-
-        # Check if we have a global deterministic parameter that should be used
-        use_global_deterministic = (
-            hasattr(s, "call_params")
-            and "deterministic" in s.call_params
-            and any(inp.name == "deterministic" for inp in s.builder.inputs)
-        )
-
-        # Handle deterministic: use global parameter, dynamic trace variable, or static value
-        if use_global_deterministic:
-            # Use the global deterministic parameter from the model inputs
-            det_value = s.call_params.get("deterministic", True)
-            print(f"[DEBUG] Using global deterministic parameter: {det_value}")
-
-            # Get the deterministic parameter from the model inputs
-            det_name = "deterministic"
-            det_shape = ()
-            det_dtype_enum = onnx.TensorProto.BOOL
-
-            # Create a `Not` node to convert deterministic->training_mode
-            flipped_name = s.get_unique_name("training_mode")
-            not_node = helper.make_node(
-                "Not",
-                inputs=[det_name],  # Use the global parameter name directly
-                outputs=[flipped_name],
-                name=s.get_unique_name("not_deterministic"),
-            )
-            s.add_node(not_node)
-
-            # Register metadata for the flipped value
-            s.builder.register_value_info_metadata(
-                flipped_name, shape=det_shape, dtype=det_dtype_enum
-            )
-
-            # Use the flipped output as training_mode
-            training_mode_name = flipped_name
-
-            print(
-                f"[DEBUG] Added NOT node to invert global deterministic parameter: input={det_name}, output={flipped_name}"
-            )
-
-            # Also add the value_info to ensure proper graph construction
-            s.builder.add_value_info(
-                flipped_name, shape=det_shape, dtype=det_dtype_enum
-            )
-
-        elif isinstance(det_input, Literal):
-            # Static deterministic value from literal
+        # Handle deterministic: static or dynamic
+        if isinstance(det_input, Literal):
             training_mode = not bool(det_input.val)
             print(
                 f"[DEBUG] Static deterministic value: {det_input.val} → training_mode: {training_mode}"
@@ -134,19 +84,12 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             training_tensor = np.array(training_mode, dtype=bool)
             training_mode_name = s.builder.get_constant_name(training_tensor)
         else:
-            # Dynamic deterministic input from trace
             print("[DEBUG] Dynamic deterministic input detected")
             det_name = s.get_name(det_input)
             det_aval = det_input.aval
             det_shape = det_aval.shape
             det_dtype_enum = onnx.TensorProto.BOOL
 
-            # Add value info for the deterministic parameter
-            s.builder.register_value_info_metadata(
-                det_name, shape=det_shape, dtype=det_dtype_enum, origin="call_parameter"
-            )
-
-            # Create a `Not` node to convert deterministic->training_mode
             flipped_name = s.get_unique_name("training_mode")
             not_node = helper.make_node(
                 "Not",
@@ -155,23 +98,17 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("not_deterministic"),
             )
             s.add_node(not_node)
-
-            # Register metadata for the flipped value
-            s.builder.register_value_info_metadata(
-                flipped_name, shape=det_shape, dtype=det_dtype_enum
-            )
-
-            # Use the flipped output as training_mode
-            training_mode_name = flipped_name
-
             print(
                 f"[DEBUG] Added NOT node to invert deterministic: input={det_name}, output={flipped_name}"
             )
 
-            # Also add the value_info to ensure proper graph construction
+            s.builder.register_value_info_metadata(
+                flipped_name, shape=det_shape, dtype=det_dtype_enum
+            )
             s.builder.add_value_info(
                 flipped_name, shape=det_shape, dtype=det_dtype_enum
             )
+            training_mode_name = flipped_name
 
         # ONNX Dropout node
         dropout_inputs = [x_name, ratio_name, training_mode_name]

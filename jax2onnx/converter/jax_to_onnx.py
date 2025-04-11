@@ -78,31 +78,10 @@ def to_onnx(
     # Store the parameters that should be exposed as inputs in the ONNX model
     converter.call_params = input_params or {}
 
-    # Trace the function to capture its structure
-    converter.trace_jaxpr(fn, example_args)
-
-    # Now add additional ONNX inputs for each parameter in input_params
-    if input_params:
-        for param_name, param_value in input_params.items():
-            # Create appropriate scalar inputs for each parameter type
-            if isinstance(param_value, bool):
-                # Add a boolean input parameter to the ONNX model
-                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.BOOL)
-                print(f"Added parameter '{param_name}' as BOOL input to the ONNX model")
-            elif isinstance(param_value, int):
-                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.INT64)
-                print(
-                    f"Added parameter '{param_name}' as INT64 input to the ONNX model"
-                )
-            elif isinstance(param_value, float):
-                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.FLOAT)
-                print(
-                    f"Added parameter '{param_name}' as FLOAT input to the ONNX model"
-                )
-            else:
-                print(
-                    f"Warning: Parameter {param_name} of type {type(param_value)} not supported as ONNX input"
-                )
+    # Now trace the function to capture its structure
+    # Pass the input_params explicitly to the trace_jaxpr function
+    # This ensures parameters affect the JAX call graph during tracing
+    converter.trace_jaxpr(fn, example_args, params=input_params)
 
     # Continue with the normal conversion process
     builder.adjust_dynamic_batch_dimensions(input_shapes)

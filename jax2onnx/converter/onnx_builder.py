@@ -257,9 +257,40 @@ class OnnxBuilder:
     def add_node(self, node: NodeProto) -> None:
         self.nodes.append(node)
 
+    def _register_deterministic_parameters(self, missing_names: list[str]) -> list[str]:
+        """
+        Automatically register deterministic flags for dropout layers.
+
+        Args:
+            missing_names: List of missing value_info names
+
+        Returns:
+            List of still missing value_info names after deterministic flags are handled
+        """
+        remaining_missing = []
+        for name in missing_names:
+            if name.endswith("_deterministic") or name == "deterministic":
+                # Register deterministic flags as boolean tensors (BOOL)
+                self.register_value_info_metadata(
+                    name=name,
+                    shape=(),  # Scalar boolean value
+                    dtype=onnx.TensorProto.BOOL,
+                    origin="auto-registered deterministic flag",
+                )
+                # Immediately add the value_info as well
+                self.add_value_info(name, shape=(), dtype=onnx.TensorProto.BOOL)
+            else:
+                remaining_missing.append(name)
+        return remaining_missing
+
     def _build_graph(self, name: str) -> GraphProto:
         self.filter_unused_initializers()
         missing = self.find_missing_value_info()
+
+        # Automatically handle deterministic flags
+        if missing:
+            missing = self._register_deterministic_parameters(missing)
+
         if missing:
             raise RuntimeError(
                 f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
@@ -681,8 +712,17 @@ class OnnxBuilder:
         # Create a scalar shape (empty tuple for scalar)
         shape = ()
 
-        # Create a tensor value info for the input
-        tensor_value_info = helper.make_tensor_value_info(name, dtype, shape)
+        # Create tensor value info manually to avoid issues with JAX traced values
+        tensor_type = onnx.TypeProto.Tensor()
+        tensor_type.elem_type = dtype
+        tensor_shape = tensor_type.shape
+
+        type_proto = onnx.TypeProto()
+        type_proto.tensor_type.CopyFrom(tensor_type)
+
+        tensor_value_info = onnx.ValueInfoProto()
+        tensor_value_info.name = name
+        tensor_value_info.type.CopyFrom(type_proto)
 
         # Add to the model's inputs
         self.inputs.append(tensor_value_info)
