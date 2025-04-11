@@ -70,7 +70,9 @@ onnx.save_model(onnx_model, "jax_callable.onnx")
 ## 🧠 ONNX Functions — Minimal Example
 
 ONNX functions help encapsulate reusable subgraphs. Simply use the `@onnx_function` decorator to make your callable an ONNX function.
+Just an @onnx_function decorator to make your callable an ONNX function
 
+```python
 from jax2onnx import save_onnx, onnx_function
 from flax import nnx
 
@@ -109,7 +111,7 @@ save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onn
 
 
 ### **Current Productive Version**
-- **0.4.0** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
+- **0.4.1** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
   Each `@onnx_function` decorator creates a new ONNX function instance on the call graph.
 
 
