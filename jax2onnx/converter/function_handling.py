@@ -151,18 +151,44 @@ def function_handler(
         sub_converter.call_params = converter.call_params
 
     trace_kwargs = {"preserve_graph": True}
+
+    # Don't duplicate parameters between trace_kwargs and example_args
+    # This prevents the "got multiple values for argument" error
+    param_keys_to_exclude = []
     if params is not None:
         trace_kwargs["params"] = params
+        param_keys_to_exclude = list(params.keys())
+        print(
+            f"[INFO] Will exclude these parameters from example_args: {param_keys_to_exclude}"
+        )
 
-    if (
-        example_args
-        and isinstance(example_args[-1], bool)
-        and params
-        and "deterministic" in params
-    ):
-        # We don't need the 'deterministic' parameter in example_args if it's already in trace_kwargs
-        print(f"[INFO] Removing duplicated 'deterministic' parameter from example_args")
-        example_args = example_args[:-1]
+    # Remove any example_args that correspond to parameters already in trace_kwargs
+    if example_args and param_keys_to_exclude:
+        # Boolean params (like deterministic) are often at the end of example_args
+        if (
+            isinstance(example_args[-1], bool)
+            and "deterministic" in param_keys_to_exclude
+        ):
+            print(
+                f"[INFO] Removing duplicated 'deterministic' parameter from example_args"
+            )
+            example_args = example_args[:-1]
+
+        # Remove None values that correspond to parameters being passed in kwargs
+        # This avoids duplicate parameters like 'mask'
+        for i, param_name in enumerate(param_keys_to_exclude):
+            if param_name in [
+                "mask",
+                "dropout_rng",
+                "dtype",
+                "precision",
+                "module",
+            ] and i < len(example_args):
+                if example_args[i] is None:
+                    print(
+                        f"[INFO] Removing duplicated '{param_name}' parameter from example_args"
+                    )
+                    example_args = example_args[:i] + example_args[i + 1 :]
 
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
