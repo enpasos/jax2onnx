@@ -104,6 +104,33 @@ def allclose(callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e
     input_details = [(inp.name, inp.type, inp.shape) for inp in session.get_inputs()]
     print(f"Detailed input info: {input_details}")
 
+    # Create a mapping of parameter name to expected ONNX type
+    onnx_type_map = {}
+    for inp in session.get_inputs():
+        if inp.name in param_input_names:
+            onnx_type = inp.type
+            # Extract numpy dtype from ONNX type string (e.g. "tensor(float)" -> np.float32)
+            if "float" in onnx_type:
+                if "float64" in onnx_type:
+                    onnx_type_map[inp.name] = np.float64
+                else:
+                    onnx_type_map[inp.name] = np.float32
+            elif "int" in onnx_type:
+                if "int64" in onnx_type:
+                    onnx_type_map[inp.name] = np.int64
+                else:
+                    onnx_type_map[inp.name] = np.int32
+            elif "bool" in onnx_type:
+                onnx_type_map[inp.name] = np.bool_
+            else:
+                # Default to float32 if we can't determine the type
+                onnx_type_map[inp.name] = np.float32
+                print(
+                    f"Warning: Unknown ONNX type {onnx_type} for parameter {inp.name}, using float32"
+                )
+
+    print(f"ONNX parameter types: {onnx_type_map}")
+
     # Handle deterministic parameter and other parameters more carefully
     for param_name in param_input_names:
         if param_name == "deterministic":
@@ -112,44 +139,92 @@ def allclose(callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e
                 "deterministic", True
             )  # Default to True if not specified
 
-            # Use bool_ type for deterministic parameter - ONNX expects boolean type
-            p[param_name] = np.array(det_value, dtype=np.bool_)
+            # Use the dtype expected by ONNX for this parameter
+            if param_name in onnx_type_map:
+                expected_dtype = onnx_type_map[param_name]
+                p[param_name] = np.array(det_value, dtype=expected_dtype)
+                print(f"Added deterministic={det_value} with dtype={expected_dtype}")
+            else:
+                # Fallback to bool_ if not in the type map
+                p[param_name] = np.array(det_value, dtype=np.bool_)
+                print(f"Added deterministic={det_value} with dtype=bool_")
 
-            # Also pass it in jax_kwargs so the JAX model receives the same parameter
+            # Also ensure it's in jax_kwargs
             jax_kwargs[param_name] = det_value
-            print(f"Added deterministic={det_value} as bool_ value and to jax_kwargs")
 
         elif param_name in jax_kwargs:
             # General handling for other parameters
             param_value = jax_kwargs[param_name]
 
-            # Convert the parameter to the appropriate numpy array based on its type
-            if isinstance(param_value, bool):
+            # Use the dtype expected by ONNX for this parameter, if available
+            if param_name in onnx_type_map:
+                expected_dtype = onnx_type_map[param_name]
                 try:
-                    p[param_name] = np.array(
-                        int(param_value), dtype=np.int64
-                    )  # Use int64 for booleans
-                except (TypeError, ValueError):
-                    p[param_name] = np.array(
-                        param_value, dtype=np.bool_
-                    )  # Fallback to bool_
-            elif isinstance(param_value, int):
-                p[param_name] = np.array(param_value, dtype=np.int64)
-            elif isinstance(param_value, float):
-                p[param_name] = np.array(param_value, dtype=np.float32)
+                    p[param_name] = np.array(param_value, dtype=expected_dtype)
+                    print(
+                        f"Added {param_name}={param_value} with dtype={expected_dtype}"
+                    )
+                except (TypeError, ValueError) as e:
+                    print(
+                        f"Warning: Failed to convert {param_name}={param_value} to {expected_dtype}: {e}"
+                    )
+                    # Fall back to intelligent guessing based on the value type
+                    if isinstance(param_value, bool):
+                        p[param_name] = np.array(
+                            int(param_value),
+                            dtype=(
+                                np.int64 if "int" in str(expected_dtype) else np.bool_
+                            ),
+                        )
+                    elif isinstance(param_value, (int, float)):
+                        p[param_name] = np.array(
+                            param_value, dtype=type(param_value).__name__
+                        )
+                    else:
+                        print(
+                            f"Warning: Unsupported parameter type for {param_name}: {type(param_value)}"
+                        )
             else:
-                print(
-                    f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
-                )
+                # Fall back to intelligent guessing based on the value type
+                if isinstance(param_value, bool):
+                    # Booleans in ONNX are often represented as int64
+                    p[param_name] = np.array(int(param_value), dtype=np.int64)
+                elif isinstance(param_value, int):
+                    p[param_name] = np.array(param_value, dtype=np.int64)
+                elif isinstance(param_value, float):
+                    p[param_name] = np.array(param_value, dtype=np.float32)
+                else:
+                    print(
+                        f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
+                    )
         else:
             # Parameter not found in jax_kwargs, provide a reasonable default
             print(
                 f"Warning: Parameter {param_name} not provided in jax_kwargs, using default value"
             )
-            # For boolean parameters, default to True
+
+            # For boolean parameters like deterministic, default to True
             if param_name == "deterministic":
-                p[param_name] = np.array(True, dtype=np.bool_)
-            # For other parameters, we could add more default handling if needed
+                if param_name in onnx_type_map:
+                    expected_dtype = onnx_type_map[param_name]
+                    p[param_name] = np.array(True, dtype=expected_dtype)
+                else:
+                    p[param_name] = np.array(True, dtype=np.bool_)
+            # For other parameters, we might need more sophisticated defaults
+            elif param_name in onnx_type_map:
+                # Set a reasonable default based on the expected type
+                dtype = onnx_type_map[param_name]
+                if np.issubdtype(dtype, np.integer):
+                    p[param_name] = np.array(0, dtype=dtype)
+                elif np.issubdtype(dtype, np.floating):
+                    p[param_name] = np.array(0.0, dtype=dtype)
+                elif np.issubdtype(dtype, np.bool_):
+                    p[param_name] = np.array(False, dtype=dtype)
+                else:
+                    print(
+                        f"Warning: Cannot determine default for parameter {param_name} with type {dtype}"
+                    )
+            # If we don't have type information, we can't provide a reasonable default
 
     # Run ONNX model with both tensor and parameter inputs
     onnx_output = session.run(None, p)
@@ -194,151 +269,3 @@ class ModelExportContext:
         """
         self.instance_counters[base_name] += 1
         return f"{base_name}_{self.instance_counters[base_name]}"
-
-
-# # === NEW V2 Function: to_onnx_v2 ===
-# def to_onnx_v2(
-#     fn: Callable,  # Can be original or lambda wrapper
-#     example_args: (
-#         list[jax.Array] | tuple[jax.Array, ...]
-#     ),  # Accepts concrete tensor args
-#     model_name: str = "jax_model",
-#     opset: int = 21,
-#     verbose: bool = False,  # Added verbose based on previous exploration
-#     **kwargs,  # Pass other kwargs to core_to_onnx
-# ) -> onnx.ModelProto:
-#     """
-#     Converts a JAX callable (potentially wrapped) into an ONNX model. (V2 - Corrected Approach)
-
-#     Args:
-#         fn: The JAX function (or lambda wrapper) to convert.
-#         example_args: Concrete JAX arrays for tracing (only tensor inputs).
-#         model_name: Name for the ONNX model.
-#         opset: ONNX opset version.
-#         verbose: Enable verbose logging.
-#         **kwargs: Additional options passed to the core converter.
-#     """
-#     print(f"\n[V2] Starting ONNX conversion for '{model_name}' (opset {opset})...")
-#     # Calls core_to_onnx correctly with positional fn and example_args
-#     # Assumes core_to_onnx expects fn, example_args positionally,
-#     # then keyword args like model_name, default_opset (or opset).
-#     # Adjust keyword names like 'default_opset' vs 'opset' if needed based on core_to_onnx definition.
-#     try:
-#         # Try passing opset as default_opset first, as seen in converter logic
-#         result = core_to_onnx(
-#             fn,  # Positional arg 1 (potentially wrapped fn)
-#             example_args,  # Positional arg 2 (concrete tensor args)
-#             # Keyword arguments for the rest
-#             model_name=model_name,
-#             default_opset=opset,  # Assuming core expects default_opset
-#             verbose=verbose,
-#             **kwargs,  # Pass through other kwargs
-#         )
-#         print(f"[V2] Conversion successful for '{model_name}'.")
-#         return result
-#     except TypeError as e:
-#         # Fallback if default_opset caused TypeError, try 'opset'
-#         if "default_opset" in str(e):
-#             print(
-#                 "[V2 Warning] 'default_opset' unexpected, trying 'opset' keyword for core_to_onnx."
-#             )
-#             result = core_to_onnx(
-#                 fn,
-#                 example_args,  # Positional
-#                 model_name=model_name,
-#                 opset=opset,  # Use 'opset' keyword
-#                 verbose=verbose,
-#                 **kwargs,
-#             )
-#             print(f"[V2] Conversion successful for '{model_name}' (using 'opset').")
-#             return result
-#         else:
-#             print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
-#             raise  # Re-raise original error if not related to opset keyword
-#     except Exception as e:
-#         print(f"[V2 Error] Conversion failed for '{model_name}': {e}")
-#         raise
-
-
-# # === NEW V2 Function: allclose_v2 ===
-# def allclose_v2(
-#     jax_callable: Callable,
-#     onnx_model_path: str,
-#     *xs: jax.Array,  # Tensor arguments only
-#     rtol=1e-03,  # Using baseline tolerances
-#     atol=1e-05,  # Using baseline tolerances
-#     jax_kwargs=None,  # Accepts static kwargs for JAX call
-# ):
-#     """Checks if JAX and ONNX Runtime outputs are close. (V2 - Corrected Approach)"""
-#     if jax_kwargs is None:
-#         jax_kwargs = {}
-
-#     print(f"\n[V2] Running allclose for {onnx_model_path}...")
-#     # --- JAX Execution using jax_kwargs ---
-#     try:
-#         print(
-#             f"  [V2] Calling JAX function with {len(xs)} tensor args and kwargs: {list(jax_kwargs.keys())}"
-#         )
-#         jax_results = jax_callable(*xs, **jax_kwargs)  # Use kwargs here
-#         print("  [V2] JAX function call successful.")
-#     except Exception as e:
-#         print(f"[Error] V2 allclose: JAX function call failed: {e}")
-#         raise
-
-#     if not isinstance(jax_results, (list, tuple)):
-#         jax_results = (jax_results,)
-#     jax_results_np = [np.array(res) for res in jax_results]
-
-#     # --- ONNX Execution ---
-#     try:
-#         session = ort.InferenceSession(onnx_model_path)
-#         print("  [V2] ONNX model loaded.")
-#     except Exception as e:
-#         print(
-#             f"[Error] V2 allclose: Failed to load ONNX model '{onnx_model_path}': {e}"
-#         )
-#         raise
-
-#     input_names = [inp.name for inp in session.get_inputs()]
-#     output_names = [out.name for out in session.get_outputs()]
-#     print(f"  [V2] ONNX expected inputs: {input_names} ({len(input_names)})")
-#     print(f"  [V2] Provided tensor args for ONNX: {len(xs)}")
-
-#     if len(input_names) != len(xs):
-#         # This error indicates the V2 conversion still produced wrong number of inputs
-#         raise ValueError(
-#             f"[V2 Error] ONNX model '{onnx_model_path}' expects {len(input_names)} inputs "
-#             f"({input_names}), but got {len(xs)} tensor arguments for comparison."
-#         )
-
-#     onnx_inputs = {name: np.array(arg) for name, arg in zip(input_names, xs)}
-
-#     try:
-#         onnx_results = session.run(output_names, onnx_inputs)
-#         print("  [V2] ONNX inference successful.")
-#     except Exception as e:
-#         print(f"[Error] V2 allclose: ONNX Runtime inference failed: {e}")
-#         raise
-
-#     if not isinstance(onnx_results, (list, tuple)):
-#         onnx_results = (onnx_results,)
-
-#     # --- Comparison ---
-#     if len(jax_results_np) != len(onnx_results):
-#         raise ValueError(
-#             f"[V2 Error] Output count mismatch: JAX {len(jax_results_np)}, ONNX {len(onnx_results)}"
-#         )
-
-#     is_ok = True
-#     max_diff = 0.0
-#     for i, (jax_res_np, onnx_res) in enumerate(zip(jax_results_np, onnx_results)):
-#         diff = np.max(np.abs(jax_res_np - onnx_res))
-#         max_diff = max(max_diff, diff)
-#         if not np.allclose(jax_res_np, onnx_res, rtol=rtol, atol=atol):
-#             print(f"  [V2 FAIL] Output {i} mismatch!")
-#             is_ok = False
-#             # Don't break, report max diff across all outputs
-
-#     print(f"  [V2] Comparison complete. Max difference: {max_diff:.6g}")
-#     # Match the return type of the original allclose (tuple)
-#     return (is_ok, "[V2] Match :-)" if is_ok else "[V2] Mismatch :-(")

@@ -64,31 +64,105 @@ def function_handler(
         else:
             raise TypeError(f"Unexpected input var type: {type(var)}")
 
-    # NEW CODE: Add call_params to the function's inputs
+    # Add function parameters to the function's inputs
     # This ensures parameters like deterministic are passed to function nodes
     extra_param_inputs = []
-    if hasattr(converter, "call_params") and converter.call_params:
-        for param_name, param_value in converter.call_params.items():
-            # Check if this parameter exists as an input in the parent graph
-            if any(inp.name == param_name for inp in parent_builder.inputs):
-                # Add this parameter to the function's inputs
-                input_names.append(param_name)
-                extra_param_inputs.append((param_name, param_value))
-                print(
-                    f"[INFO] Adding call parameter {param_name}={param_value} to function {unique_node_name}"
-                )
 
-                # For example args, add a reasonable default value based on type
-                if isinstance(param_value, bool):
-                    example_args.append(param_value)
-                elif isinstance(param_value, int):
-                    example_args.append(param_value)
-                elif isinstance(param_value, float):
-                    example_args.append(param_value)
-                else:
+    # First check if we have function-specific parameters from the function_handler's params argument
+    if params:
+        for param_name, param_value in params.items():
+            # For boolean parameters like 'deterministic', first check if it already exists as a standard input
+            if isinstance(param_value, bool):
+                # Look for an existing boolean parameter in the equation's input variables
+                standard_var_found = False
+                standard_var_name = None
+
+                # Keep track of which boolean inputs we've found
+                bool_input_indices = []
+                for i, var in enumerate(eqn.invars):
+                    if hasattr(var, "aval") and var.aval.dtype == jnp.bool_:
+                        bool_input_indices.append(i)
+
+                # If there's exactly one boolean input, we can confidently map it to the boolean param
+                if len(bool_input_indices) == 1:
+                    bool_idx = bool_input_indices[0]
+                    bool_var = eqn.invars[bool_idx]
+                    standard_var_name = converter.get_name(bool_var)
+                    standard_var_found = True
                     print(
-                        f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
+                        f"[INFO] Found exactly one boolean input '{standard_var_name}', mapping to parameter '{param_name}'"
                     )
+                # If there are multiple boolean inputs, we need to be careful about which one maps to this param
+                elif len(bool_input_indices) > 1:
+                    # We'd need more info to disambiguate, for now just use the first one
+                    # This could be improved in the future with more context
+                    bool_idx = bool_input_indices[0]
+                    bool_var = eqn.invars[bool_idx]
+                    standard_var_name = converter.get_name(bool_var)
+                    standard_var_found = True
+                    print(
+                        f"[INFO] Found multiple boolean inputs, using '{standard_var_name}' for parameter '{param_name}'"
+                    )
+
+                if standard_var_found and standard_var_name:
+                    # Add the standard input name to the function's input list if not already there
+                    if standard_var_name not in input_names:
+                        input_names.append(standard_var_name)
+
+                    # Record that we found a standard variable for this parameter
+                    extra_param_inputs.append((param_name, standard_var_name))
+                    print(
+                        f"[INFO] Using standard boolean input '{standard_var_name}' for parameter '{param_name}'"
+                    )
+                    continue
+
+            # For other parameters that don't have a standard input mechanism,
+            # continue with normal parameter handling
+            # param_name_in_parent = f"{unique_node_name}_{param_name}"
+
+            # Only add to input_names if not already there
+            # if param_name_in_parent not in input_names:
+            #     #input_names.append(param_name_in_parent)
+            #     #extra_param_inputs.append((param_name_in_parent, param_value))
+            #     print(f"[INFO] Adding function-specific parameter {param_name}={param_value} to function {unique_node_name}")
+
+            #     # For traced parameters, we need to extract the dtype from the traced value
+            #     if hasattr(param_value, 'aval') and hasattr(param_value.aval, 'dtype'):
+            #         # Convert the JAX dtype to ONNX dtype enum
+            #         if param_value.aval.dtype == jnp.bool_:
+            #             onnx_dtype = 9  # TensorProto.BOOL
+            #         elif param_value.aval.dtype == jnp.int64:
+            #             onnx_dtype = 7  # TensorProto.INT64
+            #         elif param_value.aval.dtype == jnp.float32:
+            #             onnx_dtype = 1  # TensorProto.FLOAT
+            #         else:
+            #             onnx_dtype = 1  # TensorProto.FLOAT (default)
+        # in parent_builder.inputs there is something like var_0, var_1
+        # something to check!!!!!!!  here we can identify the parameter by position
+        # but it is actually a keyword param ... there this has to be handled better!!!!!!!
+        # so here we do the best we can locally here
+        offset = len(eqn.invars)
+        # iterate params.items()
+        for i, param in enumerate(params.items()):
+            param_name, param_value = param
+            # check if param_name is in parent_builder.inputs
+            # if not, add it to the parent_builder inputs
+            param_name_in_parent = parent_builder.inputs[i + offset].name
+
+            input_names.append(param_name_in_parent)
+            extra_param_inputs.append((param_name_in_parent, param_value))
+
+            # For example args, add a reasonable default value based on type
+            if isinstance(param_value, bool):
+                example_args.append(param_value)
+            elif isinstance(param_value, int):
+                example_args.append(param_value)
+            elif isinstance(param_value, float):
+                example_args.append(param_value)
+            else:
+                print(
+                    f"[WARN] Unsupported parameter type for {param_name_in_parent}: {type(param_value)}"
+                )
 
     print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
@@ -109,6 +183,20 @@ def function_handler(
     trace_kwargs = {"preserve_graph": True}
     if params is not None:
         trace_kwargs["params"] = params
+
+    # Check if we need to remove duplicated boolean parameters from example_args
+    # This happens when we have a boolean parameter that's both in example_args and trace_kwargs
+    # We need to handle boolean parameters carefully since they can appear both in example_args and trace_kwargs
+    # Looking specifically at cases where the last argument is a boolean value
+    if (
+        example_args
+        and isinstance(example_args[-1], bool)
+        and params
+        and "deterministic" in params
+    ):
+        # We don't need the 'deterministic' parameter in example_args if it's already in trace_kwargs
+        print(f"[INFO] Removing duplicated 'deterministic' parameter from example_args")
+        example_args = example_args[:-1]
 
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
@@ -169,6 +257,19 @@ def function_handler(
         )
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
 
+    # Register parameter values in the sub-builder with their original names
+    # This is crucial for parameters like 'deterministic' to be recognized within functions
+    # for param_name, param_value in extra_param_inputs:
+    #     # Register the parameter in both the parent and sub-builder's metadata
+    #     if param_name in parent_builder.value_info_metadata:
+    #         # Use the existing metadata from parent
+    #         shape, dtype = parent_builder.value_info_metadata[param_name]
+    #         sub_builder.register_value_info_metadata(
+    #             param_name, shape, dtype, origin="function_param_input"
+    #         )
+    #         sub_builder.add_value_info(param_name, shape, dtype)
+    #         print(f"[INFO] Registered parameter '{param_name}' in function using parent metadata")
+
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
         inp
@@ -219,7 +320,18 @@ def function_handler(
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
     parent_builder._propagate_nested_functions(sub_builder)
+
+    # Ensure we include all parameter inputs in the final call inputs
+    # This combines our regular inputs with weight parameters and scalar parameters like 'deterministic'
     call_inputs = input_names + param_inputs
+
+    # Make sure all parameters from call_params are included
+    # This is especially important for parameters like 'deterministic' that might not be in param_inputs
+    # for param_name, _ in extra_param_inputs:
+    #     if param_name not in call_inputs:
+    #         call_inputs.append(param_name)
+    #         print(f"[INFO] Explicitly adding parameter '{param_name}' to function call inputs")
+
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
         input_names=call_inputs,
