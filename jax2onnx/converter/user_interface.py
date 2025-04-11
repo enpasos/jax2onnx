@@ -1,10 +1,8 @@
 # file: jax2onnx/converter/user_interface.py
 
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any
 
-import jax.numpy as jnp
-import jax
 import numpy as np
 import onnx
 import onnxruntime as ort
@@ -75,12 +73,10 @@ def allclose(callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e
     input_shapes = [tuple(inp.shape) for inp in session.get_inputs()]
 
     # Scalars will have shape () - these are likely to be parameters
-    scalar_inputs = [
-        name for name, shape in zip(input_names, input_shapes) if shape == ()
-    ]
+    [name for name, shape in zip(input_names, input_shapes) if shape == ()]
 
     # If we have more inputs than tensor arguments, assume the extras are parameters
-    has_param_inputs = len(input_names) > len(xs)
+    len(input_names) > len(xs)
 
     # Determine how many inputs are tensors (should match xs)
     tensor_input_count = len(xs)
