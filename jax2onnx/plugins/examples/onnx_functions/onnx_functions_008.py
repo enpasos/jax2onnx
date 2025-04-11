@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_010.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_008.py
 
 
 import jax.numpy as jnp
@@ -90,57 +90,28 @@ class TransformerBlock(nnx.Module):
         return x + self.mlp_block(r)
 
 
-@onnx_function
-class TransformerStack(nnx.Module):
-    def __init__(
-        self,
-        num_hiddens: int,
-        num_heads: int,
-        mlp_dim: int,
-        num_layers: int,
-        attention_dropout_rate: float = 0.1,
-        mlp_dropout_rate: float = 0.1,
-        *,
-        rngs: nnx.Rngs,
-    ):
-        self.blocks = [
-            TransformerBlock(
-                num_hiddens,
-                num_heads,
-                mlp_dim,
-                attention_dropout_rate,
-                mlp_dropout_rate,
-                rngs=rngs,
-            )
-            for _ in range(num_layers)
-        ]
-
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        for block in self.blocks:
-            x = block(x)
-        return x
-
-
 register_example(
-    component="onnx_functions_010",
-    description="transformer stack",
+    component="onnx_functions_008",
+    description="transformer block with nested mlp block no call parameter",
     since="v0.4.0",
     context="examples.onnx_functions",
-    children=["TransformerBlock"],
+    children=[
+        "FeedForward",
+        "MultiHeadAttention",
+    ],
     testcases=[
         {
-            "testcase": "010_transformer_stack",
-            "callable": TransformerStack(
+            "testcase": "008_transformer_block",
+            "callable": TransformerBlock(
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
-                num_layers=6,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(5, 10, 256)],
-            "expected_number_of_function_instances": 25,
+            "expected_number_of_function_instances": 4,
         },
     ],
 )
