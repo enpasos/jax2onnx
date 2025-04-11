@@ -116,43 +116,8 @@ def function_handler(
                     )
                     continue
 
-            # For other parameters that don't have a standard input mechanism,
-            # continue with normal parameter handling
-            # param_name_in_parent = f"{unique_node_name}_{param_name}"
-
-            # Only add to input_names if not already there
-            # if param_name_in_parent not in input_names:
-            #     #input_names.append(param_name_in_parent)
-            #     #extra_param_inputs.append((param_name_in_parent, param_value))
-            #     print(f"[INFO] Adding function-specific parameter {param_name}={param_value} to function {unique_node_name}")
-
-            #     # For traced parameters, we need to extract the dtype from the traced value
-            #     if hasattr(param_value, 'aval') and hasattr(param_value.aval, 'dtype'):
-            #         # Convert the JAX dtype to ONNX dtype enum
-            #         if param_value.aval.dtype == jnp.bool_:
-            #             onnx_dtype = 9  # TensorProto.BOOL
-            #         elif param_value.aval.dtype == jnp.int64:
-            #             onnx_dtype = 7  # TensorProto.INT64
-            #         elif param_value.aval.dtype == jnp.float32:
-            #             onnx_dtype = 1  # TensorProto.FLOAT
-            #         else:
-            #             onnx_dtype = 1  # TensorProto.FLOAT (default)
-        # in parent_builder.inputs there is something like var_0, var_1
-        # something to check!!!!!!!  here we can identify the parameter by position
-        # but it is actually a keyword param ... there this has to be handled better!!!!!!!
-        # so here we do the best we can locally here
-        # offset = len(eqn.invars)
-        # iterate params.items()
         for i, param in enumerate(params.items()):
             param_name, param_value = param
-            # check if param_name is in parent_builder.inputs
-            # if not, add it to the parent_builder inputs
-            # if i + offset >= len(outer_input_vars_avals):
-            # raise RuntimeError("not expected number of inputs")
-            # outer_input_vars_avals
-
-            # outer_input_vars_avals
-            # param_name_in_parent = parent_builder.inputs[i + offset].name
 
             input_names.append(param_name)
             extra_param_inputs.append((param_name, param_value))
@@ -189,10 +154,6 @@ def function_handler(
     if params is not None:
         trace_kwargs["params"] = params
 
-    # Check if we need to remove duplicated boolean parameters from example_args
-    # This happens when we have a boolean parameter that's both in example_args and trace_kwargs
-    # We need to handle boolean parameters carefully since they can appear both in example_args and trace_kwargs
-    # Looking specifically at cases where the last argument is a boolean value
     if (
         example_args
         and isinstance(example_args[-1], bool)
@@ -262,19 +223,6 @@ def function_handler(
         )
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
 
-    # Register parameter values in the sub-builder with their original names
-    # This is crucial for parameters like 'deterministic' to be recognized within functions
-    # for param_name, param_value in extra_param_inputs:
-    #     # Register the parameter in both the parent and sub-builder's metadata
-    #     if param_name in parent_builder.value_info_metadata:
-    #         # Use the existing metadata from parent
-    #         shape, dtype = parent_builder.value_info_metadata[param_name]
-    #         sub_builder.register_value_info_metadata(
-    #             param_name, shape, dtype, origin="function_param_input"
-    #         )
-    #         sub_builder.add_value_info(param_name, shape, dtype)
-    #         print(f"[INFO] Registered parameter '{param_name}' in function using parent metadata")
-
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
         inp
@@ -329,13 +277,6 @@ def function_handler(
     # Ensure we include all parameter inputs in the final call inputs
     # This combines our regular inputs with weight parameters and scalar parameters like 'deterministic'
     call_inputs = input_names + param_inputs
-
-    # Make sure all parameters from call_params are included
-    # This is especially important for parameters like 'deterministic' that might not be in param_inputs
-    # for param_name, _ in extra_param_inputs:
-    #     if param_name not in call_inputs:
-    #         call_inputs.append(param_name)
-    #         print(f"[INFO] Explicitly adding parameter '{param_name}' to function call inputs")
 
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
