@@ -25,6 +25,7 @@ def to_onnx(
     input_params = None
     if kwargs is not None and "input_params" in kwargs:
         input_params = kwargs.get("input_params")
+        print(f"Found input_params in kwargs: {input_params}")
 
     return core_to_onnx(
         fn=fn,

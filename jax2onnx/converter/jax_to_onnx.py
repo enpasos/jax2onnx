@@ -71,25 +71,42 @@ def to_onnx(
     # Generate concrete example arguments based on provided shapes
     example_args = prepare_example_args(input_shapes)
 
-    # For tracing purposes only, we use default parameter values (typically set to test-safe values)
-    # These don't get baked into the model, they're just used for shape inference
-    # PROPER HANDLING: Instead of wrapping the function, we will convert params to ONNX inputs
-
     unique_name_generator = UniqueNameGenerator()
     builder = OnnxBuilder(unique_name_generator, opset=opset)
     converter = Jaxpr2OnnxConverter(builder)
 
-    # Store information about parameters that should be ONNX inputs
-    converter.params = input_params or {}
+    # Store the parameters that should be exposed as inputs in the ONNX model
+    converter.call_params = input_params or {}
 
-    # Pass the original function and example args to the tracer
+    # Trace the function to capture its structure
     converter.trace_jaxpr(fn, example_args)
+
+    # Now add additional ONNX inputs for each parameter in input_params
+    if input_params:
+        for param_name, param_value in input_params.items():
+            # Create appropriate scalar inputs for each parameter type
+            if isinstance(param_value, bool):
+                # Add a boolean input parameter to the ONNX model
+                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.BOOL)
+                print(f"Added parameter '{param_name}' as BOOL input to the ONNX model")
+            elif isinstance(param_value, int):
+                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.INT64)
+                print(
+                    f"Added parameter '{param_name}' as INT64 input to the ONNX model"
+                )
+            elif isinstance(param_value, float):
+                builder.add_scalar_input(param_name, dtype=onnx.TensorProto.FLOAT)
+                print(
+                    f"Added parameter '{param_name}' as FLOAT input to the ONNX model"
+                )
+            else:
+                print(
+                    f"Warning: Parameter {param_name} of type {type(param_value)} not supported as ONNX input"
+                )
+
+    # Continue with the normal conversion process
     builder.adjust_dynamic_batch_dimensions(input_shapes)
     builder.filter_unused_initializers()
-
-    # TODO: For each parameter in input_params, create an ONNX model input
-    # with appropriate metadata (Type, shape, etc.)
-    # This requires more complex changes to the converter infrastructure
 
     model = builder.create_onnx_model(model_name)
     model = improve_onnx_model(model)
