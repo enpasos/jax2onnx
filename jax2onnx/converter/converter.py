@@ -6,7 +6,6 @@ import jax.random
 import jax.numpy as jnp
 import numpy as np
 import onnx
-import jax.numpy as jnp
 from jax.extend import core as extend_core
 from onnx import helper
 

@@ -715,7 +715,6 @@ class OnnxBuilder:
         # Create tensor value info manually to avoid issues with JAX traced values
         tensor_type = onnx.TypeProto.Tensor()
         tensor_type.elem_type = dtype
-        tensor_shape = tensor_type.shape
 
         type_proto = onnx.TypeProto()
         type_proto.tensor_type.CopyFrom(tensor_type)

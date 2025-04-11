@@ -170,7 +170,7 @@ def function_handler(
             and "deterministic" in param_keys_to_exclude
         ):
             print(
-                f"[INFO] Removing duplicated 'deterministic' parameter from example_args"
+                "[INFO] Removing duplicated 'deterministic' parameter from example_args"
             )
             example_args = example_args[:-1]
 
