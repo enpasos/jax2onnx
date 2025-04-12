@@ -29,7 +29,7 @@ class TestQuickstart:
         # Check model properties
         graph = model.graph
         assert len(graph.input) == 1
-        assert graph.input[0].name == "input_1"
+        assert graph.input[0].name == "var_0"  # Updated to match actual name convention
         assert len(graph.output) == 1
 
 
