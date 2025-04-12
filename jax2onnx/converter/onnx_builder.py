@@ -396,20 +396,18 @@ class OnnxBuilder:
         return model
 
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
-        try:
-            np_dtype = np.dtype(dtype)
-        except TypeError:
-            return TensorProto.FLOAT
-        dtype_map = {
-            np.dtype(np.float32): TensorProto.FLOAT,
-            np.dtype(np.float64): TensorProto.DOUBLE,
-            np.dtype(np.int32): TensorProto.INT32,
-            np.dtype(np.int64): TensorProto.INT64,
-            np.dtype(np.bool_): TensorProto.BOOL,
-            np.dtype(np.int8): TensorProto.INT8,
-            np.dtype(np.uint8): TensorProto.UINT8,
-        }
-        return dtype_map.get(np_dtype, TensorProto.FLOAT)
+        """
+        Convert a numpy dtype to ONNX TensorProto dtype.
+        This is a simplified version that leverages the same mapping used in make_value_info.
+        """
+        # If dtype is already an integer (ONNX enum), return it directly
+        if isinstance(dtype, int):
+            return dtype
+
+        # Otherwise use the make_value_info logic for consistency
+        # Create a dummy tensor and extract its dtype
+        dummy_info = make_value_info("dummy", (), dtype)
+        return dummy_info.type.tensor_type.elem_type
 
     def add_function(
         self, name: str, sub_builder: "OnnxBuilder", param_input_names: list[str]
