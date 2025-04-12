@@ -99,6 +99,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 ### **Planned Version**
 - **Ongoing**: Expanding JAX component coverage.
 - **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions, allow user friendly var names  
+- **0.4.2**: Cleanup and fixes
 
 
 ### **Current Productive Version**
