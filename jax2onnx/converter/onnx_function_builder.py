@@ -23,12 +23,23 @@ class OnnxFunctionBuilder:
     ONNX model building functionality to improve code organization.
     """
 
-    def __init__(self):
+    def __init__(self, onnx_builder=None):
         """
-        Initialize an empty ONNX function builder.
+        Initialize an ONNX function builder.
+
+        Args:
+            onnx_builder: Optional OnnxBuilder instance to integrate with.
+                          If provided, this function builder will use the same
+                          name generator and can access the OnnxBuilder's context.
         """
         self.functions: Dict[str, FunctionProto] = {}
-        self.name_generator = UniqueNameGenerator()
+        self.onnx_builder = onnx_builder
+
+        # Use shared name generator if onnx_builder is provided, otherwise create new one
+        if onnx_builder is not None:
+            self.name_generator = onnx_builder.name_generator
+        else:
+            self.name_generator = UniqueNameGenerator()
 
     def register_function(self, function_proto: FunctionProto) -> None:
         """
