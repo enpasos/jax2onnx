@@ -1,3 +1,9 @@
+"""
+Plugin for handling the JAX convert_element_type primitive.
+
+This plugin converts JAX's convert_element_type primitive to ONNX Cast operation.
+"""
+
 from typing import TYPE_CHECKING
 
 import jax
