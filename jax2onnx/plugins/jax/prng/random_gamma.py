@@ -38,7 +38,7 @@ def gamma_log(key, alpha):
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.gamma.html",
     onnx=[],
     since="v0.2.0",
-    context="primitives.random",
+    context="primitives.prng",
     component="random_gamma",
     testcases=[
         # {

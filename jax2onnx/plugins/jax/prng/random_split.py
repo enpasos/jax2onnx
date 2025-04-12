@@ -1,5 +1,33 @@
 """
-Plugin for handling the JAX random_split primitive.
+Plugin for ha@register_primitive(
+    jaxpr_primitive=jax._src.prng.random_split_p.name,
+    jax_doc="https://jax.readthedocs.io/en/latest/jax.random.html#jax.random.split",
+    onnx=[
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+        {
+            "component": "Tile",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Tile.html",
+        }
+    ],
+    since="v0.4.0",
+    context="primitives.jax.prng",
+    component="random_split",
+    testcases=[
+        {
+            "testcase": "random_split_2",
+            "callable": lambda key: jax.random.split(key, 2),
+            "input_shapes": [(2,)],
+        },
+        {
+            "testcase": "random_split_3",
+            "callable": lambda key: jax.random.split(key, 3),
+            "input_shapes": [(2,)],
+        }
+    ]
+)dom_split primitive.
 
 This plugin converts JAX's random_split primitive to ONNX operations.
 """
@@ -28,8 +56,8 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Tile.html",
         },
     ],
-    since="v0.4.0",
-    context="primitives.jax.prng",
+    since="v0.4.2",
+    context="primitives.prng",
     component="random_split",
     testcases=[],
 )

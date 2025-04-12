@@ -23,10 +23,16 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.4.0",
-    context="primitives.jax.prng",
+    since="v0.4.2",
+    context="primitives.prng",
     component="random_seed",
-    testcases=[],  # Add test cases if available
+    testcases=[
+        {
+            "testcase": "random_seed",
+            "callable": lambda: jax.random.key(42),
+            "input_shapes": [],
+        }
+    ],
 )
 class RandomSeedPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.random.seed to ONNX Identity."""
