@@ -18,9 +18,14 @@ class TestQuickstart:
     def test_quickstart_execution(self):
         """Test that quickstart.py runs without errors and produces expected output"""
 
-        # Check that the output file was created
+        # Make sure the output directory exists
+        os.makedirs("docs/onnx", exist_ok=True)
+
+        # Import and run the quickstart module
+
+        # Now check that the output file was created
         output_path = "docs/onnx/my_callable.onnx"
-        assert os.path.exists(output_path)
+        assert os.path.exists(output_path), f"Output file {output_path} was not created"
 
         # Load and validate the ONNX model
         model = onnx.load(output_path)
@@ -38,11 +43,15 @@ class TestQuickstartFunctions:
 
     def test_quickstart_functions_execution(self):
         """Test that quickstart_functions.py runs without errors and produces expected output"""
+
+        # Make sure the output directory exists
+        os.makedirs("docs/onnx", exist_ok=True)
+
         # Import and run the module
 
         # Check that the output file was created
         output_path = "docs/onnx/model_with_function.onnx"
-        assert os.path.exists(output_path)
+        assert os.path.exists(output_path), f"Output file {output_path} was not created"
 
         # Load and validate the ONNX model
         model = onnx.load(output_path)

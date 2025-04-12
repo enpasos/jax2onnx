@@ -1,15 +1,17 @@
-# file: jax2onnx/converter/jax_to_onnx.py
-from typing import Any  # <-- 🔧 FIXED: now allowed
+"""
+Conversion API Module
+
+This module provides the core API functions for converting JAX functions and models to ONNX format.
+It serves as the implementation layer for the public API exposed through user_interface.py.
+"""
+
+from typing import Any, Dict, Optional
 
 import jax.numpy as jnp
 import onnx
 
-from jax2onnx.converter.converter import Jaxpr2OnnxConverter
-
-# === Use original name generator import ===
+from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
-
-# ==========================================
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 
@@ -50,10 +52,13 @@ def to_onnx(
     input_shapes: Any,
     model_name: str = "jax_model",
     opset: int = 21,
-    input_params: dict | None = None,
+    input_params: Optional[Dict[str, Any]] = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
+
+    This is the core implementation of the conversion process. It traces the JAX function,
+    captures its computational graph as JAXPR, and then converts it to the ONNX format.
 
     Args:
         fn: JAX function to convert.
@@ -66,8 +71,6 @@ def to_onnx(
     Returns:
         An ONNX ModelProto object representing the converted model.
     """
-    from jax2onnx.converter.jax_to_onnx import prepare_example_args
-
     # Generate concrete example arguments based on provided shapes
     example_args = prepare_example_args(input_shapes)
 
@@ -78,7 +81,7 @@ def to_onnx(
     # Store the parameters that should be exposed as inputs in the ONNX model
     converter.call_params = input_params or {}
 
-    # Now trace the function to capture its structure
+    # Trace the function to capture its structure
     # Pass the input_params explicitly to the trace_jaxpr function
     # This ensures parameters affect the JAX call graph during tracing
     converter.trace_jaxpr(fn, example_args, params=input_params)
@@ -96,6 +99,9 @@ def to_onnx(
 def analyze_constants(model: onnx.ModelProto):
     """
     Analyzes constants in an ONNX model and prints a detailed report.
+
+    This function is useful for debugging and understanding how constants are
+    represented and used within the ONNX graph.
 
     Args:
         model: The ONNX model to analyze.

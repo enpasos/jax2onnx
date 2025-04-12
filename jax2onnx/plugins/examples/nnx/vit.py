@@ -480,9 +480,6 @@ register_example(
                 num_hiddens=256,
             ),
             "input_shapes": [(1, 50, 256)],
-            "input_params": {
-                "deterministic": True,
-            },
         },
     ],
 )
