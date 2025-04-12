@@ -6,14 +6,12 @@ It works with OnnxBuilder but focuses specifically on the function-related aspec
 of ONNX model construction.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-import numpy as np
-import onnx
 from onnx import FunctionProto, NodeProto, ValueInfoProto, helper
 
 from jax2onnx.converter.name_generator import UniqueNameGenerator
-from jax2onnx.converter.onnx_builder import CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION
+from jax2onnx.converter.onnx_builder import CUSTOM_DOMAIN
 
 
 class OnnxFunctionBuilder:

@@ -80,7 +80,6 @@ class DevicePutPlugin(PrimitiveLeafPlugin):
 
             # Use add_initializer to add the constant to the ONNX graph
             # This will handle data type conversion and initialization
-            from onnx import helper
 
             data_type = converter.builder._numpy_dtype_to_onnx(np_val.dtype)
             converter.builder.add_initializer(
