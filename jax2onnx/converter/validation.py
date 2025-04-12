@@ -6,7 +6,7 @@ by comparing their outputs when given identical inputs. It helps ensure that the
 conversion process preserves the behavior of the original JAX functions.
 """
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import onnxruntime as ort
@@ -43,7 +43,7 @@ def allclose(
     input_names = [inp.name for inp in session.get_inputs()]
 
     # Get input shapes to help identify scalar parameters
-    input_shapes = [tuple(inp.shape) for inp in session.get_inputs()]
+    [tuple(inp.shape) for inp in session.get_inputs()]
 
     # Determine how many inputs are tensors (should match xs)
     tensor_input_count = len(xs)
