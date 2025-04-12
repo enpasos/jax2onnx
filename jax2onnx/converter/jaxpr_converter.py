@@ -49,7 +49,7 @@ class Jaxpr2OnnxConverter:
         self.name_to_var: dict[str, Any] = {}
 
         # Handlers for JAX primitives.
-        self.primitive_handlers = {}
+        self.primitive_handlers: dict[str, Any] = {}
 
         # Environment to track variable shapes.
         self.shape_env: dict[str, tuple[int, ...]] = {}
@@ -57,18 +57,9 @@ class Jaxpr2OnnxConverter:
         # Mapping for constants in the ONNX graph.
         self.name_to_const: dict[str, Any] = {}
 
-        # All primitive handlers are now handled by the plugin system
-        # No need for direct handler registration anymore
-
-        # Import and register plugins.
+        # Import and register all plugins.
         import_all_plugins()
-        for key, plugin in PLUGIN_REGISTRY.items():
-            if isinstance(plugin, PrimitiveLeafPlugin):
-                self.primitive_handlers[key] = plugin.get_handler(self)
-
-        for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
-            primitive = plugin.primitive
-            self.primitive_handlers[primitive.name] = plugin.get_handler(self)
+        self._register_primitive_handlers()
 
     def new_var(self, dtype: np.dtype, shape: tuple[int, ...]):
         """Create a new JAX variable with the given dtype and shape."""
@@ -96,24 +87,142 @@ class Jaxpr2OnnxConverter:
         """Get or create a name for a constant value in the ONNX graph."""
         return self.builder.get_constant_name(val)
 
+    def _ensure_onnx_dtype(self, dtype):
+        """
+        Ensure the dtype is a valid ONNX TensorProto data type (integer).
+
+        Args:
+            dtype: The data type to convert (numpy.dtype, Python type, or ONNX enum)
+
+        Returns:
+            An integer representing an ONNX TensorProto data type
+        """
+        from onnx import TensorProto
+
+        # If it's already an int, assume it's a valid ONNX enum
+        if isinstance(dtype, int):
+            return dtype
+
+        # Handle numpy dtypes
+        if hasattr(dtype, "type"):
+            # Map common numpy types to ONNX TensorProto types
+            numpy_to_onnx_dtype = {
+                np.float32: TensorProto.FLOAT,
+                np.float64: TensorProto.DOUBLE,
+                np.int32: TensorProto.INT32,
+                np.int64: TensorProto.INT64,
+                np.bool_: TensorProto.BOOL,
+                np.uint8: TensorProto.UINT8,
+                np.int8: TensorProto.INT8,
+                np.uint16: TensorProto.UINT16,
+                np.int16: TensorProto.INT16,
+                np.uint32: TensorProto.UINT32,
+                np.uint64: TensorProto.UINT64,
+                np.float16: TensorProto.FLOAT16,
+                np.complex64: TensorProto.COMPLEX64,
+                np.complex128: TensorProto.COMPLEX128,
+            }
+
+            for np_type, onnx_type in numpy_to_onnx_dtype.items():
+                if dtype.type == np_type:
+                    return onnx_type
+
+        # Handle numpy dtype objects
+        if hasattr(dtype, "name"):
+            if dtype.name == "float32":
+                return TensorProto.FLOAT
+            elif dtype.name == "float64":
+                return TensorProto.DOUBLE
+            elif dtype.name == "int32":
+                return TensorProto.INT32
+            elif dtype.name == "int64":
+                return TensorProto.INT64
+            elif dtype.name == "bool":
+                return TensorProto.BOOL
+            elif dtype.name == "uint8":
+                return TensorProto.UINT8
+            elif dtype.name == "int8":
+                return TensorProto.INT8
+            elif dtype.name == "uint16":
+                return TensorProto.UINT16
+            elif dtype.name == "int16":
+                return TensorProto.INT16
+            elif dtype.name == "uint32":
+                return TensorProto.UINT32
+            elif dtype.name == "uint64":
+                return TensorProto.UINT64
+            elif dtype.name == "float16":
+                return TensorProto.FLOAT16
+            elif dtype.name == "complex64":
+                return TensorProto.COMPLEX64
+            elif dtype.name == "complex128":
+                return TensorProto.COMPLEX128
+
+        # Handle string type names
+        if isinstance(dtype, str):
+            if dtype == "float32":
+                return TensorProto.FLOAT
+            elif dtype == "float64":
+                return TensorProto.DOUBLE
+            elif dtype == "int32":
+                return TensorProto.INT32
+            elif dtype == "int64":
+                return TensorProto.INT64
+            elif dtype == "bool":
+                return TensorProto.BOOL
+
+        # Try ONNX's helper (might raise TypeError for some inputs)
+        try:
+            return helper.np_dtype_to_tensor_dtype(dtype)
+        except (TypeError, ValueError):
+            # Default to FLOAT if all else fails
+            print(
+                f"[WARN] Could not convert dtype {dtype} to ONNX dtype, defaulting to FLOAT"
+            )
+            return TensorProto.FLOAT
+
+    def register_shape(self, name, shape, dtype):
+        """
+        Central method for registering shape information consistently.
+        This consolidates shape tracking across different methods.
+
+        Args:
+            name: The name of the tensor
+            shape: The shape of the tensor
+            dtype: The data type of the tensor
+
+        Returns:
+            The registered tensor name
+        """
+        # Convert dtype to ONNX TensorProto enum if needed
+        onnx_dtype = self._ensure_onnx_dtype(dtype)
+
+        # Register with the builder
+        self.builder.register_value_info_metadata(name, shape, onnx_dtype)
+
+        # Store locally for quick access
+        self.shape_env[name] = shape
+
+        return name
+
     def add_input(self, var, shape, dtype=np.float32):
         """Add an input variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
-        self.shape_env[name] = shape
+        self.register_shape(name, shape, dtype)
         return name
 
     def add_output(self, var, shape, dtype=np.float32):
         """Add an output variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_output(name, shape, dtype)
-        self.shape_env[name] = shape
+        self.register_shape(name, shape, dtype)
         return name
 
     def add_shape_info(self, name, shape, dtype=np.float32):
         """Add shape information for a variable in the ONNX graph."""
         self.builder.add_value_info(name, shape, dtype)
-        self.shape_env[name] = shape  # <-- store shape
+        self.register_shape(name, shape, dtype)
         return name
 
     def get_name(self, var):
@@ -423,3 +532,23 @@ class Jaxpr2OnnxConverter:
         )
         self.builder.add_node(node)
         return node
+
+    def _register_primitive_handlers(self):
+        """
+        Register all primitive handlers from both plugin registries.
+        This consolidates the plugin registration logic in one place.
+        """
+        # Register handlers from the main plugin registry
+        for key, plugin in PLUGIN_REGISTRY.items():
+            if isinstance(plugin, PrimitiveLeafPlugin):
+                self.primitive_handlers[key] = plugin.get_handler(self)
+
+        # Register handlers from the ONNX function plugin registry
+        for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
+            primitive = plugin.primitive
+            self.primitive_handlers[primitive.name] = plugin.get_handler(self)
+
+        if self.primitive_handlers:
+            print(
+                f"[INFO] Registered {len(self.primitive_handlers)} primitive handlers"
+            )
