@@ -81,12 +81,12 @@ class MyModel(nnx.Module):
   def __init__(self, dim, *, rngs):
     self.block1 = MLPBlock(dim, rngs=rngs)
     self.block2 = MLPBlock(dim, rngs=rngs)
-
   def __call__(self, x):
     return self.block2(self.block1(x))
 
-model = to_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)])
-save_model(model, "model_with_function.onnx")
+callable = MyModel(256, rngs=nnx.Rngs(0))
+model = to_onnx(callable, [(100, 256)])
+save_model(model, "docs/onnx/model_with_function.onnx")
 ```
 
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
