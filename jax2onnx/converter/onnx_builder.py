@@ -229,6 +229,9 @@ class OnnxBuilder:
         self.functions.clear()
         self.display_name_map.clear()
         self.value_info_metadata.clear()
+        self.value_info_metadata_with_origin.clear()
+        self.dtype_env.clear()
+        self.value_info_origin.clear()
 
     def get_unique_name(self, prefix: str = "node") -> str:
         return self.name_generator.get(prefix)
