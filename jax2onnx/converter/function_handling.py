@@ -4,11 +4,12 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
+from onnx import helper
 
-from jax2onnx.converter.dtype_utils import (
-    numpy_dtype_to_tensorproto,
-    tensorproto_dtype_to_numpy,
-)
+# Use built-in ONNX helper functions instead
+# helper.np_dtype_to_tensor_dtype replaces numpy_dtype_to_tensorproto
+# helper.tensor_dtype_to_np_dtype replaces tensorproto_dtype_to_numpy
+
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
@@ -212,7 +213,7 @@ def function_handler(
     ):
         internal_name = sub_converter.get_name(internal_var)
         shape = tuple(outer_aval.shape)
-        onnx_dtype_enum = numpy_dtype_to_tensorproto(outer_aval.dtype)
+        onnx_dtype_enum = helper.np_dtype_to_tensor_dtype(outer_aval.dtype)
         sub_builder.register_value_info_metadata(
             internal_name, shape, onnx_dtype_enum, origin="function_input"
         )
@@ -278,7 +279,7 @@ def function_handler(
             if sub_var and hasattr(sub_var, "aval"):
                 aval = sub_var.aval
                 shape = tuple(aval.shape)
-                dtype = numpy_dtype_to_tensorproto(aval.dtype)
+                dtype = helper.np_dtype_to_tensor_dtype(aval.dtype)
                 sub_builder.register_value_info_metadata(
                     sub_name, shape, dtype, origin="function_output"
                 )
@@ -290,7 +291,7 @@ def function_handler(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
         shape, dtype = shape_dtype
-        var.aval = ShapedArray(shape, tensorproto_dtype_to_numpy(dtype))
+        var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
         parent_output_name = parent_builder.get_unique_name("var")
         converter.var_to_name[var] = parent_output_name
         converter.name_to_var[parent_output_name] = var
