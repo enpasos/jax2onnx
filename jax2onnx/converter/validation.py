@@ -1,6 +1,12 @@
-# file: jax2onnx/converter/validation.py
+"""
+Model Validation Module
 
-from typing import Tuple
+This module provides utilities for validating ONNX models converted from JAX functions
+by comparing their outputs when given identical inputs. It helps ensure that the
+conversion process preserves the behavior of the original JAX functions.
+"""
+
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import onnxruntime as ort
@@ -10,7 +16,11 @@ def allclose(
     callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e-5
 ) -> Tuple[bool, str]:
     """
-    Checks if JAX and ONNX Runtime outputs are close.
+    Checks if JAX and ONNX Runtime outputs are numerically close.
+
+    This function runs both the original JAX function and the converted ONNX model
+    with identical inputs, then compares their outputs using numpy's allclose.
+    It handles various parameter types and provides detailed diagnostics.
 
     Args:
         callable: JAX function to test
@@ -35,12 +45,6 @@ def allclose(
     # Get input shapes to help identify scalar parameters
     input_shapes = [tuple(inp.shape) for inp in session.get_inputs()]
 
-    # Scalars will have shape () - these are likely to be parameters
-    [name for name, shape in zip(input_names, input_shapes) if shape == ()]
-
-    # If we have more inputs than tensor arguments, assume the extras are parameters
-    len(input_names) > len(xs)
-
     # Determine how many inputs are tensors (should match xs)
     tensor_input_count = len(xs)
 
@@ -57,13 +61,93 @@ def allclose(
     print(f"JAX kwargs: {jax_kwargs}")
 
     # Prepare ONNX input dictionary for tensor inputs
-    p = {name: np.array(x) for name, x in zip(tensor_input_names, xs, strict=False)}
+    onnx_inputs = {
+        name: np.array(x) for name, x in zip(tensor_input_names, xs, strict=False)
+    }
 
     # Get more detailed type information from ONNX model inputs
     input_details = [(inp.name, inp.type, inp.shape) for inp in session.get_inputs()]
     print(f"Detailed input info: {input_details}")
 
     # Create a mapping of parameter name to expected ONNX type
+    onnx_type_map = _create_onnx_type_map(session, param_input_names)
+
+    # Handle parameters (deterministic and others)
+    _add_parameters_to_inputs(onnx_inputs, param_input_names, jax_kwargs, onnx_type_map)
+
+    # Run ONNX model with both tensor and parameter inputs
+    onnx_output = session.run(None, onnx_inputs)
+
+    # Call JAX function directly with tensor args and keyword args
+    jax_output = callable(*xs, **jax_kwargs)
+
+    # Ensure outputs are in list format for comparison
+    if not isinstance(jax_output, list):
+        jax_output = [jax_output]
+    if not isinstance(onnx_output, list):
+        onnx_output = [onnx_output]
+
+    # Compare all outputs
+    all_match = True
+    detailed_messages = []
+
+    for i, (o, j) in enumerate(zip(onnx_output, jax_output, strict=False)):
+        # Convert outputs to numpy arrays if they aren't already
+        o_np = np.array(o)
+        j_np = np.array(j)
+
+        # Check if shapes match
+        if o_np.shape != j_np.shape:
+            all_match = False
+            detailed_messages.append(
+                f"Output {i}: Shape mismatch - ONNX: {o_np.shape}, JAX: {j_np.shape}"
+            )
+            continue
+
+        # Check if values are close
+        if np.allclose(o_np, j_np, rtol=rtol, atol=atol):
+            detailed_messages.append(
+                f"Output {i}: Values match within tolerance (rtol={rtol}, atol={atol})"
+            )
+        else:
+            all_match = False
+            # Calculate statistics for the differences
+            abs_diff = np.abs(o_np - j_np)
+            max_diff = np.max(abs_diff)
+            mean_diff = np.mean(abs_diff)
+            median_diff = np.median(abs_diff)
+
+            # Find the location of the maximum difference
+            max_idx = np.unravel_index(np.argmax(abs_diff), abs_diff.shape)
+
+            detailed_messages.append(
+                f"Output {i}: Values differ beyond tolerance. "
+                f"Max diff: {max_diff:.6e} at {max_idx}, "
+                f"Mean diff: {mean_diff:.6e}, Median diff: {median_diff:.6e}"
+            )
+
+    # Create the final message
+    if all_match:
+        message = "All outputs match within tolerance:\n" + "\n".join(detailed_messages)
+    else:
+        message = "Outputs do not match:\n" + "\n".join(detailed_messages)
+
+    return all_match, message
+
+
+def _create_onnx_type_map(
+    session: ort.InferenceSession, param_input_names: List[str]
+) -> Dict[str, np.dtype]:
+    """
+    Creates a mapping from parameter names to their expected numpy data types based on ONNX model inputs.
+
+    Args:
+        session: The ONNX runtime inference session
+        param_input_names: List of parameter input names
+
+    Returns:
+        Dictionary mapping parameter names to numpy dtypes
+    """
     onnx_type_map = {}
     for inp in session.get_inputs():
         if inp.name in param_input_names:
@@ -89,8 +173,25 @@ def allclose(
                 )
 
     print(f"ONNX parameter types: {onnx_type_map}")
+    return onnx_type_map
 
-    # Handle deterministic parameter and other parameters more carefully
+
+def _add_parameters_to_inputs(
+    onnx_inputs: Dict[str, np.ndarray],
+    param_input_names: List[str],
+    jax_kwargs: Dict[str, Any],
+    onnx_type_map: Dict[str, np.dtype],
+):
+    """
+    Adds parameter values to the ONNX inputs dictionary.
+
+    Args:
+        onnx_inputs: Dictionary of ONNX inputs to modify
+        param_input_names: List of parameter input names
+        jax_kwargs: Dictionary of keyword arguments passed to the JAX function
+        onnx_type_map: Mapping from parameter names to expected numpy dtypes
+    """
+    # Handle deterministic parameter and other parameters
     for param_name in param_input_names:
         if param_name == "deterministic":
             # Special handling for deterministic parameter
@@ -101,111 +202,114 @@ def allclose(
             # Use the dtype expected by ONNX for this parameter
             if param_name in onnx_type_map:
                 expected_dtype = onnx_type_map[param_name]
-                p[param_name] = np.array(det_value, dtype=expected_dtype)
+                onnx_inputs[param_name] = np.array(det_value, dtype=expected_dtype)
                 print(f"Added deterministic={det_value} with dtype={expected_dtype}")
             else:
                 # Fallback to bool_ if not in the type map
-                p[param_name] = np.array(det_value, dtype=np.bool_)
+                onnx_inputs[param_name] = np.array(det_value, dtype=np.bool_)
                 print(f"Added deterministic={det_value} with dtype=bool_")
 
             # Also ensure it's in jax_kwargs
-            jax_kwargs[param_name] = det_value
+            jax_kwargs["deterministic"] = det_value
 
         elif param_name in jax_kwargs:
             # General handling for other parameters
             param_value = jax_kwargs[param_name]
-
-            # Use the dtype expected by ONNX for this parameter, if available
-            if param_name in onnx_type_map:
-                expected_dtype = onnx_type_map[param_name]
-                try:
-                    p[param_name] = np.array(param_value, dtype=expected_dtype)
-                    print(
-                        f"Added {param_name}={param_value} with dtype={expected_dtype}"
-                    )
-                except (TypeError, ValueError) as e:
-                    print(
-                        f"Warning: Failed to convert {param_name}={param_value} to {expected_dtype}: {e}"
-                    )
-                    # Fall back to intelligent guessing based on the value type
-                    if isinstance(param_value, bool):
-                        p[param_name] = np.array(
-                            int(param_value),
-                            dtype=(
-                                np.int64 if "int" in str(expected_dtype) else np.bool_
-                            ),
-                        )
-                    elif isinstance(param_value, (int, float)):
-                        p[param_name] = np.array(
-                            param_value, dtype=type(param_value).__name__
-                        )
-                    else:
-                        print(
-                            f"Warning: Unsupported parameter type for {param_name}: {type(param_value)}"
-                        )
-            else:
-                # Fall back to intelligent guessing based on the value type
-                if isinstance(param_value, bool):
-                    # Booleans in ONNX are often represented as int64
-                    p[param_name] = np.array(int(param_value), dtype=np.int64)
-                elif isinstance(param_value, int):
-                    p[param_name] = np.array(param_value, dtype=np.int64)
-                elif isinstance(param_value, float):
-                    p[param_name] = np.array(param_value, dtype=np.float32)
-                else:
-                    print(
-                        f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
-                    )
+            _add_parameter_value(onnx_inputs, param_name, param_value, onnx_type_map)
         else:
             # Parameter not found in jax_kwargs, provide a reasonable default
             print(
                 f"Warning: Parameter {param_name} not provided in jax_kwargs, using default value"
             )
+            _add_default_parameter(onnx_inputs, param_name, onnx_type_map)
 
-            # For boolean parameters like deterministic, default to True
-            if param_name == "deterministic":
-                if param_name in onnx_type_map:
-                    expected_dtype = onnx_type_map[param_name]
-                    p[param_name] = np.array(True, dtype=expected_dtype)
-                else:
-                    p[param_name] = np.array(True, dtype=np.bool_)
-            # For other parameters, we might need more sophisticated defaults
-            elif param_name in onnx_type_map:
-                # Set a reasonable default based on the expected type
-                dtype = onnx_type_map[param_name]
-                if np.issubdtype(dtype, np.integer):
-                    p[param_name] = np.array(0, dtype=dtype)
-                elif np.issubdtype(dtype, np.floating):
-                    p[param_name] = np.array(0.0, dtype=dtype)
-                elif np.issubdtype(dtype, np.bool_):
-                    p[param_name] = np.array(False, dtype=dtype)
-                else:
-                    print(
-                        f"Warning: Cannot determine default for parameter {param_name} with type {dtype}"
-                    )
-            # If we don't have type information, we can't provide a reasonable default
 
-    # Run ONNX model with both tensor and parameter inputs
-    onnx_output = session.run(None, p)
+def _add_parameter_value(
+    onnx_inputs: Dict[str, np.ndarray],
+    param_name: str,
+    param_value: Any,
+    onnx_type_map: Dict[str, np.dtype],
+):
+    """
+    Adds a parameter value to the ONNX inputs dictionary with appropriate type conversion.
 
-    # Call JAX function directly with tensor args and keyword args
-    jax_output = callable(*xs, **jax_kwargs)
+    Args:
+        onnx_inputs: Dictionary of ONNX inputs to modify
+        param_name: Name of the parameter
+        param_value: Value of the parameter
+        onnx_type_map: Mapping from parameter names to expected numpy dtypes
+    """
+    # Use the dtype expected by ONNX for this parameter, if available
+    if param_name in onnx_type_map:
+        expected_dtype = onnx_type_map[param_name]
+        try:
+            onnx_inputs[param_name] = np.array(param_value, dtype=expected_dtype)
+            print(f"Added {param_name}={param_value} with dtype={expected_dtype}")
+        except (TypeError, ValueError) as e:
+            print(
+                f"Warning: Failed to convert {param_name}={param_value} to {expected_dtype}: {e}"
+            )
+            # Fall back to intelligent guessing based on the value type
+            if isinstance(param_value, bool):
+                onnx_inputs[param_name] = np.array(
+                    int(param_value),
+                    dtype=(np.int64 if "int" in str(expected_dtype) else np.bool_),
+                )
+            elif isinstance(param_value, (int, float)):
+                onnx_inputs[param_name] = np.array(
+                    param_value, dtype=type(param_value).__name__
+                )
+            else:
+                print(
+                    f"Warning: Unsupported parameter type for {param_name}: {type(param_value)}"
+                )
+    else:
+        # Fall back to intelligent guessing based on the value type
+        if isinstance(param_value, bool):
+            # Booleans in ONNX are often represented as int64
+            onnx_inputs[param_name] = np.array(int(param_value), dtype=np.int64)
+        elif isinstance(param_value, int):
+            onnx_inputs[param_name] = np.array(param_value, dtype=np.int64)
+        elif isinstance(param_value, float):
+            onnx_inputs[param_name] = np.array(param_value, dtype=np.float32)
+        else:
+            print(
+                f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
+            )
 
-    if not isinstance(jax_output, list):
-        jax_output = [jax_output]
-    if not isinstance(onnx_output, list):
-        onnx_output = [onnx_output]
 
-    isOk = all(
-        np.allclose(o, j, rtol=rtol, atol=atol)
-        for o, j in zip(onnx_output, jax_output, strict=False)
-    )
+def _add_default_parameter(
+    onnx_inputs: Dict[str, np.ndarray],
+    param_name: str,
+    onnx_type_map: Dict[str, np.dtype],
+):
+    """
+    Adds a default parameter value to the ONNX inputs dictionary.
 
-    return (
-        isOk,
-        (
-            "ONNX and JAX outputs match :-)"
-            if isOk
-            else "ONNX and JAX outputs do not match :-("
-        ),
-    )
+    Args:
+        onnx_inputs: Dictionary of ONNX inputs to modify
+        param_name: Name of the parameter
+        onnx_type_map: Mapping from parameter names to expected numpy dtypes
+    """
+    # For boolean parameters like deterministic, default to True
+    if param_name == "deterministic":
+        if param_name in onnx_type_map:
+            expected_dtype = onnx_type_map[param_name]
+            onnx_inputs[param_name] = np.array(True, dtype=expected_dtype)
+        else:
+            onnx_inputs[param_name] = np.array(True, dtype=np.bool_)
+    # For other parameters, we might need more sophisticated defaults
+    elif param_name in onnx_type_map:
+        # Set a reasonable default based on the expected type
+        dtype = onnx_type_map[param_name]
+        if np.issubdtype(dtype, np.integer):
+            onnx_inputs[param_name] = np.array(0, dtype=dtype)
+        elif np.issubdtype(dtype, np.floating):
+            onnx_inputs[param_name] = np.array(0.0, dtype=dtype)
+        elif np.issubdtype(dtype, np.bool_):
+            onnx_inputs[param_name] = np.array(False, dtype=dtype)
+        else:
+            print(
+                f"Warning: Cannot determine default for parameter {param_name} with type {dtype}"
+            )
+    # If we don't have type information, we can't provide a reasonable default

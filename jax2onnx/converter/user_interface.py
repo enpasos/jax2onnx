@@ -4,7 +4,7 @@ from typing import Any
 
 import onnx
 
-from jax2onnx.converter.jax_to_onnx import to_onnx as to_onnx_impl
+from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 
