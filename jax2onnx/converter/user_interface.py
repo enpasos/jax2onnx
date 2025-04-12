@@ -1,6 +1,6 @@
 # file: jax2onnx/converter/user_interface.py
 
-from typing import Any
+from typing import Any, Dict
 
 import onnx
 
@@ -12,7 +12,7 @@ from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 def to_onnx(
     fn: Any,
     input_shapes: Any,
-    input_params: dict[str, Any] | None = None,
+    input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
 ) -> onnx.ModelProto:
