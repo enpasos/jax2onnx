@@ -260,13 +260,8 @@ class OnnxBuilder:
     ):
         shape = _as_tuple(shape)
 
-        # ✅ If dtype is already an ONNX TensorProto enum, do not convert again!
-        if isinstance(dtype, int):  # ONNX enums are integers
-            onnx_dtype = dtype
-        else:
-            onnx_dtype = self._numpy_dtype_to_onnx(dtype)
-
-        tensor_def = helper.make_tensor_value_info(name, onnx_dtype, shape)
+        # Use our centralized make_value_info function for consistency
+        tensor_def = make_value_info(name, shape, dtype)
         collection.append(tensor_def)
 
     def add_input(
@@ -289,14 +284,27 @@ class OnnxBuilder:
         shape: tuple[int, ...],
         dtype: np.dtype | int,
     ):
+        # Ensure shape is a tuple
+        shape = _as_tuple(shape)
+
         vi = make_value_info(name, shape, dtype)
 
         # Optionally enrich doc_string with origin info (if available)
-        origin = self.value_info_origin.get(name)  # Use initialized value_info_origin
+        origin = self.value_info_origin.get(name)
         if origin:
             vi.doc_string = f"origin: {origin}"
 
         self.value_info.append(vi)
+
+        # Register metadata for consistency
+        if isinstance(dtype, int):
+            # If dtype is already ONNX enum, use it directly
+            onnx_dtype = dtype
+        else:
+            # Get the dtype from the created value_info
+            onnx_dtype = vi.type.tensor_type.elem_type
+
+        self.register_value_info_metadata(name, shape, onnx_dtype)
 
     def create_node(
         self, op_type: str, inputs: list[str], outputs: list[str], **kwargs: Any
