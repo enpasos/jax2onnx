@@ -26,9 +26,20 @@ if TYPE_CHECKING:
         }
     ],
     since="v0.4.0",
-    context="primitives.jax.lax",
+    context="primitives.lax",
     component="device_put",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "device_put_array",
+            "callable": lambda x: jax.device_put(x),
+            "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "device_put_scalar",
+            "callable": lambda: jax.device_put(42),
+            "input_shapes": [],
+        },
+    ],
 )
 class DevicePutPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.device_put to appropriate ONNX operations."""
@@ -56,20 +67,25 @@ class DevicePutPlugin(PrimitiveLeafPlugin):
             val = inp.val
             np_val = np.array(val)
 
-            # Convert int64 to int32 and float64 to float32 for ONNX compatibility
-            if np_val.dtype == np.int64:
-                np_val = np_val.astype(np.int32)
-            elif np_val.dtype == np.float64:
-                np_val = np_val.astype(np.float32)
+            # Check output type and ensure we match it
+            output_aval = out.aval
+            output_dtype = output_aval.dtype
 
+            # Convert value to match expected output dtype
+            if np_val.dtype != output_dtype:
+                np_val = np_val.astype(output_dtype)
+
+            # Get tensor name for the constant
             tensor_name = converter.get_unique_name("const")
-            tensor = converter.builder.create_tensor(
-                name=tensor_name,
-                data_type=converter.builder.numpy_dtype_to_onnx(np_val.dtype),
-                dims=np_val.shape,
-                vals=np_val.flatten().tolist(),
+
+            # Use add_initializer to add the constant to the ONNX graph
+            # This will handle data type conversion and initialization
+            from onnx import helper
+
+            data_type = converter.builder._numpy_dtype_to_onnx(np_val.dtype)
+            converter.builder.add_initializer(
+                tensor_name, np_val.flatten().tolist(), data_type, dims=np_val.shape
             )
-            converter.builder.add_initializer(tensor)
 
             output_name = converter.get_name(out)
             node = converter.builder.create_node(

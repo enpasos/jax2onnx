@@ -1,5 +1,24 @@
 """
-Plugin for handling the JAX random_unwrap primitive.
+Plugin for h@register_primitive(
+    jaxpr_primitive=jax._src.prng.random_unwrap_p.name,
+    jax_doc="https://jax.readthedocs.io/en/latest/jax.random.html",
+    onnx=[
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        }
+    ],
+    since="v0.4.2",
+    context="primitives.prng",
+    component="random_unwrap",
+    testcases=[
+        {
+            "testcase": "random_unwrap",
+            "callable": lambda: jax.random.key(42),
+            "input_shapes": [],
+        }
+    ]
+)X random_unwrap primitive.
 
 This plugin converts JAX's random_unwrap primitive to ONNX operations.
 """
