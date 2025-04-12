@@ -132,7 +132,10 @@ class Jaxpr2OnnxConverter:
 
         # Simply trace the function with all parameters
         with temporary_monkey_patches(allow_function_primitives=True):
-            closed_jaxpr = jax.make_jaxpr(fn)(*example_args, **params)
+            if params is None:
+                closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+            else:
+                closed_jaxpr = jax.make_jaxpr(fn)(*example_args, **params)
 
         print(closed_jaxpr)
 
