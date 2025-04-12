@@ -25,5 +25,6 @@ class MyModel(nnx.Module):
         return self.block2(self.block1(x))
 
 
-model = to_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)])
+callable = MyModel(256, rngs=nnx.Rngs(0))
+model = to_onnx(callable, [(100, 256)])
 save_model(model, "docs/onnx/model_with_function.onnx")
