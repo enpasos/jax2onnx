@@ -57,15 +57,8 @@ class Jaxpr2OnnxConverter:
         # Mapping for constants in the ONNX graph.
         self.name_to_const: dict[str, Any] = {}
 
-        # Register handlers for random primitives.
-        self.primitive_handlers[jax._src.prng.random_seed_p] = self._handle_random_seed
-        self.primitive_handlers[jax._src.prng.random_wrap_p] = self._handle_random_wrap
-        self.primitive_handlers[jax._src.prng.random_split_p] = (
-            self._handle_random_split
-        )
-        self.primitive_handlers[jax._src.prng.random_unwrap_p] = (
-            self._handle_random_unwrap
-        )
+        # All primitive handlers are now handled by the plugin system
+        # No need for direct handler registration anymore
 
         # Import and register plugins.
         import_all_plugins()
@@ -246,41 +239,8 @@ class Jaxpr2OnnxConverter:
         self.builder.initializers.append(tensor)
         return name
 
-    def _handle_random_seed(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_seed")
-
-    def _handle_random_wrap(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_wrap")
-
-    def _handle_random_unwrap(self, node_inputs, node_outputs, params):
-        return self._create_identity_node(node_inputs, node_outputs, "random_unwrap")
-
-    def _handle_random_split(self, node_inputs, node_outputs, params):
-        """Handle random_split primitive by using Reshape and Tile operations."""
-        input_name = self.get_name(node_inputs[0])
-        intermediate = self.get_unique_name("random_split:x")
-        output_name = self.get_var_name(node_outputs[0])
-
-        reshape = self.get_constant_name(np.array([1, 2], dtype=np.int64))
-
-        num = params["shape"][0]
-        repeat = self.get_constant_name(np.array([num, 1], dtype=np.int64))
-
-        node_1 = helper.make_node(
-            "Reshape",
-            inputs=[input_name, reshape],
-            outputs=[intermediate],
-            name=self.get_unique_name("random_split:reshape"),
-        )
-        self.builder.add_node(node_1)
-
-        node_2 = helper.make_node(
-            "Tile",
-            inputs=[intermediate, repeat],
-            outputs=[output_name],
-            name=self.get_unique_name("random_split:tile"),
-        )
-        self.builder.add_node(node_2)
+    # Handler methods have been moved to their respective plugin files
+    # in the jax2onnx/plugins/ directory
 
     def _process_jaxpr(self, jaxpr, consts):
         """
