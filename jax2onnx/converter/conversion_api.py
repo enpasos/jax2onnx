@@ -50,9 +50,9 @@ def prepare_example_args(input_shapes, default_batch_size=2):
 def to_onnx(
     fn: Any,
     input_shapes: Any,
+    input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
-    input_params: Dict[str, Any] | None = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
@@ -63,10 +63,10 @@ def to_onnx(
     Args:
         fn: JAX function to convert.
         input_shapes: Shapes of the inputs to the function.
-        model_name: Name of the ONNX model.
-        opset: ONNX opset version to use.
         input_params: Additional parameters for inference (optional). These will be
                      converted to ONNX model inputs rather than baked into the model.
+        model_name: Name of the ONNX model.
+        opset: ONNX opset version to use.
 
     Returns:
         An ONNX ModelProto object representing the converted model.

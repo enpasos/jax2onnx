@@ -6,7 +6,7 @@ It works with OnnxBuilder but focuses specifically on the function-related aspec
 of ONNX model construction.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from onnx import FunctionProto, NodeProto, ValueInfoProto, helper
 
@@ -23,7 +23,7 @@ class OnnxFunctionBuilder:
     ONNX model building functionality to improve code organization.
     """
 
-    def __init__(self, onnx_builder=None):
+    def __init__(self, onnx_builder: Optional[Any] = None):
         """
         Initialize an ONNX function builder.
 
