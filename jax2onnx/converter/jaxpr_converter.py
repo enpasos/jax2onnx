@@ -234,12 +234,36 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError("not yet implemented")
 
-    def finalize_model(self, output_path, model_name):
-        """Create and save the final ONNX model."""
+    def _create_and_save_model(
+        self, model_name: str, output_path: str | None = None
+    ) -> onnx.ModelProto:
+        """
+        Create and optionally save an ONNX model with the given name.
+        This centralizes model creation and saving logic to avoid duplication.
+
+        Args:
+            model_name: Name for the ONNX model
+            output_path: Optional path to save the model. If None, model is only created, not saved.
+
+        Returns:
+            The created ONNX ModelProto object
+        """
+        # Clean up unused initializers
+        used_initializers = {i for node in self.builder.nodes for i in node.input}
+        self.builder.initializers = [
+            init for init in self.builder.initializers if init.name in used_initializers
+        ]
+
+        # Create graph and model
         graph = self.builder.create_graph(model_name)
         onnx_model = self.builder.create_model(graph)
-        onnx.save_model(onnx_model, output_path)
-        return output_path
+
+        # Save model if path is provided
+        if output_path:
+            onnx.save_model(onnx_model, output_path)
+            print(f"[INFO] Model saved to {output_path}")
+
+        return onnx_model
 
     def trace_jaxpr(self, fn, example_args, preserve_graph=False, params=None):
         """
@@ -303,22 +327,12 @@ class Jaxpr2OnnxConverter:
         Returns:
             Path to the saved ONNX model
         """
-
+        # Trace the JAX function to generate JAXPR representation
         self.trace_jaxpr(fn, example_args)
 
-        # Remove unused initializers
-        used_initializers = {i for node in self.builder.nodes for i in node.input}
-        self.builder.initializers = [
-            init for init in self.builder.initializers if init.name in used_initializers
-        ]
+        # Create and save the ONNX model using our centralized method
+        self._create_and_save_model(model_name, output_path)
 
-        graph = self.builder.create_graph(model_name)
-
-        # Create ONNX model
-        onnx_model = self.builder.create_model(graph)
-
-        # Save model
-        onnx.save_model(onnx_model, output_path)
         return output_path
 
     def add_initializer(
