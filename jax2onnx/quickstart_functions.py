@@ -25,6 +25,5 @@ class MyModel(nnx.Module):
         return self.block2(self.block1(x))
 
 
-# Save model with function hierarchy preserved
 model = to_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)])
 save_model(model, "docs/onnx/model_with_function.onnx")

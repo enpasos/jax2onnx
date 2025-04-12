@@ -27,29 +27,29 @@
 Convert your JAX callable to ONNX in just a few lines:
 
 ```python
-from jax2onnx import save_onnx
+import onnx
 from flax import nnx
+from jax2onnx import to_onnx
 
 # Define a simple MLP (from Flax docs)
 class MLP(nnx.Module):
-  def __init__(self, din, dmid, dout, *, rngs):
-    self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-    self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
-    self.bn = nnx.BatchNorm(dmid, rngs=rngs)
-    self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
-
-  def __call__(self, x):
-    x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
-    return self.linear2(x)
+    def __init__(self, din, dmid, dout, *, rngs): 
+        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
+        self.bn = nnx.BatchNorm(dmid, rngs=rngs)
+        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs) 
+    def __call__(self, x): 
+        x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
+        return self.linear2(x)
 
 # Instantiate model
-jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
+my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
-# Convert to ONNX 
-onnx_model = to_onnx(jax_callable, [('B', 30)])
+# Convert to ONNX
+onnx_model = to_onnx(my_callable, [("B", 30)])
 
-# Save it to file
-onnx.save_model(onnx_model, "jax_callable.onnx")
+# Save the model
+onnx.save_model(onnx_model, "my_callable.onnx")
 ```
 
 🔎 See it visualized:  [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
@@ -62,8 +62,9 @@ ONNX functions help encapsulate reusable subgraphs. Simply use the `@onnx_functi
 Just an @onnx_function decorator to make your callable an ONNX function
 
 ```python
-from jax2onnx import save_onnx, onnx_function
+from onnx import save_model
 from flax import nnx
+from jax2onnx import onnx_function, to_onnx
 
 # just an @onnx_function decorator to make your callable an ONNX function
 @onnx_function
@@ -80,11 +81,12 @@ class MyModel(nnx.Module):
   def __init__(self, dim, *, rngs):
     self.block1 = MLPBlock(dim, rngs=rngs)
     self.block2 = MLPBlock(dim, rngs=rngs)
+
   def __call__(self, x):
     return self.block2(self.block1(x))
 
-# Save model with function hierarchy preserved
-save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onnx")
+model = to_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)])
+save_model(model, "model_with_function.onnx")
 ```
 
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
