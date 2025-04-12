@@ -1,6 +1,6 @@
+from onnx import save_model
 from flax import nnx
-
-from jax2onnx import onnx_function, save_onnx
+from jax2onnx import onnx_function, to_onnx
 
 
 # just an @onnx_function decorator to make your callable an ONNX function
@@ -26,4 +26,5 @@ class MyModel(nnx.Module):
 
 
 # Save model with function hierarchy preserved
-save_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)], "model_with_function.onnx")
+model = to_onnx(MyModel(256, rngs=nnx.Rngs(0)), [(100, 256)])
+save_model(model, "docs/onnx/model_with_function.onnx")

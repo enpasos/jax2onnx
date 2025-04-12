@@ -24,14 +24,7 @@ class MLP(nnx.Module):
 # Instantiate model
 my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
-# Convert and save to ONNX
-# save_onnx(
-#     my_callable,
-#     [("B", 30)],  # Input shapes, batch size 'B' is symbolic
-#     "my_callable.onnx",  # Output path
-# )
-
 
 onnx_model = to_onnx(my_callable, [("B", 30)])
 
-onnx.save_model(onnx_model, "my_callable.onnx")
+onnx.save_model(onnx_model, "docs/onnx/my_callable.onnx")

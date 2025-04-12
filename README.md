@@ -45,26 +45,15 @@ class MLP(nnx.Module):
 # Instantiate model
 jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
-# Save directly to ONNX 
-save_onnx(jax_callable, [('B', 30)], "jax_callable.onnx")
+# Convert to ONNX 
+onnx_model = to_onnx(jax_callable, [('B', 30)])
+
+# Save it to file
+onnx.save_model(onnx_model, "jax_callable.onnx")
 ```
 
 🔎 See it visualized:  [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
 
----
-
-Or convert to an in-memory ONNX model first:
-
-```python
-from jax2onnx import to_onnx
-import onnx
-
-jax_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
-onnx_model = to_onnx(jax_callable, [('B', 30)])
-onnx.save_model(onnx_model, "jax_callable.onnx")
-```
-
- 
 ---
 
 ## 🧠 ONNX Functions — Minimal Example

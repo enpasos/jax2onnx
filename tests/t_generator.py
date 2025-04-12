@@ -141,15 +141,13 @@ def make_test_function(tp: dict[str, Any]):
     def test_func(self):
         callable_obj = tp["callable"]
         input_shapes = tp["input_shapes"]
-        # --- Step 1.1: Prepare input_params ---
-        input_params = tp.get("input_params", {})  # Get static input parameters
-        # --- End Step 1.1 ---
+        input_params = tp.get("input_params", {})
         testcase_name = tp["testcase"]
         expected_num_funcs = tp.get("expected_number_of_function_instances")
         expected_output_shapes = tp.get("expected_output_shapes")
-        # Use separate RNG keys if needed, using same one for now
+
+        # Set up random number generation and file paths
         rng = jax.random.PRNGKey(1001)
-        # trace_rng = jax.random.PRNGKey(1002) # Keep trace_rng separate conceptually
         context_path = tp["context"].split(".")
         opset_version = 21
         model_path = os.path.join(
@@ -157,53 +155,21 @@ def make_test_function(tp: dict[str, Any]):
         )
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
-        # if hasattr(callable_obj, "eval"):
-        #     callable_obj.eval()
-
-        # --- Step 1.2: Prepare lambda wrapper and concrete trace args (but don't use them for to_onnx yet) ---
-        # # 1. Generate CONCRETE example arguments for tracing (code defined but not used in to_onnx call yet)
-        # def generate_trace_args(shapes, current_trace_rng):
-        #     concrete_args = []
-        #     if not isinstance(shapes, (list, tuple)):
-        #         shapes = [shapes]
-        #     for shape in shapes:
-        #         current_shape = shape if isinstance(shape, (list, tuple)) else (shape,)
-        #         trace_shape = tuple(2 if dim == 'B' else dim for dim in current_shape) # Use B=2 for trace
-        #         concrete_args.append(
-        #             jax.random.normal(current_trace_rng, shape=trace_shape, dtype=jnp.float32)
-        #         )
-        #         current_trace_rng, _ = jax.random.split(current_trace_rng)
-        #     return concrete_args
-        # example_args_for_trace = generate_trace_args(input_shapes, trace_rng)
-
-        # # 2. Define a lambda to wrap the callable (defined but not used in to_onnx call yet)
-        # if input_params:
-        #     fn_to_trace = lambda *args: callable_obj(*args, **input_params)
-        # else:
-        #     fn_to_trace = callable_obj
-        # --- End Step 1.2 ---
-
-        # --- Step 1.3: Keep EXISTING to_onnx call to maintain stability ---
-        # This uses the original callable and passes input_params via kwargs,
-        # relying on the current (potentially flawed) logic in user_interface.py
-        print(f"Calling stable to_onnx for {testcase_name}...")  # Add print for clarity
+        # Convert JAX model to ONNX
+        print(f"Converting {testcase_name} to ONNX...")
         onnx_model = to_onnx(
-            callable_obj,  # Pass original callable
-            input_shapes,  # Pass shapes
+            callable_obj,
+            input_shapes,
+            input_params,
             model_name=testcase_name,
             opset=opset_version,
-            kwargs={"input_params": input_params},  # Pass params via kwargs
         )
-        # --- End Step 1.3 ---
 
         onnx.save_model(onnx_model, model_path)
         print(f"   Model saved to: {model_path}")
 
-        # --- generate_inputs function (remains unchanged from baseline) ---
-        # This generates only tensor inputs for the allclose check
-        def generate_inputs(
-            shapes, input_params=None, B=None
-        ):  # Keep input_params arg for now, even if unused
+        # Generate input data for numerical validation
+        def generate_inputs(shapes, input_params=None, B=None):
             actual_shapes = []
             if not isinstance(shapes, (list, tuple)):
                 shapes = [shapes]
@@ -218,40 +184,27 @@ def make_test_function(tp: dict[str, Any]):
                 jax.random.normal(rng, shape=s, dtype=jnp.float32)
                 for s in actual_shapes
             ]
-            # Comment from baseline:
-            # Do not re-append input_params – they are already included in input_shapes!
-            # (This comment refers to the baseline logic in user_interface.py)
             return inputs
 
-        # --- End of generate_inputs ---
-
-        # --- Step 1.4: Keep EXISTING allclose call to maintain stability ---
-        # This relies on the current stable allclose signature and its internal logic
+        # Run numerical validation
         if isinstance(input_shapes, (list, tuple)) and any(
-            "B" in shape
-            for shape in input_shapes
-            if isinstance(shape, (list, tuple))  # Check inner tuple
+            "B" in shape for shape in input_shapes if isinstance(shape, (list, tuple))
         ):
             print("Running numerical checks for dynamic batch sizes [2, 3]...")
             for B in [2, 3]:
                 print(f"  Batch size B={B}")
-                # Pass input_params to generate_inputs (as in baseline)
                 xs = generate_inputs(input_shapes, input_params=input_params, B=B)
-                # Call stable allclose
                 assert allclose(
                     callable_obj, model_path, *xs
                 ), f"Numerical check failed for B={B}"
                 print(f"  Numerical check passed for B={B}.")
         else:
             print("Running numerical check for static shape...")
-            # Pass input_params to generate_inputs (as in baseline)
             xs = generate_inputs(input_shapes, input_params=input_params)
-            # Call stable allclose
             assert allclose(
                 callable_obj, model_path, *xs
             ), "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
-        # --- End Step 1.4 ---
 
         # --- Function count and output shape checks remain the same ---
         num_found_funcs = len({f.name for f in onnx_model.functions})
