@@ -16,7 +16,7 @@ import onnx
 from jax.extend import core as extend_core
 from onnx import helper
 
-from jax2onnx.converter.dtype_utils import numpy_dtype_to_tensorproto
+# Using ONNX's built-in mapping instead of custom dtype_utils
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
 from jax2onnx.plugin_system import (
@@ -171,7 +171,7 @@ class Jaxpr2OnnxConverter:
 
             if hasattr(var, "aval"):
                 shape = tuple(var.aval.shape)
-                dtype = numpy_dtype_to_tensorproto(var.aval.dtype)
+                dtype = helper.np_dtype_to_tensor_dtype(var.aval.dtype)
                 self.builder.register_value_info_metadata(name, shape, dtype)
                 self.builder.add_value_info(name, shape, dtype)
             else:

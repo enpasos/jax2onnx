@@ -5,7 +5,7 @@ This module provides the core API functions for converting JAX functions and mod
 It serves as the implementation layer for the public API exposed through user_interface.py.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import jax.numpy as jnp
 import onnx
@@ -52,7 +52,7 @@ def to_onnx(
     input_shapes: Any,
     model_name: str = "jax_model",
     opset: int = 21,
-    input_params: Optional[Dict[str, Any]] = None,
+    input_params: Dict[str, Any] | None = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
