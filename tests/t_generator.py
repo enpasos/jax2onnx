@@ -5,17 +5,11 @@ import shutil
 from typing import Any
 
 import jax
-import jax.numpy as jnp  # <<< Add jnp import for generate_inputs
-import onnx  # <<< Add onnx import
+import jax.numpy as jnp
+import onnx
 
-# === Add imports for to_onnx and save_onnx ===
 from jax2onnx import allclose
-
-# Assuming to_onnx/save_onnx are accessible via jax2onnx or directly from user_interface
-# Adjust import if necessary, e.g.:
 from jax2onnx.converter.user_interface import to_onnx
-
-# =================================================
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,
