@@ -424,6 +424,24 @@ class OnnxBuilder:
         self, name: str, sub_builder: "OnnxBuilder", param_input_names: list[str]
     ) -> str:
         missing = sub_builder.find_missing_value_info()  # Existing code
+
+        # Handle parameters that might be missing from value_info
+        if missing:
+            from onnx import TensorProto
+
+            # Handle the common case of missing 'deterministic' parameter
+            if "deterministic" in missing:
+                sub_builder.register_value_info_metadata(
+                    "deterministic", (), TensorProto.BOOL, origin="function_param_auto"
+                )
+                sub_builder.add_value_info("deterministic", (), TensorProto.BOOL)
+                print(
+                    f"[INFO] Auto-registered deterministic parameter in function '{name}'"
+                )
+                # Check if we still have missing items
+                missing = sub_builder.find_missing_value_info()
+
+        # Raise error if there are still missing items
         if missing:  # Existing code
             raise RuntimeError(  # Existing code
                 f"Missing value_info in function '{name}': {missing}\n\nFix the corresponding plugin using `register_value_info_metadata(...)`"

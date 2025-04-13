@@ -151,6 +151,21 @@ def function_handler(
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
 
+    # Extract any parameters from the equation that should be propagated
+    # This ensures parameters are properly passed through nested function calls
+    if eqn.params:
+        # If we have equation parameters, extract them to params dictionary
+        if params is None:
+            params = {}
+
+        for param_key, param_value in eqn.params.items():
+            # Only propagate parameters that aren't already in params
+            if param_key not in params:
+                params[param_key] = param_value
+                print(
+                    f"[INFO] Propagating parameter '{param_key}' from equation params"
+                )
+
     trace_kwargs = {"preserve_graph": True}
 
     # Don't duplicate parameters between trace_kwargs and example_args
