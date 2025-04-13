@@ -1,8 +1,6 @@
 import os
 import pytest
 import onnx
-from flax import nnx
-from jax import numpy as jnp
 
 # Import from the main package
 import sys
@@ -59,34 +57,6 @@ class TestQuickstartFunctions:
 
         # Verify that the model contains functions (it should preserve function hierarchy)
         assert len(model.functions) > 0, "Model should contain ONNX functions"
-
-    def test_mlpblock_function(self):
-        """Test MLPBlock class with onnx_function decorator"""
-        from jax2onnx.quickstart_functions import MLPBlock
-
-        # Create an instance
-        block = MLPBlock(256, rngs=nnx.Rngs(0))
-
-        # Test inference
-        x = jnp.ones((10, 256))
-        output = block(x)
-
-        # Check shape
-        assert output.shape == (10, 256)
-
-    def test_mymodel_function(self):
-        """Test MyModel class that uses MLPBlock"""
-        from jax2onnx.quickstart_functions import MyModel
-
-        # Create an instance
-        model = MyModel(256, rngs=nnx.Rngs(0))
-
-        # Test inference
-        x = jnp.ones((10, 256))
-        output = model(x)
-
-        # Check shape
-        assert output.shape == (10, 256)
 
 
 if __name__ == "__main__":

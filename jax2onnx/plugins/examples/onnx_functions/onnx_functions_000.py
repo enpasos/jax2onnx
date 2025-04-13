@@ -35,10 +35,10 @@ class SuperBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
-    def __call__(self, x, deterministic: bool = True):
+    def __call__(self, x):
         # Explicitly pass the deterministic parameter to the MLPBlock
         x_normalized = self.layer_norm2(x)
-        return self.mlp(x_normalized, deterministic=deterministic)
+        return self.mlp(x_normalized, deterministic=True)
 
 
 register_example(
@@ -49,13 +49,10 @@ register_example(
     children=["MLPBlock"],
     testcases=[
         {
-            "testcase": "000_one_function_outer",
+            "testcase": "000_one_function_on_outer_layer",
             "callable": SuperBlock(),
             "input_shapes": [(5, 10, 3)],
             "expected_number_of_function_instances": 1,
-            "input_params": {
-                "deterministic": True,
-            },
         },
     ],
 )

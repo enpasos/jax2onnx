@@ -484,8 +484,6 @@ class OnnxBuilder:
 
         final_function_value_info = list(combined_value_info_dict.values())
 
-        # --- END REFINED CHANGE ---
-
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
