@@ -35,21 +35,30 @@ class SuperBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x, deterministic: bool):
         # Explicitly pass the deterministic parameter to the MLPBlock
         x_normalized = self.layer_norm2(x)
-        return self.mlp(x_normalized, deterministic=True)
+        return self.mlp(x_normalized, deterministic=deterministic)
 
 
 register_example(
-    component="onnx_functions_000",
+    component="onnx_functions_015",
     description="one function on an outer layer.",
     since="v0.4.0",
     context="examples.onnx_functions",
     children=["MLPBlock"],
     testcases=[
         {
-            "testcase": "000_one_function_on_outer_layer",
+            "testcase": "015_one_function_with_input_param_without_default_value",
+            "callable": SuperBlock(),
+            "input_shapes": [(5, 10, 3)],
+            "expected_number_of_function_instances": 1,
+            "input_params": {
+                "deterministic": True,
+            },
+        },
+        {
+            "testcase": "015_one_function_without_input_param_without_default_value",
             "callable": SuperBlock(),
             "input_shapes": [(5, 10, 3)],
             "expected_number_of_function_instances": 1,

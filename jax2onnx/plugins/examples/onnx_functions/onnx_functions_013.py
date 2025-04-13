@@ -160,7 +160,7 @@ class TransformerBlock(nnx.Module):
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         r = self.layer_norm1(x)
-        r = self.attention(r)
+        r = self.attention(r, deterministic=deterministic)
         x = x + r
         r = self.layer_norm2(x)
         return x + self.mlp_block(r, deterministic=deterministic)
@@ -365,6 +365,20 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
-        }
+        },
+        {
+            "testcase": "013_vit_conv_embedding_with_internal_call_params",
+            "callable": VisionTransformer(
+                height=28,
+                width=28,
+                num_hiddens=256,
+                num_layers=6,
+                num_heads=8,
+                mlp_dim=512,
+                num_classes=10,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(5, 28, 28, 1)],
+        },
     ],
 )
