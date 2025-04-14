@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/jaxpr_converter.py
+
 """
 JAXPR to ONNX Converter Module
 
