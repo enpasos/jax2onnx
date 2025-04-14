@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/function_handling.py
+
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
