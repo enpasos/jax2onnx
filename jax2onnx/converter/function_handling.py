@@ -375,12 +375,55 @@ def function_handler(
         )
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
 
-    # NEW CODE: Now process any extra parameter inputs
+    # Get initializer names before processing parameter inputs
+    initializer_names = {i.name for i in parent_builder.initializers}
+
+    # Process any extra parameter inputs with improved name preservation
     remaining_internal_vars = internal_input_vars[len(outer_input_vars_avals) :]
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
     ):
-        internal_name = sub_converter.get_name(internal_var)
+        # Explicitly force descriptive parameter names in the sub-function
+        # This ensures deterministic_const__* names appear in the function definition
+        if isinstance(param_value, str) and (
+            param_value in initializer_names
+            or param_value.startswith(f"{param_name}_const")
+        ):
+            # For constant parameters, use the exact constant name from parent scope
+            internal_name = param_value
+
+            # Crucial: First remove existing name mappings from sub_converter if they exist
+            if internal_var in sub_converter.var_to_name:
+                old_name = sub_converter.var_to_name[internal_var]
+                print(
+                    f"[INFO] Replacing generic name '{old_name}' with constant name '{internal_name}' for parameter '{param_name}'"
+                )
+                # Remove the old name from name_to_var mapping if it exists
+                if old_name in sub_converter.name_to_var:
+                    del sub_converter.name_to_var[old_name]
+
+            # Apply our preferred name directly
+            sub_converter.var_to_name[internal_var] = internal_name
+            sub_converter.name_to_var[internal_name] = internal_var
+            print(
+                f"[INFO] Using constant name '{internal_name}' for parameter '{param_name}'"
+            )
+        else:
+            # For non-constant parameters, create a descriptive name
+            internal_name = f"{param_name}_{sub_builder.get_unique_name('')}"
+
+            # Again, first remove existing name if it exists
+            if internal_var in sub_converter.var_to_name:
+                old_name = sub_converter.var_to_name[internal_var]
+                print(
+                    f"[INFO] Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
+                )
+                if old_name in sub_converter.name_to_var:
+                    del sub_converter.name_to_var[old_name]
+
+            # Apply our preferred name
+            sub_converter.var_to_name[internal_var] = internal_name
+            sub_converter.name_to_var[internal_name] = internal_var
 
         # Get shape and dtype from the parameter
         if isinstance(param_value, bool):
