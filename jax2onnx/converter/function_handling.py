@@ -138,9 +138,25 @@ def function_handler(
             if any(name == param_name for name, _ in extra_param_inputs):
                 continue
 
-            # For well-known control parameters, always create a constant
+            # For well-known control parameters, check if they already exist in name_to_var first
             if param_name in ["deterministic", "training", "is_training"]:
-                # Ensure boolean value
+                # Check if this parameter already exists in the converter's name_to_var mapping
+                if param_name in converter.name_to_var:
+                    # Use the existing variable as an input to the function
+                    var_name = param_name
+                    print(
+                        f"[INFO] Using existing graph input '{var_name}' for parameter '{param_name}'"
+                    )
+
+                    # Add to function inputs if not already there
+                    if var_name not in input_names:
+                        input_names.append(var_name)
+
+                    # Record for mapping to internal function inputs
+                    extra_param_inputs.append((param_name, var_name))
+                    continue
+
+                # Ensure boolean value for the constant
                 if isinstance(param_value, bool):
                     bool_value = param_value
                 else:
