@@ -103,6 +103,16 @@ class Jaxpr2OnnxConverter:
         if isinstance(dtype, int):
             return dtype
 
+        # Handle JAX array types (add this check)
+        if hasattr(dtype, "__module__") and dtype.__module__.startswith("jax"):
+            # For JAX arrays used in shape operations, ensure they're INT64
+            if str(dtype).find("int") >= 0:
+                return TensorProto.INT64
+            elif str(dtype).find("float") >= 0:
+                return TensorProto.FLOAT
+            elif str(dtype).find("bool") >= 0:
+                return TensorProto.BOOL
+
         # Handle numpy dtypes
         if hasattr(dtype, "type"):
             # Map common numpy types to ONNX TensorProto types
@@ -282,12 +292,97 @@ class Jaxpr2OnnxConverter:
             self.name_to_const.clear()
             self.shape_env.clear()
 
+        # Check if any parameters might be duplicated in example_args and params
+        modified_args = list(example_args)
+
+        # Extract static parameter values for function definitions
+        static_params = {}
+        if params:
+            # Copy parameters that should be considered static for ONNX function definitions
+            for param_name, param_value in params.items():
+                # For common control parameters like deterministic, training, etc.
+                # Store their concrete values or defaults for proper static embedding in ONNX functions
+                if param_name in ["deterministic", "training", "is_training"]:
+                    if isinstance(param_value, bool):
+                        # Store concrete boolean value
+                        static_params[param_name] = param_value
+                    else:
+                        # For tracers or other types, use sensible defaults based on common patterns
+                        is_tracer = (
+                            str(type(param_value)).find("DynamicJaxprTracer") >= 0
+                        )
+                        if is_tracer:
+                            print(
+                                f"[INFO] Resolving tracer for static parameter '{param_name}' to default value (True)"
+                            )
+                            static_params[param_name] = True
+
+        # Store static parameters in the converter instance for use during nested function handling
+        self.static_params = static_params
+
+        # Handle potential duplicate parameters that are passed both in example_args and params
+        if params and len(modified_args) >= 2:
+            # Check if the last arg is a potential duplicate parameter
+            last_arg = modified_args[-1]
+            is_tracer = str(type(last_arg)).find("DynamicJaxprTracer") >= 0
+
+            # Check for static parameters that might be duplicated
+            for param_name in static_params.keys():
+                if param_name in params and (
+                    isinstance(last_arg, bool)
+                    or is_tracer
+                    or (
+                        isinstance(last_arg, (int, float))
+                        and not hasattr(last_arg, "shape")
+                    )
+                ):
+                    print(
+                        f"[INFO] Removing potential duplicate '{param_name}' parameter from example_args"
+                    )
+                    modified_args = modified_args[:-1]
+                    break
+            else:
+                # If no static parameter matches, try signature inspection
+                import inspect
+
+                try:
+                    sig = inspect.signature(fn)
+                    param_names = list(sig.parameters.keys())
+
+                    # Check if any parameter in params might be duplicated in example_args
+                    for param_name, param_value in params.items():
+                        if param_name in param_names and param_name != param_names[0]:
+                            # This is likely a duplicate parameter (passed as both positional and keyword)
+                            print(
+                                f"[INFO] Removing potential duplicate '{param_name}' parameter from example_args"
+                            )
+                            modified_args = modified_args[:-1]
+                            break
+                except (ValueError, TypeError):
+                    # If we can't inspect the signature, use a heuristic based on common patterns
+                    # Check if the last arg might be a scalar or tracer (common for flag parameters)
+                    last_arg_is_scalar = (
+                        isinstance(last_arg, (bool, int, float))  # Basic scalar types
+                        or is_tracer  # JAX tracers
+                        or (not hasattr(last_arg, "shape"))  # No shape attribute
+                        or (
+                            hasattr(last_arg, "shape")
+                            and (last_arg.shape == () or len(last_arg.shape) == 0)
+                        )  # Empty shape
+                    )
+
+                    if last_arg_is_scalar and len(params) > 0:
+                        print(
+                            "[INFO] Removing potential duplicate parameter from example_args"
+                        )
+                        modified_args = modified_args[:-1]
+
         # Simply trace the function with all parameters
         with temporary_monkey_patches(allow_function_primitives=True):
             if params is None:
-                closed_jaxpr = jax.make_jaxpr(fn)(*example_args)
+                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args)
             else:
-                closed_jaxpr = jax.make_jaxpr(fn)(*example_args, **params)
+                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
 
         print(closed_jaxpr)
 

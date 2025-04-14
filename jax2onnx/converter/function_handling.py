@@ -14,7 +14,7 @@ from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
 def function_handler(
@@ -69,71 +69,210 @@ def function_handler(
     # This ensures parameters like deterministic are passed to function nodes
     extra_param_inputs = []
 
+    # Check for static parameter context from the parent converter
+    static_params = getattr(converter, "static_params", {})
+
     # First check if we have function-specific parameters from the function_handler's params argument
     if params:
+        # Track parameters that need special handling (like boolean flags)
+        scalar_params_to_process = {}
+
+        # First pass: identify parameters that map to existing inputs
         for param_name, param_value in params.items():
-            # For boolean parameters like 'deterministic', first check if it already exists as a standard input
-            if isinstance(param_value, bool):
-                # Look for an existing boolean parameter in the equation's input variables
-                standard_var_found = False
-                standard_var_name = None
-
-                # Keep track of which boolean inputs we've found
-                bool_input_indices = []
-                for i, var in enumerate(eqn.invars):
-                    if hasattr(var, "aval") and var.aval.dtype == jnp.bool_:
-                        bool_input_indices.append(i)
-
-                # If there's exactly one boolean input, we can confidently map it to the boolean param
-                if len(bool_input_indices) == 1:
-                    bool_idx = bool_input_indices[0]
-                    bool_var = eqn.invars[bool_idx]
-                    standard_var_name = converter.get_name(bool_var)
-                    standard_var_found = True
+            # Special handling for tracers - try to resolve from static context
+            is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
+            if is_tracer:
+                print(
+                    f"[WARN] Parameter '{param_name}' is a tracer: {type(param_value)}"
+                )
+                # Check if we have a static value in the converter context
+                if param_name in static_params:
                     print(
-                        f"[INFO] Found exactly one boolean input '{standard_var_name}', mapping to parameter '{param_name}'"
+                        f"[INFO] Using static value {static_params[param_name]} for tracer parameter '{param_name}'"
                     )
-                # If there are multiple boolean inputs, we need to be careful about which one maps to this param
-                elif len(bool_input_indices) > 1:
-                    # We'd need more info to disambiguate, for now just use the first one
-                    # This could be improved in the future with more context
-                    bool_idx = bool_input_indices[0]
-                    bool_var = eqn.invars[bool_idx]
-                    standard_var_name = converter.get_name(bool_var)
-                    standard_var_found = True
+                    param_value = static_params[param_name]
+                else:
                     print(
-                        f"[INFO] Found multiple boolean inputs, using '{standard_var_name}' for parameter '{param_name}'"
+                        f"[WARN] No static value found for tracer parameter '{param_name}', defaulting to True"
                     )
+                    if param_name in ["deterministic", "training", "is_training"]:
+                        param_value = True  # Default to deterministic=True
 
-                if standard_var_found and standard_var_name:
-                    # Add the standard input name to the function's input list if not already there
-                    if standard_var_name not in input_names:
-                        input_names.append(standard_var_name)
+            # Handle scalar parameters (like deterministic=True)
+            if isinstance(param_value, (bool, int, float)) or is_tracer:
+                scalar_params_to_process[param_name] = param_value
 
-                    # Record that we found a standard variable for this parameter
-                    extra_param_inputs.append((param_name, standard_var_name))
+                # For boolean parameters, try to map to existing boolean inputs
+                if isinstance(param_value, bool) or (
+                    param_name in ["deterministic", "training"]
+                ):
+                    # Keep track of which boolean inputs we've found
+                    bool_input_indices = []
+                    for i, var in enumerate(eqn.invars):
+                        if hasattr(var, "aval") and var.aval.dtype == jnp.bool_:
+                            bool_input_indices.append(i)
+
+                    # If there's exactly one boolean input, we can map it confidently
+                    if len(bool_input_indices) == 1:
+                        bool_idx = bool_input_indices[0]
+                        bool_var = eqn.invars[bool_idx]
+                        standard_var_name = converter.get_name(bool_var)
+                        if standard_var_name not in input_names:
+                            input_names.append(standard_var_name)
+
+                        # Record that we found a standard variable for this parameter
+                        extra_param_inputs.append((param_name, standard_var_name))
+                        print(
+                            f"[INFO] Using standard boolean input '{standard_var_name}' for parameter '{param_name}'"
+                        )
+                        # Remove from params to process as we've handled it
+                        scalar_params_to_process.pop(param_name, None)
+
+        # Second pass: create constants for remaining scalar parameters
+        import onnx
+
+        for param_name, param_value in scalar_params_to_process.items():
+            # Check if this parameter was already processed above
+            if any(name == param_name for name, _ in extra_param_inputs):
+                continue
+
+            # For well-known control parameters, always create a constant
+            if param_name in ["deterministic", "training", "is_training"]:
+                # Ensure boolean value
+                if isinstance(param_value, bool):
+                    bool_value = param_value
+                else:
+                    # Default for control parameters
+                    bool_value = True
                     print(
-                        f"[INFO] Using standard boolean input '{standard_var_name}' for parameter '{param_name}'"
+                        f"[INFO] Converting non-boolean value for '{param_name}' to boolean True"
                     )
-                    continue
 
-        for i, param in enumerate(params.items()):
-            param_name, param_value = param
+                # Create a unique constant tensor name for this parameter
+                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
 
-            input_names.append(param_name)
-            extra_param_inputs.append((param_name, param_value))
+                # Create the tensor with the boolean value
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.BOOL,
+                    dims=(),
+                    vals=[int(bool_value)],  # Convert bool to int for ONNX
+                )
 
-            # For example args, add a reasonable default value based on type
-            if isinstance(param_value, bool):
+                # Add to initializers
+                parent_builder.initializers.append(const_tensor)
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {bool_value}"
+                )
+
+                # Record this constant for the function definition
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
+
+                # Add to example args
+                example_args.append(bool_value)
+            elif isinstance(param_value, bool):
+                # Handle general boolean parameters
+                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.BOOL,
+                    dims=(),
+                    vals=[int(param_value)],
+                )
+                parent_builder.initializers.append(const_tensor)
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for boolean parameter '{param_name}'"
+                )
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
             elif isinstance(param_value, int):
+                # Handle integer parameters
+                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.INT64,
+                    dims=(),
+                    vals=[param_value],
+                )
+                parent_builder.initializers.append(const_tensor)
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for integer parameter '{param_name}'"
+                )
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
             elif isinstance(param_value, float):
+                # Handle float parameters
+                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.FLOAT,
+                    dims=(),
+                    vals=[param_value],
+                )
+                parent_builder.initializers.append(const_tensor)
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for float parameter '{param_name}'"
+                )
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
+
+                # Create the constant tensor with the parameter value
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.INT64,
+                    dims=(),
+                    vals=[param_value],
+                )
+
+                # Add the constant to initializers
+                parent_builder.initializers.append(const_tensor)
+
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
+                )
+
+                # Use the constant tensor's name instead of the parameter name
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
+            elif isinstance(param_value, float):
+                # Create a constant tensor for float parameters
+                import onnx
+
+                # Generate a unique constant name for this parameter
+                const_name = f"{param_name}_const_{parent_builder.get_unique_name('')}"
+
+                # Create the constant tensor with the parameter value
+                const_tensor = onnx.helper.make_tensor(
+                    name=const_name,
+                    data_type=onnx.TensorProto.FLOAT,
+                    dims=(),
+                    vals=[param_value],
+                )
+
+                # Add the constant to initializers
+                parent_builder.initializers.append(const_tensor)
+
+                print(
+                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
+                )
+
+                # Use the constant tensor's name instead of the parameter name
+                input_names.append(const_name)
+                extra_param_inputs.append((param_name, const_name))
             else:
+                # Fall back to original behavior for other parameter types
+                input_names.append(param_name)
+                extra_param_inputs.append((param_name, param_value))
                 print(
                     f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
                 )
+
+            # For example args, add the parameter value
+            example_args.append(param_value)
 
     print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
