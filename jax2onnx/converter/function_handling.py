@@ -389,9 +389,28 @@ def create_function_call(
         parent_builder: The parent ONNX graph builder
         display_name: Human-readable name for debugging
     """
-    # Ensure we include all parameter inputs in the final call inputs
+    # Ensure we include all parameter inputs in the final call inputs without duplicates
     # This combines our regular inputs with weight parameters and scalar parameters like 'deterministic'
-    call_inputs = input_names + param_inputs
+
+    # Use a dictionary to track seen inputs
+    seen_inputs = {}
+    call_inputs = []
+
+    # First add standard input tensor names
+    for name in input_names:
+        if name not in seen_inputs:
+            call_inputs.append(name)
+            seen_inputs[name] = True
+
+    # Then add parameter input names, avoiding duplicates
+    for name in param_inputs:
+        if name not in seen_inputs:
+            call_inputs.append(name)
+            seen_inputs[name] = True
+        else:
+            print(
+                f"[INFO] Skipping duplicate input '{name}' in function call to {unique_node_name}"
+            )
 
     parent_builder.add_function_call_node(
         function_name=unique_node_name,
@@ -524,10 +543,12 @@ def function_handler(
 
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
+    # Pass the sub_converter to enable proper deduplication of function inputs
     parent_builder.add_function(
         name=unique_node_name,
         sub_builder=sub_builder,
         param_input_names=param_inputs,
+        sub_converter=sub_converter,
     )
 
     parent_builder.merge_value_info_metadata_from(sub_builder)

@@ -421,7 +421,11 @@ class OnnxBuilder:
         return dummy_info.type.tensor_type.elem_type
 
     def add_function(
-        self, name: str, sub_builder: "OnnxBuilder", param_input_names: list[str]
+        self,
+        name: str,
+        sub_builder: "OnnxBuilder",
+        param_input_names: list[str],
+        sub_converter=None,
     ) -> str:
         missing = sub_builder.find_missing_value_info()  # Existing code
 
@@ -431,12 +435,14 @@ class OnnxBuilder:
 
             # Handle the common case of missing 'deterministic' parameter
             if "deterministic" in missing:
+                # Use INT32 for boolean parameters instead of BOOL
+                # since some execution providers have issues with BOOL tensors
                 sub_builder.register_value_info_metadata(
-                    "deterministic", (), TensorProto.BOOL, origin="function_param_auto"
+                    "deterministic", (), TensorProto.INT32, origin="function_param_auto"
                 )
-                sub_builder.add_value_info("deterministic", (), TensorProto.BOOL)
+                sub_builder.add_value_info("deterministic", (), TensorProto.INT32)
                 print(
-                    f"[INFO] Auto-registered deterministic parameter in function '{name}'"
+                    f"[INFO] Auto-registered deterministic parameter in function '{name}' as INT32"
                 )
                 # Check if we still have missing items
                 missing = sub_builder.find_missing_value_info()
@@ -448,28 +454,103 @@ class OnnxBuilder:
             )
 
         function_graph = sub_builder.create_graph(name + "_graph")  # Existing code
-        # These are the internal names used within the function graph for data inputs
-        internal_data_input_names = [
-            vi.name for vi in function_graph.input
-        ]  # Modified variable name for clarity
         # These are the internal names used for function outputs
         internal_output_names = [
             vi.name for vi in function_graph.output
         ]  # Modified variable name for clarity
 
         # --- START REFINED CHANGE ---
+        # Construct the final input names list, handling both generic and descriptive names
+        final_input_names = []
+        seen_names = set()
+
+        # If we have access to the sub_converter, use it to resolve descriptive names
+        if (
+            sub_converter is not None
+            and hasattr(sub_converter, "jaxpr")
+            and hasattr(sub_converter, "var_to_name")
+        ):
+            print(
+                f"[INFO] Using sub_converter to deduplicate function inputs for '{name}'"
+            )
+
+            # Get the original input variables from the sub_converter's jaxpr
+            original_internal_input_vars = sub_converter.jaxpr.invars
+
+            # Map all original input variables to their FINAL descriptive names
+            for var in original_internal_input_vars:
+                # Use the sub_converter's map to get the potentially renamed final name
+                final_name = sub_converter.var_to_name.get(var, None)
+                if final_name is None:
+                    # Handle cases where a var might not be in the map
+                    print(
+                        f"[WARN] Could not find final name for input var: {var}. Skipping."
+                    )
+                    continue
+
+                # Ensure uniqueness in the final list
+                if final_name not in seen_names:
+                    final_input_names.append(final_name)
+                    seen_names.add(final_name)
+
+                    # Always ensure deterministic parameter is registered with INT32
+                    if final_name == "deterministic":
+                        # Force update the metadata and value info for deterministic to be INT32
+                        from onnx import TensorProto
+
+                        sub_builder.register_value_info_metadata(
+                            "deterministic",
+                            (),
+                            TensorProto.INT32,
+                            origin="function_param_forced",
+                        )
+                        sub_builder.add_value_info(
+                            "deterministic", (), TensorProto.INT32
+                        )
+                        print(
+                            f"[INFO] Force-updated deterministic parameter to INT32 in function '{name}'"
+                        )
+                else:
+                    print(f"[DEBUG] Deduplicating function input name: {final_name}")
+
+            # Add any extra parameter inputs (like weights/constants)
+            for param_name in param_input_names:
+                if param_name not in seen_names:
+                    final_input_names.append(param_name)
+                    seen_names.add(param_name)
+
+                    # Also check parameter inputs for deterministic
+                    if param_name == "deterministic":
+                        from onnx import TensorProto
+
+                        sub_builder.register_value_info_metadata(
+                            "deterministic",
+                            (),
+                            TensorProto.INT32,
+                            origin="function_param_forced",
+                        )
+                        sub_builder.add_value_info(
+                            "deterministic", (), TensorProto.INT32
+                        )
+                        print(
+                            f"[INFO] Force-updated deterministic parameter to INT32 in function '{name}'"
+                        )
+
+            print(
+                f"[DEBUG] Final computed input names for function '{name}': {final_input_names}"
+            )
+        else:
+            # Fallback to the original approach if sub_converter is not available
+            internal_data_input_names = [vi.name for vi in function_graph.input]
+            final_input_names = internal_data_input_names + param_input_names
 
         # 1. Get ValueInfo for intermediate/output tensors from the sub-builder
-        #    (This is what we added in the previous step)
         intermediate_and_output_value_info = sub_builder.value_info
 
-        # 2. Create ValueInfo for the function's inputs (data inputs + params)
-        #    using metadata from the *main* builder (self).
+        # 2. Create ValueInfo for the function's inputs
         input_value_infos = []
-        # Combine data inputs and parameter inputs known to the function signature
-        all_internal_input_names = internal_data_input_names + param_input_names
 
-        for input_name in all_internal_input_names:
+        for input_name in final_input_names:
             try:
                 # Look up shape/dtype in the main builder's metadata
                 # NOTE: This assumes the internal input name directly corresponds
@@ -500,13 +581,28 @@ class OnnxBuilder:
             ):  # Prioritize input VIs if name clash occurs
                 combined_value_info_dict[vi.name] = vi
 
+        # Special handling for 'deterministic' parameter - CRITICAL FIX
+        # Override any existing deterministic ValueInfo to ensure it uses BOOL
+        # Reverting back to BOOL as it was visible in Netron before
+        if "deterministic" in combined_value_info_dict:
+            # Force create a new ValueInfo for deterministic with BOOL type
+            from onnx import TensorProto
+
+            deterministic_vi = helper.make_tensor_value_info(
+                "deterministic", TensorProto.BOOL, ()
+            )
+            combined_value_info_dict["deterministic"] = deterministic_vi
+            print(
+                f"[CRITICAL FIX] Forced deterministic parameter to BOOL type in function '{name}'"
+            )
+
         final_function_value_info = list(combined_value_info_dict.values())
 
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
-            # Use the combined list of internal names for the function signature
-            inputs=all_internal_input_names,
+            # Use our deduplicated list of input names
+            inputs=final_input_names,
             outputs=internal_output_names,  # Use internal output names
             nodes=function_graph.node,
             opset_imports=[
