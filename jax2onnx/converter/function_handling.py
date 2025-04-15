@@ -78,6 +78,14 @@ def register_input_metadata(builder, var_name, aval):
     builder.register_value_info_metadata(var_name, shape, dtype)
 
 
+def register_constant_parameter(
+    const_name, param_name, param_value, input_names, extra_param_inputs, example_args
+):
+    input_names.append(const_name)
+    extra_param_inputs.append((param_name, const_name))
+    example_args.append(param_value)
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
