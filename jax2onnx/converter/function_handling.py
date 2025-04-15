@@ -378,6 +378,58 @@ def create_function_call(
     print(f"✅ Added call node for: {unique_node_name}")
 
 
+def trace_function_body(
+    converter,
+    orig_fn,
+    params,
+    example_args,
+    unique_node_name,
+    parent_builder,
+    outer_input_vars_avals,
+    extra_param_inputs,
+    eqn,
+):
+    """Trace the function body and set up the function's inputs.
+
+    This function performs the JAX function tracing and registers all inputs
+    including regular inputs and parameter inputs.
+
+    Args:
+        converter: The parent converter instance
+        orig_fn: Original JAX function to trace
+        params: Function parameters
+        example_args: Example arguments for tracing
+        unique_node_name: Unique name for the function
+        parent_builder: The parent ONNX graph builder
+        outer_input_vars_avals: Input variable information from parent scope
+        extra_param_inputs: Extra parameter inputs information
+        eqn: Equation from JAX's JaxprTrace
+
+    Returns:
+        A tuple of (sub_converter, sub_builder, internal_input_vars)
+    """
+    sub_converter, sub_builder, params = setup_sub_converter(
+        converter, eqn, params, unique_node_name, parent_builder
+    )
+
+    trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
+        params, example_args
+    )
+    sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
+
+    internal_input_vars = sub_converter.jaxpr.invars
+    register_function_inputs(
+        sub_converter, sub_builder, internal_input_vars, outer_input_vars_avals
+    )
+
+    remaining_internal_vars = internal_input_vars[len(outer_input_vars_avals) :]
+    rename_and_register_param_inputs(
+        sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
+    )
+
+    return sub_converter, sub_builder, internal_input_vars
+
+
 def map_and_register_outputs(
     unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
 ):
@@ -432,23 +484,16 @@ def function_handler(
     )
 
     print(f"Tracing function body for: {unique_node_name}")
-    sub_converter, sub_builder, params = setup_sub_converter(
-        converter, eqn, params, unique_node_name, parent_builder
-    )
-
-    trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
-        params, example_args
-    )
-    sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
-
-    internal_input_vars = sub_converter.jaxpr.invars
-    register_function_inputs(
-        sub_converter, sub_builder, internal_input_vars, outer_input_vars_avals
-    )
-
-    remaining_internal_vars = internal_input_vars[len(outer_input_vars_avals) :]
-    rename_and_register_param_inputs(
-        sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
+    sub_converter, sub_builder, internal_input_vars = trace_function_body(
+        converter,
+        orig_fn,
+        params,
+        example_args,
+        unique_node_name,
+        parent_builder,
+        outer_input_vars_avals,
+        extra_param_inputs,
+        eqn,
     )
 
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
