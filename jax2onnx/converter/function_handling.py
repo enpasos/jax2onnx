@@ -370,6 +370,45 @@ def collect_used_param_inputs(sub_builder, parent_builder):
     return sorted(used_constants)
 
 
+def map_and_register_outputs(
+    unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
+):
+    sub_output_names = [vi.name for vi in sub_builder.outputs]
+    print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
+    print("[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
+
+    call_outputs = []
+    for i, sub_name in enumerate(sub_output_names):
+        var = eqn.outvars[i]
+
+        if sub_name not in sub_builder.value_info_metadata:
+            sub_var = sub_converter.name_to_var.get(sub_name)
+            if sub_var and hasattr(sub_var, "aval"):
+                aval = sub_var.aval
+                shape = tuple(aval.shape)
+                dtype = helper.np_dtype_to_tensor_dtype(aval.dtype)
+                sub_builder.register_value_info_metadata(
+                    sub_name, shape, dtype, origin="function_output"
+                )
+                sub_builder.add_value_info(sub_name, shape, dtype)
+
+        shape_dtype = sub_builder.value_info_metadata.get(sub_name)
+        if shape_dtype is None:
+            raise RuntimeError(
+                f"[❌] Missing metadata for subgraph output '{sub_name}'."
+            )
+        shape, dtype = shape_dtype
+        var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
+        parent_output_name = parent_builder.get_unique_name("var")
+        converter.var_to_name[var] = parent_output_name
+        converter.name_to_var[parent_output_name] = var
+        call_outputs.append(parent_output_name)
+        parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
+        parent_builder.add_value_info(parent_output_name, shape, dtype)
+
+    return call_outputs
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -406,10 +445,6 @@ def function_handler(
 
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
-    sub_output_names = [vi.name for vi in sub_builder.outputs]
-    print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
-    print("[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
-
     parent_builder.add_function(
         name=unique_node_name,
         sub_builder=sub_builder,
@@ -417,35 +452,9 @@ def function_handler(
     )
 
     parent_builder.merge_value_info_metadata_from(sub_builder)
-    call_outputs = []
-    for i, sub_name in enumerate(sub_output_names):
-        var = eqn.outvars[i]
-
-        if sub_name not in sub_builder.value_info_metadata:
-            sub_var = sub_converter.name_to_var.get(sub_name)
-            if sub_var and hasattr(sub_var, "aval"):
-                aval = sub_var.aval
-                shape = tuple(aval.shape)
-                dtype = helper.np_dtype_to_tensor_dtype(aval.dtype)
-                sub_builder.register_value_info_metadata(
-                    sub_name, shape, dtype, origin="function_output"
-                )
-                sub_builder.add_value_info(sub_name, shape, dtype)
-
-        shape_dtype = sub_builder.value_info_metadata.get(sub_name)
-        if shape_dtype is None:
-            raise RuntimeError(
-                f"[❌] Missing metadata for subgraph output '{sub_name}'."
-            )
-        shape, dtype = shape_dtype
-        var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
-        parent_output_name = parent_builder.get_unique_name("var")
-        converter.var_to_name[var] = parent_output_name
-        converter.name_to_var[parent_output_name] = var
-        call_outputs.append(parent_output_name)
-        parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
-        parent_builder.add_value_info(parent_output_name, shape, dtype)
-
+    call_outputs = map_and_register_outputs(
+        unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
+    )
     parent_builder._propagate_nested_functions(sub_builder)
 
     # Ensure we include all parameter inputs in the final call inputs
