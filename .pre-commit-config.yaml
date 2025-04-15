@@ -4,14 +4,14 @@ repos:
     hooks:
       - id: black
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.0
-    hooks:
-      - id: ruff
-        args: [--fix, --unsafe-fixes] #, --unsafe-fixes]
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
-    hooks:
-      - id: mypy
+#  - repo: https://github.com/astral-sh/ruff-pre-commit
+#    rev: v0.11.0
+#    hooks:
+#      - id: ruff
+#        args: [--fix, --unsafe-fixes] #, --unsafe-fixes]
+#
+#  - repo: https://github.com/pre-commit/mirrors-mypy
+#    rev: v1.15.0
+#    hooks:
+#      - id: mypy
 

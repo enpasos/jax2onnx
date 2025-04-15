@@ -288,6 +288,19 @@ def propagate_eqn_parameters(eqn, params):
     return params
 
 
+def propagate_eqn_parameters(eqn, params):
+    if eqn.params:
+        if params is None:
+            params = {}
+        for param_key, param_value in eqn.params.items():
+            if param_key not in params:
+                params[param_key] = param_value
+                print(
+                    f"[INFO] Propagating parameter '{param_key}' from equation params"
+                )
+    return params
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -310,11 +323,10 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
+    params = propagate_eqn_parameters(eqn, params)
     sub_converter.params = params
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
-
-    params = propagate_eqn_parameters(eqn, params)
 
     trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
         params, example_args
