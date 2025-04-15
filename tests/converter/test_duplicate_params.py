@@ -46,7 +46,7 @@ class SuperBlock(nnx.Module):
 
 
 def check_duplicate_function_inputs(model):
-    """Check if any function in the model has duplicate parameter inputs.
+    """Check if any function in the model has duplicate parameter inputs in its definition.
 
     Args:
         model: An ONNX model
@@ -57,7 +57,7 @@ def check_duplicate_function_inputs(model):
     duplicates = []
 
     for function in model.functions:
-        # Check for duplicate inputs within the function definition
+        # Check for direct duplicates in the function input definition
         seen_inputs = set()
         duplicate_inputs = []
 
@@ -67,26 +67,20 @@ def check_duplicate_function_inputs(model):
             else:
                 seen_inputs.add(input_name)
 
-        # Look for cases where we have both var_X and a descriptive name for the same parameter
-        descriptive_names = {
-            name
-            for name in function.input
-            if not name.startswith("var_") and not name.startswith("const_")
-        }
-        var_names = {name for name in function.input if name.startswith("var_")}
-
-        # For each descriptive parameter name, check if there's a corresponding generic var_X that should be removed
+        # Also check function call nodes for duplicate inputs
         for node in function.node:
-            if node.name.startswith("not_deterministic"):
-                # This node uses a parameter that might be duplicated
+            if node.domain == "custom" and node.op_type in [
+                f.name for f in model.functions
+            ]:
+                # This is a function call node
+                seen_call_inputs = set()
                 for input_name in node.input:
-                    if input_name in descriptive_names and any(
-                        var_name in var_names for var_name in var_names
-                    ):
-                        # Found a case where we have both a descriptive name and potentially a generic var_X for the same parameter
+                    if input_name in seen_call_inputs:
                         duplicate_inputs.append(
-                            f"{input_name} (with generic var_X counterpart)"
+                            f"Duplicate input '{input_name}' in function call {node.name}"
                         )
+                    else:
+                        seen_call_inputs.add(input_name)
 
         if duplicate_inputs:
             duplicates.append((function.name, duplicate_inputs))
