@@ -39,38 +39,31 @@ def check_parameters(
 
 def resolve_function_inputs(converter, eqn, parent_builder):
     input_names, example_args, outer_input_vars_avals = [], [], []
-
-    # Process regular inputs from the equation
     for var in eqn.invars:
         if hasattr(var, "aval"):
-            aval = var.aval
-            var_name = converter.get_name(var)
+            aval, var_name = var.aval, converter.get_name(var)
             input_names.append(var_name)
             outer_input_vars_avals.append((var, aval))
-            example_args.append(
-                jnp.ones(aval.shape, dtype=aval.dtype)
-                if aval.shape
-                else jnp.zeros((), dtype=aval.dtype)
-            )
-            if var_name in parent_builder.value_info_metadata:
-                old_shape, old_dtype = parent_builder.value_info_metadata[var_name]
-                new_shape, new_dtype = tuple(aval.shape), aval.dtype
-                if old_shape != new_shape or old_dtype != new_dtype:
-                    print(
-                        f"[❌ OverwriteError] Refusing to overwrite '{var_name}' "
-                        f"(old shape={old_shape}, dtype={old_dtype}) with "
-                        f"(new shape={new_shape}, dtype={new_dtype})"
-                    )
-                    continue
-            parent_builder.register_value_info_metadata(
-                var_name, tuple(aval.shape), aval.dtype
-            )
+            example_args.append(create_example_arg(aval))
+            register_input_metadata(parent_builder, var_name, aval)
         elif isinstance(var, Literal):
             example_args.append(var.val)
         else:
             raise TypeError(f"Unexpected input var type: {type(var)}")
-
     return input_names, example_args, outer_input_vars_avals
+
+
+def create_example_arg(aval):
+    return (
+        jnp.ones(aval.shape, dtype=aval.dtype)
+        if aval.shape
+        else jnp.zeros((), dtype=aval.dtype)
+    )
+
+
+def register_input_metadata(builder, var_name, aval):
+    shape, dtype = tuple(aval.shape), aval.dtype
+    builder.register_value_info_metadata(var_name, shape, dtype)
 
 
 def function_handler(
