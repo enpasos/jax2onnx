@@ -359,6 +359,17 @@ def rename_and_register_param_inputs(
         sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
 
 
+def collect_used_param_inputs(sub_builder, parent_builder):
+    initializer_names = {i.name for i in parent_builder.initializers}
+    used_constants = {
+        inp
+        for node in sub_builder.nodes
+        for inp in node.input
+        if inp in initializer_names
+    }
+    return sorted(used_constants)
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -393,14 +404,7 @@ def function_handler(
         sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
     )
 
-    initializer_names = {i.name for i in parent_builder.initializers}
-    used_constants = {
-        inp
-        for node in sub_builder.nodes
-        for inp in node.input
-        if inp in initializer_names
-    }
-    param_inputs = sorted(used_constants)
+    param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
     sub_output_names = [vi.name for vi in sub_builder.outputs]
     print(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
