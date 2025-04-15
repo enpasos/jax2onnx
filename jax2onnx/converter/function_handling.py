@@ -324,8 +324,10 @@ def rename_and_register_param_inputs(
         sub_converter.var_to_name[internal_var] = internal_name
         sub_converter.name_to_var[internal_name] = internal_var
 
-        shape = ()
-        onnx_dtype_enum = 9  # TensorProto.BOOL
+        shape = ()  # Empty tuple for scalar values
+        onnx_dtype_enum = (
+            onnx.TensorProto.BOOL
+        )  # Use the actual constant instead of magic number 9
         sub_builder.register_value_info_metadata(
             internal_name, shape, onnx_dtype_enum, origin="function_param_input"
         )
