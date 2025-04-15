@@ -183,81 +183,29 @@ def function_handler(
 
                 # Ensure boolean value for the constant
                 if isinstance(param_value, bool):
-                    bool_value = param_value
-                else:
-                    # Default for control parameters
-                    bool_value = True
-                    print(
-                        f"[INFO] Converting non-boolean value for '{param_name}' to boolean True"
+                    const_name = create_scalar_constant_tensor(
+                        param_name, param_value, onnx.TensorProto.BOOL, parent_builder
                     )
-
-                # Create a unique constant tensor name for this parameter
-                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
-
-                # Create the tensor with the boolean value
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.BOOL,
-                    dims=(),
-                    vals=[int(bool_value)],  # Convert bool to int for ONNX
-                )
-
-                # Add to initializers
-                parent_builder.initializers.append(const_tensor)
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {bool_value}"
-                )
-
-                # Record this constant for the function definition
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
-
-                # Add to example args
-                example_args.append(bool_value)
+                    input_names.append(const_name)
+                    extra_param_inputs.append((param_name, const_name))
+                    example_args.append(param_value)
             elif isinstance(param_value, bool):
-                # Handle general boolean parameters
-                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.BOOL,
-                    dims=(),
-                    vals=[int(param_value)],
-                )
-                parent_builder.initializers.append(const_tensor)
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for boolean parameter '{param_name}'"
+                const_name = create_scalar_constant_tensor(
+                    param_name, param_value, onnx.TensorProto.BOOL, parent_builder
                 )
                 input_names.append(const_name)
                 extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
             elif isinstance(param_value, int):
-                # Handle integer parameters
-                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.INT64,
-                    dims=(),
-                    vals=[param_value],
-                )
-                parent_builder.initializers.append(const_tensor)
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for integer parameter '{param_name}'"
+                const_name = create_scalar_constant_tensor(
+                    param_name, param_value, onnx.TensorProto.INT64, parent_builder
                 )
                 input_names.append(const_name)
                 extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
             elif isinstance(param_value, float):
-                # Handle float parameters
-                const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.FLOAT,
-                    dims=(),
-                    vals=[param_value],
-                )
-                parent_builder.initializers.append(const_tensor)
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for float parameter '{param_name}'"
+                const_name = create_scalar_constant_tensor(
+                    param_name, param_value, onnx.TensorProto.FLOAT, parent_builder
                 )
                 input_names.append(const_name)
                 extra_param_inputs.append((param_name, const_name))
