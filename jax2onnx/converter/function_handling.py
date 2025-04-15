@@ -237,50 +237,6 @@ def function_handler(
                 input_names.append(const_name)
                 extra_param_inputs.append((param_name, const_name))
                 example_args.append(param_value)
-
-                # Create the constant tensor with the parameter value
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.INT64,
-                    dims=(),
-                    vals=[param_value],
-                )
-
-                # Add the constant to initializers
-                parent_builder.initializers.append(const_tensor)
-
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
-                )
-
-                # Use the constant tensor's name instead of the parameter name
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
-            elif isinstance(param_value, float):
-                # Create a constant tensor for float parameters
-                import onnx
-
-                # Generate a unique constant name for this parameter
-                const_name = f"{param_name}_const_{parent_builder.get_unique_name('')}"
-
-                # Create the constant tensor with the parameter value
-                const_tensor = onnx.helper.make_tensor(
-                    name=const_name,
-                    data_type=onnx.TensorProto.FLOAT,
-                    dims=(),
-                    vals=[param_value],
-                )
-
-                # Add the constant to initializers
-                parent_builder.initializers.append(const_tensor)
-
-                print(
-                    f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
-                )
-
-                # Use the constant tensor's name instead of the parameter name
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
             else:
                 # Fall back to original behavior for other parameter types
                 input_names.append(param_name)
@@ -367,7 +323,7 @@ def function_handler(
 
     internal_input_vars = sub_converter.jaxpr.invars
 
-    # MODIFIED: Account for extra parameter inputs when checking match
+    # Account for extra parameter inputs when checking match
     expected_inputs = len(outer_input_vars_avals) + len(extra_param_inputs)
     if len(internal_input_vars) != expected_inputs:
         print(
