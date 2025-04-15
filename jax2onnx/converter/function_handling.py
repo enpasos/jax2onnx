@@ -301,6 +301,21 @@ def propagate_eqn_parameters(eqn, params):
     return params
 
 
+def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder):
+    sub_builder = OnnxBuilder(
+        parent_builder.name_generator,
+        parent_builder.opset,
+        unique_node_name + "_graph",
+        initializers=parent_builder.initializers,
+    )
+    sub_converter = converter.__class__(sub_builder)
+    params = propagate_eqn_parameters(eqn, params)
+    sub_converter.params = params
+    if hasattr(converter, "call_params"):
+        sub_converter.call_params = converter.call_params
+    return sub_converter, sub_builder, params
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -316,17 +331,9 @@ def function_handler(
     )
 
     print(f"Tracing function body for: {unique_node_name}")
-    sub_builder = OnnxBuilder(
-        parent_builder.name_generator,
-        parent_builder.opset,
-        unique_node_name + "_graph",
-        initializers=parent_builder.initializers,
+    sub_converter, sub_builder, params = setup_sub_converter(
+        converter, eqn, params, unique_node_name, parent_builder
     )
-    sub_converter = converter.__class__(sub_builder)
-    params = propagate_eqn_parameters(eqn, params)
-    sub_converter.params = params
-    if hasattr(converter, "call_params"):
-        sub_converter.call_params = converter.call_params
 
     trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
         params, example_args
