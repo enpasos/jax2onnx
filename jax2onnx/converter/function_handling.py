@@ -345,6 +345,39 @@ def collect_used_param_inputs(sub_builder, parent_builder):
     return sorted(used_constants)
 
 
+def create_function_call(
+    unique_node_name,
+    input_names,
+    param_inputs,
+    call_outputs,
+    parent_builder,
+    display_name,
+):
+    """Create a function call node that invokes the ONNX function in the parent graph.
+
+    Args:
+        unique_node_name: Unique name for the function
+        input_names: List of standard input tensor names
+        param_inputs: List of parameter input names (constants, weights, etc.)
+        call_outputs: List of output tensor names
+        parent_builder: The parent ONNX graph builder
+        display_name: Human-readable name for debugging
+    """
+    # Ensure we include all parameter inputs in the final call inputs
+    # This combines our regular inputs with weight parameters and scalar parameters like 'deterministic'
+    call_inputs = input_names + param_inputs
+
+    parent_builder.add_function_call_node(
+        function_name=unique_node_name,
+        input_names=call_inputs,
+        output_names=call_outputs,
+        node_name=unique_node_name,
+        user_display_name=display_name,
+    )
+
+    print(f"✅ Added call node for: {unique_node_name}")
+
+
 def map_and_register_outputs(
     unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
 ):
@@ -432,16 +465,6 @@ def function_handler(
     )
     parent_builder._propagate_nested_functions(sub_builder)
 
-    # Ensure we include all parameter inputs in the final call inputs
-    # This combines our regular inputs with weight parameters and scalar parameters like 'deterministic'
-    call_inputs = input_names + param_inputs
-
-    parent_builder.add_function_call_node(
-        function_name=unique_node_name,
-        input_names=call_inputs,
-        output_names=call_outputs,
-        node_name=unique_node_name,
-        user_display_name=name,
+    create_function_call(
+        unique_node_name, input_names, param_inputs, call_outputs, parent_builder, name
     )
-
-    print(f"✅ Added call node for: {unique_node_name}")
