@@ -237,22 +237,54 @@ def handle_function_parameters(
     return extra_param_inputs
 
 
+def prepare_trace_kwargs_and_example_args(params, example_args):
+    trace_kwargs = {"preserve_graph": True}
+    param_keys_to_exclude = []
+
+    if params:
+        trace_kwargs["params"] = params
+        param_keys_to_exclude = list(params.keys())
+        print(
+            f"[INFO] Will exclude these parameters from example_args: {param_keys_to_exclude}"
+        )
+
+        if example_args:
+            if (
+                isinstance(example_args[-1], bool)
+                and "deterministic" in param_keys_to_exclude
+            ):
+                print(
+                    "[INFO] Removing duplicated 'deterministic' parameter from example_args"
+                )
+                example_args = example_args[:-1]
+
+            for i, param_name in enumerate(param_keys_to_exclude):
+                if param_name in [
+                    "mask",
+                    "dropout_rng",
+                    "dtype",
+                    "precision",
+                    "module",
+                ] and i < len(example_args):
+                    if example_args[i] is None:
+                        print(
+                            f"[INFO] Removing duplicated '{param_name}' parameter from example_args"
+                        )
+                        example_args = example_args[:i] + example_args[i + 1 :]
+
+    return trace_kwargs, example_args
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
-
     check_parameters(name, converter, eqn, orig_fn, params)
-
     impl_key, unique_node_name, parent_builder = prepare_function_names(
         converter, orig_fn, name
     )
-
     input_names, example_args, outer_input_vars_avals = resolve_function_inputs(
         converter, eqn, parent_builder
     )
-
-    # Add function parameters to the function's inputs
-    # This ensures parameters like deterministic are passed to function nodes
     extra_param_inputs = handle_function_parameters(
         params, converter, eqn, parent_builder, input_names, example_args
     )
@@ -265,69 +297,23 @@ def function_handler(
         initializers=parent_builder.initializers,
     )
     sub_converter = converter.__class__(sub_builder)
-
-    # Pass all parameters to the subconverter
     sub_converter.params = params
-
-    # Also pass call_params from parent to sub_converter
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
 
-    # Extract any parameters from the equation that should be propagated
-    # This ensures parameters are properly passed through nested function calls
     if eqn.params:
-        # If we have equation parameters, extract them to params dictionary
         if params is None:
             params = {}
-
         for param_key, param_value in eqn.params.items():
-            # Only propagate parameters that aren't already in params
             if param_key not in params:
                 params[param_key] = param_value
                 print(
                     f"[INFO] Propagating parameter '{param_key}' from equation params"
                 )
 
-    trace_kwargs = {"preserve_graph": True}
-
-    # Don't duplicate parameters between trace_kwargs and example_args
-    # This prevents the "got multiple values for argument" error
-    param_keys_to_exclude = []
-    if params is not None:
-        trace_kwargs["params"] = params
-        param_keys_to_exclude = list(params.keys())
-        print(
-            f"[INFO] Will exclude these parameters from example_args: {param_keys_to_exclude}"
-        )
-
-    # Remove any example_args that correspond to parameters already in trace_kwargs
-    if example_args and param_keys_to_exclude:
-        # Boolean params (like deterministic) are often at the end of example_args
-        if (
-            isinstance(example_args[-1], bool)
-            and "deterministic" in param_keys_to_exclude
-        ):
-            print(
-                "[INFO] Removing duplicated 'deterministic' parameter from example_args"
-            )
-            example_args = example_args[:-1]
-
-        # Remove None values that correspond to parameters being passed in kwargs
-        # This avoids duplicate parameters like 'mask'
-        for i, param_name in enumerate(param_keys_to_exclude):
-            if param_name in [
-                "mask",
-                "dropout_rng",
-                "dtype",
-                "precision",
-                "module",
-            ] and i < len(example_args):
-                if example_args[i] is None:
-                    print(
-                        f"[INFO] Removing duplicated '{param_name}' parameter from example_args"
-                    )
-                    example_args = example_args[:i] + example_args[i + 1 :]
-
+    trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
+        params, example_args
+    )
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
     internal_input_vars = sub_converter.jaxpr.invars
