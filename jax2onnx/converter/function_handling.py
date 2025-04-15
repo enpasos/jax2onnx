@@ -316,6 +316,23 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
     return sub_converter, sub_builder, params
 
 
+def register_function_inputs(
+    sub_converter, sub_builder, internal_input_vars, outer_input_vars_avals
+):
+    for internal_var, (outer_var, outer_aval) in zip(
+        internal_input_vars[: len(outer_input_vars_avals)],
+        outer_input_vars_avals,
+        strict=False,
+    ):
+        internal_name = sub_converter.get_name(internal_var)
+        shape = tuple(outer_aval.shape)
+        dtype = helper.np_dtype_to_tensor_dtype(outer_aval.dtype)
+        sub_builder.register_value_info_metadata(
+            internal_name, shape, dtype, origin="function_input"
+        )
+        sub_builder.add_value_info(internal_name, shape, dtype)
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -341,30 +358,9 @@ def function_handler(
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 
     internal_input_vars = sub_converter.jaxpr.invars
-
-    # Account for extra parameter inputs when checking match
-    expected_inputs = len(outer_input_vars_avals) + len(extra_param_inputs)
-    if len(internal_input_vars) != expected_inputs:
-        print(
-            f"[WARNING] Mismatch in input count! Expected {expected_inputs}, got {len(internal_input_vars)}"
-        )
-        print(f"  - Regular inputs: {len(outer_input_vars_avals)}")
-        print(f"  - Extra param inputs: {len(extra_param_inputs)}")
-        # Continue anyway - we'll skip the mismatched inputs
-
-    # Process the regular inputs first
-    for internal_var, (outer_var, outer_aval) in zip(
-        internal_input_vars[: len(outer_input_vars_avals)],
-        outer_input_vars_avals,
-        strict=False,
-    ):
-        internal_name = sub_converter.get_name(internal_var)
-        shape = tuple(outer_aval.shape)
-        onnx_dtype_enum = helper.np_dtype_to_tensor_dtype(outer_aval.dtype)
-        sub_builder.register_value_info_metadata(
-            internal_name, shape, onnx_dtype_enum, origin="function_input"
-        )
-        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+    register_function_inputs(
+        sub_converter, sub_builder, internal_input_vars, outer_input_vars_avals
+    )
 
     # Get initializer names before processing parameter inputs
     initializer_names = {i.name for i in parent_builder.initializers}
