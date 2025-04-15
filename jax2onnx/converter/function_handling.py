@@ -86,6 +86,89 @@ def register_constant_parameter(
     example_args.append(param_value)
 
 
+def process_scalar_parameters(
+    scalar_params_to_process,
+    converter,
+    eqn,
+    parent_builder,
+    input_names,
+    extra_param_inputs,
+    example_args,
+):
+    for param_name, param_value in scalar_params_to_process.items():
+        if any(name == param_name for name, _ in extra_param_inputs):
+            continue
+
+        if param_name in ["deterministic", "training", "is_training"]:
+            if param_name in converter.name_to_var:
+                var_name = param_name
+                print(
+                    f"[INFO] Using existing graph input '{var_name}' for parameter '{param_name}'"
+                )
+                if var_name not in input_names:
+                    input_names.append(var_name)
+                extra_param_inputs.append((param_name, var_name))
+                continue
+
+            if isinstance(param_value, bool):
+                const_name = create_scalar_constant_tensor(
+                    param_name, param_value, onnx.TensorProto.BOOL, parent_builder
+                )
+                register_constant_parameter(
+                    const_name,
+                    param_name,
+                    param_value,
+                    input_names,
+                    extra_param_inputs,
+                    example_args,
+                )
+                continue
+
+        if isinstance(param_value, bool):
+            const_name = create_scalar_constant_tensor(
+                param_name, param_value, onnx.TensorProto.BOOL, parent_builder
+            )
+            register_constant_parameter(
+                const_name,
+                param_name,
+                param_value,
+                input_names,
+                extra_param_inputs,
+                example_args,
+            )
+        elif isinstance(param_value, int):
+            const_name = create_scalar_constant_tensor(
+                param_name, param_value, onnx.TensorProto.INT64, parent_builder
+            )
+            register_constant_parameter(
+                const_name,
+                param_name,
+                param_value,
+                input_names,
+                extra_param_inputs,
+                example_args,
+            )
+        elif isinstance(param_value, float):
+            const_name = create_scalar_constant_tensor(
+                param_name, param_value, onnx.TensorProto.FLOAT, parent_builder
+            )
+            register_constant_parameter(
+                const_name,
+                param_name,
+                param_value,
+                input_names,
+                extra_param_inputs,
+                example_args,
+            )
+        else:
+            input_names.append(param_name)
+            extra_param_inputs.append((param_name, param_value))
+            print(
+                f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
+            )
+            example_args.append(param_value)
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -164,90 +247,16 @@ def function_handler(
                         scalar_params_to_process.pop(param_name, None)
 
         # Second pass: create constants for remaining scalar parameters
-        import onnx
 
-        for param_name, param_value in scalar_params_to_process.items():
-            # Check if this parameter was already processed above
-            if any(name == param_name for name, _ in extra_param_inputs):
-                continue
-
-            # For well-known control parameters, check if they already exist in name_to_var first
-            if param_name in ["deterministic", "training", "is_training"]:
-                # Check if this parameter already exists in the converter's name_to_var mapping
-                if param_name in converter.name_to_var:
-                    # Use the existing variable as an input to the function
-                    var_name = param_name
-                    print(
-                        f"[INFO] Using existing graph input '{var_name}' for parameter '{param_name}'"
-                    )
-
-                    # Add to function inputs if not already there
-                    if var_name not in input_names:
-                        input_names.append(var_name)
-
-                    # Record for mapping to internal function inputs
-                    extra_param_inputs.append((param_name, var_name))
-                    continue
-
-                # Ensure boolean value for the constant
-                if isinstance(param_value, bool):
-                    const_name = create_scalar_constant_tensor(
-                        param_name, param_value, onnx.TensorProto.BOOL, parent_builder
-                    )
-                    register_constant_parameter(
-                        const_name,
-                        param_name,
-                        param_value,
-                        input_names,
-                        extra_param_inputs,
-                        example_args,
-                    )
-            elif isinstance(param_value, bool):
-                const_name = create_scalar_constant_tensor(
-                    param_name, param_value, onnx.TensorProto.BOOL, parent_builder
-                )
-                register_constant_parameter(
-                    const_name,
-                    param_name,
-                    param_value,
-                    input_names,
-                    extra_param_inputs,
-                    example_args,
-                )
-            elif isinstance(param_value, int):
-                const_name = create_scalar_constant_tensor(
-                    param_name, param_value, onnx.TensorProto.INT64, parent_builder
-                )
-                register_constant_parameter(
-                    const_name,
-                    param_name,
-                    param_value,
-                    input_names,
-                    extra_param_inputs,
-                    example_args,
-                )
-            elif isinstance(param_value, float):
-                const_name = create_scalar_constant_tensor(
-                    param_name, param_value, onnx.TensorProto.FLOAT, parent_builder
-                )
-                register_constant_parameter(
-                    const_name,
-                    param_name,
-                    param_value,
-                    input_names,
-                    extra_param_inputs,
-                    example_args,
-                )
-            else:
-                # Fall back to original behavior for other parameter types
-                input_names.append(param_name)
-                extra_param_inputs.append((param_name, param_value))
-                print(
-                    f"[WARN] Unsupported parameter type for {param_name}: {type(param_value)}"
-                )
-
-            # For example args, add the parameter value
-            example_args.append(param_value)
+        process_scalar_parameters(
+            scalar_params_to_process,
+            converter,
+            eqn,
+            parent_builder,
+            input_names,
+            extra_param_inputs,
+            example_args,
+        )
 
     print(f"Tracing function body for: {unique_node_name}")
     sub_builder = OnnxBuilder(
