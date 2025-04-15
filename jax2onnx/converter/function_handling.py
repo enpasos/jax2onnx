@@ -194,30 +194,50 @@ def function_handler(
                     const_name = create_scalar_constant_tensor(
                         param_name, param_value, onnx.TensorProto.BOOL, parent_builder
                     )
-                    input_names.append(const_name)
-                    extra_param_inputs.append((param_name, const_name))
-                    example_args.append(param_value)
+                    register_constant_parameter(
+                        const_name,
+                        param_name,
+                        param_value,
+                        input_names,
+                        extra_param_inputs,
+                        example_args,
+                    )
             elif isinstance(param_value, bool):
                 const_name = create_scalar_constant_tensor(
                     param_name, param_value, onnx.TensorProto.BOOL, parent_builder
                 )
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
-                example_args.append(param_value)
+                register_constant_parameter(
+                    const_name,
+                    param_name,
+                    param_value,
+                    input_names,
+                    extra_param_inputs,
+                    example_args,
+                )
             elif isinstance(param_value, int):
                 const_name = create_scalar_constant_tensor(
                     param_name, param_value, onnx.TensorProto.INT64, parent_builder
                 )
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
-                example_args.append(param_value)
+                register_constant_parameter(
+                    const_name,
+                    param_name,
+                    param_value,
+                    input_names,
+                    extra_param_inputs,
+                    example_args,
+                )
             elif isinstance(param_value, float):
                 const_name = create_scalar_constant_tensor(
                     param_name, param_value, onnx.TensorProto.FLOAT, parent_builder
                 )
-                input_names.append(const_name)
-                extra_param_inputs.append((param_name, const_name))
-                example_args.append(param_value)
+                register_constant_parameter(
+                    const_name,
+                    param_name,
+                    param_value,
+                    input_names,
+                    extra_param_inputs,
+                    example_args,
+                )
             else:
                 # Fall back to original behavior for other parameter types
                 input_names.append(param_name)
