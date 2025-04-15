@@ -199,11 +199,11 @@ def test_parameter_passing():
         # Compare results
         is_close = jnp.allclose(jax_result, onnx_result, rtol=1e-5, atol=1e-5)
         print(f"✅ JAX and ONNX results match: {is_close}")
+        assert is_close, "JAX and ONNX results should match"
 
-        return True
     except Exception as e:
         print(f"❌ Error during execution: {str(e)}")
-        return False
+        assert False, f"Test failed with error: {str(e)}"
 
 
 if __name__ == "__main__":
