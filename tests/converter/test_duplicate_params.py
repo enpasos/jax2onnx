@@ -4,9 +4,7 @@ Test script for detecting duplicate parameters in ONNX functions
 """
 
 import jax.numpy as jnp
-import numpy
 import onnx
-import onnxruntime as ort
 from flax import nnx
 
 from jax2onnx import onnx_function, to_onnx
