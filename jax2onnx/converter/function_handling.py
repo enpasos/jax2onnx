@@ -124,33 +124,19 @@ def process_scalar_parameters(
                 )
                 continue
 
-        if isinstance(param_value, bool):
+        # Handle based on parameter type
+        if isinstance(param_value, (bool, int, float)):
+            dtype_enum = (
+                onnx.TensorProto.BOOL
+                if isinstance(param_value, bool)
+                else (
+                    onnx.TensorProto.INT64
+                    if isinstance(param_value, int)
+                    else onnx.TensorProto.FLOAT
+                )
+            )
             const_name = create_scalar_constant_tensor(
-                param_name, param_value, onnx.TensorProto.BOOL, parent_builder
-            )
-            register_constant_parameter(
-                const_name,
-                param_name,
-                param_value,
-                input_names,
-                extra_param_inputs,
-                example_args,
-            )
-        elif isinstance(param_value, int):
-            const_name = create_scalar_constant_tensor(
-                param_name, param_value, onnx.TensorProto.INT64, parent_builder
-            )
-            register_constant_parameter(
-                const_name,
-                param_name,
-                param_value,
-                input_names,
-                extra_param_inputs,
-                example_args,
-            )
-        elif isinstance(param_value, float):
-            const_name = create_scalar_constant_tensor(
-                param_name, param_value, onnx.TensorProto.FLOAT, parent_builder
+                param_name, param_value, dtype_enum, parent_builder
             )
             register_constant_parameter(
                 const_name,
@@ -273,19 +259,6 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
                         example_args = example_args[:i] + example_args[i + 1 :]
 
     return trace_kwargs, example_args
-
-
-def propagate_eqn_parameters(eqn, params):
-    if eqn.params:
-        if params is None:
-            params = {}
-        for param_key, param_value in eqn.params.items():
-            if param_key not in params:
-                params[param_key] = param_value
-                print(
-                    f"[INFO] Propagating parameter '{param_key}' from equation params"
-                )
-    return params
 
 
 def propagate_eqn_parameters(eqn, params):
