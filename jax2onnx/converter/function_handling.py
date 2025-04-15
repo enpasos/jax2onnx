@@ -7,16 +7,28 @@ import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
 from onnx import helper
-
-# Use built-in ONNX helper functions instead
-# helper.np_dtype_to_tensor_dtype replaces numpy_dtype_to_tensorproto
-# helper.tensor_dtype_to_np_dtype replaces tensorproto_dtype_to_numpy
+import onnx
 
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+
+def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_builder):
+    const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
+    const_tensor = onnx.helper.make_tensor(
+        name=const_name,
+        data_type=dtype_enum,
+        dims=(),
+        vals=[int(param_value) if isinstance(param_value, bool) else param_value],
+    )
+    parent_builder.initializers.append(const_tensor)
+    print(
+        f"[INFO] Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
+    )
+    return const_name
 
 
 def prepare_function_names(converter, orig_fn, name):
