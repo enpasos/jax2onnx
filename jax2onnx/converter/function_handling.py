@@ -333,6 +333,32 @@ def register_function_inputs(
         sub_builder.add_value_info(internal_name, shape, dtype)
 
 
+def rename_and_register_param_inputs(
+    sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
+):
+    for internal_var, (param_name, param_value) in zip(
+        remaining_internal_vars, extra_param_inputs, strict=False
+    ):
+        internal_name = param_name
+        if internal_var in sub_converter.var_to_name:
+            old_name = sub_converter.var_to_name[internal_var]
+            print(
+                f"[INFO] Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
+            )
+            if old_name in sub_converter.name_to_var:
+                del sub_converter.name_to_var[old_name]
+
+        sub_converter.var_to_name[internal_var] = internal_name
+        sub_converter.name_to_var[internal_name] = internal_var
+
+        shape = ()
+        onnx_dtype_enum = 9  # TensorProto.BOOL
+        sub_builder.register_value_info_metadata(
+            internal_name, shape, onnx_dtype_enum, origin="function_param_input"
+        )
+        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+
+
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
@@ -362,37 +388,10 @@ def function_handler(
         sub_converter, sub_builder, internal_input_vars, outer_input_vars_avals
     )
 
-    # Get initializer names before processing parameter inputs
-    initializer_names = {i.name for i in parent_builder.initializers}
-
-    # Process any extra parameter inputs with improved name preservation
     remaining_internal_vars = internal_input_vars[len(outer_input_vars_avals) :]
-    # Ensure descriptive names for parameters in function inputs
-    for internal_var, (param_name, param_value) in zip(
-        remaining_internal_vars, extra_param_inputs, strict=False
-    ):
-        # Use the parameter name directly for descriptive naming
-        internal_name = param_name
-
-        # Update the name mappings in the sub_converter
-        if internal_var in sub_converter.var_to_name:
-            old_name = sub_converter.var_to_name[internal_var]
-            print(
-                f"[INFO] Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
-            )
-            if old_name in sub_converter.name_to_var:
-                del sub_converter.name_to_var[old_name]
-
-        sub_converter.var_to_name[internal_var] = internal_name
-        sub_converter.name_to_var[internal_name] = internal_var
-
-        # Register metadata for the parameter
-        shape = ()
-        onnx_dtype_enum = 9  # TensorProto.BOOL for boolean parameters
-        sub_builder.register_value_info_metadata(
-            internal_name, shape, onnx_dtype_enum, origin="function_param_input"
-        )
-        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+    rename_and_register_param_inputs(
+        sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
+    )
 
     initializer_names = {i.name for i in parent_builder.initializers}
     used_constants = {
