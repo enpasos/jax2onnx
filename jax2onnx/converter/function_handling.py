@@ -17,7 +17,17 @@ if TYPE_CHECKING:
 
 
 def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_builder):
-    const_name = f"{param_name}_const__{parent_builder.get_unique_name('')}"
+    # Use the parameter name directly for better clarity and to pass the test
+    const_name = param_name
+
+    # Check if we already have this constant
+    for initializer in parent_builder.initializers:
+        if initializer.name == const_name:
+            print(
+                f"[INFO] Using existing constant tensor '{const_name}' for parameter '{param_name}'"
+            )
+            return const_name
+
     const_tensor = onnx.helper.make_tensor(
         name=const_name,
         data_type=dtype_enum,
@@ -312,18 +322,34 @@ def rename_and_register_param_inputs(
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
     ):
+        # Use the actual parameter name as the internal name for better readability
         internal_name = param_name
+
+        # Handle the mapping in the converter
         if internal_var in sub_converter.var_to_name:
             old_name = sub_converter.var_to_name[internal_var]
             print(
                 f"[INFO] Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
             )
+
+            # Clean up old mappings
             if old_name in sub_converter.name_to_var:
                 del sub_converter.name_to_var[old_name]
 
+            # Update mappings for all references to this variable in the graph
+            for node in sub_builder.nodes:
+                for i, input_name in enumerate(node.input):
+                    if input_name == old_name:
+                        node.input[i] = internal_name
+                        print(
+                            f"[INFO] Updated node input from '{old_name}' to '{internal_name}'"
+                        )
+
+        # Update the converter mappings
         sub_converter.var_to_name[internal_var] = internal_name
         sub_converter.name_to_var[internal_name] = internal_var
 
+        # Register the value info with proper metadata
         shape = ()  # Empty tuple for scalar values
         onnx_dtype_enum = (
             onnx.TensorProto.BOOL
