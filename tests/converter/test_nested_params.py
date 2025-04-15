@@ -62,7 +62,7 @@ def test_parameter_passing():
     model = to_onnx(super_block, input_shapes, model_name="nested_param_test")
 
     # Save the ONNX model
-    output_path = "nested_param_test.onnx"
+    output_path = "docs/onnx/nested_param_test.onnx"
     onnx.save_model(model, output_path)
     print(f"Model saved to {output_path}")
 

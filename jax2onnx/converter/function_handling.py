@@ -19,23 +19,26 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
-def function_handler(
+def prepare_function_names(converter, orig_fn, name):
+    impl_key = get_qualified_name(orig_fn)
+    print(f"Encountered function primitive: {impl_key}")
+
+    unique_node_name = converter.builder.get_unique_instance_name(name.split(".")[-1])
+    print(f"Generating unique ONNX node name: {unique_node_name}")
+
+    parent_builder = converter.builder
+    return impl_key, unique_node_name, parent_builder
+
+
+def check_parameters(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
 
-    impl_key = get_qualified_name(orig_fn)
-    print(f"Encountered function primitive: {impl_key}")
 
-    instance_base_name = name.split(".")[-1]
-    unique_node_name = converter.builder.get_unique_instance_name(instance_base_name)
-    print(f"Generating unique ONNX node name: {unique_node_name}")
-
-    parent_builder = converter.builder
-    input_names = []
-    example_args = []
-    outer_input_vars_avals = []
+def resolve_function_inputs(converter, eqn, parent_builder):
+    input_names, example_args, outer_input_vars_avals = [], [], []
 
     # Process regular inputs from the equation
     for var in eqn.invars:
@@ -66,6 +69,23 @@ def function_handler(
             example_args.append(var.val)
         else:
             raise TypeError(f"Unexpected input var type: {type(var)}")
+
+    return input_names, example_args, outer_input_vars_avals
+
+
+def function_handler(
+    name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
+):
+
+    check_parameters(name, converter, eqn, orig_fn, params)
+
+    impl_key, unique_node_name, parent_builder = prepare_function_names(
+        converter, orig_fn, name
+    )
+
+    input_names, example_args, outer_input_vars_avals = resolve_function_inputs(
+        converter, eqn, parent_builder
+    )
 
     # Add function parameters to the function's inputs
     # This ensures parameters like deterministic are passed to function nodes
