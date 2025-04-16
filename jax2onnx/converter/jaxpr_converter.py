@@ -101,93 +101,63 @@ class Jaxpr2OnnxConverter:
         """
         from onnx import TensorProto
 
+        # Centralized mapping for numpy and string dtypes
+        dtype_map = {
+            np.float32: TensorProto.FLOAT,
+            np.float64: TensorProto.DOUBLE,
+            np.int32: TensorProto.INT32,
+            np.int64: TensorProto.INT64,
+            np.bool_: TensorProto.BOOL,
+            np.uint8: TensorProto.UINT8,
+            np.int8: TensorProto.INT8,
+            np.uint16: TensorProto.UINT16,
+            np.int16: TensorProto.INT16,
+            np.uint32: TensorProto.UINT32,
+            np.uint64: TensorProto.UINT64,
+            np.float16: TensorProto.FLOAT16,
+            np.complex64: TensorProto.COMPLEX64,
+            np.complex128: TensorProto.COMPLEX128,
+            "float32": TensorProto.FLOAT,
+            "float64": TensorProto.DOUBLE,
+            "int32": TensorProto.INT32,
+            "int64": TensorProto.INT64,
+            "bool": TensorProto.BOOL,
+            "uint8": TensorProto.UINT8,
+            "int8": TensorProto.INT8,
+            "uint16": TensorProto.UINT16,
+            "int16": TensorProto.INT16,
+            "uint32": TensorProto.UINT32,
+            "uint64": TensorProto.UINT64,
+            "float16": TensorProto.FLOAT16,
+            "complex64": TensorProto.COMPLEX64,
+            "complex128": TensorProto.COMPLEX128,
+        }
+
         # If it's already an int, assume it's a valid ONNX enum
         if isinstance(dtype, int):
             return dtype
 
-        # Handle JAX array types (add this check)
+        # Handle JAX array types
         if hasattr(dtype, "__module__") and dtype.__module__.startswith("jax"):
-            # For JAX arrays used in shape operations, ensure they're INT64
-            if str(dtype).find("int") >= 0:
+            if "int" in str(dtype):
                 return TensorProto.INT64
-            elif str(dtype).find("float") >= 0:
+            elif "float" in str(dtype):
                 return TensorProto.FLOAT
-            elif str(dtype).find("bool") >= 0:
+            elif "bool" in str(dtype):
                 return TensorProto.BOOL
 
-        # Handle numpy dtypes
-        if hasattr(dtype, "type"):
-            # Map common numpy types to ONNX TensorProto types
-            numpy_to_onnx_dtype = {
-                np.float32: TensorProto.FLOAT,
-                np.float64: TensorProto.DOUBLE,
-                np.int32: TensorProto.INT32,
-                np.int64: TensorProto.INT64,
-                np.bool_: TensorProto.BOOL,
-                np.uint8: TensorProto.UINT8,
-                np.int8: TensorProto.INT8,
-                np.uint16: TensorProto.UINT16,
-                np.int16: TensorProto.INT16,
-                np.uint32: TensorProto.UINT32,
-                np.uint64: TensorProto.UINT64,
-                np.float16: TensorProto.FLOAT16,
-                np.complex64: TensorProto.COMPLEX64,
-                np.complex128: TensorProto.COMPLEX128,
-            }
-
-            for np_type, onnx_type in numpy_to_onnx_dtype.items():
-                if dtype.type == np_type:
-                    return onnx_type
-
-        # Handle numpy dtype objects
-        if hasattr(dtype, "name"):
-            if dtype.name == "float32":
-                return TensorProto.FLOAT
-            elif dtype.name == "float64":
-                return TensorProto.DOUBLE
-            elif dtype.name == "int32":
-                return TensorProto.INT32
-            elif dtype.name == "int64":
-                return TensorProto.INT64
-            elif dtype.name == "bool":
-                return TensorProto.BOOL
-            elif dtype.name == "uint8":
-                return TensorProto.UINT8
-            elif dtype.name == "int8":
-                return TensorProto.INT8
-            elif dtype.name == "uint16":
-                return TensorProto.UINT16
-            elif dtype.name == "int16":
-                return TensorProto.INT16
-            elif dtype.name == "uint32":
-                return TensorProto.UINT32
-            elif dtype.name == "uint64":
-                return TensorProto.UINT64
-            elif dtype.name == "float16":
-                return TensorProto.FLOAT16
-            elif dtype.name == "complex64":
-                return TensorProto.COMPLEX64
-            elif dtype.name == "complex128":
-                return TensorProto.COMPLEX128
-
-        # Handle string type names
-        if isinstance(dtype, str):
-            if dtype == "float32":
-                return TensorProto.FLOAT
-            elif dtype == "float64":
-                return TensorProto.DOUBLE
-            elif dtype == "int32":
-                return TensorProto.INT32
-            elif dtype == "int64":
-                return TensorProto.INT64
-            elif dtype == "bool":
-                return TensorProto.BOOL
+        # Handle numpy dtypes and string names
+        if hasattr(dtype, "type") and dtype.type in dtype_map:
+            return dtype_map[dtype.type]
+        if hasattr(dtype, "name") and dtype.name in dtype_map:
+            return dtype_map[dtype.name]
+        if isinstance(dtype, str) and dtype in dtype_map:
+            return dtype_map[dtype]
 
         # Try ONNX's helper (might raise TypeError for some inputs)
         try:
             return helper.np_dtype_to_tensor_dtype(dtype)
         except (TypeError, ValueError):
-            # Default to FLOAT if all else fails
             print(
                 f"[WARN] Could not convert dtype {dtype} to ONNX dtype, defaulting to FLOAT"
             )
