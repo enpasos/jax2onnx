@@ -30,7 +30,7 @@ def allclose(
     Args:
         fn: JAX function to test
         onnx_model_path: Path to the ONNX model
-        *xs: Tensor arguments to pass to both JAX and ONNX
+        *xs: Value inputs (not shapes) to pass to both JAX and ONNX
         rtol: Relative tolerance for comparison (default: 1e-3)
         atol: Absolute tolerance for comparison (default: 1e-5)
         **jax_kwargs: Optional keyword arguments to pass to the JAX function
@@ -38,6 +38,22 @@ def allclose(
     Returns:
         Tuple of (is_match: bool, message: str)
     """
+
+    # Accept either value inputs or shape tuples/lists
+    def is_shape(x):
+        return isinstance(x, (tuple, list)) and all(
+            isinstance(dim, (int, str)) for dim in x
+        )
+
+    # If all inputs are shapes, generate random values
+    if all(is_shape(x) for x in xs):
+        xs = tuple(
+            np.random.rand(*[d if isinstance(d, int) else 2 for d in shape]).astype(
+                np.float32
+            )
+            for shape in xs
+        )
+
     # Load ONNX model and create inference session
     session = ort.InferenceSession(onnx_model_path)
 

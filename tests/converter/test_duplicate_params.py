@@ -94,11 +94,11 @@ def test_duplicate_parameters():
     super_block = SuperBlock()
 
     # Define input shapes
-    input_shapes = [(5, 10, 256)]
+    inputs = [(5, 10, 256)]
 
     # Convert to ONNX
     print("Converting model to ONNX...")
-    model = to_onnx(super_block, input_shapes, model_name="duplicate_param_test")
+    model = to_onnx(super_block, inputs=inputs, model_name="duplicate_param_test")
 
     # Save the ONNX model (for inspection if needed)
     output_path = "docs/onnx/duplicate_param_test.onnx"

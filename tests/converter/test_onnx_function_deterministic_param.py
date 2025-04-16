@@ -43,7 +43,7 @@ def test_onnx_function_deterministic_param_is_input():
     # Export with input_params containing deterministic
     model = to_onnx(
         SuperBlock(),
-        [(5, 10, 3)],
+        inputs=[(5, 10, 3)],
         input_params={"deterministic": True},
         model_name="test_deterministic_param",
     )
