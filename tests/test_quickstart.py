@@ -1,13 +1,7 @@
 import os
 import pytest
 import onnx
-
-# Import from the main package
-import sys
-
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+import subprocess
 
 
 class TestQuickstart:
@@ -19,7 +13,8 @@ class TestQuickstart:
         # Make sure the output directory exists
         os.makedirs("docs/onnx", exist_ok=True)
 
-        # Import and run the quickstart module
+        # Run the quickstart.py script as a subprocess
+        subprocess.run(["python", "jax2onnx/quickstart.py"], check=True)
 
         # Now check that the output file was created
         output_path = "docs/onnx/my_callable.onnx"
@@ -45,7 +40,8 @@ class TestQuickstartFunctions:
         # Make sure the output directory exists
         os.makedirs("docs/onnx", exist_ok=True)
 
-        # Import and run the module
+        # Run the quickstart_functions.py script as a subprocess
+        subprocess.run(["python", "jax2onnx/quickstart_functions.py"], check=True)
 
         # Check that the output file was created
         output_path = "docs/onnx/model_with_function.onnx"
