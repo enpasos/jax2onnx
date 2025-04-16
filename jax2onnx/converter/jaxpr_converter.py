@@ -64,21 +64,21 @@ class Jaxpr2OnnxConverter:
         import_all_plugins()
         self._register_primitive_handlers()
 
-    def new_var(self, dtype: np.dtype, shape: tuple[int, ...]):
+    def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> extend_core.Var:
         """Create a new JAX variable with the given dtype and shape."""
-        return jax.core.Var(
-            self.builder.get_unique_name(""), jax.core.ShapedArray(shape, dtype)
+        return extend_core.Var(
+            self.builder.get_unique_name(""), extend_core.ShapedArray(shape, dtype)
         )
 
-    def add_node(self, node):
+    def add_node(self, node: Any) -> None:
         """Add an ONNX node to the builder."""
         self.builder.add_node(node)
 
-    def get_unique_name(self, prefix="node"):
+    def get_unique_name(self, prefix: str = "node") -> str:
         """Get a unique name for an ONNX node or variable."""
         return self.builder.get_unique_name(prefix)
 
-    def get_var_name(self, var):
+    def get_var_name(self, var: Any) -> str:
         """Get or create a unique name for a JAX variable."""
         if var not in self.var_to_name:
             name = self.get_unique_name("var")
@@ -86,7 +86,7 @@ class Jaxpr2OnnxConverter:
             self.name_to_var[name] = var
         return self.var_to_name[var]
 
-    def get_constant_name(self, val):
+    def get_constant_name(self, val: Any) -> str:
         """Get or create a name for a constant value in the ONNX graph."""
         return self.builder.get_constant_name(val)
 
@@ -164,19 +164,8 @@ class Jaxpr2OnnxConverter:
             )
             return TensorProto.FLOAT
 
-    def register_shape(self, name, shape, dtype):
-        """
-        Central method for registering shape information consistently.
-        This consolidates shape tracking across different methods.
-
-        Args:
-            name: The name of the tensor
-            shape: The shape of the tensor
-            dtype: The data type of the tensor
-
-        Returns:
-            The registered tensor name
-        """
+    def register_shape(self, name: str, shape: tuple[int, ...], dtype: Any) -> str:
+        """Register shape and dtype information for a tensor."""
         # Convert dtype to ONNX TensorProto enum if needed
         onnx_dtype = self._ensure_onnx_dtype(dtype)
 
@@ -188,27 +177,33 @@ class Jaxpr2OnnxConverter:
 
         return name
 
-    def add_input(self, var, shape, dtype=np.float32):
+    def add_input(
+        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
+    ) -> str:
         """Add an input variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
         self.register_shape(name, shape, dtype)
         return name
 
-    def add_output(self, var, shape, dtype=np.float32):
+    def add_output(
+        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
+    ) -> str:
         """Add an output variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_output(name, shape, dtype)
         self.register_shape(name, shape, dtype)
         return name
 
-    def add_shape_info(self, name, shape, dtype=np.float32):
+    def add_shape_info(
+        self, name: str, shape: tuple[int, ...], dtype: Any = np.float32
+    ) -> str:
         """Add shape information for a variable in the ONNX graph."""
         self.builder.add_value_info(name, shape, dtype)
         self.register_shape(name, shape, dtype)
         return name
 
-    def get_name(self, var):
+    def get_name(self, var: Any) -> str:
         """Get the ONNX name for a JAX variable or literal."""
         if isinstance(var, jax._src.core.Var):
             return self.get_var_name(var)
@@ -220,17 +215,7 @@ class Jaxpr2OnnxConverter:
     def _create_and_save_model(
         self, model_name: str, output_path: str | None = None
     ) -> onnx.ModelProto:
-        """
-        Create and optionally save an ONNX model with the given name.
-        This centralizes model creation and saving logic to avoid duplication.
-
-        Args:
-            model_name: Name for the ONNX model
-            output_path: Optional path to save the model. If None, model is only created, not saved.
-
-        Returns:
-            The created ONNX ModelProto object
-        """
+        """Create and optionally save an ONNX model with the given name."""
         # Clean up unused initializers
         used_initializers = {i for node in self.builder.nodes for i in node.input}
         self.builder.initializers = [
@@ -248,16 +233,15 @@ class Jaxpr2OnnxConverter:
 
         return onnx_model
 
-    def trace_jaxpr(self, fn, example_args, preserve_graph=False, params=None):
-        """
-        Trace a JAX function to generate its JAXPR representation and convert it to ONNX.
+    def trace_jaxpr(
+        self,
+        fn: Any,
+        example_args: list[Any],
+        preserve_graph: bool = False,
+        params: dict[str, Any] | None = None,
+    ) -> None:
+        """Trace a JAX function to generate its JAXPR representation and convert it to ONNX."""
 
-        Args:
-            fn: JAX function to trace
-            example_args: Example arguments to trace the function with
-            preserve_graph: Whether to preserve the existing graph
-            params: Additional parameters for the function
-        """
         self.logger.info("trace_jaxpr ... preserve_graph= %s", preserve_graph)
         if not preserve_graph:
             self.builder.reset()
@@ -384,20 +368,14 @@ class Jaxpr2OnnxConverter:
                 )
 
     def convert(
-        self, fn, example_args, output_path="model.onnx", model_name="jax_model"
-    ):
-        """
-        Convert a JAX function to ONNX.
+        self,
+        fn: Any,
+        example_args: list[Any],
+        output_path: str = "model.onnx",
+        model_name: str = "jax_model",
+    ) -> str:
+        """Convert a JAX function to ONNX and save the model."""
 
-        Args:
-            fn: JAX function to convert
-            example_args: Example input arguments to trace the function
-            output_path: Path to save the ONNX model
-            model_name: Name for the ONNX model
-
-        Returns:
-            Path to the saved ONNX model
-        """
         # Trace the JAX function to generate JAXPR representation
         self.trace_jaxpr(fn, example_args)
 
@@ -407,20 +385,14 @@ class Jaxpr2OnnxConverter:
         return output_path
 
     def add_initializer(
-        self, name, vals, data_type=helper.TensorProto.INT64, dims=None
-    ):
-        """
-        Add a tensor initializer to the model.
+        self,
+        name: str,
+        vals: Any,
+        data_type: int = helper.TensorProto.INT64,
+        dims: list[int] | None = None,
+    ) -> str:
+        """Add a tensor initializer to the model."""
 
-        Args:
-            name: The name of the initializer
-            vals: The values to initialize with
-            data_type: The data type of the tensor (default: INT64)
-            dims: The dimensions of the tensor (default: [len(vals)])
-
-        Returns:
-            The name of the created initializer
-        """
         if dims is None:
             dims = [len(vals)]
 
@@ -433,14 +405,9 @@ class Jaxpr2OnnxConverter:
         self.builder.initializers.append(tensor)
         return name
 
-    def _process_jaxpr(self, jaxpr, consts):
-        """
-        Process a JAXPR and convert it to ONNX nodes.
+    def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
+        """Process a JAXPR and convert it to ONNX nodes."""
 
-        Args:
-            jaxpr: The JAX program representation to convert
-            consts: Constants used in the JAXPR
-        """
         # Add input variables to the ONNX graph, skipping any that are already added
         # (such as parameters added via add_scalar_input)
         for var in jaxpr.invars:
@@ -472,8 +439,8 @@ class Jaxpr2OnnxConverter:
         # Add output variables to the ONNX graph.
         for var in jaxpr.outvars:
             name = self.get_var_name(var)
-            shape = None
-            dtype = None
+            shape: tuple[int, ...]
+            dtype: Any
 
             metadata = self.builder.get_value_info_metadata_with_origin(name)
             if metadata:
@@ -486,24 +453,20 @@ class Jaxpr2OnnxConverter:
                         dtype_enum,
                         name,
                     )
-                    shape = var.aval.shape
+                    shape = tuple(var.aval.shape)
                     dtype = var.aval.dtype
             else:
                 self.logger.warning(
                     "No metadata found for output var '%s', using fallback.", name
                 )
-                shape = var.aval.shape
+                shape = tuple(var.aval.shape)
                 dtype = var.aval.dtype
 
             self.add_output(var, shape, dtype)
 
-    def _process_eqn(self, eqn):
-        """
-        Process a single JAXPR equation.
+    def _process_eqn(self, eqn: Any) -> None:
+        """Process a single JAXPR equation."""
 
-        Args:
-            eqn: The JAXPR equation to process
-        """
         if not hasattr(eqn, "primitive"):
             raise NotImplementedError(f"Non-primitive equation: {eqn}")
 
@@ -530,16 +493,9 @@ class Jaxpr2OnnxConverter:
                         "Cannot add shape info for %s, missing .aval.", output_name
                     )
 
-    def match_call_param_by_type_and_order(self, var):
-        """
-        Match a variable to a parameter in call_params based on type and order.
+    def match_call_param_by_type_and_order(self, var: Any) -> str | None:
+        """Match a variable to a parameter in call_params based on type and order."""
 
-        Args:
-            var: The variable to match
-
-        Returns:
-            The name of the matched parameter, or None if no match is found
-        """
         if not self.call_params or not hasattr(var, "aval"):
             return None
 
@@ -592,19 +548,11 @@ class Jaxpr2OnnxConverter:
 
         return None
 
-    # Required method that was called by the random handler methods but wasn't defined
-    def _create_identity_node(self, node_inputs, node_outputs, prefix):
-        """
-        Create an Identity node to handle simple pass-through operations.
+    def _create_identity_node(
+        self, node_inputs: list[Any], node_outputs: list[Any], prefix: str
+    ) -> Any:
+        """Create an Identity node to handle simple pass-through operations."""
 
-        Args:
-            node_inputs: Input variables
-            node_outputs: Output variables
-            prefix: Prefix for the node name
-
-        Returns:
-            The created ONNX node
-        """
         input_name = self.get_name(node_inputs[0])
         output_name = self.get_var_name(node_outputs[0])
 
@@ -617,11 +565,8 @@ class Jaxpr2OnnxConverter:
         self.builder.add_node(node)
         return node
 
-    def _register_primitive_handlers(self):
-        """
-        Register all primitive handlers from both plugin registries.
-        This consolidates the plugin registration logic in one place.
-        """
+    def _register_primitive_handlers(self) -> None:
+        """Register all primitive handlers from both plugin registries."""
         # Register handlers from the main plugin registry
         for key, plugin in PLUGIN_REGISTRY.items():
             if isinstance(plugin, PrimitiveLeafPlugin):
