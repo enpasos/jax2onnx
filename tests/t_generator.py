@@ -163,7 +163,7 @@ def make_test_function(tp: dict[str, Any]):
         print(f"   Model saved to: {model_path}")
 
         # Generate input data for numerical validation
-        def generate_inputs(shapes, input_params=None, B=None):
+        def generate_inputs(shapes, B=None):
             actual_shapes = []
             if not isinstance(shapes, (list, tuple)):
                 shapes = [shapes]
@@ -187,16 +187,16 @@ def make_test_function(tp: dict[str, Any]):
             print("Running numerical checks for dynamic batch sizes [2, 3]...")
             for B in [2, 3]:
                 print(f"  Batch size B={B}")
-                xs = generate_inputs(input_shapes, input_params=input_params, B=B)
+                xs = generate_inputs(input_shapes, B=B)
                 assert allclose(
-                    callable_obj, model_path, *xs
+                    callable_obj, model_path, xs, input_params
                 ), f"Numerical check failed for B={B}"
                 print(f"  Numerical check passed for B={B}.")
         else:
             print("Running numerical check for static shape...")
-            xs = generate_inputs(input_shapes, input_params=input_params)
+            xs = generate_inputs(input_shapes)
             assert allclose(
-                callable_obj, model_path, *xs
+                callable_obj, model_path, xs, input_params
             ), "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
 

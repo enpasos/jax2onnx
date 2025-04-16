@@ -55,11 +55,11 @@ def test_parameter_passing():
     super_block = SuperBlock()
 
     # Define input shapes
-    input_shapes = [(5, 10, 256)]
+    inputs = [(5, 10, 256)]
 
     # Convert to ONNX with our improved parameter handling
     print("Converting model to ONNX...")
-    model = to_onnx(super_block, input_shapes, model_name="nested_param_test")
+    model = to_onnx(super_block, inputs=inputs, model_name="nested_param_test")
 
     # Save the ONNX model
     output_path = "docs/onnx/nested_param_test.onnx"

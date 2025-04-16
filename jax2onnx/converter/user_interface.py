@@ -11,7 +11,7 @@ from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 
 def to_onnx(
     fn: Callable,
-    input_shapes: List[Union[Tuple, List]],
+    inputs: List[Any],
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
@@ -24,8 +24,7 @@ def to_onnx(
 
     Args:
         fn: The JAX function or Flax module to convert.
-        input_shapes: Shapes of the inputs to the function. Can include symbolic dimensions
-                     like ('B', 28, 28, 1) where 'B' represents a dynamic batch dimension.
+        inputs: Either shapes (List[Tuple|List]) or actual input values (List[np.ndarray]) to the function.
         input_params: Optional parameters that should be exposed as inputs in the ONNX model
                      rather than baked into the model. Useful for runtime parameters like
                      'deterministic' flags.
@@ -41,10 +40,21 @@ def to_onnx(
         >>> from jax2onnx import to_onnx
         >>>
         >>> model = MyFlaxModel(...)
-        >>> onnx_model = to_onnx(model, [('B', 32, 32, 3)])
+        >>> onnx_model = to_onnx(model, inputs=[('B', 32, 32, 3)])
         >>> import onnx
         >>> onnx.save(onnx_model, "model.onnx")
     """
+
+    def is_shape(x):
+        return isinstance(x, (tuple, list)) and all(
+            isinstance(dim, (int, str)) for dim in x
+        )
+
+    # If all inputs are shapes, use as shapes; otherwise, treat as values and infer shapes
+    if all(is_shape(x) for x in inputs):
+        input_shapes = inputs
+    else:
+        input_shapes = [x.shape for x in inputs]
 
     return to_onnx_impl(
         fn=fn,
@@ -88,10 +98,10 @@ def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
 def allclose(
     fn: Callable,
     onnx_model_path: str,
-    *xs: Any,
+    inputs: List[Any],
+    input_params: Dict[str, Any] | None = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
-    **jax_kwargs,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs produce numerically similar results.
@@ -102,10 +112,10 @@ def allclose(
     Args:
         fn: JAX function or model to compare against the ONNX model
         onnx_model_path: Path to the saved ONNX model file
-        *xs: Input tensors to pass to both the JAX function and ONNX model
+        inputs: Either input tensors (List[np.ndarray]) or shapes (List[Tuple|List]) to pass to both the JAX function and ONNX model
         rtol: Relative tolerance for numerical comparison (default: 1e-3)
         atol: Absolute tolerance for numerical comparison (default: 1e-5)
-        **jax_kwargs: Optional keyword arguments to pass to the JAX function only
+        input_params: Optional keyword arguments to pass to the JAX function only
 
     Returns:
         Tuple containing (is_match: bool, message: str) where:
@@ -116,14 +126,36 @@ def allclose(
         >>> import numpy as np
         >>> from jax2onnx import to_onnx, allclose
         >>> # First convert a model
-        >>> onnx_model = to_onnx(my_jax_fn, [(3, 224, 224)])
+        >>> onnx_model = to_onnx(my_jax_fn, inputs=[(3, 224, 224)])
         >>> import onnx
         >>> onnx.save(onnx_model, "my_model.onnx")
         >>> # Then validate the outputs match
         >>> test_input = np.random.rand(3, 224, 224).astype(np.float32)
-        >>> is_close, message = allclose(my_jax_fn, "my_model.onnx", test_input, deterministic=True)
+        >>> is_close, message = allclose(my_jax_fn, "my_model.onnx", inputs=[test_input], deterministic=True)
         >>> print(f"Models match: {is_close}")
         >>> print(message)
     """
-    # Delegate to the implementation in validation.py
-    return allclose_impl(fn, onnx_model_path, *xs, rtol=rtol, atol=atol, **jax_kwargs)
+    import numpy as np
+
+    def is_shape(x):
+        return isinstance(x, (tuple, list)) and all(
+            isinstance(dim, (int, str)) for dim in x
+        )
+
+    # If all inputs are shapes, generate random values for them
+    if all(is_shape(x) for x in inputs):
+        xs = tuple(
+            np.random.rand(*[d if isinstance(d, int) else 2 for d in shape]).astype(
+                np.float32
+            )
+            for shape in inputs
+        )
+    else:
+        xs = tuple(inputs)
+
+    if input_params is None:
+        return allclose_impl(fn, onnx_model_path, *xs, rtol=rtol, atol=atol)
+    else:
+        return allclose_impl(
+            fn, onnx_model_path, *xs, rtol=rtol, atol=atol, **input_params
+        )
