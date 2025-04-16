@@ -433,9 +433,6 @@ class Jaxpr2OnnxConverter:
         self.builder.initializers.append(tensor)
         return name
 
-    # Handler methods have been moved to their respective plugin files
-    # in the jax2onnx/plugins/ directory
-
     def _process_jaxpr(self, jaxpr, consts):
         """
         Process a JAXPR and convert it to ONNX nodes.
