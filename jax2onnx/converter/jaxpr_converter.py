@@ -9,6 +9,7 @@ representation of a JAX function and converts it to equivalent ONNX operations.
 """
 
 from typing import Any, Dict
+import logging
 
 import jax
 import jax.random
@@ -40,9 +41,9 @@ class Jaxpr2OnnxConverter:
     """
 
     def __init__(self, builder: OnnxBuilder):
+        self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
         # Initialize the converter with an ONNX builder instance.
         self.builder = builder
-
         self.params: Dict[str, Any] = {}  # Parameters for tracing
         self.call_params: Dict[str, Any] = {}  # Parameters that should be ONNX inputs
 
@@ -158,8 +159,8 @@ class Jaxpr2OnnxConverter:
         try:
             return helper.np_dtype_to_tensor_dtype(dtype)
         except (TypeError, ValueError):
-            print(
-                f"[WARN] Could not convert dtype {dtype} to ONNX dtype, defaulting to FLOAT"
+            self.logger.warning(
+                "Could not convert dtype %s to ONNX dtype, defaulting to FLOAT", dtype
             )
             return TensorProto.FLOAT
 
@@ -243,7 +244,7 @@ class Jaxpr2OnnxConverter:
         # Save model if path is provided
         if output_path:
             onnx.save_model(onnx_model, output_path)
-            print(f"[INFO] Model saved to {output_path}")
+            self.logger.info("Model saved to %s", output_path)
 
         return onnx_model
 
@@ -257,7 +258,7 @@ class Jaxpr2OnnxConverter:
             preserve_graph: Whether to preserve the existing graph
             params: Additional parameters for the function
         """
-        print(f"trace_jaxpr ... preserve_graph= {preserve_graph}")
+        self.logger.info("trace_jaxpr ... preserve_graph= %s", preserve_graph)
         if not preserve_graph:
             self.builder.reset()
             self.var_to_name.clear()
@@ -284,8 +285,9 @@ class Jaxpr2OnnxConverter:
                             str(type(param_value)).find("DynamicJaxprTracer") >= 0
                         )
                         if is_tracer:
-                            print(
-                                f"[INFO] Resolving tracer for static parameter '{param_name}' to default value (True)"
+                            self.logger.info(
+                                "Resolving tracer for static parameter '%s' to default value (True)",
+                                param_name,
                             )
                             static_params[param_name] = True
 
@@ -308,8 +310,9 @@ class Jaxpr2OnnxConverter:
                         and not hasattr(last_arg, "shape")
                     )
                 ):
-                    print(
-                        f"[INFO] Removing potential duplicate '{param_name}' parameter from example_args"
+                    self.logger.info(
+                        "Removing potential duplicate '%s' parameter from example_args",
+                        param_name,
                     )
                     modified_args = modified_args[:-1]
                     break
@@ -325,8 +328,9 @@ class Jaxpr2OnnxConverter:
                     for param_name, param_value in params.items():
                         if param_name in param_names and param_name != param_names[0]:
                             # This is likely a duplicate parameter (passed as both positional and keyword)
-                            print(
-                                f"[INFO] Removing potential duplicate '{param_name}' parameter from example_args"
+                            self.logger.info(
+                                "Removing potential duplicate '%s' parameter from example_args",
+                                param_name,
                             )
                             modified_args = modified_args[:-1]
                             break
@@ -344,8 +348,8 @@ class Jaxpr2OnnxConverter:
                     )
 
                     if last_arg_is_scalar and len(params) > 0:
-                        print(
-                            "[INFO] Removing potential duplicate parameter from example_args"
+                        self.logger.info(
+                            "Removing potential duplicate parameter from example_args"
                         )
                         modified_args = modified_args[:-1]
 
@@ -356,7 +360,7 @@ class Jaxpr2OnnxConverter:
             else:
                 closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
 
-        print(closed_jaxpr)
+        self.logger.info(closed_jaxpr)
 
         self.jaxpr = closed_jaxpr.jaxpr
         self.output_vars = self.jaxpr.outvars
@@ -480,14 +484,16 @@ class Jaxpr2OnnxConverter:
                 try:
                     dtype = helper.tensor_dtype_to_np_dtype(dtype_enum)
                 except Exception:
-                    print(
-                        f"[WARN] Could not convert dtype enum {dtype_enum} for {name}, fallback to var.aval"
+                    self.logger.warning(
+                        "Could not convert dtype enum %s for %s, fallback to var.aval",
+                        dtype_enum,
+                        name,
                     )
                     shape = var.aval.shape
                     dtype = var.aval.dtype
             else:
-                print(
-                    f"[WARN] No metadata found for output var '{name}', using fallback."
+                self.logger.warning(
+                    "No metadata found for output var '%s', using fallback.", name
                 )
                 shape = var.aval.shape
                 dtype = var.aval.dtype
@@ -523,8 +529,8 @@ class Jaxpr2OnnxConverter:
                         output_name, outvar.aval.shape, outvar.aval.dtype
                     )
                 else:
-                    print(
-                        f"[WARN] Cannot add shape info for {output_name}, missing .aval."
+                    self.logger.warning(
+                        "Cannot add shape info for %s, missing .aval.", output_name
                     )
 
     def match_call_param_by_type_and_order(self, var):
@@ -554,8 +560,8 @@ class Jaxpr2OnnxConverter:
                     if param_key in self.var_to_name.values():
                         continue
 
-                    print(
-                        f"[INFO] Matching boolean variable to parameter '{param_name}'"
+                    self.logger.info(
+                        "Matching boolean variable to parameter '%s'", param_name
                     )
                     # Store this mapping
                     self.var_to_name[var] = param_name
@@ -630,6 +636,6 @@ class Jaxpr2OnnxConverter:
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
         if self.primitive_handlers:
-            print(
-                f"[INFO] Registered {len(self.primitive_handlers)} primitive handlers"
+            self.logger.info(
+                "Registered %d primitive handlers", len(self.primitive_handlers)
             )
