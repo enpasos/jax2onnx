@@ -252,9 +252,6 @@ class Jaxpr2OnnxConverter:
         # Check if any parameters might be duplicated in example_args and params
         modified_args = list(example_args)
 
-        # Extract static parameter values for function definitions
-        static_params: Dict[str, Any] = {}
-
         # Handle potential duplicate parameters that are passed both in example_args and params
         if params and len(modified_args) >= 2:
             # Check if the last arg is a potential duplicate parameter
@@ -262,7 +259,7 @@ class Jaxpr2OnnxConverter:
             is_tracer = str(type(last_arg)).find("DynamicJaxprTracer") >= 0
 
             # Check for static parameters that might be duplicated
-            for param_name in static_params.keys():
+            for param_name in params.keys():
                 if param_name in params and (
                     isinstance(last_arg, bool)
                     or is_tracer
@@ -277,42 +274,6 @@ class Jaxpr2OnnxConverter:
                     )
                     modified_args = modified_args[:-1]
                     break
-            else:
-                # If no static parameter matches, try signature inspection
-                import inspect
-
-                try:
-                    sig = inspect.signature(fn)
-                    param_names = list(sig.parameters.keys())
-
-                    # Check if any parameter in params might be duplicated in example_args
-                    for param_name, param_value in params.items():
-                        if param_name in param_names and param_name != param_names[0]:
-                            # This is likely a duplicate parameter (passed as both positional and keyword)
-                            self.logger.info(
-                                "Removing potential duplicate '%s' parameter from example_args",
-                                param_name,
-                            )
-                            modified_args = modified_args[:-1]
-                            break
-                except (ValueError, TypeError):
-                    # If we can't inspect the signature, use a heuristic based on common patterns
-                    # Check if the last arg might be a scalar or tracer (common for flag parameters)
-                    last_arg_is_scalar = (
-                        isinstance(last_arg, (bool, int, float))  # Basic scalar types
-                        or is_tracer  # JAX tracers
-                        or (not hasattr(last_arg, "shape"))  # No shape attribute
-                        or (
-                            hasattr(last_arg, "shape")
-                            and (last_arg.shape == () or len(last_arg.shape) == 0)
-                        )  # Empty shape
-                    )
-
-                    if last_arg_is_scalar and len(params) > 0:
-                        self.logger.info(
-                            "Removing potential duplicate parameter from example_args"
-                        )
-                        modified_args = modified_args[:-1]
 
         # Simply trace the function with all parameters
         with temporary_monkey_patches(allow_function_primitives=True):
