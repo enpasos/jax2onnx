@@ -32,7 +32,7 @@ nnx.conv_p.multiple_results = False  # Correctly set at initialization
     component="conv",
     testcases=[
         {
-            "testcase": "conv",
+            "testcase": "conv_basic_bias",
             "callable": nnx.Conv(
                 in_features=3,
                 out_features=16,
@@ -45,12 +45,12 @@ nnx.conv_p.multiple_results = False  # Correctly set at initialization
             "input_shapes": [("B", 28, 28, 3)],
         },
         {
-            "testcase": "conv_2",
+            "testcase": "conv_basic_bias_2",
             "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 28, 28, 1)],
         },
         {
-            "testcase": "conv_3",
+            "testcase": "conv_basic_bias_3",
             "callable": nnx.Conv(
                 in_features=1,
                 out_features=32,
@@ -63,7 +63,7 @@ nnx.conv_p.multiple_results = False  # Correctly set at initialization
             "input_shapes": [(3, 28, 28, 1)],
         },
         {
-            "testcase": "conv_4",
+            "testcase": "conv_stride2_bias",
             "callable": nnx.Conv(
                 in_features=32,
                 out_features=64,
@@ -74,6 +74,111 @@ nnx.conv_p.multiple_results = False  # Correctly set at initialization
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 32)],
+        },
+        {
+            "testcase": "conv_no_bias",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=16,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=False,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 28, 28, 3)],
+        },
+        {
+            "testcase": "conv_valid_padding",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(5, 5),
+                strides=(2, 2),
+                padding="VALID",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 32, 32, 3)],
+        },
+        {
+            "testcase": "conv_stride1",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 16, 16, 3)],
+        },
+        {
+            "testcase": "conv_stride2",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(2, 2),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 16, 16, 3)],
+        },
+        {
+            "testcase": "conv_different_kernel",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(1, 5),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 16, 16, 3)],
+        },
+        {
+            "testcase": "conv_float64",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+                dtype=np.float64,
+            ),
+            "input_shapes": [(2, 16, 16, 3)],
+        },
+        {
+            "testcase": "conv_single_batch",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(1, 16, 16, 3)],
+        },
+        {
+            "testcase": "conv_large_batch",
+            "callable": nnx.Conv(
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                use_bias=True,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(32, 16, 16, 3)],
         },
     ],
 )
@@ -245,13 +350,21 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def get_monkey_patch():
-        """Returns a patched version of Conv.__call__."""
+        """Returns a patched version of Conv.__call__ that handles missing bias."""
+        import jax.numpy as jnp
 
         def patched_conv_call(self, x):
+            # If bias is None, substitute zeros of correct shape and dtype
+            if self.bias is not None:
+                bias = self.bias.value
+            else:
+                # Infer out_features from kernel shape (HWIO)
+                out_features = self.kernel.value.shape[-1]
+                bias = jnp.zeros((out_features,), dtype=self.kernel.value.dtype)
             return ConvPlugin._conv(
                 x,
                 self.kernel.value,
-                self.bias.value if self.bias else None,
+                bias,
                 self.strides,
                 self.padding,
                 getattr(self, "dilations", (1, 1)),

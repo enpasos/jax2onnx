@@ -47,40 +47,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
-markers = [
-    "plugins_nnx: Tests from the plugins.nnx (flax) context.",
-    "plugins_nn: Tests from the plugins.nn context.",
-    "plugins_lax: Tests from the plugins.lax context.",
-    "plugins_jnp: Tests from the plugins.jnp (numpy) context.",
-    "plugins_random: Tests from the plugins.random context.",
-    "default: Default group of tests.",
-    "examples_nnx: Test form the examples.nnx (flax) context."
-]
-addopts = [
-    "--import-mode=importlib",
-]
+addopts = "--disable-warnings"
 
-
-
-
-[tool.black]
-# line-length = 88
-target-version = ["py310"]
-
-[tool.ruff]
-# line-length = 88
-target-version = "py310"
-# extend-select = ["I", "B", "UP", "N"]
-# extend-ignore = ["E501"]
-
-[tool.mypy]
-python_version = "3.10"
-# strict = true
-# ignore_missing_imports = true
-# show_error_codes = true
-# warn_unused_ignores = true
-# warn_redundant_casts = true
-# warn_return_any = true
-# warn_unreachable = true
-# exclude = ["docs/"]
+[tool.jax]
+enable_x64 = true
