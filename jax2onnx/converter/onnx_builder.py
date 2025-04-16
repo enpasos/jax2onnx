@@ -872,32 +872,18 @@ class OnnxBuilder:
 
     def add_scalar_input(self, name: str, dtype: int):
         """
-        Add a scalar input to the ONNX model.
-        This is specifically for call-time parameters like "deterministic" flags.
+        Adds a scalar (0-dimensional) input to the ONNX model, typically for call-time parameters such as flags.
 
         Args:
-            name: Name of the parameter input
-            dtype: ONNX TensorProto data type (e.g., TensorProto.BOOL)
+            name: Name of the scalar input parameter.
+            dtype: ONNX TensorProto data type (e.g., TensorProto.BOOL).
+
+        Returns:
+            The name of the registered scalar input.
         """
-        # Create a scalar shape (empty tuple for scalar)
         shape = ()
-
-        # Create tensor value info manually to avoid issues with JAX traced values
-        tensor_type = onnx.TypeProto.Tensor()
-        tensor_type.elem_type = dtype
-
-        type_proto = onnx.TypeProto()
-        type_proto.tensor_type.CopyFrom(tensor_type)
-
-        tensor_value_info = onnx.ValueInfoProto()
-        tensor_value_info.name = name
-        tensor_value_info.type.CopyFrom(type_proto)
-
-        # Add to the model's inputs
-        self.inputs.append(tensor_value_info)
-
-        # Register in metadata
+        value_info = helper.make_tensor_value_info(name, dtype, shape)
+        self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
-
         print(f"Added scalar parameter input: {name} (dtype: {dtype})")
         return name
