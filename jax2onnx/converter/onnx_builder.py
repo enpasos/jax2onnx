@@ -398,7 +398,7 @@ class OnnxBuilder:
         if duplicates:
             logging.warning(f"Duplicate ONNX functions detected: {sorted(duplicates)}")
         else:
-            logging.info("✅ No duplicate ONNX function names")
+            logging.debug("✅ No duplicate ONNX function names")
 
         model = helper.make_model(
             graph,
@@ -441,7 +441,7 @@ class OnnxBuilder:
                     "deterministic", (), TensorProto.BOOL, origin="function_param_auto"
                 )
                 sub_builder.add_value_info("deterministic", (), TensorProto.BOOL)
-                logging.info(
+                logging.debug(
                     f"Auto-registered deterministic parameter in function '{name}' as BOOL"
                 )
                 # Check if we still have missing items
@@ -470,7 +470,7 @@ class OnnxBuilder:
             and hasattr(sub_converter, "jaxpr")
             and hasattr(sub_converter, "var_to_name")
         ):
-            logging.info(
+            logging.debug(
                 f"Using sub_converter to deduplicate function inputs for '{name}'"
             )
 
@@ -506,7 +506,7 @@ class OnnxBuilder:
                         sub_builder.add_value_info(
                             "deterministic", (), TensorProto.BOOL
                         )
-                        logging.info(
+                        logging.debug(
                             f"Force-updated deterministic parameter to BOOL in function '{name}'"
                         )
                 else:
@@ -579,8 +579,8 @@ class OnnxBuilder:
                 "deterministic", TensorProto.BOOL, ()
             )
             combined_value_info_dict["deterministic"] = deterministic_vi
-            logging.info(
-                f"[CRITICAL FIX] Forced deterministic parameter to BOOL type in function '{name}'"
+            logging.debug(
+                f"Forced deterministic parameter to BOOL type in function '{name}'"
             )
 
         final_function_value_info = list(combined_value_info_dict.values())
@@ -748,7 +748,7 @@ class OnnxBuilder:
         if not batch_dims:
             return
 
-        logging.info(f"Making dimensions {batch_dims} dynamic in the ONNX model")
+        logging.debug(f"Making dimensions {batch_dims} dynamic in the ONNX model")
 
         # First, identify which inputs are tensor inputs vs scalar parameter inputs
         tensor_inputs = []
@@ -767,14 +767,14 @@ class OnnxBuilder:
             else:
                 param_inputs.append(inp)
 
-        logging.info(
+        logging.debug(
             f"Found {len(tensor_inputs)} tensor inputs and {len(param_inputs)} parameter inputs"
         )
 
         # Apply dynamic dimensions to all tensor inputs
         for i, tensor in enumerate(tensor_inputs):
             if i < len(input_shapes):
-                logging.info(f"Making dimensions dynamic for input: {tensor.name}")
+                logging.debug(f"Making dimensions dynamic for input: {tensor.name}")
                 self._adjust_tensor_shape(tensor, input_shapes[i], batch_dims)
             else:
                 logging.warn(f"No shape hint available for input: {tensor.name}")
@@ -870,5 +870,5 @@ class OnnxBuilder:
         value_info = make_value_info(name, shape, dtype)
         self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
-        logging.info(f"Added scalar parameter input: {name} (dtype: {dtype})")
+        logging.debug(f"Added scalar parameter input: {name} (dtype: {dtype})")
         return name
