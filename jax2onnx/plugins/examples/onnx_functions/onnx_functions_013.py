@@ -131,7 +131,7 @@ class MultiHeadAttention(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
-        x = self.attention(x)
+        x = self.attention(x, deterministic=deterministic)
         x = self.dropout(x, deterministic=deterministic)
         return x
 

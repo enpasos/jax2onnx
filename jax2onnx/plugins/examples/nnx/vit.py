@@ -242,7 +242,7 @@ class MultiHeadAttention(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
-        x = self.attention(x)
+        x = self.attention(x, deterministic=deterministic)
         x = self.dropout(x, deterministic=deterministic)
         return x
 
@@ -273,9 +273,7 @@ class TransformerBlock(nnx.Module):
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         r = self.layer_norm1(x)
-        r = self.attention(
-            r
-        )  # Do NOT pass deterministic here, matching onnx_functions_013.py
+        r = self.attention(r, deterministic=deterministic)
         x = x + r
         r = self.layer_norm2(x)
         return x + self.mlp_block(r, deterministic=deterministic)
