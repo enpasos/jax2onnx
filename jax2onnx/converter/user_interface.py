@@ -1,6 +1,6 @@
 # file: jax2onnx/converter/user_interface.py
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 import onnx
 
@@ -86,12 +86,12 @@ def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
 
 
 def allclose(
-    callable: Callable,
+    fn: Callable,
     onnx_model_path: str,
     *xs: Any,
-    jax_kwargs: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
+    **jax_kwargs,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs produce numerically similar results.
@@ -100,13 +100,12 @@ def allclose(
     similarly to the original JAX model within specified tolerance thresholds.
 
     Args:
-        callable: JAX function or model to compare against the ONNX model
+        fn: JAX function or model to compare against the ONNX model
         onnx_model_path: Path to the saved ONNX model file
         *xs: Input tensors to pass to both the JAX function and ONNX model
-        jax_kwargs: Optional keyword arguments to pass to the JAX function only
-                    (useful for parameters not exposed in the ONNX model)
         rtol: Relative tolerance for numerical comparison (default: 1e-3)
         atol: Absolute tolerance for numerical comparison (default: 1e-5)
+        **jax_kwargs: Optional keyword arguments to pass to the JAX function only
 
     Returns:
         Tuple containing (is_match: bool, message: str) where:
@@ -116,18 +115,15 @@ def allclose(
     Example:
         >>> import numpy as np
         >>> from jax2onnx import to_onnx, allclose
-        >>>
         >>> # First convert a model
         >>> onnx_model = to_onnx(my_jax_fn, [(3, 224, 224)])
+        >>> import onnx
         >>> onnx.save(onnx_model, "my_model.onnx")
-        >>>
         >>> # Then validate the outputs match
         >>> test_input = np.random.rand(3, 224, 224).astype(np.float32)
-        >>> is_close, message = allclose(my_jax_fn, "my_model.onnx", test_input)
+        >>> is_close, message = allclose(my_jax_fn, "my_model.onnx", test_input, deterministic=True)
         >>> print(f"Models match: {is_close}")
         >>> print(message)
     """
     # Delegate to the implementation in validation.py
-    return allclose_impl(
-        callable, onnx_model_path, *xs, jax_kwargs=jax_kwargs, rtol=rtol, atol=atol
-    )
+    return allclose_impl(fn, onnx_model_path, *xs, rtol=rtol, atol=atol, **jax_kwargs)
