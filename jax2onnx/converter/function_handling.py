@@ -206,6 +206,14 @@ def process_scalar_parameters(
 def classify_scalar_params(
     params, static_params, eqn, converter, input_names, extra_param_inputs, orig_fn=None
 ):
+    """
+    Classify scalar parameters for ONNX function export.
+
+    Required (no default) parameters are always exposed as ONNX inputs.
+    Optional parameters (with a default) are exported as ONNX constants if possible.
+    Uses Python's inspect to determine which parameters are required.
+    Tracer values are treated as dynamic inputs unless a static value is allowed.
+    """
     scalar_params_to_process = {}
     # Determine which parameters are required (no default) using inspect
     required_params = set()
@@ -221,7 +229,6 @@ def classify_scalar_params(
         is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
         # Only use static value if parameter is NOT required (i.e., has a default)
         if is_tracer:
-            # Only print in debug mode or for critical issues
             if param_name in static_params and (
                 orig_fn is None or param_name not in required_params
             ):
