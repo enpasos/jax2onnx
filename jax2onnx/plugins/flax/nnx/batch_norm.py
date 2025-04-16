@@ -71,6 +71,55 @@ nnx.batch_norm_p.multiple_results = False  # Set once at initialization
             "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 2, 2, 64)],
         },
+        # Extended test coverage for BatchNorm
+        {
+            "testcase": "batch_norm_2d_train",
+            "callable": nnx.BatchNorm(num_features=20, rngs=nnx.Rngs(0)),
+            "input_shapes": [(2, 20)],
+            "call_kwargs": {"deterministic": False},
+        },
+        {
+            "testcase": "batch_norm_4d_use_bias",
+            "callable": nnx.BatchNorm(
+                num_features=8, use_bias=True, use_scale=False, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(4, 8, 8, 8)],
+        },
+        {
+            "testcase": "batch_norm_4d_use_scale",
+            "callable": nnx.BatchNorm(
+                num_features=8, use_bias=False, use_scale=True, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(4, 8, 8, 8)],
+        },
+        {
+            "testcase": "batch_norm_momentum",
+            "callable": nnx.BatchNorm(num_features=8, momentum=0.1, rngs=nnx.Rngs(0)),
+            "input_shapes": [(4, 8, 8, 8)],
+        },
+        {
+            "testcase": "batch_norm_epsilon",
+            "callable": nnx.BatchNorm(num_features=8, epsilon=1e-3, rngs=nnx.Rngs(0)),
+            "input_shapes": [(4, 8, 8, 8)],
+        },
+        {
+            "testcase": "batch_norm_float32",
+            "callable": nnx.BatchNorm(num_features=8, rngs=nnx.Rngs(0)),
+            "input_shapes": [(4, 8, 8, 8)],
+            "input_dtype": jnp.float32,
+        },
+        {
+            "testcase": "batch_norm_3d_train",
+            "callable": nnx.BatchNorm(num_features=32, rngs=nnx.Rngs(0)),
+            "input_shapes": [(8, 32, 32)],
+            "call_kwargs": {"deterministic": False},
+        },
+        {
+            "testcase": "batch_norm_single_batch_train",
+            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 2, 2, 64)],
+            "call_kwargs": {"deterministic": False},
+        },
     ],
 )
 class BatchNormPlugin(PrimitiveLeafPlugin):
@@ -174,13 +223,26 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def get_monkey_patch():
-        """Returns a patched version of BatchNorm.__call__."""
+        """Returns a patched version of BatchNorm.__call__ that handles missing scale/bias."""
+        import jax.numpy as jnp
 
         def patched_batch_norm_call(self, x):
+            num_features = x.shape[-1]
+            dtype = x.dtype
+            scale = (
+                self.scale.value
+                if self.scale is not None
+                else jnp.ones(num_features, dtype=dtype)
+            )
+            bias = (
+                self.bias.value
+                if self.bias is not None
+                else jnp.zeros(num_features, dtype=dtype)
+            )
             return BatchNormPlugin._batch_norm(
                 x,
-                self.scale.value,
-                self.bias.value,
+                scale,
+                bias,
                 self.mean.value,
                 self.var.value,
                 epsilon=self.epsilon,
