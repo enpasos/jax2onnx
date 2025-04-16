@@ -53,6 +53,52 @@ nnx.avg_pool_p.multiple_results = False  # Correctly set at initialization
             "callable": lambda x: nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2)),
             "input_shapes": [(1, 32, 32, 3)],
         },
+        {
+            "testcase": "avg_pool_stride1",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(2, 2), strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+        },
+        {
+            "testcase": "avg_pool_large_window",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(4, 4), strides=(2, 2), padding="SAME"
+            ),
+            "input_shapes": [(2, 16, 16, 3)],
+        },
+        {
+            "testcase": "avg_pool_single_batch",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(3, 3), strides=(2, 2), padding="VALID"
+            ),
+            "input_shapes": [(1, 10, 10, 1)],
+        },
+        {
+            "testcase": "avg_pool_dynamic_batch",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
+            ),
+            "input_shapes": [("B", 32, 32, 3)],
+        },
+        {
+            "testcase": "avg_pool_stride_none",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(2, 2), strides=None, padding="VALID"
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+        },
+        {
+            "testcase": "avg_pool_count_include_pad_false",
+            "callable": lambda x: nnx.avg_pool(
+                x,
+                window_shape=(2, 2),
+                strides=(2, 2),
+                padding="SAME",
+                count_include_pad=False,
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+        },
     ],
 )
 class AvgPoolPlugin(PrimitiveLeafPlugin):
