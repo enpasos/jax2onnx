@@ -13,6 +13,8 @@ from jax import tree_util
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
+import logging
+
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
 
@@ -137,11 +139,13 @@ class FunctionPlugin(PrimitivePlugin):
                 self._aval_to_shaped_array, output_aval_struct
             )
 
-            # print(f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}")
+            logging.debug(
+                f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}"
+            )
             return output_aval
 
         except Exception as e:
-            print(
+            logging.error(
                 f"[ERROR] jax.eval_shape or conversion failed during abstract evaluation for primitive {self.name} on function {self._orig_fn}: {e}"
             )
             raise e

@@ -1,11 +1,12 @@
 # file: jax2onnx/converter/optimize_onnx_graph.py
 
 
-import logging
 from itertools import chain
 
 import onnx
 from onnx import ModelProto, shape_inference
+
+import logging
 
 logging.basicConfig(level=logging.INFO)
 

@@ -11,6 +11,7 @@ from jax.extend.core import Literal, Primitive
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+import logging
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -64,27 +65,27 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         det_input = node_inputs[1]
         output_name = s.get_name(node_outputs[0])
 
-        print("[DEBUG] Dropout to_onnx called")
-        print(f"[DEBUG] Input tensor name: {x_name}")
-        print(f"[DEBUG] Deterministic input: {det_input}")
-        print(f"[DEBUG] Output name: {output_name}")
+        logging.debug("[DEBUG] Dropout to_onnx called")
+        logging.debug(f"[DEBUG] Input tensor name: {x_name}")
+        logging.debug(f"[DEBUG] Deterministic input: {det_input}")
+        logging.debug(f"[DEBUG] Output name: {output_name}")
 
         # Static parameter: rate
         rate = params.get("rate", 0.0)
-        print(f"[DEBUG] Dropout rate: {rate}")
+        logging.debug(f"[DEBUG] Dropout rate: {rate}")
         ratio_tensor = np.array(rate, dtype=np.float32)
         ratio_name = s.builder.get_constant_name(ratio_tensor)
 
         # Handle deterministic: static or dynamic
         if isinstance(det_input, Literal):
             training_mode = not bool(det_input.val)
-            print(
+            logging.debug(
                 f"[DEBUG] Static deterministic value: {det_input.val} → training_mode: {training_mode}"
             )
             training_tensor = np.array(training_mode, dtype=bool)
             training_mode_name = s.builder.get_constant_name(training_tensor)
         else:
-            print("[DEBUG] Dynamic deterministic input detected")
+            logging.debug("[DEBUG] Dynamic deterministic input detected")
             det_name = s.get_name(det_input)
             det_aval = det_input.aval
             det_shape = det_aval.shape
@@ -98,7 +99,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("not_deterministic"),
             )
             s.add_node(not_node)
-            print(
+            logging.debug(
                 f"[DEBUG] Added NOT node to invert deterministic: input={det_name}, output={flipped_name}"
             )
 
@@ -119,7 +120,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("Dropout"),
         )
         s.add_node(dropout_node)
-        print(
+        logging.debug(
             f"[DEBUG] Added Dropout node with inputs: {dropout_inputs}, output: {output_name}"
         )
 
