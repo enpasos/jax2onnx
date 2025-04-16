@@ -15,7 +15,6 @@ import jax
 import jax.random
 import jax.numpy as jnp
 import numpy as np
-import onnx
 from jax.extend import core as extend_core
 from onnx import helper
 
@@ -212,27 +211,6 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError("not yet implemented")
 
-    def _create_and_save_model(
-        self, model_name: str, output_path: str | None = None
-    ) -> onnx.ModelProto:
-        """Create and optionally save an ONNX model with the given name."""
-        # Clean up unused initializers
-        used_initializers = {i for node in self.builder.nodes for i in node.input}
-        self.builder.initializers = [
-            init for init in self.builder.initializers if init.name in used_initializers
-        ]
-
-        # Create graph and model
-        graph = self.builder.create_graph(model_name)
-        onnx_model = self.builder.create_model(graph)
-
-        # Save model if path is provided
-        if output_path:
-            onnx.save_model(onnx_model, output_path)
-            self.logger.info("Model saved to %s", output_path)
-
-        return onnx_model
-
     def trace_jaxpr(
         self,
         fn: Any,
@@ -304,23 +282,6 @@ class Jaxpr2OnnxConverter:
                 raise RuntimeError(
                     f"[MissingShape] Cannot infer shape for output var {name}"
                 )
-
-    def convert(
-        self,
-        fn: Any,
-        example_args: list[Any],
-        output_path: str = "model.onnx",
-        model_name: str = "jax_model",
-    ) -> str:
-        """Convert a JAX function to ONNX and save the model."""
-
-        # Trace the JAX function to generate JAXPR representation
-        self.trace_jaxpr(fn, example_args)
-
-        # Create and save the ONNX model using our centralized method
-        self._create_and_save_model(model_name, output_path)
-
-        return output_path
 
     def add_initializer(
         self,
