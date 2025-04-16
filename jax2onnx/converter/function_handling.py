@@ -359,6 +359,12 @@ def register_function_inputs(
 def rename_and_register_param_inputs(
     sub_converter, sub_builder, remaining_internal_vars, extra_param_inputs
 ):
+    """
+    Ensure that parameter inputs in the ONNX function graph use descriptive names
+    (matching the original function parameter names) instead of generic variable names.
+    This improves readability and correctness, and is especially important for
+    required call parameters that must be exposed as ONNX inputs.
+    """
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
     ):
