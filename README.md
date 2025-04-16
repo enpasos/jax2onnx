@@ -101,7 +101,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 - **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions, allow user friendly var names  
 
 ### **Current Productive Version**
-- **0.4.2**: Cleanup and fixes to the basic ONNX function release.
+- **0.4.2** *(PyPI)*: Cleanup and fixes to the basic ONNX function release.
 
 ### **Past Versions**
 - **0.4.1** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
