@@ -20,4 +20,4 @@ def inspect_onnx_model(model_path):
 
 
 if __name__ == "__main__":
-    inspect_onnx_model("docs/onnx/duplicate_param_test.onnx")
+    inspect_onnx_model("../../docs/onnx/duplicate_param_test.onnx")
