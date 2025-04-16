@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING
+import inspect
 
 import jax.numpy as jnp
 from jax.core import ShapedArray
@@ -104,37 +105,74 @@ def process_scalar_parameters(
     input_names,
     extra_param_inputs,
     example_args,
+    special_param_handling=None,  # New argument for explicit parameter handling
 ):
+    """
+    Process scalar parameters for function conversion.
+    special_param_handling: Optional[dict], maps param_name to one of: 'input', 'constant', 'static'.
+    """
+    special_param_handling = special_param_handling or {}
     for param_name, param_value in scalar_params_to_process.items():
         if any(name == param_name for name, _ in extra_param_inputs):
             continue
 
-        if param_name in ["deterministic", "training", "is_training"]:
+        handling_mode = special_param_handling.get(param_name, None)
+
+        # If the parameter is a tracer (not static), expose as ONNX input and skip all constant logic
+        is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
+        if is_tracer:
+            print(
+                f"[INFO] Exposing tracer parameter '{param_name}' as ONNX input (no constant created)."
+            )
+            if param_name not in input_names:
+                input_names.append(param_name)
+            extra_param_inputs.append((param_name, param_name))
+            # Do NOT create a constant or add to example_args
+            continue
+
+        if handling_mode == "input":
+            # Treat as graph input
             if param_name in converter.name_to_var:
                 var_name = param_name
                 print(
-                    f"[INFO] Using existing graph input '{var_name}' for parameter '{param_name}'"
+                    f"[INFO] Using existing graph input '{var_name}' for parameter '{param_name}' (explicit input mode)"
                 )
                 if var_name not in input_names:
                     input_names.append(var_name)
                 extra_param_inputs.append((param_name, var_name))
                 continue
-
-            if isinstance(param_value, bool):
-                const_name = create_scalar_constant_tensor(
-                    param_name, param_value, onnx.TensorProto.BOOL, parent_builder
+        elif handling_mode == "constant":
+            # Treat as constant
+            dtype_enum = (
+                onnx.TensorProto.BOOL
+                if isinstance(param_value, bool)
+                else (
+                    onnx.TensorProto.INT64
+                    if isinstance(param_value, int)
+                    else onnx.TensorProto.FLOAT
                 )
-                register_constant_parameter(
-                    const_name,
-                    param_name,
-                    param_value,
-                    input_names,
-                    extra_param_inputs,
-                    example_args,
-                )
-                continue
+            )
+            const_name = create_scalar_constant_tensor(
+                param_name, param_value, dtype_enum, parent_builder
+            )
+            register_constant_parameter(
+                const_name,
+                param_name,
+                param_value,
+                input_names,
+                extra_param_inputs,
+                example_args,
+            )
+            continue
+        elif handling_mode == "static":
+            # Do not add as input or constant, just skip
+            print(
+                f"[INFO] Parameter '{param_name}' marked as static, skipping input/constant registration."
+            )
+            continue
 
-        # Handle based on parameter type
+        # Fallback: legacy behavior for backward compatibility
+        # Remove all hardcoded param_name checks
         if isinstance(param_value, (bool, int, float)):
             dtype_enum = (
                 onnx.TensorProto.BOOL
@@ -166,52 +204,49 @@ def process_scalar_parameters(
 
 
 def classify_scalar_params(
-    params, static_params, eqn, converter, input_names, extra_param_inputs
+    params, static_params, eqn, converter, input_names, extra_param_inputs, orig_fn=None
 ):
     scalar_params_to_process = {}
+    # Determine which parameters are required (no default) using inspect
+    required_params = set()
+    if orig_fn is not None:
+        sig = inspect.signature(orig_fn)
+        for name, param in sig.parameters.items():
+            if param.default is inspect.Parameter.empty and param.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                required_params.add(name)
     for param_name, param_value in params.items():
         is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
         if is_tracer:
             print(f"[WARN] Parameter '{param_name}' is a tracer: {type(param_value)}")
-            if param_name in static_params:
+            # Only use static value if parameter is NOT required (i.e., has a default)
+            if param_name in static_params and (
+                orig_fn is None or param_name not in required_params
+            ):
                 print(
-                    f"[INFO] Using static value {static_params[param_name]} for tracer parameter '{param_name}'"
+                    f"[INFO] Using static value {static_params[param_name]} for tracer parameter '{param_name}' (optional param)"
                 )
                 param_value = static_params[param_name]
             else:
                 print(
-                    f"[WARN] No static value found for tracer parameter '{param_name}', defaulting to True"
+                    f"[INFO] Parameter '{param_name}' is a required call parameter and will be exposed as ONNX input."
                 )
-                if param_name in ["deterministic", "training", "is_training"]:
-                    param_value = True
+                # Do not assign a default value here; just mark as input
+                pass
 
         if isinstance(param_value, (bool, int, float)) or is_tracer:
             scalar_params_to_process[param_name] = param_value
 
-            if isinstance(param_value, bool) or (
-                param_name in ["deterministic", "training"]
-            ):
-                bool_input_indices = []
-                for i, var in enumerate(eqn.invars):
-                    if hasattr(var, "aval") and var.aval.dtype == jnp.bool_:
-                        bool_input_indices.append(i)
-
-                if len(bool_input_indices) == 1:
-                    bool_idx = bool_input_indices[0]
-                    bool_var = eqn.invars[bool_idx]
-                    standard_var_name = converter.get_name(bool_var)
-                    if standard_var_name not in input_names:
-                        input_names.append(standard_var_name)
-                    extra_param_inputs.append((param_name, standard_var_name))
-                    print(
-                        f"[INFO] Using standard boolean input '{standard_var_name}' for parameter '{param_name}'"
-                    )
-                    scalar_params_to_process.pop(param_name, None)
+            # Remove legacy logic for deterministic/training guessing
+            # Always expose as input if it's a tracer and not static
+            # (No more bool_input_indices guessing)
     return scalar_params_to_process
 
 
 def handle_function_parameters(
-    params, converter, eqn, parent_builder, input_names, example_args
+    params, converter, eqn, parent_builder, input_names, example_args, orig_fn=None
 ):
     extra_param_inputs = []
     if not params:
@@ -219,7 +254,13 @@ def handle_function_parameters(
 
     static_params = getattr(converter, "static_params", {})
     scalar_params_to_process = classify_scalar_params(
-        params, static_params, eqn, converter, input_names, extra_param_inputs
+        params,
+        static_params,
+        eqn,
+        converter,
+        input_names,
+        extra_param_inputs,
+        orig_fn=orig_fn,
     )
     process_scalar_parameters(
         scalar_params_to_process,
@@ -525,7 +566,13 @@ def function_handler(
         converter, eqn, parent_builder
     )
     extra_param_inputs = handle_function_parameters(
-        params, converter, eqn, parent_builder, input_names, example_args
+        params,
+        converter,
+        eqn,
+        parent_builder,
+        input_names,
+        example_args,
+        orig_fn=orig_fn,
     )
 
     print(f"Tracing function body for: {unique_node_name}")
