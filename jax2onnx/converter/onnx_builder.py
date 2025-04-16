@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import logging
 import numpy as np
 import onnx
 from jax.extend.core import Literal
@@ -196,8 +197,8 @@ class OnnxBuilder:
         try:
             onnx_dtype = self._numpy_dtype_to_onnx(np_val.dtype)
         except TypeError:
-            print(
-                f"Warning: Could not convert value {val} to numpy array. Skipping initializer."
+            logging.warning(
+                f"Could not convert value {val} to numpy array. Skipping initializer."
             )
             return self.get_unique_name("invalid_const")
 
@@ -395,9 +396,9 @@ class OnnxBuilder:
                 duplicates.add(n)
             seen.add(n)
         if duplicates:
-            print(f"⚠️ Duplicate ONNX functions detected: {sorted(duplicates)}")
+            logging.warning(f"Duplicate ONNX functions detected: {sorted(duplicates)}")
         else:
-            print("✅ No duplicate ONNX function names")
+            logging.info("✅ No duplicate ONNX function names")
 
         model = helper.make_model(
             graph,
@@ -440,8 +441,8 @@ class OnnxBuilder:
                     "deterministic", (), TensorProto.BOOL, origin="function_param_auto"
                 )
                 sub_builder.add_value_info("deterministic", (), TensorProto.BOOL)
-                print(
-                    f"[INFO] Auto-registered deterministic parameter in function '{name}' as BOOL"
+                logging.info(
+                    f"Auto-registered deterministic parameter in function '{name}' as BOOL"
                 )
                 # Check if we still have missing items
                 missing = sub_builder.find_missing_value_info()
@@ -469,8 +470,8 @@ class OnnxBuilder:
             and hasattr(sub_converter, "jaxpr")
             and hasattr(sub_converter, "var_to_name")
         ):
-            print(
-                f"[INFO] Using sub_converter to deduplicate function inputs for '{name}'"
+            logging.info(
+                f"Using sub_converter to deduplicate function inputs for '{name}'"
             )
 
             # Get the original input variables from the sub_converter's jaxpr
@@ -482,8 +483,8 @@ class OnnxBuilder:
                 final_name = sub_converter.var_to_name.get(var, None)
                 if final_name is None:
                     # Handle cases where a var might not be in the map
-                    print(
-                        f"[WARN] Could not find final name for input var: {var}. Skipping."
+                    logging.warning(
+                        f"Could not find final name for input var: {var}. Skipping."
                     )
                     continue
 
@@ -505,11 +506,11 @@ class OnnxBuilder:
                         sub_builder.add_value_info(
                             "deterministic", (), TensorProto.BOOL
                         )
-                        print(
-                            f"[INFO] Force-updated deterministic parameter to BOOL in function '{name}'"
+                        logging.info(
+                            f"Force-updated deterministic parameter to BOOL in function '{name}'"
                         )
                 else:
-                    print(f"[DEBUG] Deduplicating function input name: {final_name}")
+                    logging.debug(f"Deduplicating function input name: {final_name}")
 
             # Add any extra parameter inputs (like weights/constants)
             for param_name in param_input_names:
@@ -532,8 +533,8 @@ class OnnxBuilder:
                     final_input_names.append(param_name)
                     seen_names.add(param_name)
 
-            print(
-                f"[DEBUG] Final computed input names for function '{name}': {final_input_names}"
+            logging.debug(
+                f"Final computed input names for function '{name}': {final_input_names}"
             )
         else:
             # Fallback to the original approach if sub_converter is not available
@@ -578,7 +579,7 @@ class OnnxBuilder:
                 "deterministic", TensorProto.BOOL, ()
             )
             combined_value_info_dict["deterministic"] = deterministic_vi
-            print(
+            logging.info(
                 f"[CRITICAL FIX] Forced deterministic parameter to BOOL type in function '{name}'"
             )
 
@@ -665,7 +666,7 @@ class OnnxBuilder:
 
             if shape is None:
                 # fallback for debugging
-                print(f"[WARN] Missing metadata for: {name} — using fallback")
+                logging.warn(f"[WARN] Missing metadata for: {name} — using fallback")
                 shape = ()  # or None
             # print(
             #    f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}"
@@ -747,7 +748,7 @@ class OnnxBuilder:
         if not batch_dims:
             return
 
-        print(f"Making dimensions {batch_dims} dynamic in the ONNX model")
+        logging.info(f"Making dimensions {batch_dims} dynamic in the ONNX model")
 
         # First, identify which inputs are tensor inputs vs scalar parameter inputs
         tensor_inputs = []
@@ -766,17 +767,17 @@ class OnnxBuilder:
             else:
                 param_inputs.append(inp)
 
-        print(
+        logging.info(
             f"Found {len(tensor_inputs)} tensor inputs and {len(param_inputs)} parameter inputs"
         )
 
         # Apply dynamic dimensions to all tensor inputs
         for i, tensor in enumerate(tensor_inputs):
             if i < len(input_shapes):
-                print(f"Making dimensions dynamic for input: {tensor.name}")
+                logging.info(f"Making dimensions dynamic for input: {tensor.name}")
                 self._adjust_tensor_shape(tensor, input_shapes[i], batch_dims)
             else:
-                print(f"No shape hint available for input: {tensor.name}")
+                logging.warn(f"No shape hint available for input: {tensor.name}")
 
         # Make all outputs dynamic as well
         for tensor in self.outputs:
@@ -836,7 +837,7 @@ class OnnxBuilder:
             else:
                 existing = self.value_info_metadata[name]
                 if existing != (shape, dtype):
-                    print(
+                    logging.warning(
                         f"⚠️ [merge] Mismatch in value_info for '{name}': "
                         f"existing={existing}, new={(shape, dtype)}"
                     )
@@ -850,7 +851,7 @@ class OnnxBuilder:
             if name not in self.functions:
                 self.functions[name] = func
             else:
-                print(
+                logging.warning(
                     f"⚠️ [Duplicate function] Skipping already-registered function '{name}'"
                 )
 
@@ -869,5 +870,5 @@ class OnnxBuilder:
         value_info = make_value_info(name, shape, dtype)
         self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
-        print(f"Added scalar parameter input: {name} (dtype: {dtype})")
+        logging.info(f"Added scalar parameter input: {name} (dtype: {dtype})")
         return name

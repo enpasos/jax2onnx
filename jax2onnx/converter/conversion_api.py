@@ -10,6 +10,8 @@ from typing import Any, Dict
 import jax.numpy as jnp
 import onnx
 
+import logging
+
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -42,7 +44,7 @@ def prepare_example_args(input_shapes, default_batch_size=2):
         processed_shapes.append(tuple(new_shape))
 
     if dynamic_dim_found:
-        print("Dynamic batch dimensions detected.")
+        logging.info("Dynamic batch dimensions detected.")
 
     return [jnp.zeros(s, dtype=jnp.float32) for s in processed_shapes]  # Assume float32
 
@@ -106,7 +108,7 @@ def analyze_constants(model: onnx.ModelProto):
     Args:
         model: The ONNX model to analyze.
     """
-    print("\n🔍 Constant Analysis Report (Verbose)")
+    logging.info("\n🔍 Constant Analysis Report (Verbose)")
     graph = model.graph
     graph_inputs = {inp.name for inp in graph.input}
     initializers = {init.name for init in graph.initializer}
@@ -114,16 +116,19 @@ def analyze_constants(model: onnx.ModelProto):
         node.output[0]: node for node in graph.node if node.op_type == "Constant"
     }
     function_names = {f.name for f in model.functions}
-    print("\n📦 Top-Level Inputs:")
-    [print(f"  - {inp.name}") for inp in graph.input]
-    print("\n🧊 Initializers (Style 2):")
-    [print(f"  - {init.name}") for init in graph.initializer]
-    print("\n🧱 Constant Nodes in Main Graph (Style 2):")
-    [print(f"  - {name}") for name in const_nodes]
-    print("\n🧩 Function Call Inputs:")
+    logging.info("\n📦 Top-Level Inputs:")
+    for inp in graph.input:
+        logging.info(f"  - {inp.name}")
+    logging.info("\n🧊 Initializers (Style 2):")
+    for init in graph.initializer:
+        logging.info(f"  - {init.name}")
+    logging.info("\n🧱 Constant Nodes in Main Graph (Style 2):")
+    for name in const_nodes:
+        logging.info(f"  - {name}")
+    logging.info("\n🧩 Function Call Inputs:")
     for node in graph.node:
         if node.op_type in function_names:
-            print(f"\n▶ Function Call: {node.op_type}")
+            logging.info(f"\n▶ Function Call: {node.op_type}")
             for inp in node.input:
                 style = "Unknown/Intermediate"
                 if inp in initializers:
@@ -132,9 +137,9 @@ def analyze_constants(model: onnx.ModelProto):
                     style = "Style 1 (passed in as input)"
                 elif inp in const_nodes:
                     style = "Style 2 (constant node)"
-                print(f"  - {inp} → {style}")
-    print("\n🔗 Constant Usage Map:")
+                logging.info(f"  - {inp} → {style}")
+    logging.info("\n🔗 Constant Usage Map:")
     for node in graph.node:
         for inp in node.input:
             if inp.startswith("const_") or inp.startswith("var_"):
-                print(f"  - {inp} used in {node.op_type}")
+                logging.info(f"  - {inp} used in {node.op_type}")

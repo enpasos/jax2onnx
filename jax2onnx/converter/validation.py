@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import onnxruntime as ort
+import logging
 
 
 def allclose(
@@ -73,10 +74,10 @@ def allclose(
     param_input_names = input_names[tensor_input_count:]
 
     # Print debug info to understand what's happening
-    print(f"ONNX model inputs: {input_names}")
-    print(f"Tensor inputs: {tensor_input_names}")
-    print(f"Parameter inputs: {param_input_names}")
-    print(f"JAX kwargs: {jax_kwargs}")
+    logging.info(f"ONNX model inputs: {input_names}")
+    logging.info(f"Tensor inputs: {tensor_input_names}")
+    logging.info(f"Parameter inputs: {param_input_names}")
+    logging.info(f"JAX kwargs: {jax_kwargs}")
 
     # Prepare ONNX input dictionary for tensor inputs
     onnx_inputs = {
@@ -85,7 +86,7 @@ def allclose(
 
     # Get more detailed type information from ONNX model inputs
     input_details = [(inp.name, inp.type, inp.shape) for inp in session.get_inputs()]
-    print(f"Detailed input info: {input_details}")
+    logging.info(f"Detailed input info: {input_details}")
 
     # Create a mapping of parameter name to expected ONNX type
     onnx_type_map = _create_onnx_type_map(session, param_input_names)
@@ -186,11 +187,11 @@ def _create_onnx_type_map(
             else:
                 # Default to float32 if we can't determine the type
                 onnx_type_map[inp.name] = np.float32
-                print(
+                logging.info(
                     f"Warning: Unknown ONNX type {onnx_type} for parameter {inp.name}, using float32"
                 )
 
-    print(f"ONNX parameter types: {onnx_type_map}")
+    logging.info(f"ONNX parameter types: {onnx_type_map}")
     return onnx_type_map
 
 
@@ -221,11 +222,13 @@ def _add_parameters_to_inputs(
             if param_name in onnx_type_map:
                 expected_dtype = onnx_type_map[param_name]
                 onnx_inputs[param_name] = np.array(det_value, dtype=expected_dtype)
-                print(f"Added deterministic={det_value} with dtype={expected_dtype}")
+                logging.info(
+                    f"Added deterministic={det_value} with dtype={expected_dtype}"
+                )
             else:
                 # Fallback to bool_ if not in the type map
                 onnx_inputs[param_name] = np.array(det_value, dtype=np.bool_)
-                print(f"Added deterministic={det_value} with dtype=bool_")
+                logging.info(f"Added deterministic={det_value} with dtype=bool_")
 
             # Also ensure it's in jax_kwargs
             jax_kwargs["deterministic"] = det_value
@@ -236,7 +239,7 @@ def _add_parameters_to_inputs(
             _add_parameter_value(onnx_inputs, param_name, param_value, onnx_type_map)
         else:
             # Parameter not found in jax_kwargs, provide a reasonable default
-            print(
+            logging.info(
                 f"Warning: Parameter {param_name} not provided in jax_kwargs, using default value"
             )
             _add_default_parameter(onnx_inputs, param_name, onnx_type_map)
@@ -262,9 +265,11 @@ def _add_parameter_value(
         expected_dtype = onnx_type_map[param_name]
         try:
             onnx_inputs[param_name] = np.array(param_value, dtype=expected_dtype)
-            print(f"Added {param_name}={param_value} with dtype={expected_dtype}")
+            logging.info(
+                f"Added {param_name}={param_value} with dtype={expected_dtype}"
+            )
         except (TypeError, ValueError) as e:
-            print(
+            logging.info(
                 f"Warning: Failed to convert {param_name}={param_value} to {expected_dtype}: {e}"
             )
             # Fall back to intelligent guessing based on the value type
@@ -278,7 +283,7 @@ def _add_parameter_value(
                     param_value, dtype=type(param_value).__name__
                 )
             else:
-                print(
+                logging.info(
                     f"Warning: Unsupported parameter type for {param_name}: {type(param_value)}"
                 )
     else:
@@ -291,7 +296,7 @@ def _add_parameter_value(
         elif isinstance(param_value, float):
             onnx_inputs[param_name] = np.array(param_value, dtype=np.float32)
         else:
-            print(
+            logging.info(
                 f"Warning: Parameter {param_name} has unsupported type {type(param_value)}"
             )
 
@@ -327,11 +332,11 @@ def _add_default_parameter(
         elif np.issubdtype(dtype, np.bool_):
             onnx_inputs[param_name] = np.array(False, dtype=dtype)
         else:
-            print(
+            logging.info(
                 f"Warning: Cannot determine default for parameter {param_name} with type {dtype}"
             )
     # If we don't have type information, we can't provide a reasonable default
     else:
-        print(
+        logging.info(
             f"Warning: No type information for parameter {param_name}, skipping default"
         )

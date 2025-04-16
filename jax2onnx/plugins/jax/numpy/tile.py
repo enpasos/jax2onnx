@@ -9,6 +9,7 @@ from jax.extend.core import Literal, Primitive
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+import logging
 
 if TYPE_CHECKING:
     from jax2onnx.converter.converter import Jaxpr2OnnxConverter
@@ -97,13 +98,13 @@ class TilePlugin(PrimitiveLeafPlugin):
 
         # Check concrete types FIRST
         if isinstance(repeats, (int, np.integer)):
-            print("Repeats type: int/np.integer")  # DEBUG
+            logging.debug("Repeats type: int/np.integer")  # DEBUG
             repeats_list = [int(repeats)] if int(repeats) >= 0 else [-1]
             repeats_rank = 1
             if repeats_list[0] == -1:
                 pass
         elif isinstance(repeats, (tuple, list)):
-            print("Repeats type: tuple/list")  # DEBUG
+            logging.debug("Repeats type: tuple/list")  # DEBUG
             repeats_rank = len(repeats)
             repeats_list = [-1] * repeats_rank
             for i, r in enumerate(repeats):
@@ -112,7 +113,7 @@ class TilePlugin(PrimitiveLeafPlugin):
                 else:
                     pass
         elif isinstance(repeats, np.ndarray):
-            print("Repeats type: np.ndarray")  # DEBUG
+            logging.debug("Repeats type: np.ndarray")  # DEBUG
             if repeats.ndim == 1:
                 repeats_list_raw = repeats.tolist()
                 repeats_rank = len(repeats_list_raw)
@@ -126,7 +127,7 @@ class TilePlugin(PrimitiveLeafPlugin):
                 raise TypeError("Tile repeats array must be 1D")
         # Check Literal tracer SECOND (represents constants)
         elif isinstance(repeats, Literal):
-            print("Repeats type: core.Literal")  # DEBUG
+            logging.debug("Repeats type: core.Literal")  # DEBUG
             val = repeats.val
             if isinstance(val, (int, np.integer)):
                 repeats_list = [int(val)] if int(val) >= 0 else [-1]
@@ -157,18 +158,18 @@ class TilePlugin(PrimitiveLeafPlugin):
                 pass
         # Check ShapedArray tracer LAST (assume dynamic if not Literal)
         elif isinstance(repeats, core.ShapedArray):
-            print("Repeats type: core.ShapedArray (Tracer)")  # DEBUG
+            logging.debug("Repeats type: core.ShapedArray (Tracer)")  # DEBUG
             if repeats.ndim == 1:
                 repeats_rank = repeats.shape[0]
                 # Assume dynamic if it's a ShapedArray and not a Literal
                 repeats_list = [-1] * repeats_rank
-                print(f"  Marking repeats as abstract: {repeats_list}")  # DEBUG
+                logging.debug(f"  Marking repeats as abstract: {repeats_list}")  # DEBUG
             else:
                 raise TypeError("Tile repeats tensor must be 1D")
         # Handle any other Tracer type
         elif isinstance(repeats, core.Tracer):
-            print(f"Repeats type: Generic Tracer {type(repeats)}")  # DEBUG
-            print(
+            logging.debug(f"Repeats type: Generic Tracer {type(repeats)}")  # DEBUG
+            logging.debug(
                 f"[WARN] Tile abstract eval got generic Tracer for repeats: {repeats}. Treating as fully abstract."
             )
             repeats_rank = x_rank  # Best guess
@@ -178,17 +179,19 @@ class TilePlugin(PrimitiveLeafPlugin):
                 f"Unsupported repeats type for abstract eval: {type(repeats)}"
             )
 
-        print(f"Initial repeats_list: {repeats_list}, Rank: {repeats_rank}")  # DEBUG
+        logging.debug(
+            f"Initial repeats_list: {repeats_list}, Rank: {repeats_rank}"
+        )  # DEBUG
 
         # --- Padding logic ---
         if repeats_rank < x_rank:
             repeats_list = [1] * (x_rank - repeats_rank) + repeats_list
             repeats_rank = x_rank
-            print(f"Padded repeats_list: {repeats_list}")  # DEBUG
+            logging.debug(f"Padded repeats_list: {repeats_list}")  # DEBUG
         elif x_rank < repeats_rank:
             x_shape = [-1] * (repeats_rank - x_rank) + x_shape
             x_rank = repeats_rank
-            print(f"Padded x_shape: {x_shape}")  # DEBUG
+            logging.debug(f"Padded x_shape: {x_shape}")  # DEBUG
 
         output_rank = x_rank
         output_shape = []
@@ -208,7 +211,9 @@ class TilePlugin(PrimitiveLeafPlugin):
                 output_shape.append(s * r)
 
         final_output_shape_tuple = tuple(output_shape)
-        print(f"Final computed shape tuple: {final_output_shape_tuple}")  # DEBUG
+        logging.debug(
+            f"Final computed shape tuple: {final_output_shape_tuple}"
+        )  # DEBUG
 
         return core.ShapedArray(final_output_shape_tuple, x_dtype)
 
