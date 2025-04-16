@@ -13,7 +13,12 @@ import onnxruntime as ort
 
 
 def allclose(
-    callable, onnx_model_path, *xs, jax_kwargs=None, rtol=1e-3, atol=1e-5
+    fn,
+    onnx_model_path,
+    *xs,
+    rtol=1e-3,
+    atol=1e-5,
+    **jax_kwargs,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs are numerically close.
@@ -23,19 +28,16 @@ def allclose(
     It handles various parameter types and provides detailed diagnostics.
 
     Args:
-        callable: JAX function to test
+        fn: JAX function to test
         onnx_model_path: Path to the ONNX model
         *xs: Tensor arguments to pass to both JAX and ONNX
-        jax_kwargs: Optional keyword arguments to pass to the JAX function
         rtol: Relative tolerance for comparison (default: 1e-3)
         atol: Absolute tolerance for comparison (default: 1e-5)
+        **jax_kwargs: Optional keyword arguments to pass to the JAX function
 
     Returns:
         Tuple of (is_match: bool, message: str)
     """
-    if jax_kwargs is None:
-        jax_kwargs = {}
-
     # Load ONNX model and create inference session
     session = ort.InferenceSession(onnx_model_path)
 
@@ -79,7 +81,7 @@ def allclose(
     onnx_output = session.run(None, onnx_inputs)
 
     # Call JAX function directly with tensor args and keyword args
-    jax_output = callable(*xs, **jax_kwargs)
+    jax_output = fn(*xs, **jax_kwargs)
 
     # Ensure outputs are in list format for comparison
     if not isinstance(jax_output, list):
@@ -313,3 +315,7 @@ def _add_default_parameter(
                 f"Warning: Cannot determine default for parameter {param_name} with type {dtype}"
             )
     # If we don't have type information, we can't provide a reasonable default
+    else:
+        print(
+            f"Warning: No type information for parameter {param_name}, skipping default"
+        )
