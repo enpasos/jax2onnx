@@ -882,7 +882,7 @@ class OnnxBuilder:
             The name of the registered scalar input.
         """
         shape = ()
-        value_info = helper.make_tensor_value_info(name, dtype, shape)
+        value_info = make_value_info(name, shape, dtype)
         self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
         print(f"Added scalar parameter input: {name} (dtype: {dtype})")
