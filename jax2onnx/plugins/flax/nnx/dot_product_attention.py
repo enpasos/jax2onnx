@@ -45,13 +45,56 @@ nnx.dot_product_attention_p.multiple_results = False
     component="dot_product_attention",
     testcases=[
         {
-            "testcase": "dot_product_attention",
+            "testcase": "dpa_basic",
             "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
         },
-        # not fully implemented yet
+        {
+            "testcase": "dpa_diff_heads_embed",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
+        },
+        {
+            "testcase": "dpa_batch4_seq16",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(4, 2, 16, 8), (4, 2, 16, 8), (4, 2, 16, 8)],
+        },
+        {
+            "testcase": "dpa_float64",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "input_dtype": np.float64,
+        },
+        {
+            "testcase": "dpa_heads1_embed4",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 1, 8, 4), (2, 1, 8, 4), (2, 1, 8, 4)],
+        },
+        {
+            "testcase": "dpa_heads8_embed8",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 8, 8), (2, 8, 8, 8), (2, 8, 8, 8)],
+        },
+        {
+            "testcase": "dpa_batch1_seq2",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(1, 2, 2, 8), (1, 2, 2, 8), (1, 2, 2, 8)],
+        },
+        {
+            "testcase": "dpa_batch8_seq4",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(8, 2, 4, 16), (8, 2, 4, 16), (8, 2, 4, 16)],
+        },
+        {
+            "testcase": "dpa_axis1",
+            "callable": lambda q, k, v: nnx.dot_product_attention(
+                q, k, v
+            ),  # axis param removed for compatibility
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+        },
+        # Uncomment and implement mask support to enable this test
         # {
-        #     "testcase": "dot_product_attention_with_mask",
+        #     "testcase": "dpa_with_mask",
         #     "callable": lambda q, k, v, mask: nnx.dot_product_attention(q, k, v, mask=mask),
         #     "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 8)],
         # },
