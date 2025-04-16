@@ -3,6 +3,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 import onnx
+import logging
 
 
 from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
@@ -45,6 +46,7 @@ def to_onnx(
         >>> import onnx
         >>> onnx.save(onnx_model, "model.onnx")
     """
+    logging.info("Converting JAX function to ONNX model...")
 
     def is_shape(x):
         return isinstance(x, (tuple, list)) and all(
@@ -93,6 +95,7 @@ def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
         >>>     def __call__(self, x):
         >>>         return self.activation(self.dense(x))
     """
+
     return onnx_function_impl(target)
 
 
@@ -137,6 +140,8 @@ def allclose(
         >>> print(message)
     """
     import numpy as np
+
+    logging.info("Comparing JAX and ONNX outputs...")
 
     def is_shape(x):
         return isinstance(x, (tuple, list)) and all(

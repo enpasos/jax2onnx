@@ -158,7 +158,7 @@ class Jaxpr2OnnxConverter:
         try:
             return helper.np_dtype_to_tensor_dtype(dtype)
         except (TypeError, ValueError):
-            self.logger.warning(
+            self.logger.debug(
                 "Could not convert dtype %s to ONNX dtype, defaulting to FLOAT", dtype
             )
             return TensorProto.FLOAT
@@ -220,7 +220,7 @@ class Jaxpr2OnnxConverter:
     ) -> None:
         """Trace a JAX function to generate its JAXPR representation and convert it to ONNX."""
 
-        self.logger.info("trace_jaxpr ... preserve_graph= %s", preserve_graph)
+        self.logger.debug("trace_jaxpr ... preserve_graph= %s", preserve_graph)
         if not preserve_graph:
             self.builder.reset()
             self.var_to_name.clear()
@@ -246,7 +246,7 @@ class Jaxpr2OnnxConverter:
                         and not hasattr(last_arg, "shape")
                     )
                 ):
-                    self.logger.info(
+                    self.logger.debug(
                         "Removing potential duplicate '%s' parameter from example_args",
                         param_name,
                     )
@@ -260,7 +260,7 @@ class Jaxpr2OnnxConverter:
             else:
                 closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
 
-        self.logger.info(closed_jaxpr)
+        self.logger.debug(closed_jaxpr)
 
         self.jaxpr = closed_jaxpr.jaxpr
         self.output_vars = self.jaxpr.outvars
@@ -347,7 +347,7 @@ class Jaxpr2OnnxConverter:
                 try:
                     dtype = helper.tensor_dtype_to_np_dtype(dtype_enum)
                 except Exception:
-                    self.logger.warning(
+                    self.logger.debug(
                         "Could not convert dtype enum %s for %s, fallback to var.aval",
                         dtype_enum,
                         name,
@@ -412,7 +412,7 @@ class Jaxpr2OnnxConverter:
                     if param_key in self.var_to_name.values():
                         continue
 
-                    self.logger.info(
+                    self.logger.debug(
                         "Matching boolean variable to parameter '%s'", param_name
                     )
                     # Store this mapping
@@ -477,6 +477,6 @@ class Jaxpr2OnnxConverter:
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
         if self.primitive_handlers:
-            self.logger.info(
+            self.logger.debug(
                 "Registered %d primitive handlers", len(self.primitive_handlers)
             )

@@ -45,10 +45,10 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
 
 def prepare_function_names(converter, orig_fn, name):
     impl_key = get_qualified_name(orig_fn)
-    logging.info(f"Encountered function primitive: {impl_key}")
+    logging.debug(f"Encountered function primitive: {impl_key}")
 
     unique_node_name = converter.builder.get_unique_instance_name(name.split(".")[-1])
-    logging.info(f"Generating unique ONNX node name: {unique_node_name}")
+    logging.debug(f"Generating unique ONNX node name: {unique_node_name}")
 
     parent_builder = converter.builder
     return impl_key, unique_node_name, parent_builder
@@ -485,7 +485,7 @@ def create_function_call(
         user_display_name=display_name,
     )
 
-    logging.info(f"✅ Added call node for: {unique_node_name}")
+    logging.debug(f"✅ Added call node for: {unique_node_name}")
 
 
 def trace_function_body(
@@ -599,7 +599,7 @@ def function_handler(
         orig_fn=orig_fn,
     )
 
-    logging.info(f"Tracing function body for: {unique_node_name}")
+    logging.debug(f"Tracing function body for: {unique_node_name}")
     sub_converter, sub_builder, internal_input_vars = trace_function_body(
         converter,
         orig_fn,
