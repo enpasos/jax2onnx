@@ -77,6 +77,46 @@ jnp.einsum_p.multiple_results = False  # Correct initialization
             "callable": lambda a, b: jnp.einsum("bij,bjk->bik", a, b, precision=None),
             "input_shapes": [("B", 5, 3), ("B", 3, 4)],
         },
+        {
+            "testcase": "einsum_outer_product",
+            "callable": lambda a, b: jnp.einsum("i,j->ij", a, b, precision=None),
+            "input_shapes": [(3,), (4,)],
+        },
+        {
+            "testcase": "einsum_trace",
+            "callable": lambda a: jnp.einsum("ii->", a, precision=None),
+            "input_shapes": [(3, 3)],
+        },
+        {
+            "testcase": "einsum_sum",
+            "callable": lambda a: jnp.einsum("ij->", a, precision=None),
+            "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "einsum_broadcast",
+            "callable": lambda a, b: jnp.einsum("ij,kj->ikj", a, b, precision=None),
+            "input_shapes": [(2, 3), (4, 3)],
+        },
+        {
+            "testcase": "einsum_reduce",
+            "callable": lambda a: jnp.einsum("ijk->i", a, precision=None),
+            "input_shapes": [(2, 3, 4)],
+        },
+        {
+            "testcase": "einsum_permute",
+            "callable": lambda a: jnp.einsum("ijk->kji", a, precision=None),
+            "input_shapes": [(2, 3, 4)],
+        },
+        {
+            "testcase": "einsum_dynamic_outer",
+            "callable": lambda a, b: jnp.einsum("i,j->ij", a, b, precision=None),
+            "input_shapes": [("B",), (4,)],
+        },
+        {
+            "testcase": "einsum_dynamic_reduce",
+            "callable": lambda a: jnp.einsum("bij->b", a, precision=None),
+            "input_shapes": [("B", 3, 4)],
+        },
     ],
 )
 class EinsumPlugin(PrimitiveLeafPlugin):
