@@ -7,7 +7,7 @@
 ## ✨ Key Features
 
 - **Simple API**  
-  Convert any JAX/Flax model to ONNX using `to_onnx(...)` or `save_onnx(...)`
+  Convert any JAX/Flax model to ONNX using `to_onnx(...)`
 
 - **Model structure preserved**  
   With `@onnx_function`, submodules appear as named functions in the ONNX graph (e.g. in Netron). Useful for readability and reuse.
