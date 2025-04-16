@@ -435,14 +435,13 @@ class OnnxBuilder:
 
             # Handle the common case of missing 'deterministic' parameter
             if "deterministic" in missing:
-                # Use INT32 for boolean parameters instead of BOOL
-                # since some execution providers have issues with BOOL tensors
+                # Always use BOOL for boolean parameters
                 sub_builder.register_value_info_metadata(
-                    "deterministic", (), TensorProto.INT32, origin="function_param_auto"
+                    "deterministic", (), TensorProto.BOOL, origin="function_param_auto"
                 )
-                sub_builder.add_value_info("deterministic", (), TensorProto.INT32)
+                sub_builder.add_value_info("deterministic", (), TensorProto.BOOL)
                 print(
-                    f"[INFO] Auto-registered deterministic parameter in function '{name}' as INT32"
+                    f"[INFO] Auto-registered deterministic parameter in function '{name}' as BOOL"
                 )
                 # Check if we still have missing items
                 missing = sub_builder.find_missing_value_info()
@@ -493,22 +492,21 @@ class OnnxBuilder:
                     final_input_names.append(final_name)
                     seen_names.add(final_name)
 
-                    # Always ensure deterministic parameter is registered with INT32
+                    # Always ensure deterministic parameter is registered with BOOL
                     if final_name == "deterministic":
-                        # Force update the metadata and value info for deterministic to be INT32
                         from onnx import TensorProto
 
                         sub_builder.register_value_info_metadata(
                             "deterministic",
                             (),
-                            TensorProto.INT32,
+                            TensorProto.BOOL,
                             origin="function_param_forced",
                         )
                         sub_builder.add_value_info(
-                            "deterministic", (), TensorProto.INT32
+                            "deterministic", (), TensorProto.BOOL
                         )
                         print(
-                            f"[INFO] Force-updated deterministic parameter to INT32 in function '{name}'"
+                            f"[INFO] Force-updated deterministic parameter to BOOL in function '{name}'"
                         )
                 else:
                     print(f"[DEBUG] Deduplicating function input name: {final_name}")
@@ -516,25 +514,23 @@ class OnnxBuilder:
             # Add any extra parameter inputs (like weights/constants)
             for param_name in param_input_names:
                 if param_name not in seen_names:
-                    final_input_names.append(param_name)
-                    seen_names.add(param_name)
-
-                    # Also check parameter inputs for deterministic
-                    if param_name == "deterministic":
+                    # Generalize: always register user-supplied scalar parameters as scalar inputs
+                    # Check if we have metadata for this parameter
+                    try:
+                        shape, dtype_enum = self.get_shape_dtype(param_name)
+                        # If scalar (shape == ()), register as scalar input
+                        if shape == ():
+                            sub_builder.add_scalar_input(param_name, dtype_enum)
+                        else:
+                            # For non-scalars, add as normal input
+                            sub_builder.add_input(param_name, shape, dtype_enum)
+                    except Exception:
+                        # If metadata is missing, fallback to add as scalar input with default float32
                         from onnx import TensorProto
 
-                        sub_builder.register_value_info_metadata(
-                            "deterministic",
-                            (),
-                            TensorProto.INT32,
-                            origin="function_param_forced",
-                        )
-                        sub_builder.add_value_info(
-                            "deterministic", (), TensorProto.INT32
-                        )
-                        print(
-                            f"[INFO] Force-updated deterministic parameter to INT32 in function '{name}'"
-                        )
+                        sub_builder.add_scalar_input(param_name, TensorProto.FLOAT)
+                    final_input_names.append(param_name)
+                    seen_names.add(param_name)
 
             print(
                 f"[DEBUG] Final computed input names for function '{name}': {final_input_names}"
@@ -553,39 +549,29 @@ class OnnxBuilder:
         for input_name in final_input_names:
             try:
                 # Look up shape/dtype in the main builder's metadata
-                # NOTE: This assumes the internal input name directly corresponds
-                #       to a name known in the main builder's metadata.
-                #       This might need adjustment if name mapping occurs.
                 shape, dtype_enum = self.get_shape_dtype(input_name)
+
+                # If this is the deterministic parameter, always use BOOL
+                if input_name == "deterministic":
+                    from onnx import TensorProto
+
+                    dtype_enum = TensorProto.BOOL
 
                 # Create ValueInfoProto for this input
                 vi = helper.make_tensor_value_info(input_name, dtype_enum, shape)
                 input_value_infos.append(vi)
             except ValueError:
                 pass
-                # Handle cases where metadata might be missing for an input
-                # (e.g., constants might not always have metadata registered)
-                # Depending on strictness, you might warn, error, or skip.
-                # print(
-                #    f"⚠️ [WARN] Could not find metadata for function input '{input_name}' in main builder: {e}. Skipping ValueInfo."
-                # )
 
         # 3. Combine input ValueInfo with intermediate/output ValueInfo
-        #    Ensure no duplicates if an input/output name somehow also appeared
-        #    in the sub_builder.value_info (unlikely but possible).
-        #    A simple way is to create a dict based on name first.
         combined_value_info_dict = {vi.name: vi for vi in input_value_infos}
         for vi in intermediate_and_output_value_info:
-            if (
-                vi.name not in combined_value_info_dict
-            ):  # Prioritize input VIs if name clash occurs
+            if vi.name not in combined_value_info_dict:
                 combined_value_info_dict[vi.name] = vi
 
         # Special handling for 'deterministic' parameter - CRITICAL FIX
         # Override any existing deterministic ValueInfo to ensure it uses BOOL
-        # Reverting back to BOOL as it was visible in Netron before
         if "deterministic" in combined_value_info_dict:
-            # Force create a new ValueInfo for deterministic with BOOL type
             from onnx import TensorProto
 
             deterministic_vi = helper.make_tensor_value_info(
@@ -601,16 +587,14 @@ class OnnxBuilder:
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
-            # Use our deduplicated list of input names
             inputs=final_input_names,
-            outputs=internal_output_names,  # Use internal output names
+            outputs=internal_output_names,
             nodes=function_graph.node,
             opset_imports=[
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
-            # Pass the combined list including inputs, intermediates, and outputs
-            value_info=final_function_value_info,  # Use the final combined list
+            value_info=final_function_value_info,
         )
 
         self.functions[name] = function_proto
