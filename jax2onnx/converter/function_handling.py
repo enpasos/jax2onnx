@@ -219,23 +219,15 @@ def classify_scalar_params(
                 required_params.add(name)
     for param_name, param_value in params.items():
         is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
+        # Only use static value if parameter is NOT required (i.e., has a default)
         if is_tracer:
-            print(f"[WARN] Parameter '{param_name}' is a tracer: {type(param_value)}")
-            # Only use static value if parameter is NOT required (i.e., has a default)
+            # Only print in debug mode or for critical issues
             if param_name in static_params and (
                 orig_fn is None or param_name not in required_params
             ):
-                print(
-                    f"[INFO] Using static value {static_params[param_name]} for tracer parameter '{param_name}' (optional param)"
-                )
+                # Optional parameter: use static value
                 param_value = static_params[param_name]
-            else:
-                print(
-                    f"[INFO] Parameter '{param_name}' is a required call parameter and will be exposed as ONNX input."
-                )
-                # Do not assign a default value here; just mark as input
-                pass
-
+            # else: required parameter, expose as ONNX input
         if isinstance(param_value, (bool, int, float)) or is_tracer:
             scalar_params_to_process[param_name] = param_value
 
