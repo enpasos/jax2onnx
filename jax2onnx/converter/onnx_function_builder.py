@@ -154,10 +154,13 @@ class OnnxFunctionBuilder:
         Args:
             other_functions: Dictionary of functions to merge.
         """
+        import warnings
+
         for name, func in other_functions.items():
             if name not in self.functions:
                 self.functions[name] = func
             else:
-                print(
-                    f"⚠️ [Duplicate function] Skipping already-registered function '{name}'"
+                warnings.warn(
+                    f"[Duplicate function] Skipping already-registered function '{name}'",
+                    RuntimeWarning,
                 )

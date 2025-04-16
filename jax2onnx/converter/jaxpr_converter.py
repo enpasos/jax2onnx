@@ -253,30 +253,7 @@ class Jaxpr2OnnxConverter:
         modified_args = list(example_args)
 
         # Extract static parameter values for function definitions
-        static_params = {}
-        if params:
-            # Copy parameters that should be considered static for ONNX function definitions
-            for param_name, param_value in params.items():
-                # For common control parameters like deterministic, training, etc.
-                # Store their concrete values or defaults for proper static embedding in ONNX functions
-                if param_name in ["deterministic", "training", "is_training"]:
-                    if isinstance(param_value, bool):
-                        # Store concrete boolean value
-                        static_params[param_name] = param_value
-                    else:
-                        # For tracers or other types, use sensible defaults based on common patterns
-                        is_tracer = (
-                            str(type(param_value)).find("DynamicJaxprTracer") >= 0
-                        )
-                        if is_tracer:
-                            self.logger.info(
-                                "Resolving tracer for static parameter '%s' to default value (True)",
-                                param_name,
-                            )
-                            static_params[param_name] = True
-
-        # Store static parameters in the converter instance for use during nested function handling
-        self.static_params = static_params
+        static_params: Dict[str, Any] = {}
 
         # Handle potential duplicate parameters that are passed both in example_args and params
         if params and len(modified_args) >= 2:

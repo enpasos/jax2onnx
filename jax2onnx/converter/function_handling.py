@@ -364,6 +364,7 @@ def rename_and_register_param_inputs(
     (matching the original function parameter names) instead of generic variable names.
     This improves readability and correctness, and is especially important for
     required call parameters that must be exposed as ONNX inputs.
+    Any user-supplied parameter must be a graph input (variable), never a constant/initializer.
     """
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
@@ -395,15 +396,32 @@ def rename_and_register_param_inputs(
         sub_converter.var_to_name[internal_var] = internal_name
         sub_converter.name_to_var[internal_name] = internal_var
 
-        # Register the value info with proper metadata
-        shape = ()  # Empty tuple for scalar values
-        onnx_dtype_enum = (
-            onnx.TensorProto.BOOL
-        )  # Use the actual constant instead of magic number 9
+        # Register the value info with proper metadata as a graph input (never a constant/initializer)
+        # Try to infer shape and dtype from param_value if possible, otherwise default to scalar float32
+        try:
+            if hasattr(param_value, "shape") and hasattr(param_value, "dtype"):
+                shape = tuple(param_value.shape)
+                dtype = helper.np_dtype_to_tensor_dtype(param_value.dtype)
+            elif isinstance(param_value, (bool, int, float)):
+                shape = ()
+
+                if isinstance(param_value, bool):
+                    dtype = onnx.TensorProto.BOOL
+                elif isinstance(param_value, int):
+                    dtype = onnx.TensorProto.INT64
+                else:
+                    dtype = onnx.TensorProto.FLOAT
+            else:
+                shape = ()
+                dtype = onnx.TensorProto.FLOAT
+        except Exception:
+            shape = ()
+            dtype = onnx.TensorProto.FLOAT
+
         sub_builder.register_value_info_metadata(
-            internal_name, shape, onnx_dtype_enum, origin="function_param_input"
+            internal_name, shape, dtype, origin="function_param_input"
         )
-        sub_builder.add_value_info(internal_name, shape, onnx_dtype_enum)
+        sub_builder.add_value_info(internal_name, shape, dtype)
 
 
 def collect_used_param_inputs(sub_builder, parent_builder):
