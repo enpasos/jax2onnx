@@ -171,8 +171,13 @@ def generate_markdown_table(
         )
         rows = []
         for (context, component), data in sorted(grouped.items()):
+            # Remove the leading "primitives." prefix from the context
+            display_context = context.removeprefix("primitives.")
+
             comp_name = component.removeprefix("plugins.")
-            jax_comp = f"[{comp_name}]({data[0]['jax_doc']})"
+            # Add the context (like "jnp") as a prefix to the component name
+            prefixed_comp_name = f"{display_context}.{comp_name}"
+            jax_comp = f"[{prefixed_comp_name}]({data[0]['jax_doc']})"
             onnx_components = (
                 "<br>".join(
                     sorted([f"[{x['component']}]({x['doc']})" for x in data[0]["onnx"]])
