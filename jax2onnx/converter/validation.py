@@ -73,20 +73,10 @@ def allclose(
     # The rest are parameter inputs
     param_input_names = input_names[tensor_input_count:]
 
-    # Print debug info to understand what's happening
-    logging.info(f"ONNX model inputs: {input_names}")
-    logging.info(f"Tensor inputs: {tensor_input_names}")
-    logging.info(f"Parameter inputs: {param_input_names}")
-    logging.info(f"JAX kwargs: {jax_kwargs}")
-
     # Prepare ONNX input dictionary for tensor inputs
     onnx_inputs = {
         name: np.array(x) for name, x in zip(tensor_input_names, xs, strict=False)
     }
-
-    # Get more detailed type information from ONNX model inputs
-    input_details = [(inp.name, inp.type, inp.shape) for inp in session.get_inputs()]
-    logging.info(f"Detailed input info: {input_details}")
 
     # Create a mapping of parameter name to expected ONNX type
     onnx_type_map = _create_onnx_type_map(session, param_input_names)
@@ -151,6 +141,18 @@ def allclose(
     else:
         message = "Outputs do not match:\n" + "\n".join(detailed_messages)
 
+    logging.info(f"Comparison result: {message}")
+    logging.debug(f"JAX output: {jax_output}")
+    logging.debug(f"ONNX output: {onnx_output}")
+    logging.debug(f"ONNX inputs: {onnx_inputs}")
+    logging.debug(f"JAX kwargs: {jax_kwargs}")
+    logging.debug(f"ONNX model path: {onnx_model_path}")
+    logging.debug(f"Tensor input names: {tensor_input_names}")
+    logging.debug(f"Parameter input names: {param_input_names}")
+    logging.debug(f"Tensor inputs: {xs}")
+    logging.debug(f"ONNX type map: {onnx_type_map}")
+    logging.debug(f"RTOL: {rtol}, ATOL: {atol}")
+
     return all_match, message
 
 
@@ -187,11 +189,11 @@ def _create_onnx_type_map(
             else:
                 # Default to float32 if we can't determine the type
                 onnx_type_map[inp.name] = np.float32
-                logging.info(
+                logging.warning(
                     f"Warning: Unknown ONNX type {onnx_type} for parameter {inp.name}, using float32"
                 )
 
-    logging.info(f"ONNX parameter types: {onnx_type_map}")
+    logging.debug(f"ONNX parameter types: {onnx_type_map}")
     return onnx_type_map
 
 
@@ -222,13 +224,9 @@ def _add_parameters_to_inputs(
             if param_name in onnx_type_map:
                 expected_dtype = onnx_type_map[param_name]
                 onnx_inputs[param_name] = np.array(det_value, dtype=expected_dtype)
-                logging.info(
-                    f"Added deterministic={det_value} with dtype={expected_dtype}"
-                )
             else:
                 # Fallback to bool_ if not in the type map
                 onnx_inputs[param_name] = np.array(det_value, dtype=np.bool_)
-                logging.info(f"Added deterministic={det_value} with dtype=bool_")
 
             # Also ensure it's in jax_kwargs
             jax_kwargs["deterministic"] = det_value
@@ -265,9 +263,6 @@ def _add_parameter_value(
         expected_dtype = onnx_type_map[param_name]
         try:
             onnx_inputs[param_name] = np.array(param_value, dtype=expected_dtype)
-            logging.info(
-                f"Added {param_name}={param_value} with dtype={expected_dtype}"
-            )
         except (TypeError, ValueError) as e:
             logging.info(
                 f"Warning: Failed to convert {param_name}={param_value} to {expected_dtype}: {e}"
