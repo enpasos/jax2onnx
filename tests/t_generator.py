@@ -7,6 +7,8 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import onnx
+from logging_config import configure_logging
+
 
 from jax2onnx import allclose
 from jax2onnx.converter.user_interface import to_onnx
@@ -133,6 +135,9 @@ def make_test_function(tp: dict[str, Any]):
     func_name = f"test_{test_case_name_safe}"
 
     def test_func(self):
+
+        configure_logging()
+
         callable_obj = tp["callable"]
         input_shapes = tp["input_shapes"]
         input_params = tp.get("input_params", {})
@@ -188,16 +193,15 @@ def make_test_function(tp: dict[str, Any]):
             for B in [2, 3]:
                 print(f"  Batch size B={B}")
                 xs = generate_inputs(input_shapes, B=B)
-                assert allclose(
-                    callable_obj, model_path, xs, input_params
-                ), f"Numerical check failed for B={B}"
+                passed, message = allclose(callable_obj, model_path, xs, input_params)
+                assert passed, f"Numerical check failed for B={B}"
                 print(f"  Numerical check passed for B={B}.")
+
         else:
             print("Running numerical check for static shape...")
             xs = generate_inputs(input_shapes)
-            assert allclose(
-                callable_obj, model_path, xs, input_params
-            ), "Numerical check failed for static shape."
+            passed, message = allclose(callable_obj, model_path, xs, input_params)
+            assert passed, "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")
 
         # --- Function count and output shape checks remain the same ---
