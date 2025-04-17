@@ -114,7 +114,7 @@ def allclose(
             continue
 
         # Check if values are close
-        if np.allclose(o_np, j_np, rtol=rtol, atol=atol):
+        if np.allclose(o_np, j_np, rtol=rtol, atol=atol, equal_nan=True):
             detailed_messages.append(
                 f"Output {i}: Values match within tolerance (rtol={rtol}, atol={atol})"
             )

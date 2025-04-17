@@ -11,7 +11,7 @@ def configure_logging():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pyproject_path = os.path.join(base_dir, "pyproject.toml")
 
-    level = "INFO"
+    level = "DEBUG"
     fmt = "%(levelname)s:%(name)s:%(message)s"
     log_file = None
 
