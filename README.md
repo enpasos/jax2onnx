@@ -99,6 +99,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
 - **0.5.0**: Some more ONNX function support ... batch dims, function reuse, make graph optimizer work within functions, allow user friendly var names  
+- **0.4.3**: Fixed a bug in the validation of JAX callable outputs against their ONNX counterparts. This fix exposed previously hidden failing tests, which now need to be resolved.
 
 ### **Current Productive Version**
 - **0.4.2** *(PyPI)*: Cleanup and fixes to the basic ONNX function release.
