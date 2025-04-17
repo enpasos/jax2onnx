@@ -46,7 +46,13 @@ def to_onnx(
         >>> import onnx
         >>> onnx.save(onnx_model, "model.onnx")
     """
-    logging.info("Converting JAX function to ONNX model...")
+
+    logging.info(
+        f"Converting JAX function to ONNX model with parameters: "
+        f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
+        f"input_params={input_params}"
+    )
+    # Check if inputs are shapes or actual values
 
     def is_shape(x):
         return isinstance(x, (tuple, list)) and all(
@@ -141,7 +147,11 @@ def allclose(
     """
     import numpy as np
 
-    logging.info("Comparing JAX and ONNX outputs...")
+    logging.info(
+        f"Comparing JAX and ONNX outputs with parameters: "
+        f"onnx_model_path={onnx_model_path}, inputs={inputs}, "
+        f"input_params={input_params}, rtol={rtol}, atol={atol}"
+    )
 
     def is_shape(x):
         return isinstance(x, (tuple, list)) and all(

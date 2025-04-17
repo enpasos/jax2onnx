@@ -8,17 +8,32 @@ except ImportError:
 
 
 def configure_logging():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     pyproject_path = os.path.join(base_dir, "pyproject.toml")
-    level = "WARNING"
+
+    level = "INFO"
     fmt = "%(levelname)s:%(name)s:%(message)s"
+    log_file = None
+
     if os.path.exists(pyproject_path):
         with open(pyproject_path, "rb") as f:
             config = tomllib.load(f)
         log_cfg = config.get("tool", {}).get("jax2onnx", {}).get("logging", {})
         level = log_cfg.get("level", level)
         fmt = log_cfg.get("format", fmt)
-    logging.basicConfig(level=getattr(logging, level, logging.WARNING), format=fmt)
+        log_file = log_cfg.get("file", log_file)
 
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, level, logging.INFO))
+    logger.handlers.clear()
 
-configure_logging()
+    formatter = logging.Formatter(fmt)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    if log_file:
+        file_handler = logging.FileHandler(os.path.join(base_dir, log_file))
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)

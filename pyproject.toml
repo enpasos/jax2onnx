@@ -78,5 +78,6 @@ python_version = "3.10"
 enable_x64 = true
 
 [tool.jax2onnx.logging]
-level = "WARNING"
+level = "INFO"
 format = "%(levelname)s:%(name)s:%(message)s"
+file = "jax2onnx.log"
