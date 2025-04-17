@@ -8,3 +8,4 @@ tests/examples
 tests/primitives
 .vscode
 python-venv
+jax2onnx.log

@@ -25,7 +25,7 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
     # Check if we already have this constant
     for initializer in parent_builder.initializers:
         if initializer.name == const_name:
-            logging.info(
+            logging.debug(
                 f"Using existing constant tensor '{const_name}' for parameter '{param_name}'"
             )
             return const_name
@@ -37,7 +37,7 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
         vals=[int(param_value) if isinstance(param_value, bool) else param_value],
     )
     parent_builder.initializers.append(const_tensor)
-    logging.info(
+    logging.debug(
         f"Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
     )
     return const_name
@@ -122,7 +122,7 @@ def process_scalar_parameters(
         # If the parameter is a tracer (not static), expose as ONNX input and skip all constant logic
         is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
         if is_tracer:
-            logging.info(
+            logging.debug(
                 f"Exposing tracer parameter '{param_name}' as ONNX input (no constant created)."
             )
             if param_name not in input_names:
@@ -135,7 +135,7 @@ def process_scalar_parameters(
             # Treat as graph input
             if param_name in converter.name_to_var:
                 var_name = param_name
-                logging.info(
+                logging.debug(
                     f"Using existing graph input '{var_name}' for parameter '{param_name}' (explicit input mode)"
                 )
                 if var_name not in input_names:
@@ -167,7 +167,7 @@ def process_scalar_parameters(
             continue
         elif handling_mode == "static":
             # Do not add as input or constant, just skip
-            logging.info(
+            logging.debug(
                 f"Parameter '{param_name}' marked as static, skipping input/constant registration."
             )
             continue
@@ -281,7 +281,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
     if params:
         trace_kwargs["params"] = params
         param_keys_to_exclude = list(params.keys())
-        logging.info(
+        logging.debug(
             f"Will exclude these parameters from example_args: {param_keys_to_exclude}"
         )
 
@@ -290,7 +290,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
                 isinstance(example_args[-1], bool)
                 and "deterministic" in param_keys_to_exclude
             ):
-                logging.info(
+                logging.debug(
                     "Removing duplicated 'deterministic' parameter from example_args"
                 )
                 example_args = example_args[:-1]
@@ -304,7 +304,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
                     "module",
                 ] and i < len(example_args):
                     if example_args[i] is None:
-                        logging.info(
+                        logging.debug(
                             f"Removing duplicated '{param_name}' parameter from example_args"
                         )
                         example_args = example_args[:i] + example_args[i + 1 :]
@@ -319,7 +319,7 @@ def propagate_eqn_parameters(eqn, params):
         for param_key, param_value in eqn.params.items():
             if param_key not in params:
                 params[param_key] = param_value
-                logging.info(
+                logging.debug(
                     f"Propagating parameter '{param_key}' from equation params"
                 )
     return params
@@ -376,7 +376,7 @@ def rename_and_register_param_inputs(
         # Handle the mapping in the converter
         if internal_var in sub_converter.var_to_name:
             old_name = sub_converter.var_to_name[internal_var]
-            logging.info(
+            logging.debug(
                 f"Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
             )
 
@@ -389,7 +389,7 @@ def rename_and_register_param_inputs(
                 for i, input_name in enumerate(node.input):
                     if input_name == old_name:
                         node.input[i] = internal_name
-                        logging.info(
+                        logging.debug(
                             f"Updated node input from '{old_name}' to '{internal_name}'"
                         )
 
