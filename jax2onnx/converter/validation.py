@@ -142,16 +142,12 @@ def allclose(
         message = "Outputs do not match:\n" + "\n".join(detailed_messages)
 
     logging.info(f"Comparison result: {message}")
-    logging.debug(f"JAX output: {jax_output}")
-    logging.debug(f"ONNX output: {onnx_output}")
-    logging.debug(f"ONNX inputs: {onnx_inputs}")
-    logging.debug(f"JAX kwargs: {jax_kwargs}")
-    logging.debug(f"ONNX model path: {onnx_model_path}")
-    logging.debug(f"Tensor input names: {tensor_input_names}")
-    logging.debug(f"Parameter input names: {param_input_names}")
-    logging.debug(f"Tensor inputs: {xs}")
-    logging.debug(f"ONNX type map: {onnx_type_map}")
-    logging.debug(f"RTOL: {rtol}, ATOL: {atol}")
+    logging.info(f"JAX output: {jax_output}")
+    logging.info(f"ONNX output: {onnx_output}")
+    logging.info(f"ONNX inputs: {onnx_inputs}")
+    logging.info(f"JAX inputs: {jax_kwargs}")
+    logging.info(f"ONNX type map: {onnx_type_map}")
+    logging.info(f"Tensor input names: {tensor_input_names}")
 
     return all_match, message
 
