@@ -10,11 +10,11 @@ from jax2onnx.plugin_system import register_example
 class MLP(nnx.Module):
     def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
         self.linear1 = Linear(din, dmid, rngs=rngs)
-        self.dropout = Dropout(rate=0.1, deterministic=False, rngs=rngs)
-        self.bn = BatchNorm(dmid, rngs=rngs)
+        self.dropout = Dropout(rate=0.1, deterministic=True, rngs=rngs)
+        self.bn = BatchNorm(dmid, use_running_average=True, rngs=rngs)
         self.linear2 = Linear(dmid, dout, rngs=rngs)
 
-    def __call__(self, x: jax.Array, *, deterministic: bool = False):
+    def __call__(self, x: jax.Array, *, deterministic: bool = True):
         x = nnx.gelu(
             self.dropout(self.bn(self.linear1(x)), deterministic=deterministic)
         )
