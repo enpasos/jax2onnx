@@ -199,7 +199,13 @@ def make_test_function(tp: dict[str, Any]):
 
         else:
             print("Running numerical check for static shape...")
-            xs = generate_inputs(input_shapes)
+            if "input_values" in tp:
+                xs = tp["input_values"]
+                if not isinstance(xs, list):
+                    xs = [xs]
+                print(f"  Using explicit input_values: {xs}")
+            else:
+                xs = generate_inputs(input_shapes)
             passed, message = allclose(callable_obj, model_path, xs, input_params)
             assert passed, "Numerical check failed for static shape."
             print("  Numerical check passed for static shape.")

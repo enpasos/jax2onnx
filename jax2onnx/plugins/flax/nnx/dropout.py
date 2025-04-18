@@ -14,7 +14,7 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 import logging
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 # Define the new primitive for dropout.
 nnx.dropout_p = Primitive("nnx.dropout")

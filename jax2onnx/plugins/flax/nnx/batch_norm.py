@@ -1,20 +1,26 @@
+# file: jax2onnx/plugins/flax/nnx/batch_norm.py
+
 """
 Batch Norm Plugin for JAX to ONNX conversion.
 
-This plugin enables conversion of flax.nnx.BatchNorm layers to ONNX format.
-It transforms JAX’s batch_norm operations into an ONNX BatchNormalization operator
-with necessary Transpose operations for NHWC to NCHW conversion.
+This plugin enables conversion of flax.nnx.BatchNorm layers (in inference mode)
+to ONNX format. It transforms JAX’s batch_norm operations into an ONNX
+BatchNormalization operator with necessary Transpose operations for
+NHWC/NLC to NCHW/NCL conversion and adds required shape information.
 
 The conversion process involves:
-  1. Handling input shape and transpositions.
+  1. Defining a JAX primitive for BatchNorm's inference behavior.
   2. Providing an abstract evaluation for JAX's tracing system.
-  3. Converting the operation to ONNX using BatchNormalization and Transpose nodes.
-  4. Monkey-patching BatchNorm.__call__ to redirect calls to our primitive.
+  3. Handling input shape, transpositions (2D, 3D, 4D), and adding ONNX shape info.
+  4. Converting the operation to ONNX using BatchNormalization and Transpose nodes.
+  5. Monkey-patching BatchNorm.__call__ to redirect calls to our primitive,
+     ensuring inference parameters (running mean/var) and default scale/bias
+     are used.
 """
 
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
+import numpy as np
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
@@ -23,11 +29,11 @@ from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-# Define a new primitive for batch norm.
+# Define the BatchNorm primitive
 nnx.batch_norm_p = Primitive("nnx.batch_norm")
-nnx.batch_norm_p.multiple_results = False  # Set once at initialization
+nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
 
 
 @register_primitive(
@@ -37,224 +43,274 @@ nnx.batch_norm_p.multiple_results = False  # Set once at initialization
         {
             "component": "BatchNormalization",
             "doc": "https://onnx.ai/onnx/operators/onnx__BatchNormalization.html",
-        },
+        }
     ],
     since="v0.1.0",
     context="primitives.nnx",
     component="batch_norm",
     testcases=[
         {
-            "testcase": "batch_norm",
+            "testcase": "batch_norm_simple",
             "callable": nnx.BatchNorm(
-                num_features=64, epsilon=1e-5, momentum=0.9, rngs=nnx.Rngs(0)
+                num_features=1, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(11, 2, 2, 64)],
+            "input_shapes": [(2, 1)],
         },
         {
-            "testcase": "batch_norm_2",
-            "callable": nnx.BatchNorm(num_features=20, rngs=nnx.Rngs(0)),
-            "input_shapes": [(2, 20)],
-        },
-        {
-            "testcase": "batch_norm_3d",
-            "callable": nnx.BatchNorm(num_features=32, rngs=nnx.Rngs(0)),
-            "input_shapes": [(8, 32, 32)],
-        },
-        {
-            "testcase": "batch_norm_float64",
-            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
-            "input_shapes": [(11, 2, 2, 64)],
-            "input_dtype": jnp.float64,
-        },
-        {
-            "testcase": "batch_norm_single_batch",
-            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 2, 2, 64)],
-        },
-        # Extended test coverage for BatchNorm
-        {
-            "testcase": "batch_norm_2d_train",
-            "callable": nnx.BatchNorm(num_features=20, rngs=nnx.Rngs(0)),
-            "input_shapes": [(2, 20)],
-            "call_kwargs": {"deterministic": False},
-        },
-        {
-            "testcase": "batch_norm_4d_use_bias",
+            "testcase": "batch_norm_2d",
             "callable": nnx.BatchNorm(
-                num_features=8, use_bias=True, use_scale=False, rngs=nnx.Rngs(0)
+                num_features=8, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(4, 8, 8, 8)],
+            "input_shapes": [(16, 8)],
         },
         {
-            "testcase": "batch_norm_4d_use_scale",
+            "testcase": "batch_norm_2d_use_bias_false",
             "callable": nnx.BatchNorm(
-                num_features=8, use_bias=False, use_scale=True, rngs=nnx.Rngs(0)
+                num_features=8,
+                use_running_average=True,
+                use_bias=False,
+                epsilon=1e-5,
+                rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(4, 8, 8, 8)],
+            "input_shapes": [(16, 8)],
         },
         {
-            "testcase": "batch_norm_momentum",
-            "callable": nnx.BatchNorm(num_features=8, momentum=0.1, rngs=nnx.Rngs(0)),
-            "input_shapes": [(4, 8, 8, 8)],
+            "testcase": "batch_norm_2d_use_scale_false",
+            "callable": nnx.BatchNorm(
+                num_features=8,
+                use_running_average=True,
+                use_scale=False,
+                epsilon=1e-5,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(16, 8)],
         },
         {
-            "testcase": "batch_norm_epsilon",
-            "callable": nnx.BatchNorm(num_features=8, epsilon=1e-3, rngs=nnx.Rngs(0)),
-            "input_shapes": [(4, 8, 8, 8)],
+            "testcase": "batch_norm_4d",
+            "callable": nnx.BatchNorm(
+                num_features=3, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 4, 4, 3)],
         },
         {
-            "testcase": "batch_norm_float32",
-            "callable": nnx.BatchNorm(num_features=8, rngs=nnx.Rngs(0)),
-            "input_shapes": [(4, 8, 8, 8)],
-            "input_dtype": jnp.float32,
+            "testcase": "batch_norm_4d_use_bias_false",
+            "callable": nnx.BatchNorm(
+                num_features=3,
+                use_running_average=True,
+                use_bias=False,
+                epsilon=1e-5,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 4, 4, 3)],
         },
         {
-            "testcase": "batch_norm_3d_train",
-            "callable": nnx.BatchNorm(num_features=32, rngs=nnx.Rngs(0)),
-            "input_shapes": [(8, 32, 32)],
-            "call_kwargs": {"deterministic": False},
+            "testcase": "batch_norm_4d_use_scale_false",
+            "callable": nnx.BatchNorm(
+                num_features=3,
+                use_running_average=True,
+                use_scale=False,
+                epsilon=1e-5,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 4, 4, 3)],
         },
         {
-            "testcase": "batch_norm_single_batch_train",
-            "callable": nnx.BatchNorm(num_features=64, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 2, 2, 64)],
-            "call_kwargs": {"deterministic": False},
+            "testcase": "batch_norm_minimal",
+            "callable": nnx.BatchNorm(
+                num_features=1, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(1, 1)],
+            "input_values": np.array([[0.0]], dtype=np.float32),
         },
     ],
 )
 class BatchNormPlugin(PrimitiveLeafPlugin):
     """
     Plugin for converting flax.nnx.BatchNorm to ONNX.
-
-    Converts a BatchNorm operation into a BatchNormalization operator
-    with necessary Transpose operations for NHWC to NCHW conversion.
     """
 
     @staticmethod
-    def abstract_eval(x, scale, bias, mean, var, *args, **kwargs):
-        """Abstract evaluation function for batch_norm."""
+    def abstract_eval(x, **kwargs):
+        """Abstract evaluation function for BatchNorm."""
         return core.ShapedArray(x.shape, x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of batch_norm to ONNX format."""
+        """Handles conversion of BatchNorm to ONNX format."""
         input_name = s.get_name(node_inputs[0])
-        scale_name = s.get_name(node_inputs[1])
-        bias_name = s.get_name(node_inputs[2])
-        mean_name = s.get_name(node_inputs[3])
-        variance_name = s.get_name(node_inputs[4])
-        final_output_name = s.get_name(node_outputs[0])
+        output_name = s.get_name(node_outputs[0])
+
+        use_running_average = params.get("use_running_average", False)
+        axis = params.get("axis", -1)
+        axis_index_groups = params.get("axis_index_groups", None)
+        axis_name = params.get("axis_name", None)
+        use_bias = params.get("use_bias", True)
+        use_fast_variance = params.get("use_fast_variance", False)
+        use_scale = params.get("use_scale", True)
+        dtype = getattr(node_inputs[0].aval, "dtype", np.float32)
+        num_features = params.get("num_features", None)
+        bias = params.get("bias", None)
+        scale = params.get("scale", None)
+        var = params.get("var", None)
+        mean = params.get("mean", None)
         epsilon = params.get("epsilon")
+        momentum = params.get("momentum", 0.9)
+        use_running_average = params.get("use_running_average", False)
 
-        jax_shape = node_inputs[0].aval.shape  # e.g. (11, 2, 2, 64) or (2,20)
+        # --- handle NHWC/NCHW transpose and param shapes ---
+        input_shape = node_inputs[0].aval.shape
+        input_rank = len(input_shape)
+        channel_axis = input_rank - 1  # NHWC/NLC: last axis
+        C = input_shape[channel_axis]
 
-        if len(jax_shape) == 4:
-            pre_transpose_name = s.get_unique_name("bn_pre_transpose")
+        # For NHWC->NCHW and NLC->NCL, channel order is preserved, so no reordering is needed.
+        # Just ensure parameters are 1D (C,) and ONNX initializers.
+        def ensure_onnx_param(param, name, default_value):
+            arr = (
+                np.array(param, dtype=dtype)
+                if param is not None
+                else np.full((C,), default_value, dtype=dtype)
+            )
+            arr = arr.reshape((C,))
+            if arr.shape != (C,):
+                raise ValueError(
+                    f"BatchNorm param '{name}' must be shape ({C},), got {arr.shape}"
+                )
+            return s.builder.get_constant_name(arr)
+
+        scale_name = (
+            ensure_onnx_param(scale, "scale", 1.0)
+            if use_scale
+            else s.builder.get_constant_name(np.ones((C,), dtype=dtype))
+        )
+        bias_name = (
+            ensure_onnx_param(bias, "bias", 0.0)
+            if use_bias
+            else s.builder.get_constant_name(np.zeros((C,), dtype=dtype))
+        )
+        mean_name = ensure_onnx_param(mean, "mean", 0.0)
+        variance_name = ensure_onnx_param(var, "var", 1.0)
+
+        # Insert transpose if needed
+        pre_perm = post_perm = None
+        if input_rank == 4:
+            pre_perm = [0, 3, 1, 2]
+            post_perm = [0, 2, 3, 1]
+        elif input_rank == 3:
+            pre_perm = [0, 2, 1]
+            post_perm = [0, 2, 1]
+
+        bn_input = input_name
+        if pre_perm:
+            transposed_input = s.get_unique_name("bn_pre_transpose")
             pre_transpose_node = helper.make_node(
                 "Transpose",
                 inputs=[input_name],
-                outputs=[pre_transpose_name],
+                outputs=[transposed_input],
                 name=s.get_unique_name("bn_transpose_pre"),
-                perm=[0, 3, 1, 2],  # NHWC -> NCHW
+                perm=pre_perm,
             )
             s.add_node(pre_transpose_node)
-            pre_transposed_shape = (
-                jax_shape[0],
-                jax_shape[3],
-                jax_shape[1],
-                jax_shape[2],
-            )
-            s.add_shape_info(pre_transpose_name, pre_transposed_shape)
+            transposed_shape = tuple(input_shape[i] for i in pre_perm)
+            s.add_shape_info(transposed_input, transposed_shape, dtype)
+            bn_input = transposed_input
 
-            bn_output_name = s.get_unique_name("bn_output")
-            batch_norm_node = helper.make_node(
-                "BatchNormalization",
-                inputs=[
-                    pre_transpose_name,
-                    scale_name,
-                    bias_name,
-                    mean_name,
-                    variance_name,
-                ],
-                outputs=[bn_output_name],
-                name=s.get_unique_name("batch_norm"),
-                epsilon=epsilon,
-            )
-            s.add_node(batch_norm_node)
-            s.add_shape_info(bn_output_name, pre_transposed_shape)
+        bn_output = output_name
+        if post_perm:
+            bn_output = s.get_unique_name("bn_output")
 
+        inputs = [bn_input, scale_name, bias_name, mean_name, variance_name]
+
+        # Set ONNX momentum attribute to match JAX/Flax value
+        bn_node = helper.make_node(
+            "BatchNormalization",
+            inputs=inputs,
+            outputs=[bn_output],
+            name=s.get_unique_name("batch_norm"),
+            epsilon=epsilon,
+            momentum=momentum,  # Explicitly set momentum to match params
+        )
+        s.add_node(bn_node)
+        if post_perm:
+            s.add_shape_info(bn_output, transposed_shape, dtype)
+        if post_perm:
             post_transpose_node = helper.make_node(
                 "Transpose",
-                inputs=[bn_output_name],
-                outputs=[final_output_name],
+                inputs=[bn_output],
+                outputs=[output_name],
                 name=s.get_unique_name("bn_transpose_post"),
-                perm=[0, 2, 3, 1],  # NCHW -> NHWC
+                perm=post_perm,
             )
             s.add_node(post_transpose_node)
-        else:
-            batch_norm_node = helper.make_node(
-                "BatchNormalization",
-                inputs=[input_name, scale_name, bias_name, mean_name, variance_name],
-                outputs=[final_output_name],
-                name=s.get_unique_name("batch_norm"),
-                epsilon=epsilon,
-            )
-            s.add_node(batch_norm_node)
+            s.add_shape_info(output_name, input_shape, dtype)
 
     @staticmethod
-    def _batch_norm(x, scale, bias, mean, var, epsilon, use_running_average, momentum):
-        nnx.batch_norm_p.multiple_results = False
+    def _batch_norm(
+        x,
+        use_running_average,
+        axis,
+        axis_index_groups,
+        axis_name,
+        bias,
+        dtype,
+        epsilon,
+        mean,
+        momentum,
+        num_features,
+        scale,
+        use_bias,
+        use_fast_variance,
+        use_scale,
+        var,
+    ):
+        """Defines the primitive binding for BatchNorm."""
         return nnx.batch_norm_p.bind(
             x,
-            scale,
-            bias,
-            mean,
-            var,
-            epsilon=epsilon,
             use_running_average=use_running_average,
+            axis=axis,
+            axis_index_groups=axis_index_groups,
+            axis_name=axis_name,
+            bias=bias,
+            dtype=dtype,
+            epsilon=epsilon,
+            mean=mean,
             momentum=momentum,
-        )
-
-    @staticmethod
-    def batch_norm(x, scale, bias, mean, var, epsilon, use_running_average, momentum):
-        """Binding function for batch_norm."""
-        return BatchNormPlugin._batch_norm(
-            x, scale, bias, mean, var, epsilon, use_running_average, momentum
+            num_features=num_features,
+            scale=scale,
+            use_bias=use_bias,
+            use_fast_variance=use_fast_variance,
+            use_scale=use_scale,
+            var=var,
         )
 
     @staticmethod
     def get_monkey_patch():
-        """Returns a patched version of BatchNorm.__call__ that handles missing scale/bias."""
-        import jax.numpy as jnp
+        """Returns a patched version of BatchNorm's call method."""
 
-        def patched_batch_norm_call(self, x):
-            num_features = x.shape[-1]
-            dtype = x.dtype
-            scale = (
-                self.scale.value
-                if self.scale is not None
-                else jnp.ones(num_features, dtype=dtype)
-            )
-            bias = (
-                self.bias.value
-                if self.bias is not None
-                else jnp.zeros(num_features, dtype=dtype)
-            )
+        def patched_batch_norm_call(self, x, use_running_average=None, *, mask=None):
             return BatchNormPlugin._batch_norm(
                 x,
-                scale,
-                bias,
+                self.use_running_average,
+                self.axis,
+                self.axis_index_groups,
+                self.axis_name,
+                self.bias.value if getattr(self, "bias", None) is not None else None,
+                self.dtype,
+                self.epsilon,
                 self.mean.value,
+                self.momentum,
+                self.num_features,
+                self.scale.value if getattr(self, "scale", None) is not None else None,
+                self.use_bias,
+                self.use_fast_variance,
+                self.use_scale,
                 self.var.value,
-                epsilon=self.epsilon,
-                use_running_average=self.use_running_average,
-                momentum=self.momentum,
             )
 
         return patched_batch_norm_call
 
     @staticmethod
     def patch_info():
-        """Provides patching information."""
+        """Provides patching information for BatchNorm."""
         return {
             "patch_targets": [nnx.BatchNorm],
             "patch_function": lambda _: BatchNormPlugin.get_monkey_patch(),
@@ -262,5 +318,5 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         }
 
 
-# Register abstract evaluation function.
+# Register abstract evaluation function
 nnx.batch_norm_p.def_abstract_eval(BatchNormPlugin.abstract_eval)

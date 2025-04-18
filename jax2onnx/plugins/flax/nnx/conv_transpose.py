@@ -16,7 +16,7 @@ from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.converter import Jaxpr2OnnxConverter
+    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 # Define a new primitive for conv transpose.
 nnx.conv_transpose_p = Primitive("nnx.conv_transpose")
