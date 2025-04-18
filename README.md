@@ -52,7 +52,7 @@ onnx_model = to_onnx(my_callable, [("B", 30)])
 onnx.save_model(onnx_model, "my_callable.onnx")
 ```
  
-🔎 See it visualized:  [`jax_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/jax_callable.onnx)
+🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_callable.onnx)
 
 ---
 
