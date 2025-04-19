@@ -67,16 +67,11 @@ class ReluPlugin(PrimitiveLeafPlugin):
         s.add_node(relu_node)
 
     @staticmethod
-    def _relu(x):
-        """Defines the primitive binding for ReLU."""
-        return nnx.relu_p.bind(x)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for ReLU."""
 
         def patched_relu(x):
-            return ReluPlugin._relu(x)
+            return nnx.relu_p.bind(x)
 
         return patched_relu
 
