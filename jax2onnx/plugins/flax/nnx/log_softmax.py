@@ -66,16 +66,11 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
         s.add_node(log_softmax_node)
 
     @staticmethod
-    def _log_softmax(x, axis=-1):
-        """Defines the primitive binding for LogSoftmax."""
-        return nnx.log_softmax_p.bind(x, axis=axis)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for LogSoftmax."""
 
         def patched_log_softmax(x, axis=-1):
-            return LogSoftmaxPlugin._log_softmax(x, axis)
+            return nnx.log_softmax_p.bind(x, axis=axis)
 
         return patched_log_softmax
 

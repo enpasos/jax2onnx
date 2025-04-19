@@ -66,16 +66,11 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         s.add_node(leaky_relu_node)
 
     @staticmethod
-    def _leaky_relu(x, negative_slope=0.01):
-        """Defines the primitive binding for LeakyReLU."""
-        return nnx.leaky_relu_p.bind(x, negative_slope=negative_slope)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for LeakyReLU."""
 
         def patched_leaky_relu(x, negative_slope=0.01):
-            return LeakyReluPlugin._leaky_relu(x, negative_slope)
+            return nnx.leaky_relu_p.bind(x, negative_slope=negative_slope)
 
         return patched_leaky_relu
 
