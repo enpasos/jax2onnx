@@ -66,16 +66,11 @@ class EluPlugin(PrimitiveLeafPlugin):
         s.add_node(elu_node)
 
     @staticmethod
-    def _elu(x, alpha=1.0):
-        """Defines the primitive binding for ELU."""
-        return nnx.elu_p.bind(x, alpha=alpha)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for ELU."""
 
         def patched_elu(x, alpha=1.0):
-            return EluPlugin._elu(x, alpha)
+            return nnx.elu_p.bind(x, alpha=alpha)
 
         return patched_elu
 
