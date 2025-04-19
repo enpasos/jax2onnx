@@ -41,19 +41,11 @@ def temporary_monkey_patches(
             result = my_jax_function(args)
     """
     with contextlib.ExitStack() as stack:
-        # Patch all plugins in PLUGIN_REGISTRY that implement get_patch_params
-        for key, plugin in PLUGIN_REGISTRY.items():
-            if not hasattr(plugin, "get_patch_params"):
-                continue
-            try:
-                target, attr, patch_func = plugin.get_patch_params()
-            except Exception:
-                continue
-            stack.enter_context(_temporary_patch(target, attr, patch_func))
-
+        registries = [PLUGIN_REGISTRY]
         if allow_function_primitives:
-            # Patch all plugins in ONNX_FUNCTION_PLUGIN_REGISTRY that implement get_patch_params
-            for qualname, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
+            registries.append(ONNX_FUNCTION_PLUGIN_REGISTRY)
+        for registry in registries:
+            for plugin in registry.values():
                 if not hasattr(plugin, "get_patch_params"):
                     continue
                 try:
@@ -61,7 +53,6 @@ def temporary_monkey_patches(
                 except Exception:
                     continue
                 stack.enter_context(_temporary_patch(target, attr, patch_func))
-
         yield
 
 
