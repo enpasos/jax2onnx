@@ -156,7 +156,7 @@ class FunctionPlugin(PrimitivePlugin):
         return self._orig_fn(*args, **kwargs)
 
     def get_patch_fn(self, primitive):
-        def patch(original_call, *a, **kw):
+        def patch(original_call):
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
 
