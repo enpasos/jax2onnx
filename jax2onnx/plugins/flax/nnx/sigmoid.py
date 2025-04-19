@@ -62,16 +62,11 @@ class SigmoidPlugin(PrimitiveLeafPlugin):
         s.add_node(sigmoid_node)
 
     @staticmethod
-    def _sigmoid(x):
-        """Defines the primitive binding for Sigmoid."""
-        return nnx.sigmoid_p.bind(x)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for Sigmoid."""
 
         def patched_sigmoid(x):
-            return SigmoidPlugin._sigmoid(x)
+            return nnx.sigmoid_p.bind(x)
 
         return patched_sigmoid
 
