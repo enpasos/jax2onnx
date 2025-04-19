@@ -156,7 +156,7 @@ class FunctionPlugin(PrimitivePlugin):
         return self._orig_fn(*args, **kwargs)
 
     def get_patch_fn(self, primitive):
-        def patch(original_call):
+        def patch(original_call, *a, **kw):
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
 
@@ -186,7 +186,19 @@ class FunctionPlugin(PrimitivePlugin):
         return patch
 
     def get_patch_params(self):
-        return (self.target, "__call__", self.get_patch_fn(self.primitive))
+        # Determine if the target is a class or a function
+        if inspect.isclass(self.target):
+            # Patch the __call__ method of the class
+            return (self.target, "__call__", self.get_patch_fn(self.primitive))
+        elif callable(self.target):
+            # Patch the function in its module by name
+            module = inspect.getmodule(self.target)
+            func_name = self.target.__name__
+            return (module, func_name, self.get_patch_fn(self.primitive))
+        else:
+            raise TypeError(
+                f"Unsupported target type for patching: {type(self.target)}"
+            )
 
     # Add this implementation
     def get_handler(self, converter: Any) -> Callable:
