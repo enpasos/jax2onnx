@@ -41,33 +41,26 @@ def temporary_monkey_patches(
             result = my_jax_function(args)
     """
     with contextlib.ExitStack() as stack:
-        # Patch leaf plugin primitives
+        # Patch all plugins in PLUGIN_REGISTRY that implement get_patch_params
         for key, plugin in PLUGIN_REGISTRY.items():
-            if not isinstance(plugin, PrimitiveLeafPlugin) or not plugin.patch_info:
+            if not hasattr(plugin, "get_patch_params"):
                 continue
-            target, attr, patch_func = plugin.get_patch_params()
+            try:
+                target, attr, patch_func = plugin.get_patch_params()
+            except Exception:
+                continue
             stack.enter_context(_temporary_patch(target, attr, patch_func))
 
         if allow_function_primitives:
-            # Patch function primitives from the registry
+            # Patch all plugins in ONNX_FUNCTION_PLUGIN_REGISTRY that implement get_patch_params
             for qualname, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-                primitive = plugin.primitive
-                patch_fn = plugin.get_patch_fn(primitive)
-                target = plugin.target
-
-                if inspect.isclass(target):
-                    # For classes: patch the __call__ method
-                    stack.enter_context(_temporary_patch(target, "__call__", patch_fn))
-                elif callable(target):
-                    # For functions: patch the function in its module
-                    module = inspect.getmodule(target)
-                    func_name = target.__name__
-                    if hasattr(module, func_name):
-                        stack.enter_context(
-                            _temporary_patch(module, func_name, patch_fn)
-                        )
-                else:
-                    raise TypeError(f"Unsupported target type: {type(target)}")
+                if not hasattr(plugin, "get_patch_params"):
+                    continue
+                try:
+                    target, attr, patch_func = plugin.get_patch_params()
+                except Exception:
+                    continue
+                stack.enter_context(_temporary_patch(target, attr, patch_func))
 
         yield
 
