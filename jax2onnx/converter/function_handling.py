@@ -14,6 +14,7 @@ from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 import logging
 
+
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
@@ -582,6 +583,7 @@ def map_and_register_outputs(
 def function_handler(
     name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
 ):
+
     check_parameters(name, converter, eqn, orig_fn, params)
     impl_key, unique_node_name, parent_builder = prepare_function_names(
         converter, orig_fn, name

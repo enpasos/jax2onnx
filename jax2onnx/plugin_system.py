@@ -4,6 +4,7 @@ import importlib
 import inspect
 import os
 import pkgutil
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Union
@@ -28,6 +29,8 @@ PLUGIN_REGISTRY: dict[
 ONNX_FUNCTION_REGISTRY: dict[str, Any] = {}
 ONNX_FUNCTION_PRIMITIVE_REGISTRY: dict[str, tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY: dict[str, "FunctionPlugin"] = {}
+
+INSTANCE_MAP = weakref.WeakValueDictionary()
 
 
 #####################################
@@ -128,6 +131,10 @@ class FunctionPlugin(PrimitivePlugin):
                 f"Original function (_orig_fn) not set for abstract evaluation of primitive {self.name}"
             )
 
+        # if existing remove "instance_key" from kwargs
+        if "instance_key" in kwargs:
+            del kwargs["instance_key"]
+
         try:
             # Get the abstract value(s) from eval_shape
             # This might be a single ShapeDtypeStruct or a pytree of them
@@ -155,7 +162,7 @@ class FunctionPlugin(PrimitivePlugin):
             raise ValueError("Original function not set for primitive!")
         return self._orig_fn(*args, **kwargs)
 
-    def get_patch_fn(self, primitive):
+    def get_patch_fn(self, primitive, is_class: bool) -> Callable:
         def patch(original_call):
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
@@ -166,13 +173,18 @@ class FunctionPlugin(PrimitivePlugin):
 
                 if expects_self:
                     instance = args[0]
+                    instance_key = id(instance)
+                    INSTANCE_MAP[instance_key] = instance
                     qualname = get_qualified_name(instance.__class__)
                     if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY:
                         plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[qualname]
                         plugin._orig_fn = original_call.__get__(
                             instance, type(instance)
                         )
-                    return primitive.bind(*args[1:], **kwargs)
+                    # Pass instance_key as a kwarg
+                    return primitive.bind(
+                        *args[1:], **{**kwargs, "instance_key": instance_key}
+                    )
                 else:
                     # Non-class function
                     qualname = self.name  # self.name is already qualified
@@ -189,12 +201,12 @@ class FunctionPlugin(PrimitivePlugin):
         # Determine if the target is a class or a function
         if inspect.isclass(self.target):
             # Patch the __call__ method of the class
-            return (self.target, "__call__", self.get_patch_fn(self.primitive))
+            return (self.target, "__call__", self.get_patch_fn(self.primitive, True))
         elif callable(self.target):
             # Patch the function in its module by name
             module = inspect.getmodule(self.target)
             func_name = self.target.__name__
-            return (module, func_name, self.get_patch_fn(self.primitive))
+            return (module, func_name, self.get_patch_fn(self.primitive, False))
         else:
             raise TypeError(
                 f"Unsupported target type for patching: {type(self.target)}"
@@ -207,7 +219,17 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, plugin_converter, converter, eqn, params):
-        function_handler(self.name, converter, eqn, self._orig_fn, params)
+
+        orig_fn = self._orig_fn
+
+        # if existing remove "instance_key" from params
+        if "instance_key" in params:
+            key = params["instance_key"]
+            del params["instance_key"]
+            instance = INSTANCE_MAP.get(key)
+            orig_fn = instance
+
+        function_handler(self.name, converter, eqn, orig_fn, params)
 
 
 ########################################
