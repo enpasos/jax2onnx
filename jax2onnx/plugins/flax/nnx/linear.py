@@ -232,26 +232,15 @@ class LinearPlugin(PrimitiveLeafPlugin):
             s.add_node(reshape_output_node)
 
     @staticmethod
-    def _linear(x, kernel, bias, dimension_numbers=None):
-        """Defines the primitive binding for Linear."""
-        # Set default dimension numbers for a standard linear layer.
-        if dimension_numbers is None:
-            lhs_contract = (-1,)  # last dim of x
-            rhs_contract = (0,)  # first dim of kernel
-            dimension_numbers = ((lhs_contract, rhs_contract), ((), ()))
-
-        return nnx.linear_p.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
-
-    @staticmethod
     def get_monkey_patch():
         """Returns a patched version of Linear's call method."""
 
         def patched_linear_call(self, x):
-            # For nnx.Linear the standard contraction is last dim of input with first dim of kernel.
-            lhs_contract = (-1,)
-            rhs_contract = (0,)
+            # Set default dimension numbers for a standard linear layer.
+            lhs_contract = (-1,)  # last dim of x
+            rhs_contract = (0,)  # first dim of kernel
             dimension_numbers = ((lhs_contract, rhs_contract), ((), ()))
-            return LinearPlugin._linear(
+            return nnx.linear_p.bind(
                 x,
                 self.kernel.value,
                 self.bias.value,
