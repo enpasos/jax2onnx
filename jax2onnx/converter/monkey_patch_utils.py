@@ -8,12 +8,14 @@ These utilities are primarily used during the tracing phase of JAX to ONNX conve
 
 import contextlib
 import inspect
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Mapping
 
 from jax2onnx.plugin_system import (
+    FunctionPlugin,
+    ExamplePlugin,
+    PrimitiveLeafPlugin,
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
-    PrimitiveLeafPlugin,
 )
 
 
@@ -41,34 +43,20 @@ def temporary_monkey_patches(
             result = my_jax_function(args)
     """
     with contextlib.ExitStack() as stack:
-        # Patch leaf plugin primitives
-        for key, plugin in PLUGIN_REGISTRY.items():
-            if not isinstance(plugin, PrimitiveLeafPlugin) or not plugin.patch_info:
-                continue
-            target, attr, patch_func = plugin.get_patch_params()
-            stack.enter_context(_temporary_patch(target, attr, patch_func))
-
+        registries: list[
+            Mapping[str, FunctionPlugin | ExamplePlugin | PrimitiveLeafPlugin]
+        ] = [PLUGIN_REGISTRY]
         if allow_function_primitives:
-            # Patch function primitives from the registry
-            for qualname, plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.items():
-                primitive = plugin.primitive
-                patch_fn = plugin.get_patch_fn(primitive)
-                target = plugin.target
-
-                if inspect.isclass(target):
-                    # For classes: patch the __call__ method
-                    stack.enter_context(_temporary_patch(target, "__call__", patch_fn))
-                elif callable(target):
-                    # For functions: patch the function in its module
-                    module = inspect.getmodule(target)
-                    func_name = target.__name__
-                    if hasattr(module, func_name):
-                        stack.enter_context(
-                            _temporary_patch(module, func_name, patch_fn)
-                        )
-                else:
-                    raise TypeError(f"Unsupported target type: {type(target)}")
-
+            registries.append(ONNX_FUNCTION_PLUGIN_REGISTRY)
+        for registry in registries:
+            for plugin in registry.values():
+                if not hasattr(plugin, "get_patch_params"):
+                    continue
+                try:
+                    target, attr, patch_func = plugin.get_patch_params()
+                except Exception:
+                    continue
+                stack.enter_context(_temporary_patch(target, attr, patch_func))
         yield
 
 
