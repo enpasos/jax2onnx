@@ -1,7 +1,6 @@
 import logging
 import os
 import atexit
-import threading
 
 try:
     import tomllib  # Python 3.11+

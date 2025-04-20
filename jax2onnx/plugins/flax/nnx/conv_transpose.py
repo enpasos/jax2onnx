@@ -35,7 +35,7 @@ ONNX shape‑inference.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, List, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from flax import nnx
 from jax.extend.core import Primitive
@@ -106,7 +106,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         b = s.get_name(node_inputs[2]) if len(node_inputs) > 2 else None
 
         # Create a context that will collect the output name
-        out_name = {"name": None}
+        out_name = {"name": s.builder.get_unique_name("conv_transpose_out")}
 
         # Create a simpler context object
         class SimpleCtx:
@@ -122,6 +122,10 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
             b,
             **params,
         )
+
+        # Ensure out_name["name"] is assigned a valid string
+        if not isinstance(out_name["name"], str):
+            raise TypeError("Expected out_name['name'] to be a string.")
 
         # Connect the output name to the Var object in Jaxpr2OnnxConverter
         # Map JAX var to ONNX output name
@@ -214,10 +218,10 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
                 outputs=[y_unsq],
             )
             builder.add_node(node)
-            builder.add_value_info(y_unsq, None, None)
+            builder.add_value_info(y_unsq, tuple(), None)
             y = y_unsq
 
-        builder.add_value_info(y, None, None)  # register final output
+        builder.add_value_info(y, tuple(), None)  # register final output
 
         # Instead of ctx.outputs[0].name = y
         # Store the name in the dictionary
@@ -238,7 +242,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         out = builder.get_unique_name("transpose")
         node = helper.make_node("Transpose", [inp], [out], perm=list(perm))
         builder.add_node(node)
-        builder.add_value_info(out, None, None)  #  ← NEW
+        builder.add_value_info(out, tuple(), None)  #  ← NEW
         return out
 
     @staticmethod
