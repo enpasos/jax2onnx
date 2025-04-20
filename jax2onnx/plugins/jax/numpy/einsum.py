@@ -187,7 +187,10 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
         input_shapes = [inp.aval.shape for inp in node_inputs]
         output_shape = EinsumPlugin._get_dynamic_output_shape(input_shapes, equation)
-        s.add_shape_info(output_name, output_shape)
+        s.add_shape_info(
+            output_name,
+            tuple(int(dim) for dim in output_shape if isinstance(dim, (int, str))),
+        )
 
     @staticmethod
     def _einsum(equation, *operands, precision=None, preferred_element_type=None):

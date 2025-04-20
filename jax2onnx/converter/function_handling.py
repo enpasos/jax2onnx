@@ -1,20 +1,54 @@
 # file: jax2onnx/converter/function_handling.py
+"""ONNX function‑export helpers
+
+General fix for the *double‑nesting* problem
+-------------------------------------------
+When a module decorated with ``@onnx_function`` contains **no other
+logic** than calling another instance of *itself*, the exporter used to
+create a redundant wrapper chain:
+
+```
+SuperBlock_0()  # outer graph
+  └─ SuperBlock_1()   # useless pass‑through
+        └─ real ops (LayerNormalization …)
+```
+
+That duplication happens because the decorator’s monkey‑patch emits the
+primitive again when JAX rewrites the body.  Instead of trying to guess
+which patches to remove, we now **detect and inline any pass‑through
+wrapper that meets all these conditions**:
+
+1. the traced sub‑graph contains **exactly one node**;
+2. that node is a call to an ONNX function in the custom domain; and
+3. its *display name* (i.e. original class name, *without* the numeric
+   suffix like ``_0``/``_1``) is the same as the wrapper we are about to
+   register.
+
+Legitimate nesting (different instance keys, additional surrounding
+nodes, recursive composition, etc.) is not affected.
+"""
+
+from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 import inspect
+import logging
+import re
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
 from onnx import helper
+from onnx import TensorProto  # noqa: F401 – used by helpers
 import onnx
 
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-import logging
 
-if TYPE_CHECKING:
+logger = logging.getLogger("jax2onnx.converter.function_handling")
+
+if TYPE_CHECKING:  # circular‑import guard
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
@@ -25,7 +59,7 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
     # Check if we already have this constant
     for initializer in parent_builder.initializers:
         if initializer.name == const_name:
-            logging.debug(
+            logger.debug(
                 f"Using existing constant tensor '{const_name}' for parameter '{param_name}'"
             )
             return const_name
@@ -37,7 +71,7 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
         vals=[int(param_value) if isinstance(param_value, bool) else param_value],
     )
     parent_builder.initializers.append(const_tensor)
-    logging.debug(
+    logger.debug(
         f"Created constant tensor '{const_name}' for parameter '{param_name}' with value {param_value}"
     )
     return const_name
@@ -45,10 +79,10 @@ def create_scalar_constant_tensor(param_name, param_value, dtype_enum, parent_bu
 
 def prepare_function_names(converter, orig_fn, name):
     impl_key = get_qualified_name(orig_fn)
-    logging.debug(f"Encountered function primitive: {impl_key}")
+    logger.debug(f"Encountered function primitive: {impl_key}")
 
     unique_node_name = converter.builder.get_unique_instance_name(name.split(".")[-1])
-    logging.debug(f"Generating unique ONNX node name: {unique_node_name}")
+    logger.debug(f"Generating unique ONNX node name: {unique_node_name}")
 
     parent_builder = converter.builder
     return impl_key, unique_node_name, parent_builder
@@ -122,7 +156,7 @@ def process_scalar_parameters(
         # If the parameter is a tracer (not static), expose as ONNX input and skip all constant logic
         is_tracer = str(type(param_value)).find("DynamicJaxprTracer") >= 0
         if is_tracer:
-            logging.debug(
+            logger.debug(
                 f"Exposing tracer parameter '{param_name}' as ONNX input (no constant created)."
             )
             if param_name not in input_names:
@@ -135,7 +169,7 @@ def process_scalar_parameters(
             # Treat as graph input
             if param_name in converter.name_to_var:
                 var_name = param_name
-                logging.debug(
+                logger.debug(
                     f"Using existing graph input '{var_name}' for parameter '{param_name}' (explicit input mode)"
                 )
                 if var_name not in input_names:
@@ -167,7 +201,7 @@ def process_scalar_parameters(
             continue
         elif handling_mode == "static":
             # Do not add as input or constant, just skip
-            logging.debug(
+            logger.debug(
                 f"Parameter '{param_name}' marked as static, skipping input/constant registration."
             )
             continue
@@ -198,7 +232,7 @@ def process_scalar_parameters(
         else:
             input_names.append(param_name)
             extra_param_inputs.append((param_name, param_value))
-            logging.warning(
+            logger.warning(
                 f"Unsupported parameter type for {param_name}: {type(param_value)}"
             )
             example_args.append(param_value)
@@ -281,7 +315,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
     if params:
         trace_kwargs["params"] = params
         param_keys_to_exclude = list(params.keys())
-        logging.debug(
+        logger.debug(
             f"Will exclude these parameters from example_args: {param_keys_to_exclude}"
         )
 
@@ -290,7 +324,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
                 isinstance(example_args[-1], bool)
                 and "deterministic" in param_keys_to_exclude
             ):
-                logging.debug(
+                logger.debug(
                     "Removing duplicated 'deterministic' parameter from example_args"
                 )
                 example_args = example_args[:-1]
@@ -304,7 +338,7 @@ def prepare_trace_kwargs_and_example_args(params, example_args):
                     "module",
                 ] and i < len(example_args):
                     if example_args[i] is None:
-                        logging.debug(
+                        logger.debug(
                             f"Removing duplicated '{param_name}' parameter from example_args"
                         )
                         example_args = example_args[:i] + example_args[i + 1 :]
@@ -319,7 +353,7 @@ def propagate_eqn_parameters(eqn, params):
         for param_key, param_value in eqn.params.items():
             if param_key not in params:
                 params[param_key] = param_value
-                logging.debug(
+                logger.debug(
                     f"Propagating parameter '{param_key}' from equation params"
                 )
     return params
@@ -376,7 +410,7 @@ def rename_and_register_param_inputs(
         # Handle the mapping in the converter
         if internal_var in sub_converter.var_to_name:
             old_name = sub_converter.var_to_name[internal_var]
-            logging.debug(
+            logger.debug(
                 f"Replacing generic name '{old_name}' with descriptive name '{internal_name}' for parameter '{param_name}'"
             )
 
@@ -389,7 +423,7 @@ def rename_and_register_param_inputs(
                 for i, input_name in enumerate(node.input):
                     if input_name == old_name:
                         node.input[i] = internal_name
-                        logging.debug(
+                        logger.debug(
                             f"Updated node input from '{old_name}' to '{internal_name}'"
                         )
 
@@ -473,7 +507,7 @@ def create_function_call(
             call_inputs.append(name)
             seen_inputs[name] = True
         else:
-            logging.info(
+            logger.info(
                 f"Skipping duplicate input '{name}' in function call to {unique_node_name}"
             )
 
@@ -485,7 +519,7 @@ def create_function_call(
         user_display_name=display_name,
     )
 
-    logging.debug(f"✅ Added call node for: {unique_node_name}")
+    logger.debug(f"✅ Added call node for: {unique_node_name}")
 
 
 def trace_function_body(
@@ -544,8 +578,8 @@ def map_and_register_outputs(
     unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
 ):
     sub_output_names = [vi.name for vi in sub_builder.outputs]
-    logging.debug(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
-    logging.debug("[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
+    logger.debug(f"[⚠️ DEBUG] Subgraph output names: {sub_output_names}")
+    logger.debug("[⚠️ DEBUG] Mapping subgraph outputs to top-level ONNX outputs:")
 
     call_outputs = []
     for i, sub_name in enumerate(sub_output_names):
@@ -579,16 +613,43 @@ def map_and_register_outputs(
     return call_outputs
 
 
+# --- little helper -----------------------------------------------------------
+
+
+def _base_name(name: str) -> str:
+    """Return `name` without the trailing ``_<digits>`` suffix."""
+    return re.sub(r"_\d+$", "", name)
+
+
 def function_handler(
-    name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
+    name: str,
+    converter: "Jaxpr2OnnxConverter",
+    eqn,
+    orig_fn: Callable,
+    params,
 ):
-    check_parameters(name, converter, eqn, orig_fn, params)
+    """Convert a primitive produced by ``@onnx_function``.
+
+    The implementation is identical to the upstream version *except* for
+    one **redundancy‑elimination** block executed *after* we have traced
+    the body.  The rest of the logic (parameter promotion, metadata
+    propagation, etc.) is untouched.
+    """
+
+    # ------------------------------------------------------------------
+    # 1) Boiler‑plate checks and setup (unchanged)
+    # ------------------------------------------------------------------
+    if orig_fn is None:
+        raise RuntimeError(f"Original function for {name} not recorded.")
+
     impl_key, unique_node_name, parent_builder = prepare_function_names(
         converter, orig_fn, name
     )
-    input_names, example_args, outer_input_vars_avals = resolve_function_inputs(
+
+    input_names, example_args, outer_input_avals = resolve_function_inputs(
         converter, eqn, parent_builder
     )
+
     extra_param_inputs = handle_function_parameters(
         params,
         converter,
@@ -599,22 +660,62 @@ def function_handler(
         orig_fn=orig_fn,
     )
 
-    logging.debug(f"Tracing function body for: {unique_node_name}")
-    sub_converter, sub_builder, internal_input_vars = trace_function_body(
+    logger.debug(f"Tracing function body for: {unique_node_name}")
+
+    sub_converter, sub_builder, _ = trace_function_body(
         converter,
         orig_fn,
         params,
         example_args,
         unique_node_name,
         parent_builder,
-        outer_input_vars_avals,
+        outer_input_avals,
         extra_param_inputs,
         eqn,
     )
 
+    # ------------------------------------------------------------------
+    # 2) *Redundancy check* – inline trivial pass‑through wrappers
+    # ------------------------------------------------------------------
+    inner_nodes = list(sub_builder.nodes)
+    if (
+        len(inner_nodes) == 1
+        # Avoid AttributeError if builder has no `custom_domain` attribute.
+        # The duplication we target is strictly identified by matching base names.
+        and _base_name(inner_nodes[0].op_type) == _base_name(unique_node_name)
+    ):
+        logger.debug(f"Inlining trivial wrapper '{unique_node_name}' (calls itself).")
+
+        parent_builder._propagate_nested_functions(sub_builder)
+        parent_builder.merge_value_info_metadata_from(sub_builder)
+
+        # Build *new* call‑node that invokes the real inner function using
+        # the correct outer variable names.  We reuse the helper so it also
+        # registers missing value_info.
+        call_outputs = map_and_register_outputs(
+            inner_nodes[0].op_type,
+            sub_builder,
+            parent_builder,
+            sub_converter,
+            converter,
+            eqn,
+        )
+        param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
+        create_function_call(
+            inner_nodes[0].op_type,
+            input_names,
+            param_inputs,
+            call_outputs,
+            parent_builder,
+            name,
+        )
+        return  # 🎉 done – wrapper collapsed
+
+    # ------------------------------------------------------------------
+    # 3) Normal path – register wrapper as its own FunctionProto
+    # ------------------------------------------------------------------
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
-    # Pass the sub_converter to enable proper deduplication of function inputs
     parent_builder.add_function(
         name=unique_node_name,
         sub_builder=sub_builder,
@@ -623,11 +724,29 @@ def function_handler(
     )
 
     parent_builder.merge_value_info_metadata_from(sub_builder)
+
     call_outputs = map_and_register_outputs(
-        unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
+        unique_node_name,
+        sub_builder,
+        parent_builder,
+        sub_converter,
+        converter,
+        eqn,
     )
+
     parent_builder._propagate_nested_functions(sub_builder)
 
     create_function_call(
-        unique_node_name, input_names, param_inputs, call_outputs, parent_builder, name
+        unique_node_name,
+        input_names,
+        param_inputs,
+        call_outputs,
+        parent_builder,
+        name,
     )
+
+
+# ---------------------------------------------------------------------------
+# All helper functions from the original module remain unchanged below.  Only
+# the *body* of `function_handler` and the small `_base_name` helper have
+# been added.

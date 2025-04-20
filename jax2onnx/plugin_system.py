@@ -4,6 +4,7 @@ import importlib
 import inspect
 import os
 import pkgutil
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Union
@@ -18,6 +19,8 @@ import logging
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
 
+logger = logging.getLogger("jax2onnx.plugin_system")
+
 # A global registry to store plugins for extending functionality.
 # Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
 PLUGIN_REGISTRY: dict[
@@ -28,6 +31,8 @@ PLUGIN_REGISTRY: dict[
 ONNX_FUNCTION_REGISTRY: dict[str, Any] = {}
 ONNX_FUNCTION_PRIMITIVE_REGISTRY: dict[str, tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY: dict[str, "FunctionPlugin"] = {}
+
+INSTANCE_MAP: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
 
 
 #####################################
@@ -128,6 +133,10 @@ class FunctionPlugin(PrimitivePlugin):
                 f"Original function (_orig_fn) not set for abstract evaluation of primitive {self.name}"
             )
 
+        # if existing remove "instance_key" from kwargs
+        if "instance_key" in kwargs:
+            del kwargs["instance_key"]
+
         try:
             # Get the abstract value(s) from eval_shape
             # This might be a single ShapeDtypeStruct or a pytree of them
@@ -139,13 +148,13 @@ class FunctionPlugin(PrimitivePlugin):
                 self._aval_to_shaped_array, output_aval_struct
             )
 
-            logging.debug(
+            logger.debug(
                 f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}"
             )
             return output_aval
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"[ERROR] jax.eval_shape or conversion failed during abstract evaluation for primitive {self.name} on function {self._orig_fn}: {e}"
             )
             raise e
@@ -155,7 +164,7 @@ class FunctionPlugin(PrimitivePlugin):
             raise ValueError("Original function not set for primitive!")
         return self._orig_fn(*args, **kwargs)
 
-    def get_patch_fn(self, primitive):
+    def get_patch_fn(self, primitive, is_class: bool) -> Callable:
         def patch(original_call):
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
@@ -166,13 +175,18 @@ class FunctionPlugin(PrimitivePlugin):
 
                 if expects_self:
                     instance = args[0]
+                    instance_key = id(instance)
+                    INSTANCE_MAP[instance_key] = instance
                     qualname = get_qualified_name(instance.__class__)
                     if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY:
                         plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[qualname]
                         plugin._orig_fn = original_call.__get__(
                             instance, type(instance)
                         )
-                    return primitive.bind(*args[1:], **kwargs)
+                    # Pass instance_key as a kwarg
+                    return primitive.bind(
+                        *args[1:], **{**kwargs, "instance_key": instance_key}
+                    )
                 else:
                     # Non-class function
                     qualname = self.name  # self.name is already qualified
@@ -186,7 +200,19 @@ class FunctionPlugin(PrimitivePlugin):
         return patch
 
     def get_patch_params(self):
-        return (self.target, "__call__", self.get_patch_fn(self.primitive))
+        # Determine if the target is a class or a function
+        if inspect.isclass(self.target):
+            # Patch the __call__ method of the class
+            return (self.target, "__call__", self.get_patch_fn(self.primitive, True))
+        elif callable(self.target):
+            # Patch the function in its module by name
+            module = inspect.getmodule(self.target)
+            func_name = self.target.__name__
+            return (module, func_name, self.get_patch_fn(self.primitive, False))
+        else:
+            raise TypeError(
+                f"Unsupported target type for patching: {type(self.target)}"
+            )
 
     # Add this implementation
     def get_handler(self, converter: Any) -> Callable:
@@ -195,7 +221,17 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, plugin_converter, converter, eqn, params):
-        function_handler(self.name, converter, eqn, self._orig_fn, params)
+
+        orig_fn = self._orig_fn
+
+        # if existing remove "instance_key" from params
+        if "instance_key" in params:
+            key = params["instance_key"]
+            del params["instance_key"]
+            instance = INSTANCE_MAP.get(key)
+            orig_fn = instance
+
+        function_handler(self.name, converter, eqn, orig_fn, params)
 
 
 ########################################

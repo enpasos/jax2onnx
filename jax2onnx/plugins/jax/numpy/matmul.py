@@ -146,7 +146,10 @@ class MatMulPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("matmul"),
         )
         s.add_node(matmul_node)
-        s.add_shape_info(output_name, output_shape)
+        s.add_shape_info(
+            output_name,
+            tuple(int(dim) for dim in output_shape if isinstance(dim, (int, str))),
+        )
 
     @staticmethod
     def _matmul(a, b):

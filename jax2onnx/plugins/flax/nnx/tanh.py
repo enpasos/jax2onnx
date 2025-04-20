@@ -62,16 +62,11 @@ class TanhPlugin(PrimitiveLeafPlugin):
         s.add_node(tanh_node)
 
     @staticmethod
-    def _tanh(x):
-        """Defines the primitive binding for Tanh."""
-        return nnx.tanh_p.bind(x)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for Tanh."""
 
         def patched_tanh(x):
-            return TanhPlugin._tanh(x)
+            return nnx.tanh_p.bind(x)
 
         return patched_tanh
 

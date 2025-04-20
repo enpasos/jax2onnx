@@ -62,16 +62,11 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
         s.add_node(softplus_node)
 
     @staticmethod
-    def _softplus(x):
-        """Defines the primitive binding for Softplus."""
-        return nnx.softplus_p.bind(x)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for Softplus."""
 
         def patched_softplus(x):
-            return SoftplusPlugin._softplus(x)
+            return nnx.softplus_p.bind(x)
 
         return patched_softplus
 

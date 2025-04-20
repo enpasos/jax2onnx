@@ -141,7 +141,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("shape_q"),
             )
         )
-        s.add_shape_info(shape_q, [4], dtype=np.int64)
+        s.add_shape_info(shape_q, tuple([4]), dtype=np.int64)
 
         idx_last = s.get_constant_name(np.array([-1], dtype=np.int64))
         e_val = s.get_unique_name("e_val")
@@ -154,7 +154,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("gather_e"),
             )
         )
-        s.add_shape_info(e_val, [], dtype=np.int64)
+        s.add_shape_info(e_val, tuple([]), dtype=np.int64)
 
         e_float = s.get_unique_name("e_float")
         s.add_node(
@@ -166,7 +166,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("cast_e"),
             )
         )
-        s.add_shape_info(e_float, [], dtype=np.float32)
+        s.add_shape_info(e_float, tuple([]), dtype=np.float32)
 
         sqrt_e = s.get_unique_name("sqrt_e")
         s.add_node(
@@ -177,7 +177,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("sqrt_e"),
             )
         )
-        s.add_shape_info(sqrt_e, [], dtype=np.float32)
+        s.add_shape_info(sqrt_e, tuple([]), dtype=np.float32)
 
         scaled_scores = s.get_unique_name("scaled_scores")
         s.add_node(

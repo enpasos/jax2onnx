@@ -82,16 +82,11 @@ class GeluPlugin(PrimitiveLeafPlugin):
         s.add_node(gelu_node)
 
     @staticmethod
-    def _gelu(x, approximate=True):
-        """Defines the primitive binding for GELU."""
-        return nnx.gelu_p.bind(x, approximate=approximate)
-
-    @staticmethod
     def get_monkey_patch():
         """Provides patching information for GELU."""
 
         def patched_gelu(x, approximate=True):
-            return GeluPlugin._gelu(x, approximate)
+            return nnx.gelu_p.bind(x, approximate=approximate)
 
         return patched_gelu
 

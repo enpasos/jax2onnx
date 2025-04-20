@@ -6,7 +6,7 @@ import sys
 from onnx import ModelProto
 
 # Replace with the actual path to your ONNX model
-onnx_model_path = "docs/onnx/examples/onnx_functions/014_one_function_with_input_param_with_default_value.onnx"
+onnx_model_path = "docs/onnx/examples/onnx_functions/006_one_function_outer.onnx"
 # Example using one of the previous models:
 # onnx_model_path = "function_with_intermediate_shape.onnx"
 

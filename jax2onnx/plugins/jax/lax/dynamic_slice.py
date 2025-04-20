@@ -68,7 +68,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                     to=TensorProto.INT64,
                 )
             )
-            s.add_shape_info(casted_scalar, [], dtype=np.int64)
+            s.add_shape_info(casted_scalar, tuple([]), dtype=np.int64)
 
             # Then Unsqueeze it to shape [1]
             axes_const = s.get_constant_name(np.array([0], dtype=np.int64))
@@ -81,7 +81,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("unsqueeze_start"),
                 )
             )
-            s.add_shape_info(unsqueezed_name, [1], dtype=np.int64)
+            s.add_shape_info(unsqueezed_name, tuple([1]), dtype=np.int64)
 
             start_names.append(unsqueezed_name)
 
@@ -96,7 +96,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 axis=0,
             )
         )
-        s.add_shape_info(starts_concat_name, [d], dtype=np.int64)
+        s.add_shape_info(starts_concat_name, tuple([d]), dtype=np.int64)
 
         # Create constant for slice sizes
         slice_sizes = params["slice_sizes"]
@@ -112,7 +112,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("add_slice_ends"),
             )
         )
-        s.add_shape_info(ends_name, [d], dtype=np.int64)
+        s.add_shape_info(ends_name, tuple([d]), dtype=np.int64)
 
         # Axes: [0, 1, ..., d-1]
         axes_const = s.get_constant_name(np.arange(d, dtype=np.int64))
