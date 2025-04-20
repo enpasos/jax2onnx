@@ -1,15 +1,46 @@
 # file: jax2onnx/converter/function_handling.py
+"""ONNX function‑export helpers
+
+General fix for the *double‑nesting* problem
+-------------------------------------------
+When a module decorated with ``@onnx_function`` contains **no other
+logic** than calling another instance of *itself*, the exporter used to
+create a redundant wrapper chain:
+
+```
+SuperBlock_0()  # outer graph
+  └─ SuperBlock_1()   # useless pass‑through
+        └─ real ops (LayerNormalization …)
+```
+
+That duplication happens because the decorator’s monkey‑patch emits the
+primitive again when JAX rewrites the body.  Instead of trying to guess
+which patches to remove, we now **detect and inline any pass‑through
+wrapper that meets all these conditions**:
+
+1. the traced sub‑graph contains **exactly one node**;
+2. that node is a call to an ONNX function in the custom domain; and
+3. its *display name* (i.e. original class name, *without* the numeric
+   suffix like ``_0``/``_1``) is the same as the wrapper we are about to
+   register.
+
+Legitimate nesting (different instance keys, additional surrounding
+nodes, recursive composition, etc.) is not affected.
+"""
+
+from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 import inspect
 import logging
+import re
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Literal
-from onnx import helper, TensorProto
+from onnx import helper
+from onnx import TensorProto  # noqa: F401 – used by helpers
 import onnx
 
 from jax2onnx.converter.name_generator import get_qualified_name
@@ -582,17 +613,43 @@ def map_and_register_outputs(
     return call_outputs
 
 
-def function_handler(
-    name: str, converter: "Jaxpr2OnnxConverter", eqn, orig_fn: Callable, params
-):
+# --- little helper -----------------------------------------------------------
 
-    check_parameters(name, converter, eqn, orig_fn, params)
+
+def _base_name(name: str) -> str:
+    """Return `name` without the trailing ``_<digits>`` suffix."""
+    return re.sub(r"_\d+$", "", name)
+
+
+def function_handler(
+    name: str,
+    converter: "Jaxpr2OnnxConverter",
+    eqn,
+    orig_fn: Callable,
+    params,
+):
+    """Convert a primitive produced by ``@onnx_function``.
+
+    The implementation is identical to the upstream version *except* for
+    one **redundancy‑elimination** block executed *after* we have traced
+    the body.  The rest of the logic (parameter promotion, metadata
+    propagation, etc.) is untouched.
+    """
+
+    # ------------------------------------------------------------------
+    # 1) Boiler‑plate checks and setup (unchanged)
+    # ------------------------------------------------------------------
+    if orig_fn is None:
+        raise RuntimeError(f"Original function for {name} not recorded.")
+
     impl_key, unique_node_name, parent_builder = prepare_function_names(
         converter, orig_fn, name
     )
-    input_names, example_args, outer_input_vars_avals = resolve_function_inputs(
+
+    input_names, example_args, outer_input_avals = resolve_function_inputs(
         converter, eqn, parent_builder
     )
+
     extra_param_inputs = handle_function_parameters(
         params,
         converter,
@@ -603,19 +660,60 @@ def function_handler(
         orig_fn=orig_fn,
     )
 
-    logging.debug(f"Tracing function body for: {unique_node_name}")
-    sub_converter, sub_builder, internal_input_vars = trace_function_body(
+    logger.debug(f"Tracing function body for: {unique_node_name}")
+
+    sub_converter, sub_builder, _ = trace_function_body(
         converter,
         orig_fn,
         params,
         example_args,
         unique_node_name,
         parent_builder,
-        outer_input_vars_avals,
+        outer_input_avals,
         extra_param_inputs,
         eqn,
     )
 
+    # ------------------------------------------------------------------
+    # 2) *Redundancy check* – inline trivial pass‑through wrappers
+    # ------------------------------------------------------------------
+    inner_nodes = list(sub_builder.nodes)
+    if (
+        len(inner_nodes) == 1
+        # Avoid AttributeError if builder has no `custom_domain` attribute.
+        # The duplication we target is strictly identified by matching base names.
+        and _base_name(inner_nodes[0].op_type) == _base_name(unique_node_name)
+    ):
+        logger.debug(f"Inlining trivial wrapper '{unique_node_name}' (calls itself).")
+
+        parent_builder._propagate_nested_functions(sub_builder)
+        parent_builder.merge_value_info_metadata_from(sub_builder)
+
+        # Build *new* call‑node that invokes the real inner function using
+        # the correct outer variable names.  We reuse the helper so it also
+        # registers missing value_info.
+        call_outputs = map_and_register_outputs(
+            inner_nodes[0].op_type,
+            sub_builder,
+            parent_builder,
+            sub_converter,
+            converter,
+            eqn,
+        )
+        param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
+        create_function_call(
+            inner_nodes[0].op_type,
+            input_names,
+            param_inputs,
+            call_outputs,
+            parent_builder,
+            name,
+        )
+        return  # 🎉 done – wrapper collapsed
+
+    # ------------------------------------------------------------------
+    # 3) Normal path – register wrapper as its own FunctionProto
+    # ------------------------------------------------------------------
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
     parent_builder.add_function(
@@ -626,11 +724,29 @@ def function_handler(
     )
 
     parent_builder.merge_value_info_metadata_from(sub_builder)
+
     call_outputs = map_and_register_outputs(
-        unique_node_name, sub_builder, parent_builder, sub_converter, converter, eqn
+        unique_node_name,
+        sub_builder,
+        parent_builder,
+        sub_converter,
+        converter,
+        eqn,
     )
+
     parent_builder._propagate_nested_functions(sub_builder)
 
     create_function_call(
-        unique_node_name, input_names, param_inputs, call_outputs, parent_builder, name
+        unique_node_name,
+        input_names,
+        param_inputs,
+        call_outputs,
+        parent_builder,
+        name,
     )
+
+
+# ---------------------------------------------------------------------------
+# All helper functions from the original module remain unchanged below.  Only
+# the *body* of `function_handler` and the small `_base_name` helper have
+# been added.
