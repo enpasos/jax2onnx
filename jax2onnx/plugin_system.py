@@ -16,10 +16,10 @@ from jax.extend.core import Primitive
 
 import logging
 
-logger = logging.getLogger("jax2onnx.plugin_system")
-
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
+
+logger = logging.getLogger("jax2onnx.plugin_system")
 
 # A global registry to store plugins for extending functionality.
 # Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
@@ -32,7 +32,7 @@ ONNX_FUNCTION_REGISTRY: dict[str, Any] = {}
 ONNX_FUNCTION_PRIMITIVE_REGISTRY: dict[str, tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY: dict[str, "FunctionPlugin"] = {}
 
-INSTANCE_MAP = weakref.WeakValueDictionary()
+INSTANCE_MAP: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
 
 
 #####################################

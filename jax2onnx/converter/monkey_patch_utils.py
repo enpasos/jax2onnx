@@ -8,12 +8,14 @@ These utilities are primarily used during the tracing phase of JAX to ONNX conve
 
 import contextlib
 import inspect
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Mapping
 
 from jax2onnx.plugin_system import (
+    FunctionPlugin,
+    ExamplePlugin,
+    PrimitiveLeafPlugin,
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
-    PrimitiveLeafPlugin,
 )
 
 
@@ -41,7 +43,9 @@ def temporary_monkey_patches(
             result = my_jax_function(args)
     """
     with contextlib.ExitStack() as stack:
-        registries = [PLUGIN_REGISTRY]
+        registries: list[
+            Mapping[str, FunctionPlugin | ExamplePlugin | PrimitiveLeafPlugin]
+        ] = [PLUGIN_REGISTRY]
         if allow_function_primitives:
             registries.append(ONNX_FUNCTION_PLUGIN_REGISTRY)
         for registry in registries:
