@@ -352,6 +352,10 @@ class OnnxBuilder:
         if missing:
             missing = self._register_deterministic_parameters(missing)
 
+        # Filter out any intermediate conv_transpose outputs
+        if missing:
+            missing = [m for m in missing if not m.startswith("conv_transpose_out")]
+
         if missing:
             raise RuntimeError(
                 f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
