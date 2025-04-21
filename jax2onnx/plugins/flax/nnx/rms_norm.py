@@ -1,12 +1,18 @@
 """
-RMS Norm Plugin for JAX to ONNX conversion.
+RMS Norm Plugin for JAX → ONNX conversion
 
-This plugin enables conversion of flax.nnx.RMSNorm layers to ONNX format.
-It transforms JAX's rms_norm operations into an ONNX RMSNormalization operator
-and falls back to a manual graph construction if needed.
+This plugin converts **`flax.nnx.RMSNorm`** layers into the native ONNX
+**`RMSNormalization`** operator whenever the exported model uses opset ≥ 23.
+For lower opsets it transparently falls back to the manual graph that was
+previously implemented (Pow → ReduceMean → Add → Sqrt → Div → Mul).
+
+The public behaviour of the primitive (signature, monkey‑patch, tests) is
+unchanged – only the ONNX emission differs.
 """
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 from flax import nnx
@@ -16,10 +22,13 @@ from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-# Define a new primitive for RMS norm.
+# -----------------------------------------------------------------------------
+# Define the JAX primitive that will be emitted during tracing
+# -----------------------------------------------------------------------------
+
 nnx.rms_norm_p = Primitive("nnx.rms_norm")
 nnx.rms_norm_p.multiple_results = False
 
@@ -50,124 +59,131 @@ nnx.rms_norm_p.multiple_results = False
     ],
 )
 class RMSNormPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting flax.nnx.RMSNorm to ONNX.
+    """Convert *flax.nnx.RMSNorm* to ONNX.
 
-    Attempts to use native RMSNormalization ONNX op, otherwise falls back to manual construction.
+    * **If** `builder.opset_version >= 23` &rarr; emit a single
+      `RMSNormalization` node (native ONNX op).
+    * **Else** fall back to the explicit graph that reproduces the same maths.
     """
+
+    # ------------------------------------------------------------------
+    # JAX abstract evaluation – shape/dtype passthrough
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def abstract_eval(x, scale, *args, **kwargs):
+    def abstract_eval(x, scale, *_, **__):  # noqa: D401 – simple passthrough
         return core.ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+    # ------------------------------------------------------------------
+    # ONNX lowering
+    # ------------------------------------------------------------------
+
+    def to_onnx(
+        self,
+        s: "Jaxpr2OnnxConverter",
+        node_inputs: List[str],
+        node_outputs: List[str],
+        params,
+    ) -> None:
+        # ------------------------------------------------------------------
+        # Resolve names / shapes / dtypes
+        # ------------------------------------------------------------------
         input_name = s.get_name(node_inputs[0])
         scale_name = s.get_name(node_inputs[1])
-        final_output_name = s.get_name(node_outputs[0])
-        epsilon = params.get("epsilon", 1e-5)
+        output_name = s.get_name(node_outputs[0])
+        epsilon = float(params.get("epsilon", 1e-5))
 
-        # Get input shape and dtype
         input_shape = s.shape_env[input_name]
         input_dtype = s.builder.dtype_env[input_name]
+        axis = len(input_shape) - 1  # normalise over the last dimension
 
-        # Determine the axis to normalize over (last dimension)
-        axis = [len(input_shape) - 1]
-
-        # Always use manual RMSNorm construction for ONNX compatibility
-        # 1. ReduceMean(x ** 2, axis=-1, keepdims=True)
-        pow2_name = s.get_unique_name("pow2")
-        pow2_const = s.get_constant_name(np.array(2.0, dtype=np.float32))
-        s.add_node(
-            helper.make_node(
-                "Pow",
-                [input_name, pow2_const],
-                [pow2_name],
-                name=s.get_unique_name("pow2"),
+        # ------------------------------------------------------------------
+        # Decide whether we can use the native op
+        # ------------------------------------------------------------------
+        opset = getattr(s.builder, "opset_version", 0)
+        if opset >= 23:
+            # ---------------- native RMSNormalization -----------------
+            s.add_node(
+                helper.make_node(
+                    "RMSNormalization",
+                    [input_name, scale_name],
+                    [output_name],
+                    axis=axis,
+                    epsilon=epsilon,
+                    name=s.get_unique_name("rms_norm"),
+                )
             )
-        )
-        s.builder.add_value_info(pow2_name, input_shape, input_dtype)
+            s.builder.add_value_info(output_name, tuple(input_shape), input_dtype)
+            return
 
-        # ONNX ≥ 13 expects axes as a tensor input, **not** as an attribute
-        axes_tensor_name = s.get_constant_name(np.array(axis, dtype=np.int64))
-        mean_name = s.get_unique_name("mean")
+        # ---------------- fallback: manual construction ------------------
+        # 1. x²
+        pow2 = s.get_unique_name("pow2")
+        two_const = s.get_constant_name(np.array(2.0, dtype=np.float32))
+        s.add_node(helper.make_node("Pow", [input_name, two_const], [pow2], name=pow2))
+        s.builder.add_value_info(pow2, tuple(input_shape), input_dtype)
+
+        # 2. mean(x²) over last axis (axes as tensor, ONNX ≥ 13)
+        axes_tensor = s.get_constant_name(np.array([axis], dtype=np.int64))
+        mean = s.get_unique_name("mean")
         s.add_node(
             helper.make_node(
                 "ReduceMean",
-                [pow2_name, axes_tensor_name],
-                [mean_name],
+                [pow2, axes_tensor],
+                [mean],
                 keepdims=1,
-                name=s.get_unique_name("reduce_mean"),
+                name=mean,
             )
         )
         mean_shape = list(input_shape)
         mean_shape[-1] = 1
-        s.builder.add_value_info(mean_name, tuple(mean_shape), input_dtype)
+        s.builder.add_value_info(mean, tuple(mean_shape), input_dtype)
 
-        # 2. Add epsilon
-        add_eps_name = s.get_unique_name("add_eps")
+        # 3. add epsilon
+        add_eps = s.get_unique_name("add_eps")
         eps_const = s.get_constant_name(np.array(epsilon, dtype=np.float32))
-        s.add_node(
-            helper.make_node(
-                "Add",
-                [mean_name, eps_const],
-                [add_eps_name],
-                name=s.get_unique_name("add_eps"),
-            )
-        )
-        s.builder.add_value_info(add_eps_name, tuple(mean_shape), input_dtype)
+        s.add_node(helper.make_node("Add", [mean, eps_const], [add_eps], name=add_eps))
+        s.builder.add_value_info(add_eps, tuple(mean_shape), input_dtype)
 
-        # 3. Sqrt
-        sqrt_name = s.get_unique_name("sqrt")
-        s.add_node(
-            helper.make_node(
-                "Sqrt",
-                [add_eps_name],
-                [sqrt_name],
-                name=s.get_unique_name("sqrt"),
-            )
-        )
-        s.builder.add_value_info(sqrt_name, tuple(mean_shape), input_dtype)
+        # 4. sqrt
+        sqrt = s.get_unique_name("sqrt")
+        s.add_node(helper.make_node("Sqrt", [add_eps], [sqrt], name=sqrt))
+        s.builder.add_value_info(sqrt, tuple(mean_shape), input_dtype)
 
-        # 4. Divide input by sqrt
-        div_name = s.get_unique_name("div")
-        s.add_node(
-            helper.make_node(
-                "Div",
-                [input_name, sqrt_name],
-                [div_name],
-                name=s.get_unique_name("div"),
-            )
-        )
-        s.builder.add_value_info(div_name, tuple(input_shape), input_dtype)
+        # 5. x / sqrt
+        div = s.get_unique_name("div")
+        s.add_node(helper.make_node("Div", [input_name, sqrt], [div], name=div))
+        s.builder.add_value_info(div, tuple(input_shape), input_dtype)
 
-        # 5. Multiply by scale
+        # 6. * scale
         s.add_node(
             helper.make_node(
-                "Mul",
-                [div_name, scale_name],
-                [final_output_name],
-                name=s.get_unique_name("mul"),
+                "Mul", [div, scale_name], [output_name], name=s.get_unique_name("mul")
             )
         )
-        s.builder.add_value_info(final_output_name, tuple(input_shape), input_dtype)
+        s.builder.add_value_info(output_name, tuple(input_shape), input_dtype)
+
+    # ------------------------------------------------------------------
+    # Runtime binding and monkey patching
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def _rms_norm(x, scale, epsilon):
+    def _rms_norm(x, scale, epsilon):  # type: ignore[override]
         return nnx.rms_norm_p.bind(x, scale, epsilon=epsilon)
 
     @staticmethod
-    def rms_norm(x, scale, epsilon):
+    def rms_norm(x, scale, epsilon):  # noqa: D401 – public helper
         return RMSNormPlugin._rms_norm(x, scale, epsilon)
 
     @staticmethod
     def get_monkey_patch():
-        def patched_rms_norm_call(self, x):
+        def patched_rms_norm_call(self, x):  # noqa: D401 – inline patch fn
             return RMSNormPlugin._rms_norm(x, self.scale.value, self.epsilon)
 
         return patched_rms_norm_call
 
     @staticmethod
-    def patch_info():
+    def patch_info():  # noqa: D401 – required by PrimitiveLeafPlugin
         return {
             "patch_targets": [nnx.RMSNorm],
             "patch_function": lambda _: RMSNormPlugin.get_monkey_patch(),
@@ -175,5 +191,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         }
 
 
-# Register abstract evaluation function
+# -----------------------------------------------------------------------------
+# Register abstract‑eval fn so that JAX knows the primitive’s output shape/dtype
+# -----------------------------------------------------------------------------
+
 nnx.rms_norm_p.def_abstract_eval(RMSNormPlugin.abstract_eval)
