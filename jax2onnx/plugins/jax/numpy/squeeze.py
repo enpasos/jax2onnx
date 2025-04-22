@@ -130,27 +130,58 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         output_name = s.get_name(node_outputs[0])
         input_shape = node_inputs[0].aval.shape
 
-        valid_axes = [axis if axis >= 0 else axis + len(input_shape) for axis in axes]
+        # Normalize axes
+        normalized_axes = [
+            axis if axis >= 0 else axis + len(input_shape) for axis in axes
+        ]
 
-        # Create an initializer for axes (ONNX expects these as a tensor)
-        axes_name = s.get_unique_name("squeeze_axes")
-        s.add_initializer(name=axes_name, vals=encode_dims(valid_axes))
+        # Only keep axes that refer to static size-1 dims
+        static_axes = [
+            axis
+            for axis in normalized_axes
+            if axis < len(input_shape)
+            and isinstance(input_shape[axis], int)
+            and input_shape[axis] == 1
+        ]
+
+        if axes is not None and not static_axes:
+            # User specified axes, but none are static size-1: do nothing (identity)
+            identity_node = helper.make_node(
+                "Identity",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("identity"),
+            )
+            s.add_node(identity_node)
+            # Output shape: remove nothing, keep all dims
+            s.add_shape_info(output_name, input_shape)
+            return
+
+        # If there are static axes to squeeze, pass them to ONNX, otherwise let ONNX squeeze all singleton dims
+        if static_axes:
+            axes_name = s.get_unique_name("squeeze_axes")
+            s.add_initializer(name=axes_name, vals=encode_dims(static_axes))
+            squeeze_inputs = [input_name, axes_name]
+            # Output shape: remove static size-1 dims at static_axes, keep dynamic dims
+            output_shape = tuple(
+                dim
+                for i, dim in enumerate(input_shape)
+                if i not in static_axes or (isinstance(dim, str))
+            )
+        else:
+            squeeze_inputs = [input_name]
+            # Output shape: remove all static size-1 dims, keep dynamic dims
+            output_shape = tuple(
+                dim for dim in input_shape if not (isinstance(dim, int) and dim == 1)
+            )
 
         squeeze_node = helper.make_node(
             "Squeeze",
-            inputs=[input_name, axes_name],
+            inputs=squeeze_inputs,
             outputs=[output_name],
             name=s.get_unique_name("squeeze"),
         )
         s.add_node(squeeze_node)
-
-        output_shape = tuple(
-            dim
-            for i, dim in enumerate(input_shape)
-            if i not in valid_axes
-            or (isinstance(dim, str))  # Keep dynamic dims even if in valid_axes
-        )
-
         s.add_shape_info(output_name, output_shape)
 
     @staticmethod
