@@ -4,6 +4,7 @@ import jax
 import numpy as np
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -64,9 +65,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             return
 
         # ✅ FIX HERE: Use get_constant_name to reliably register metadata
-        shape_name = s.builder.get_constant_name(
-            np.array(concrete_shape, dtype=np.int64)
-        )
+        shape_name = s.builder.get_constant_name(encode_dims(concrete_shape))
 
         node = helper.make_node(
             "Reshape",

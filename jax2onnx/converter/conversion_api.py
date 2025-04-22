@@ -112,7 +112,6 @@ def to_onnx(
     converter.trace_jaxpr(fn, example_args, params=input_params)
 
     # Continue with the normal conversion process
-    builder.adjust_dynamic_batch_dimensions(input_shapes)
     builder.filter_unused_initializers()
 
     model = builder.create_onnx_model(model_name)
