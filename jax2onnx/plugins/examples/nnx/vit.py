@@ -76,7 +76,7 @@ register_example(
                 in_features=1,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(3, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )
@@ -168,7 +168,7 @@ register_example(
                 strides=[1, 2, 2],
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(3, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )
@@ -209,7 +209,7 @@ register_example(
             "callable": FeedForward(
                 num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(1, 10, 256)],
+            "input_shapes": [("B", 10, 256)],
         },
     ],
 )
@@ -302,7 +302,7 @@ register_example(
                 mlp_dropout_rate=0.1,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 10, 256)],
+            "input_shapes": [("B", 10, 256)],
             "input_params": {
                 "deterministic": True,
             },
@@ -361,10 +361,31 @@ register_example(
                 mlp_dropout_rate=0.1,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 10, 256)],
+            "input_shapes": [("B", 10, 256)],
             "input_params": {
                 "deterministic": True,
             },
+        },
+    ],
+)
+
+
+@onnx_function
+def get_token(x) -> jnp.ndarray:
+    return x[:, 0, :]
+
+
+register_example(
+    component="GetToken",
+    description="Get the CLS token from the input embedding",
+    since="v0.4.0",
+    context="examples.nnx",
+    children=[],
+    testcases=[
+        {
+            "testcase": "get_token",
+            "callable": lambda x: get_token(x),
+            "input_shapes": [("B", 50, 256)],
         },
     ],
 )
@@ -385,8 +406,9 @@ class ClassificationHead(nnx.Module):
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = get_token(x)
+
         x = self.layer_norm(x)
-        x = x[:, 0, :]
         return nnx.log_softmax(self.dense(x))
 
 
@@ -404,7 +426,7 @@ register_example(
                 num_classes=10,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 10, 256)],
+            "input_shapes": [("B", 50, 256)],
         },
     ],
 )
@@ -444,7 +466,7 @@ register_example(
                 num_hiddens=256,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 49, 256)],
+            "input_shapes": [("B", 49, 256)],
         },
     ],
 )
@@ -477,7 +499,7 @@ register_example(
                 num_patches=49,
                 num_hiddens=256,
             ),
-            "input_shapes": [(1, 50, 256)],
+            "input_shapes": [("B", 50, 256)],
         },
     ],
 )
@@ -612,7 +634,7 @@ register_example(
                 embedding_type="conv",
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
             "input_params": {
                 "deterministic": True,
             },

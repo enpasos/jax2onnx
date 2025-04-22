@@ -34,7 +34,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
         {
             "testcase": "layer_norm",
             "callable": nnx.LayerNorm(num_features=32, epsilon=1e-5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10, 20, 32)],
+            "input_shapes": [("B", 20, 32)],
         },
         {
             "testcase": "layer_norm_multiaxis",
@@ -44,7 +44,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 feature_axes=(1, 2, 3),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 3, 3, 64)],
+            "input_shapes": [("B", 3, 3, 64)],
         },
     ],
 )
