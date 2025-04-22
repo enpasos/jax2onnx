@@ -125,52 +125,56 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles ONNX conversion for jnp.squeeze."""
+        from onnx import helper
+        from jax2onnx.converter.dynamic_utils import encode_dims
+
         axes = params["axes"]
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
-        input_shape = node_inputs[0].aval.shape
 
-        # Normalize axes
-        normalized_axes = [
-            axis if axis >= 0 else axis + len(input_shape) for axis in axes
-        ]
+        # Use symbolic shape if available (e.g. batch dim "B")
+        var = node_inputs[0]
+        var_name = s.get_var_name(var)
+        input_shape = s.symbolic_shapes.get(var_name, var.aval.shape)
 
-        # Only keep axes that refer to static size-1 dims
-        static_axes = [
-            axis
-            for axis in normalized_axes
-            if axis < len(input_shape)
-            and isinstance(input_shape[axis], int)
-            and input_shape[axis] == 1
-        ]
+        # Normalize axes into positive indices; collect any symbolic axes
+        normalized_axes = []
+        symbolic_axes = []
+        for axis in axes:
+            axis_val = axis if axis >= 0 else axis + len(input_shape)
+            if 0 <= axis_val < len(input_shape):
+                if isinstance(input_shape[axis_val], int):
+                    normalized_axes.append(axis_val)
+                else:
+                    symbolic_axes.append(axis_val)
 
+        # Identify which of those are actual size-1 dims
+        static_axes = [i for i in normalized_axes if input_shape[i] == 1]
+
+        # If user specified axes but none are size-1 at trace-time, just identity
         if axes is not None and not static_axes:
-            # User specified axes, but none are static size-1: do nothing (identity)
-            identity_node = helper.make_node(
+            identity = helper.make_node(
                 "Identity",
                 inputs=[input_name],
                 outputs=[output_name],
                 name=s.get_unique_name("identity"),
             )
-            s.add_node(identity_node)
-            # Output shape: remove nothing, keep all dims
-            s.add_shape_info(output_name, input_shape)
+            s.add_node(identity)
+            s.add_shape_info(output_name, tuple(input_shape))
             return
 
-        # If there are static axes to squeeze, pass them to ONNX, otherwise let ONNX squeeze all singleton dims
+        # If there are static axes, supply them as an initializer
         if static_axes:
             axes_name = s.get_unique_name("squeeze_axes")
             s.add_initializer(name=axes_name, vals=encode_dims(static_axes))
             squeeze_inputs = [input_name, axes_name]
-            # Output shape: remove static size-1 dims at static_axes, keep dynamic dims
+            # Remove those dims from the shape
             output_shape = tuple(
-                dim
-                for i, dim in enumerate(input_shape)
-                if i not in static_axes or (isinstance(dim, str))
+                dim for i, dim in enumerate(input_shape) if i not in static_axes
             )
         else:
+            # No axes argument or all singleton dims: squeeze all size-1 dims
             squeeze_inputs = [input_name]
-            # Output shape: remove all static size-1 dims, keep dynamic dims
             output_shape = tuple(
                 dim for dim in input_shape if not (isinstance(dim, int) and dim == 1)
             )

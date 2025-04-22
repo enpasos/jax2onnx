@@ -68,32 +68,54 @@ ONNX_DTYPE_MAP = {
 }
 
 
+def _symbol_name(dim):
+    """Return a safe, non-empty ONNX dim_param string for a JAX DimVar."""
+    if isinstance(dim, str):
+        return dim
+    if hasattr(dim, "symbol"):
+        return str(dim.symbol) or "S"
+    return ""
+
+
+def _to_dim_proto_val(dim):
+    """
+    Convert a JAX shape element into (is_param, value_or_name).
+
+    • int           → (False,  int_value)
+    • str           → (True,   "B")
+    • JAX DimVar    → (True,   dim.symbol)
+    """
+    if isinstance(dim, int):
+        return False, dim
+    if isinstance(dim, str):
+        return True, dim
+    # JAX Dimension variables have a `.symbol` attribute
+    if hasattr(dim, "symbol"):
+        return True, str(dim.symbol)
+    # Fallback
+    return True, ""
+
+
 def make_value_info(name, shape, dtype):
-    """
-    Creates an ONNX ValueInfoProto object for a tensor, supporting symbolic dimensions.
-    """
+    from onnx import TensorShapeProto, TypeProto, ValueInfoProto, TensorProto
+
     vi = ValueInfoProto()
     vi.name = name
 
     tensor_type = TypeProto.Tensor()
-    # Determine ONNX dtype
-    if isinstance(dtype, int):
-        tensor_type.elem_type = dtype
-    else:
-        tensor_type.elem_type = ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
+    tensor_type.elem_type = (
+        dtype
+        if isinstance(dtype, int)
+        else ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
+    )
 
     tensor_shape = TensorShapeProto()
     for dim in shape:
         dim_proto = TensorShapeProto.Dimension()
-        if isinstance(dim, str):
-            dim_proto.dim_param = dim
-        elif isinstance(dim, int):
+        if isinstance(dim, int):
             dim_proto.dim_value = dim
         else:
-            # Avoid setting "?" as a literal dim_param (which breaks shape inference)
-            dim_proto.dim_param = (
-                ""  # You may also raise an error if you prefer strictness
-            )
+            dim_proto.dim_param = _symbol_name(dim)
         tensor_shape.dim.append(dim_proto)
 
     tensor_type.shape.CopyFrom(tensor_shape)
