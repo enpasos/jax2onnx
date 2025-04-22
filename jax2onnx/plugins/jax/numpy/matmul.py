@@ -79,12 +79,25 @@ class MatMulPlugin(PrimitiveLeafPlugin):
     def _get_dynamic_output_shape(
         a_shape: tuple[int | str, ...], b_shape: tuple[int | str, ...]
     ) -> tuple[int | str, ...]:
-        """Calculates the output shape of jnp.matmul while handling dynamic dimensions."""
+        """Calculates the output shape of jnp.matmul while handling dynamic dimensions and tracers."""
+
+        def safe_eq(x, y):
+            try:
+                return x == y
+            except Exception:
+                return False
+
+        def safe_is_one(x):
+            try:
+                return x == 1
+            except Exception:
+                return False
+
         a_rank, b_rank = len(a_shape), len(b_shape)
 
         if a_rank == 1 and b_rank == 1:
             if (
-                a_shape[0] == b_shape[0]
+                safe_eq(a_shape[0], b_shape[0])
                 or isinstance(a_shape[0], str)
                 or isinstance(b_shape[0], str)
             ):
@@ -97,10 +110,11 @@ class MatMulPlugin(PrimitiveLeafPlugin):
         a_rows, a_cols = a_shape_norm[-2], a_shape_norm[-1]
         b_rows, b_cols = b_shape_norm[-2], b_shape_norm[-1]
 
-        if a_cols != b_rows and not (
-            isinstance(a_cols, str) or isinstance(b_rows, str)
-        ):
-            raise ValueError(f"Incompatible shapes for matmul: {a_shape} and {b_shape}")
+        if not (isinstance(a_cols, str) or isinstance(b_rows, str)):
+            if not safe_eq(a_cols, b_rows):
+                raise ValueError(
+                    f"Incompatible shapes for matmul: {a_shape} and {b_shape}"
+                )
 
         batch_dims: list[int | str] = []
         max_rank = max(a_rank, b_rank)
@@ -109,10 +123,10 @@ class MatMulPlugin(PrimitiveLeafPlugin):
             b_dim = b_shape[i] if i < b_rank - 2 else 1
             if isinstance(a_dim, str) or isinstance(b_dim, str):
                 batch_dims.append(
-                    a_dim if isinstance(b_dim, int) and b_dim == 1 else b_dim
+                    a_dim if isinstance(b_dim, int) and safe_is_one(b_dim) else b_dim
                 )
             else:
-                batch_dims.append(a_dim if a_dim != 1 else b_dim)
+                batch_dims.append(a_dim if not safe_is_one(a_dim) else b_dim)
 
         output_shape = tuple(batch_dims) + (a_rows, b_cols)
 
@@ -125,9 +139,18 @@ class MatMulPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(a, b):
-        """Abstract evaluation function for MatMul."""
+        """Abstract evaluation function for MatMul, robust to tracers."""
         output_shape = MatMulPlugin._get_dynamic_output_shape(a.shape, b.shape)
-        return core.ShapedArray(output_shape, a.dtype)
+
+        def safe_dim(dim):
+            try:
+                hash(dim)
+                return dim
+            except Exception:
+                return -1
+
+        output_shape_safe = tuple(safe_dim(d) for d in output_shape)
+        return core.ShapedArray(output_shape_safe, a.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of MatMul to ONNX format."""

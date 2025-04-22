@@ -4,6 +4,7 @@ import jax
 import numpy as np
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -45,13 +46,13 @@ class SlicePlugin(PrimitiveLeafPlugin):
         start_indices = params["start_indices"]
         limit_indices = params["limit_indices"]
         axes = list(range(len(start_indices)))
-        starts_name = s.get_constant_name(np.array(start_indices, dtype=np.int64))
-        ends_name = s.get_constant_name(np.array(limit_indices, dtype=np.int64))
+        starts_name = s.get_constant_name(encode_dims(start_indices))
+        ends_name = s.get_constant_name(encode_dims(limit_indices))
         axes_name = s.get_constant_name(np.array(axes, dtype=np.int64))
         inputs_list = [input_name, starts_name, ends_name, axes_name]
         if "strides" in params and params["strides"]:
             strides = params["strides"]
-            steps_name = s.get_constant_name(np.array(strides, dtype=np.int64))
+            steps_name = s.get_constant_name(encode_dims(strides))
             inputs_list.append(steps_name)
         node = helper.make_node(
             "Slice",

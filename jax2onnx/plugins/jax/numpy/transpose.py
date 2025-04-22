@@ -107,10 +107,6 @@ class TransposePlugin(PrimitiveLeafPlugin):
         # If axes is None, default to reversing the axes.
         if axes is None:
             axes = tuple(reversed(range(len(input_shape))))
-        # This part is not needed, the bind function already manage that
-        # elif isinstance(axes, int):
-        #     n = len(input_shape)
-        #     axes = (axes,) + tuple(i for i in range(n) if i != axes)
         else:
             axes = tuple(axes)  # Ensure axes is a tuple.
 

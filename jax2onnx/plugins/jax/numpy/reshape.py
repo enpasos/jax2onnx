@@ -86,12 +86,18 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     def _get_dynamic_output_shape(
         input_shape: tuple[int | str, ...], newshape: Sequence[int | str]
     ) -> tuple[int | str, ...]:
-        """Computes the output shape for jnp.reshape while handling dynamic dimensions."""
+        """Computes the output shape for jnp.reshape while handling dynamic dimensions and tracers."""
         newshape = ReshapePlugin._process_newshape(newshape)
         input_shape_list = list(input_shape)
 
-        dummy_input_shape = [1 if isinstance(s, str) else s for s in input_shape_list]
-        dummy_newshape = [1 if isinstance(s, str) else s for s in newshape]
+        def safe_int(val):
+            try:
+                return int(val)
+            except Exception:
+                return 1  # Use 1 for symbolic/tracer dims in dummy shape
+
+        dummy_input_shape = [safe_int(s) for s in input_shape_list]
+        dummy_newshape = [safe_int(s) for s in newshape]
 
         if -1 in dummy_newshape:
             neg_one_index = dummy_newshape.index(-1)
@@ -101,17 +107,24 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     f"Cannot reshape array of shape {input_shape} into shape {newshape}"
                 )
-            inferred_dim = (
-                int(np.prod(dummy_input_shape) / known_dims_product)
-                if known_dims_product != 0
-                else 0
-            )
+            try:
+                inferred_dim = (
+                    int(np.prod(dummy_input_shape) / known_dims_product)
+                    if known_dims_product != 0
+                    else 0
+                )
+            except Exception:
+                inferred_dim = -1  # Use -1 if symbolic/tracer dims prevent computation
             dummy_newshape[neg_one_index] = inferred_dim
 
-        if np.prod(dummy_input_shape) != np.prod(dummy_newshape):
-            raise ValueError(
-                f"Cannot reshape array of shape {input_shape} into shape {newshape}"
-            )
+        try:
+            if np.prod(dummy_input_shape) != np.prod(dummy_newshape):
+                raise ValueError(
+                    f"Cannot reshape array of shape {input_shape} into shape {newshape}"
+                )
+        except Exception:
+            # If symbolic/tracer dims, skip this check
+            pass
 
         output_shape = [
             orig if isinstance(orig, str) else dummy

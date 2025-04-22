@@ -164,15 +164,19 @@ class Jaxpr2OnnxConverter:
             return TensorProto.FLOAT
 
     def register_shape(self, name: str, shape: tuple[int, ...], dtype: Any) -> str:
-        """Register shape and dtype information for a tensor."""
+        """Register shape and dtype information for a tensor, preserving symbolic dims."""
         # Convert dtype to ONNX TensorProto enum if needed
         onnx_dtype = self._ensure_onnx_dtype(dtype)
 
+        # If the shape comes from a ShapeDtypeStruct or similar, preserve symbolic tokens
+        # Try to recover symbolic names if present (e.g., from .symbol attribute or original spec)
+        symbolic_shape = tuple(getattr(d, "symbol", d) for d in shape)
+
         # Register with the builder
-        self.builder.register_value_info_metadata(name, shape, onnx_dtype)
+        self.builder.register_value_info_metadata(name, symbolic_shape, onnx_dtype)
 
         # Store locally for quick access
-        self.shape_env[name] = shape
+        self.shape_env[name] = symbolic_shape
 
         return name
 
@@ -268,12 +272,39 @@ class Jaxpr2OnnxConverter:
         symbolic_axes = self._extract_symbolic_axes(example_args)
         use_abstracted_axes = bool(symbolic_axes)
         if use_abstracted_axes:
-            # Replace ShapeDtypeStructs with dummy arrays, using static fallback for symbolic dims
             import jax.numpy as jnp
 
+            symbolic_dim_map = {}
+            symbolic_dim_counter = 2  # Use 2 for all symbolic dims
+            symbolic_dim_to_ints = {}
+            # First, scan all args for each symbolic dim and record all concrete int values it is used as
+            for arg in modified_args:
+                if hasattr(arg, "shape"):
+                    for d in arg.shape:
+                        if not isinstance(d, int):
+                            if d not in symbolic_dim_to_ints:
+                                symbolic_dim_to_ints[d] = set()
+            for arg in modified_args:
+                if hasattr(arg, "shape"):
+                    for i, d in enumerate(arg.shape):
+                        if not isinstance(d, int):
+                            # If this symbolic dim is used as a concrete int elsewhere, record it
+                            for other_arg in modified_args:
+                                if hasattr(other_arg, "shape"):
+                                    for oi, od in enumerate(other_arg.shape):
+                                        if d == od and isinstance(od, int):
+                                            symbolic_dim_to_ints[d].add(od)
+            # For each symbolic dim, pick the max int value if any, else fallback
+            for d in symbolic_dim_to_ints:
+                if symbolic_dim_to_ints[d]:
+                    symbolic_dim_map[d] = max(symbolic_dim_to_ints[d])
+                else:
+                    symbolic_dim_map[d] = symbolic_dim_counter
+
             def static_shape(shape):
-                # Replace any symbolic dim with 2 (or another small positive int)
-                return tuple(2 if not isinstance(d, int) else d for d in shape)
+                return tuple(
+                    symbolic_dim_map[d] if not isinstance(d, int) else d for d in shape
+                )
 
             modified_args = [
                 (

@@ -4,6 +4,7 @@ import jax
 import numpy as np
 from onnx import TensorProto, helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
 
         # Create constant for slice sizes
         slice_sizes = params["slice_sizes"]
-        slice_sizes_const = s.get_constant_name(np.array(slice_sizes, dtype=np.int64))
+        slice_sizes_const = s.get_constant_name(encode_dims(slice_sizes))
 
         # Compute ends = starts + slice_sizes
         ends_name = s.get_unique_name("dynamic_ends")
@@ -115,12 +116,12 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         s.add_shape_info(ends_name, tuple([d]), dtype=np.int64)
 
         # Axes: [0, 1, ..., d-1]
-        axes_const = s.get_constant_name(np.arange(d, dtype=np.int64))
+        axes_const = s.get_constant_name(encode_dims(list(range(d))))
 
         inputs_list = [operand_name, starts_concat_name, ends_name, axes_const]
         if "strides" in params and params["strides"]:
             strides = params["strides"]
-            strides_const = s.get_constant_name(np.array(strides, dtype=np.int64))
+            strides_const = s.get_constant_name(encode_dims(strides))
             inputs_list.append(strides_const)
 
         s.add_node(

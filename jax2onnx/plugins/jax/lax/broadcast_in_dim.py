@@ -4,6 +4,7 @@ import jax
 import numpy as np
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         output_name = s.get_var_name(node_outputs[0])
         broadcast_dimensions = params["broadcast_dimensions"]
         shape = params["shape"]
-        shape_name = s.get_constant_name(np.array(shape, dtype=np.int64))
+        shape_name = s.get_constant_name(encode_dims(shape))
         # First, reshape input to add singleton dimensions where necessary.
         reshape_output = s.get_unique_name("reshape_output")
         reshape_shape = []
@@ -71,9 +72,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 idx += 1
             else:
                 reshape_shape.append(1)
-        reshape_shape_name = s.get_constant_name(
-            np.array(reshape_shape, dtype=np.int64)
-        )
+        reshape_shape_name = s.get_constant_name(encode_dims(reshape_shape))
         node_reshape = helper.make_node(
             "Reshape",
             inputs=[input_name, reshape_shape_name],

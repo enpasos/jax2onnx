@@ -4,6 +4,7 @@ import jax
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.dynamic_utils import encode_dims
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -39,7 +40,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         dims = params["dimensions"]
 
         axes_name = s.get_unique_name("squeeze_axes")
-        s.add_initializer(name=axes_name, vals=dims)
+        s.add_initializer(name=axes_name, vals=encode_dims(dims))
 
         node = helper.make_node(
             "Squeeze",
@@ -48,3 +49,8 @@ class SqueezePlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("squeeze"),
         )
         s.add_node(node)
+
+        # Register output shape info for ONNX (important for dynamic axes)
+        s.add_shape_info(
+            output_name, node_outputs[0].aval.shape, node_outputs[0].aval.dtype
+        )
