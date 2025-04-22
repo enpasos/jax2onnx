@@ -83,12 +83,22 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         Compute the output shape for squeeze.
         - If no axes are provided, squeeze all dimensions that are 1.
         - If axes are provided, only remove dimensions that are concretely 1.
-        - Dynamic dimensions (strings) are not squeezed.
+        - Dynamic dimensions (strings or tracers) are not squeezed.
         """
         x_shape = list(x.shape)
+
+        def safe_dim(dim):
+            try:
+                hash(dim)
+                return dim
+            except Exception:
+                return -1
+
         if axes is None:
             new_shape = tuple(
-                dim for dim in x_shape if not (isinstance(dim, int) and dim == 1)
+                safe_dim(dim)
+                for dim in x_shape
+                if not (isinstance(dim, int) and dim == 1)
             )
         else:
             normalized_axes = [
@@ -102,7 +112,9 @@ class SqueezePlugin(PrimitiveLeafPlugin):
                         f"Cannot squeeze dimension {axis} of shape {x_shape}: size is not 1."
                     )
             new_shape = tuple(
-                dim for i, dim in enumerate(x_shape) if i not in normalized_axes
+                safe_dim(dim)
+                for i, dim in enumerate(x_shape)
+                if i not in normalized_axes
             )
         return core.ShapedArray(new_shape, x.dtype)
 
