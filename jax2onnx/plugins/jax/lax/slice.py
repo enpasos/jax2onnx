@@ -27,7 +27,12 @@ if TYPE_CHECKING:
             "testcase": "slice_test1",
             "callable": lambda x: x[1:3],
             "input_shapes": [(5,)],
-        }
+        },
+        {
+            "testcase": "slice_3d_none_strides",
+            "callable": lambda a: a[0:2, 0:1, 0:256],
+            "input_shapes": [(2, 50, 256)],
+        },
     ],
 )
 class SlicePlugin(PrimitiveLeafPlugin):

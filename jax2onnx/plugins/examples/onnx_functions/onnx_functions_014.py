@@ -60,7 +60,7 @@ register_example(
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
             "callable": SuperBlock(),
-            "input_shapes": [(5, 10, 3)],
+            "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
         },
     ],

@@ -101,19 +101,18 @@ register_example(
         "MultiHeadAttention",
     ],
     testcases=[
-        # Testcase is commented out in original, keep it commented but update names
-        # {
-        #     "testcase": "007_transformer_block",
-        #      # === Updated callable name ===
-        #     "callable": TransformerBlock(
-        #         num_hiddens=256,
-        #         num_heads=8,
-        #         mlp_dim=512,
-        #         attention_dropout_rate=0.1,
-        #         mlp_dropout_rate=0.1,
-        #         rngs=nnx.Rngs(0),
-        #     ),
-        #     "input_shapes": [(5, 10, 256)],
-        # },
+        {
+            "testcase": "007_transformer_block",
+            # === Updated callable name ===
+            "callable": TransformerBlock(
+                num_hiddens=256,
+                num_heads=8,
+                mlp_dim=512,
+                attention_dropout_rate=0.1,
+                mlp_dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 10, 256)],
+        },
     ],
 )
