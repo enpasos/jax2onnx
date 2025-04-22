@@ -5,6 +5,7 @@ from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -133,7 +134,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
         # Create an initializer for axes (ONNX expects these as a tensor)
         axes_name = s.get_unique_name("squeeze_axes")
-        s.add_initializer(name=axes_name, vals=np.array(valid_axes, dtype=np.int64))
+        s.add_initializer(name=axes_name, vals=encode_dims(valid_axes))
 
         squeeze_node = helper.make_node(
             "Squeeze",

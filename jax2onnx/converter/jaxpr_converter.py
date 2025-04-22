@@ -188,7 +188,9 @@ class Jaxpr2OnnxConverter:
         """Add an input variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
+        sym_shape = tuple(getattr(d, "symbol", d) for d in shape)
         self.register_shape(name, shape, dtype)
+        self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
         return name
 
     def add_output(
@@ -205,7 +207,9 @@ class Jaxpr2OnnxConverter:
     ) -> str:
         """Add shape information for a variable in the ONNX graph."""
         self.builder.add_value_info(name, shape, dtype)
+        sym_shape = tuple(getattr(d, "symbol", d) for d in shape)
         self.register_shape(name, shape, dtype)
+        self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
         return name
 
     def get_name(self, var: Any) -> str:
@@ -245,7 +249,7 @@ class Jaxpr2OnnxConverter:
             self.name_to_const.clear()
             self.shape_env.clear()
 
-        self.symbolic_shapes = {}  # <== NEW
+        self.symbolic_shapes = {}  # <== already present
 
         modified_args = list(example_args)
         if params and len(modified_args) >= 2:
@@ -305,6 +309,10 @@ class Jaxpr2OnnxConverter:
                 if hasattr(arg, "shape") and hasattr(arg, "dtype"):
                     static = static_shape(arg.shape)
                     modified_args[i] = jnp.zeros(static, dtype=arg.dtype)
+                    # Store symbolic shape for input
+                    name = self.get_var_name(arg)
+                    sym_shape = tuple(getattr(d, "symbol", d) for d in arg.shape)
+                    self.symbolic_shapes[name] = sym_shape
 
         # Trace
         with temporary_monkey_patches(allow_function_primitives=True):
@@ -347,6 +355,13 @@ class Jaxpr2OnnxConverter:
                 raise RuntimeError(
                     f"[MissingShape] Cannot infer shape for output var {name}"
                 )
+
+        # After tracing, store symbolic shapes for all variables
+        for var in self.var_to_name:
+            if hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                name = self.get_var_name(var)
+                sym_shape = tuple(getattr(d, "symbol", d) for d in var.aval.shape)
+                self.symbolic_shapes[name] = sym_shape
 
     def add_initializer(
         self,

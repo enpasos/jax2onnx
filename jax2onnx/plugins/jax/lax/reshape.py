@@ -65,7 +65,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             return
 
         # ✅ FIX HERE: Use get_constant_name to reliably register metadata
-        shape_name = s.builder.get_constant_name(encode_dims(concrete_shape))
+        shape_name = s.get_constant_name(encode_dims(new_shape))
 
         node = helper.make_node(
             "Reshape",
