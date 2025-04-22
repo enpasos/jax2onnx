@@ -36,49 +36,51 @@ def _as_tuple(x):
     return tuple(x) if isinstance(x, (list, tuple)) else (x,)
 
 
+from onnx import TensorProto, helper, ValueInfoProto, TypeProto, TensorShapeProto
+
+# You can define this globally (in onnx_builder.py)
+ONNX_DTYPE_MAP = {
+    np.float32: TensorProto.FLOAT,
+    np.dtype("float32"): TensorProto.FLOAT,
+    np.float64: TensorProto.DOUBLE,
+    np.dtype("float64"): TensorProto.DOUBLE,
+    np.int8: TensorProto.INT8,
+    np.dtype("int8"): TensorProto.INT8,
+    np.uint8: TensorProto.UINT8,
+    np.dtype("uint8"): TensorProto.UINT8,
+    np.int16: TensorProto.INT16,
+    np.dtype("int16"): TensorProto.INT16,
+    np.uint16: TensorProto.UINT16,
+    np.dtype("uint16"): TensorProto.UINT16,
+    np.int32: TensorProto.INT32,
+    np.dtype("int32"): TensorProto.INT32,
+    np.uint32: TensorProto.UINT32,
+    np.dtype("uint32"): TensorProto.UINT32,
+    np.int64: TensorProto.INT64,
+    np.dtype("int64"): TensorProto.INT64,
+    np.uint64: TensorProto.UINT64,
+    np.dtype("uint64"): TensorProto.UINT64,
+    np.bool_: TensorProto.BOOL,
+    np.dtype("bool"): TensorProto.BOOL,
+    bool: TensorProto.BOOL,
+    "int64": TensorProto.INT64,
+    "bool": TensorProto.BOOL,
+}
+
+
 def make_value_info(name, shape, dtype):
     """
     Creates an ONNX ValueInfoProto object for a tensor, supporting symbolic dimensions.
     """
-    from onnx import TensorProto, helper, ValueInfoProto, TypeProto, TensorShapeProto
-
     vi = ValueInfoProto()
     vi.name = name
+
     tensor_type = TypeProto.Tensor()
     # Determine ONNX dtype
     if isinstance(dtype, int):
         tensor_type.elem_type = dtype
     else:
-        # Use dtype mapping as before
-        dtype_map = {
-            np.float32: TensorProto.FLOAT,
-            np.dtype("float32"): TensorProto.FLOAT,
-            np.float64: TensorProto.DOUBLE,
-            np.dtype("float64"): TensorProto.DOUBLE,
-            np.int8: TensorProto.INT8,
-            np.dtype("int8"): TensorProto.INT8,
-            np.uint8: TensorProto.UINT8,
-            np.dtype("uint8"): TensorProto.UINT8,
-            np.int16: TensorProto.INT16,
-            np.dtype("int16"): TensorProto.INT16,
-            np.uint16: TensorProto.UINT16,
-            np.dtype("uint16"): TensorProto.UINT16,
-            np.int32: TensorProto.INT32,
-            np.dtype("int32"): TensorProto.INT32,
-            np.uint32: TensorProto.UINT32,
-            np.dtype("uint32"): TensorProto.UINT32,
-            np.int64: TensorProto.INT64,
-            np.dtype("int64"): TensorProto.INT64,
-            np.uint64: TensorProto.UINT64,
-            np.dtype("uint64"): TensorProto.UINT64,
-            np.bool_: TensorProto.BOOL,
-            np.dtype("bool"): TensorProto.BOOL,
-            bool: TensorProto.BOOL,
-            "int64": TensorProto.INT64,
-            "bool": TensorProto.BOOL,
-        }
-
-        tensor_type.elem_type = dtype_map.get(dtype, TensorProto.FLOAT)
+        tensor_type.elem_type = ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
 
     tensor_shape = TensorShapeProto()
     for dim in shape:
@@ -88,8 +90,12 @@ def make_value_info(name, shape, dtype):
         elif isinstance(dim, int):
             dim_proto.dim_value = dim
         else:
-            dim_proto.dim_param = "?"
+            # Avoid setting "?" as a literal dim_param (which breaks shape inference)
+            dim_proto.dim_param = (
+                ""  # You may also raise an error if you prefer strictness
+            )
         tensor_shape.dim.append(dim_proto)
+
     tensor_type.shape.CopyFrom(tensor_shape)
     vi.type.tensor_type.CopyFrom(tensor_type)
     return vi
@@ -145,6 +151,12 @@ class OnnxBuilder:
             dtype: Data type of the variable (NumPy dtype or ONNX TensorProto enum).
             origin: Optional description of the metadata's origin.
         """
+        # Use symbolic shape if available
+        if hasattr(self, "converter") and hasattr(self.converter, "symbolic_shapes"):
+            symbolic_shape = self.converter.symbolic_shapes.get(name)
+            if symbolic_shape:
+                shape = symbolic_shape
+
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
 
@@ -278,27 +290,31 @@ class OnnxBuilder:
     def add_value_info(
         self,
         name: str,
-        shape: tuple[int, ...],
+        shape: tuple[int, ...] | list[int | str],
         dtype: np.dtype | int,
     ):
         # Ensure shape is a tuple
         shape = _as_tuple(shape)
 
+        # Use symbolic shape if registered
+        if hasattr(self, "converter") and hasattr(self.converter, "symbolic_shapes"):
+            symbolic = self.converter.symbolic_shapes.get(name)
+            if symbolic:
+                shape = symbolic
+
         vi = make_value_info(name, shape, dtype)
 
-        # Optionally enrich doc_string with origin info (if available)
+        # Enrich doc_string if we have origin info
         origin = self.value_info_origin.get(name)
         if origin:
             vi.doc_string = f"origin: {origin}"
 
         self.value_info.append(vi)
 
-        # Register metadata for consistency
+        # Get ONNX enum dtype if needed
         if isinstance(dtype, int):
-            # If dtype is already ONNX enum, use it directly
             onnx_dtype = dtype
         else:
-            # Get the dtype from the created value_info
             onnx_dtype = vi.type.tensor_type.elem_type
 
         self.register_value_info_metadata(name, shape, onnx_dtype)
