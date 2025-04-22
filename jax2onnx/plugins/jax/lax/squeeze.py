@@ -39,8 +39,14 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         output_name = s.get_var_name(node_outputs[0])
         dims = params["dimensions"]
 
+        axes_arr = encode_dims(dims)
         axes_name = s.get_unique_name("squeeze_axes")
-        s.add_initializer(name=axes_name, vals=encode_dims(dims))
+        s.add_initializer(
+            name=axes_name,
+            vals=axes_arr,
+            data_type=helper.TensorProto.INT64,
+            dims=[len(axes_arr)],
+        )
 
         node = helper.make_node(
             "Squeeze",
