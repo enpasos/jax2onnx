@@ -34,14 +34,14 @@ if TYPE_CHECKING:
             "callable": lambda a, b: jax.lax.concatenate(
                 (a, b), dimension=1
             ),  # Corrected callable
-            "input_shapes": [(2, 3), (2, 4)],
+            "input_shapes": [("B", 3), ("B", 4)],
         },
         {
-            "testcase": "concatenate_dynamic",
+            "testcase": "concatenate_axis0",
             "callable": lambda a, b: jax.lax.concatenate(
                 (a, b), dimension=0
             ),  # Corrected callable
-            "input_shapes": [("B", 3), ("B", 3)],
+            "input_shapes": [(7, 3), (4, 3)],
         },
         {  # 3D inputs
             "testcase": "concatenate_3d",
@@ -64,7 +64,17 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         dimension = params["dimension"]
 
         # Calculate and propagate shape information
-        input_shapes = [inp.aval.shape for inp in node_inputs]
+        # Defensive: always use .aval.shape (JAX tracing) or .shape (ShapeDtypeStruct), fallback to tuple(inp) for raw tuples
+        input_shapes = []
+        for inp in node_inputs:
+            if hasattr(inp, "aval") and hasattr(inp.aval, "shape"):
+                input_shapes.append(inp.aval.shape)
+            elif hasattr(inp, "shape"):
+                input_shapes.append(inp.shape)
+            elif isinstance(inp, (tuple, list)):
+                input_shapes.append(tuple(inp))
+            else:
+                raise ValueError(f"Input to concatenate has no shape: {inp}")
         output_shape = list(input_shapes[0])  # Start with the shape of the first input
         # Normalize the axis
         rank = len(output_shape)

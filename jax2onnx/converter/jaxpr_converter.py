@@ -211,6 +211,17 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError("not yet implemented")
 
+    def _extract_symbolic_axes(self, example_args):
+        # Returns a tuple of all symbolic dimension tokens in the example args (if any)
+        symbolic_axes = set()
+        for arg in example_args:
+            if hasattr(arg, "shape"):
+                for d in arg.shape:
+                    if not isinstance(d, int):
+                        symbolic_axes.add(d)
+        # JAX expects a tuple, not a set, for abstracted_axes
+        return tuple(symbolic_axes) if symbolic_axes else None
+
     def trace_jaxpr(
         self,
         fn: Any,
@@ -253,12 +264,46 @@ class Jaxpr2OnnxConverter:
                     modified_args = modified_args[:-1]
                     break
 
+        # If using abstracted_axes, convert ShapeDtypeStructs to their shape for tracing
+        symbolic_axes = self._extract_symbolic_axes(example_args)
+        use_abstracted_axes = bool(symbolic_axes)
+        if use_abstracted_axes:
+            # Replace ShapeDtypeStructs with dummy arrays, using static fallback for symbolic dims
+            import jax.numpy as jnp
+
+            def static_shape(shape):
+                # Replace any symbolic dim with 2 (or another small positive int)
+                return tuple(2 if not isinstance(d, int) else d for d in shape)
+
+            modified_args = [
+                (
+                    jnp.zeros(static_shape(arg.shape), dtype=arg.dtype)
+                    if hasattr(arg, "shape") and hasattr(arg, "dtype")
+                    else arg
+                )
+                for arg in modified_args
+            ]
+
         # Simply trace the function with all parameters
         with temporary_monkey_patches(allow_function_primitives=True):
-            if params is None:
-                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args)
-            else:
-                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
+            # Check for symbolic axes
+            symbolic_axes = self._extract_symbolic_axes(example_args)
+            use_abstracted_axes = bool(symbolic_axes)
+            with temporary_monkey_patches(allow_function_primitives=True):
+                if params is None:
+                    if use_abstracted_axes:
+                        closed_jaxpr = jax.make_jaxpr(
+                            fn, abstracted_axes=symbolic_axes
+                        )(*modified_args)
+                    else:
+                        closed_jaxpr = jax.make_jaxpr(fn)(*modified_args)
+                else:
+                    if use_abstracted_axes:
+                        closed_jaxpr = jax.make_jaxpr(
+                            fn, abstracted_axes=symbolic_axes
+                        )(*modified_args, **params)
+                    else:
+                        closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
 
         self.logger.debug(closed_jaxpr)
 
@@ -310,14 +355,17 @@ class Jaxpr2OnnxConverter:
         # Add input variables to the ONNX graph, skipping any that are already added
         # (such as parameters added via add_scalar_input)
         for var in jaxpr.invars:
-            # here we need to call a function that returns the name of the variable
-            # match_call_param_by_type_and_order may use call_params
-            # call_params should be stored by name and type (not value)
+            # Only add as input if not a symbolic axis or integer constant
+            if (
+                hasattr(var, "aval")
+                and getattr(var.aval, "dtype", None) == np.int32
+                and var.aval.shape == ()
+            ):
+                # Heuristic: skip scalar int32s (likely symbolic axis tokens)
+                continue
             var_name = self.match_call_param_by_type_and_order(var)
             if var_name is None:
                 var_name = self.get_var_name(var)
-            # Check if this input is already in the builder's inputs
-            # This avoids duplicate inputs for parameters that were added as scalar inputs
             if not any(
                 input_info.name == var_name for input_info in self.builder.inputs
             ):

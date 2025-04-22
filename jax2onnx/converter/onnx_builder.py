@@ -38,24 +38,18 @@ def _as_tuple(x):
 
 def make_value_info(name, shape, dtype):
     """
-    Creates an ONNX ValueInfoProto object for a tensor.
-
-    Args:
-        name: Name of the tensor.
-        shape: Shape of the tensor as a tuple.
-        dtype: Data type of the tensor (NumPy or ONNX TensorProto enum).
-
-    Returns:
-        An ONNX ValueInfoProto object.
+    Creates an ONNX ValueInfoProto object for a tensor, supporting symbolic dimensions.
     """
-    # If dtype is already an integer (ONNX enum), use it directly
-    if isinstance(dtype, int):
-        onnx_dtype = dtype
-    else:
-        # Build a mapping of common numpy types to ONNX TensorProto types
-        # This is needed because helper.np_dtype_to_tensor_dtype might not handle class types
-        from onnx import TensorProto
+    from onnx import TensorProto, helper, ValueInfoProto, TypeProto, TensorShapeProto
 
+    vi = ValueInfoProto()
+    vi.name = name
+    tensor_type = TypeProto.Tensor()
+    # Determine ONNX dtype
+    if isinstance(dtype, int):
+        tensor_type.elem_type = dtype
+    else:
+        # Use dtype mapping as before
         dtype_map = {
             np.float32: TensorProto.FLOAT,
             np.dtype("float32"): TensorProto.FLOAT,
@@ -84,22 +78,21 @@ def make_value_info(name, shape, dtype):
             "bool": TensorProto.BOOL,
         }
 
-        # Try to get the dtype from our mapping
-        if dtype in dtype_map:
-            onnx_dtype = dtype_map[dtype]
-        elif hasattr(dtype, "dtype"):
-            # If it's a numpy scalar type with a dtype attribute
-            onnx_dtype = dtype_map.get(dtype.dtype, TensorProto.FLOAT)
-        else:
-            try:
-                # Try numpy's dtype conversion as a fallback
-                np_dtype = np.dtype(dtype)
-                onnx_dtype = dtype_map.get(np_dtype, TensorProto.FLOAT)
-            except (TypeError, ValueError):
-                # Default to float if all else fails
-                onnx_dtype = TensorProto.FLOAT
+        tensor_type.elem_type = dtype_map.get(dtype, TensorProto.FLOAT)
 
-    return helper.make_tensor_value_info(name, onnx_dtype, shape)
+    tensor_shape = TensorShapeProto()
+    for dim in shape:
+        dim_proto = TensorShapeProto.Dimension()
+        if isinstance(dim, str):
+            dim_proto.dim_param = dim
+        elif isinstance(dim, int):
+            dim_proto.dim_value = dim
+        else:
+            dim_proto.dim_param = "?"
+        tensor_shape.dim.append(dim_proto)
+    tensor_type.shape.CopyFrom(tensor_shape)
+    vi.type.tensor_type.CopyFrom(tensor_type)
+    return vi
 
 
 class OnnxBuilder:
