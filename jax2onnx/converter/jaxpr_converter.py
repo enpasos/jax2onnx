@@ -41,8 +41,11 @@ class Jaxpr2OnnxConverter:
 
     def __init__(self, builder: OnnxBuilder):
         self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
-        # Initialize the converter with an ONNX builder instance.
         self.builder = builder
+        setattr(
+            self.builder, "converter", self
+        )  # Ensure builder has back-reference to this converter
+        # Initialize the converter with an ONNX builder instance.
         self.params: Dict[str, Any] = {}  # Parameters for tracing
         self.call_params: Dict[str, Any] = {}  # Parameters that should be ONNX inputs
 

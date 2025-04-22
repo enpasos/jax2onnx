@@ -365,6 +365,7 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
         parent_builder.opset,
         unique_node_name + "_graph",
         initializers=parent_builder.initializers,
+        converter=converter,  # Pass converter reference
     )
     sub_converter = converter.__class__(sub_builder)
     params = propagate_eqn_parameters(eqn, params)

@@ -100,8 +100,11 @@ def to_onnx(
     example_args = prepare_example_args(input_shapes)
 
     unique_name_generator = UniqueNameGenerator()
-    builder = OnnxBuilder(unique_name_generator, opset=opset)
+    builder = OnnxBuilder(
+        unique_name_generator, opset=opset, converter=None
+    )  # Will set converter below
     converter = Jaxpr2OnnxConverter(builder)
+    builder.converter = converter  # Ensure builder has back-reference
 
     # Store the parameters that should be exposed as inputs in the ONNX model
     converter.call_params = input_params or {}

@@ -113,6 +113,7 @@ class OnnxBuilder:
         opset: int = 21,
         model_name: str = "",
         initializers: list[Any] | None = None,
+        converter: Any = None,  # <-- Add converter argument
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
@@ -134,6 +135,8 @@ class OnnxBuilder:
         ] = {}
         self.dtype_env: dict[str, onnx.TensorProto.DataType] = {}
         self.value_info_origin: dict[str, str] = {}  # Initialize value_info_origin
+
+        self.converter = converter  # <-- Store converter reference
 
     def register_value_info_metadata(
         self,
