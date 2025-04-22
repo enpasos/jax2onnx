@@ -175,7 +175,7 @@ class Jaxpr2OnnxConverter:
 
         # If the shape comes from a ShapeDtypeStruct or similar, preserve symbolic tokens
         # Try to recover symbolic names if present (e.g., from .symbol attribute or original spec)
-        symbolic_shape = tuple(getattr(d, "symbol", d) for d in shape)
+        symbolic_shape = tuple(d.symbol if hasattr(d, "symbol") else d for d in shape)
 
         # Register with the builder
         self.builder.register_value_info_metadata(name, symbolic_shape, onnx_dtype)
@@ -209,8 +209,12 @@ class Jaxpr2OnnxConverter:
         self, name: str, shape: tuple[int, ...], dtype: Any = np.float32
     ) -> str:
         """Add shape information for a variable in the ONNX graph."""
+        from .onnx_builder import _symbol_name
+
         self.builder.add_value_info(name, shape, dtype)
-        sym_shape = tuple(getattr(d, "symbol", d) for d in shape)
+        sym_shape = tuple(
+            _symbol_name(d) if not isinstance(d, int) else d for d in shape
+        )
         self.register_shape(name, shape, dtype)
         self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
         return name
@@ -314,7 +318,12 @@ class Jaxpr2OnnxConverter:
                     modified_args[i] = jnp.zeros(static, dtype=arg.dtype)
                     # Store symbolic shape for input
                     name = self.get_var_name(arg)
-                    sym_shape = tuple(getattr(d, "symbol", d) for d in arg.shape)
+                    from .onnx_builder import _symbol_name
+
+                    sym_shape = tuple(
+                        _symbol_name(d) if not isinstance(d, int) else d
+                        for d in arg.shape
+                    )
                     self.symbolic_shapes[name] = sym_shape
 
         # Trace
