@@ -6,6 +6,7 @@ from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -151,12 +152,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         output_shape = ReshapePlugin._get_dynamic_output_shape(input_shape, newshape)
         processed_newshape = ReshapePlugin._process_newshape(newshape)
 
-        shape_tensor_name = s.builder.get_constant_name(
-            np.array(
-                [dim if isinstance(dim, int) else -1 for dim in processed_newshape],
-                dtype=np.int64,
-            )
-        )
+        shape_tensor_name = s.builder.get_constant_name(encode_dims(processed_newshape))
 
         reshape_node = helper.make_node(
             "Reshape",

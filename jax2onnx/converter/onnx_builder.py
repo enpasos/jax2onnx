@@ -152,10 +152,9 @@ class OnnxBuilder:
             origin: Optional description of the metadata's origin.
         """
         # Use symbolic shape if available
-        if hasattr(self, "converter") and hasattr(self.converter, "symbolic_shapes"):
-            symbolic_shape = self.converter.symbolic_shapes.get(name)
-            if symbolic_shape:
-                shape = symbolic_shape
+        sym = getattr(self, "converter", None)
+        if sym and hasattr(sym, "symbolic_shapes"):
+            shape = sym.symbolic_shapes.get(name, shape)
 
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
@@ -296,11 +295,10 @@ class OnnxBuilder:
         # Ensure shape is a tuple
         shape = _as_tuple(shape)
 
-        # Use symbolic shape if registered
-        if hasattr(self, "converter") and hasattr(self.converter, "symbolic_shapes"):
-            symbolic = self.converter.symbolic_shapes.get(name)
-            if symbolic:
-                shape = symbolic
+        # Use symbolic shape if registered (override shape as in register_value_info_metadata)
+        sym = getattr(self, "converter", None)
+        if sym and hasattr(sym, "symbolic_shapes"):
+            shape = sym.symbolic_shapes.get(name, shape)
 
         vi = make_value_info(name, shape, dtype)
 

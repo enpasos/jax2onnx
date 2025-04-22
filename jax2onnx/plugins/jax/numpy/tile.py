@@ -8,6 +8,7 @@ from jax import numpy as jnp
 from jax.extend.core import Literal, Primitive
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 import logging
 
@@ -257,18 +258,14 @@ class TilePlugin(PrimitiveLeafPlugin):
             if any(isinstance(r, core.Tracer) for r in repeats):
                 raise TypeError("Cannot export jnp.tile with tracer in static repeats.")
             repeats = tuple(int(r) for r in repeats)
-            repeats_input_name = s.builder.get_constant_name(
-                np.array(repeats, dtype=np.int64)
-            )
+            repeats_input_name = s.builder.get_constant_name(encode_dims(repeats))
             repeats_rank = len(repeats)
         else:
             raise ValueError("Missing repeats information for jnp.tile.")
 
         if repeats_rank > len(input_shape):
             padded_shape = (1,) * (repeats_rank - len(input_shape)) + input_shape
-            shape_name = s.builder.get_constant_name(
-                np.array(padded_shape, dtype=np.int64)
-            )
+            shape_name = s.builder.get_constant_name(encode_dims(padded_shape))
             reshaped_name = s.get_unique_name("tile_reshape")
             s.add_node(
                 helper.make_node(
