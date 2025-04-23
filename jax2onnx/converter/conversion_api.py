@@ -56,7 +56,14 @@ def prepare_example_args(input_shapes, default_batch_size=2):
                 for d in (spec if isinstance(spec, (tuple, list)) else (spec,))
             )
             example_args.append(ShapeDtypeStruct(shape, jnp.float32))
-        return example_args, token_to_var  # NEW
+
+        var_to_symbol_map = {}
+        for token, dim_obj in token_to_var.items():
+            var_to_symbol_map[dim_obj] = token  # exact object
+            var_to_symbol_map[id(dim_obj)] = token  # same object id
+            var_to_symbol_map[str(dim_obj)] = token  # same repr / str
+
+        return example_args, var_to_symbol_map
     else:
         # Fallback: all static dims, use zero arrays as before
         processed_shapes = []
