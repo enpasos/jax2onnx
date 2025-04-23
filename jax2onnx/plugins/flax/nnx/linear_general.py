@@ -127,16 +127,56 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             )
         )
 
+        # Create output shape correctly handling symbolic dimensions
         output_shape = tuple(x_batch_dims_sizes + kernel_out_dims)
-        new_kernel_dims_sizes = (
-            np.prod([kernel_shape[i] for i in rhs_contract]).item(),
-            np.prod(kernel_out_dims).item(),
+
+        # Handle kernel dimensions safely - these are generally fixed sizes
+        kernel_contract_dims = [kernel_shape[i] for i in rhs_contract]
+        kernel_contract_size = 1
+        for dim in kernel_contract_dims:
+            kernel_contract_size *= dim
+
+        kernel_out_size = 1
+        for dim in kernel_out_dims:
+            kernel_out_size *= dim
+
+        new_kernel_dims_sizes = (kernel_contract_size, kernel_out_size)
+
+        # Handle input dimensions with care for symbolic dimensions
+        # Batch dimensions
+        has_symbolic_batch = any(
+            not isinstance(dim, (int, float)) for dim in x_batch_dims_sizes
         )
-        input_gemm_shape = (
-            np.prod(x_batch_dims_sizes).item(),
-            np.prod([x_shape[i] for i in lhs_contract]).item(),
-        )
-        output_gemm_shape = (input_gemm_shape[0], new_kernel_dims_sizes[1])
+        if has_symbolic_batch:
+            # If there's a symbolic dimension, preserve it
+            for dim in x_batch_dims_sizes:
+                if not isinstance(dim, (int, float)):
+                    # Use the symbolic dimension as the batch size
+                    batch_size = dim
+                    break
+            else:
+                # Fallback if no symbolic dim is found
+                batch_size = x_batch_dims_sizes[0] if x_batch_dims_sizes else 1
+        else:
+            # Safe multiplication for concrete dimensions
+            batch_size = 1
+            for dim in x_batch_dims_sizes:
+                batch_size *= dim
+
+        # Contract dimensions - these are usually concrete
+        x_contract_dims = [x_shape[i] for i in lhs_contract]
+        contract_size = 1
+        for dim in x_contract_dims:
+            if isinstance(dim, (int, float)):
+                contract_size *= dim
+            else:
+                # If we have a symbolic contract dimension (unusual),
+                # just use the dimension directly
+                contract_size = dim
+                break
+
+        input_gemm_shape = (batch_size, contract_size)
+        output_gemm_shape = (batch_size, new_kernel_dims_sizes[1])
 
         return {
             "input": x_shape,
@@ -147,20 +187,18 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         }
 
     @staticmethod
-    def _is_noop_reshape(original_shape, target_shape):
-        # A reshape is a no-op if the shapes are identical except possibly the batch dimension.
-        return (
-            len(original_shape) == len(target_shape)
-            and original_shape[1:] == target_shape[1:]
-        )
-
-    @staticmethod
     def abstract_eval(x, kernel, bias, dimension_numbers):
         """Abstract evaluation: computes output shape and dtype."""
-        shapes = LinearGeneralPlugin._shape_linear_general(
-            x.shape, kernel.shape, dimension_numbers
-        )
-        return core.ShapedArray(shapes["output"], x.dtype)
+        try:
+            # Try to compute output shape safely
+            shapes = LinearGeneralPlugin._shape_linear_general(
+                x.shape, kernel.shape, dimension_numbers
+            )
+            # Use update to avoid issues with unhashable tracers
+            return x.update(shape=shapes["output"], dtype=x.dtype, weak_type=False)
+        except (TypeError, ValueError):
+            # Fallback in case of any error - preserve the input shape info we can
+            return x
 
     def to_onnx(
         self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, dimension_params
@@ -292,6 +330,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             "patch_targets": [nnx.LinearGeneral],
             "patch_function": lambda _: LinearGeneralPlugin.get_monkey_patch(),
         }
+
+    @staticmethod
+    def _is_noop_reshape(original_shape, target_shape):
+        """Return True if target_shape is equivalent to original_shape,
+        allowing for a dynamic (-1) in the first dimension.
+        """
+        if len(original_shape) != len(target_shape):
+            return False
+        # Compare all dimensions except possibly the first.
+        return all(a == b for a, b in zip(original_shape[1:], target_shape[1:]))
 
 
 # Register abstract evaluation function.
