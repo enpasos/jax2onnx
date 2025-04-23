@@ -46,7 +46,7 @@ nnx.gelu_p.multiple_results = False  # Correct initialization
         {
             "testcase": "gelu_3",
             "callable": lambda x: nnx.gelu(x, approximate=True),
-            "input_shapes": [(1, 10)],
+            "input_shapes": [("B", 10)],
         },
     ],
 )
@@ -58,7 +58,8 @@ class GeluPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, approximate=True):
         """Abstract evaluation function for GELU."""
-        return core.ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of GELU to ONNX format."""
