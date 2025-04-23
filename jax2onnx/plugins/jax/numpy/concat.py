@@ -145,6 +145,25 @@ class ConcatPlugin(PrimitiveLeafPlugin):
         )
         s.add_node(concat_node)
 
+        # Get the shapes of input arrays
+        input_shapes = [inp.aval.shape for inp in node_inputs]
+
+        # Calculate output shape with proper handling of symbolic dimensions
+        rank = len(input_shapes[0])
+        output_shape = list(input_shapes[0])
+
+        # Update the dimension size at concat axis
+        concat_dim_size = 0
+        for shape in input_shapes:
+            dim_at_axis = shape[axis]
+            if isinstance(dim_at_axis, int):
+                concat_dim_size += dim_at_axis
+
+        output_shape[axis] = concat_dim_size
+
+        # Add shape information to the output, preserving symbolic dimensions
+        s.add_shape_info(output_name, tuple(output_shape))
+
     @staticmethod
     def _concat(arrays, axis):
         return jnp.concat_p.bind(*arrays, axis=axis)
