@@ -111,14 +111,27 @@ def _canonical_symbol(builder, dim):
 
 def _resolve_symbol(builder, dim):
     """Return a user-friendly symbolic name for an ONNX dim or None."""
+
+    # debug log dim type and value
+    logger.debug(f"_resolve_symbol called with dim={dim} (type={type(dim).__name__})")
+
     # 1) exact object match
     if dim in builder.var_to_symbol_map:
+        logger.debug(
+            f"1) exact object match ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
+        )
         return builder.var_to_symbol_map[dim]
     # 2) same object *id* (Var has been copied)
     key = builder.var_to_symbol_map.get(id(dim))
     if key is not None:
+        logger.debug(
+            f"2) same object *id* (Var has been copied) ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
+        )
         return key
     # 3) same repr() string
+    logger.debug(
+        f"3) same repr() string ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
+    )
     return builder.var_to_symbol_map.get(str(dim))
 
 

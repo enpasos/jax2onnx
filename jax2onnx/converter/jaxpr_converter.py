@@ -263,7 +263,35 @@ class Jaxpr2OnnxConverter:
         # 4) fall back to old helper
         from jax2onnx.converter.onnx_builder import _symbol_name
 
-        return _symbol_name(d)
+        _logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
+        _logger.debug("  - FALLBACK to _symbol_name: %s ⚠️", d)
+
+        # try to reuse an existing symbol (same position in the arg-shape)
+        sym = None
+        if (
+            hasattr(self.builder, "current_arg_axes")
+            and self.builder.current_arg_axes is not None
+        ):
+            # current_arg_axes e.g. (None, 'B', None)
+            idx = getattr(self.builder, "current_axis_index", 0)  # maintained by caller
+            if idx < len(self.builder.current_arg_axes):
+                sym = self.builder.current_arg_axes[idx]  # 'B' or None
+
+        if not sym:  # still nothing? invent one
+            if hasattr(self.builder, "_unique_symbol"):
+                sym = self.builder._unique_symbol()  # e.g. '__sym0'
+            else:
+                sym = f"__sym{id(d) % 1000}"  # fallback if _unique_symbol doesn't exist
+
+        # register every alias so the object can be found again later
+        if not hasattr(self.builder, "var_to_symbol_map"):
+            self.builder.var_to_symbol_map = {}
+
+        self.builder.var_to_symbol_map[d] = sym
+        self.builder.var_to_symbol_map[id(d)] = sym
+        self.builder.var_to_symbol_map[str(d)] = sym
+
+        return sym  # <— now make_value_info gets "B" (or '__sym0')
 
         # Step	Description	Dynamic Dim Handling
         # -	User provides symbolic dimensions ("B")	User-level symbolic dimension
@@ -393,7 +421,7 @@ class Jaxpr2OnnxConverter:
                     self._dimvar_to_name[id(traced_dim)] = str(orig_dim)
                     self._dimvar_to_name[traced_dim] = str(orig_dim)
 
-        self.builder.var_to_symbol_map = self._dimvar_to_name  # one line
+        self.builder.var_to_symbol_map = self._dimvar_to_name
         # ------------------------------------------------------------------------
 
         # 6) Track symbolic dim names based on original → traced mapping
