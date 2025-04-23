@@ -115,6 +115,22 @@ def _resolve_symbol(builder, dim):
     # debug log dim type and value
     logger.debug(f"_resolve_symbol called with dim={dim} (type={type(dim).__name__})")
 
+    # PRELUDE – if dim is already a string that *looks* like a JAX Var
+    #            and we know an alias for the underlying object/id,
+    #            create the missing <string> → <symbol> entry on the fly
+    if isinstance(dim, str) and dim.startswith("Var(id="):
+        # extract the numeric id
+        try:
+            obj_id = int(dim.split("Var(id=")[1].split(")")[0])
+        except Exception:
+            obj_id = None
+        if obj_id is not None and obj_id in builder.var_to_symbol_map:
+            sym = builder.var_to_symbol_map[obj_id]
+            # cache the alias so the next lookup hits immediately
+            builder.var_to_symbol_map[dim] = sym
+            logger.debug(f"Created new alias mapping: {dim} → {sym} from extracted ID")
+            return sym
+
     # 1) exact object match
     if dim in builder.var_to_symbol_map:
         logger.debug(
