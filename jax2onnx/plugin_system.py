@@ -119,7 +119,7 @@ class FunctionPlugin(PrimitivePlugin):
     def abstract_eval_with_kwargs(self, *args, **kwargs):
         """
         Correctly performs abstract evaluation using the original function
-        and jax.eval_shape, handling ShapeDtypeStruct outputs.
+        and jax.eval_shape, handling ShapedArray outputs.
 
         Args:
             *args: Tuple of abstract values (e.g., ShapedArray) for positional inputs.
@@ -138,12 +138,23 @@ class FunctionPlugin(PrimitivePlugin):
             del kwargs["instance_key"]
 
         try:
-            # Get the abstract value(s) from eval_shape
-            # This might be a single ShapeDtypeStruct or a pytree of them
-            output_aval_struct = jax.eval_shape(self._orig_fn, *args, **kwargs)
+            # Instead of using eval_shape with ShapedArray args, we'll directly
+            # create placeholder arrays with the same shape and dtype
+            import jax.numpy as jnp
 
-            # Use tree_map to convert every leaf (ShapeDtypeStruct or similar)
-            # in the output structure to a ShapedArray.
+            # Convert ShapedArray args to concrete zero arrays for eval_shape
+            concrete_args = []
+            for arg in args:
+                if isinstance(arg, ShapedArray):
+                    # Create a zero array with the same shape and dtype
+                    concrete_args.append(jnp.zeros(arg.shape, dtype=arg.dtype))
+                else:
+                    concrete_args.append(arg)
+
+            # Get the abstract value(s) from eval_shape with concrete placeholder arrays
+            output_aval_struct = jax.eval_shape(self._orig_fn, *concrete_args, **kwargs)
+
+            # Convert output to ShapedArray
             output_aval = tree_util.tree_map(
                 self._aval_to_shaped_array, output_aval_struct
             )
