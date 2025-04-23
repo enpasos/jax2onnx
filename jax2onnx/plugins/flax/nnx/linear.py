@@ -97,22 +97,42 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         # Compute feature size.
         x_feature_sizes = [x_shape[d] for d in x_feature_dims]
-        x_feature_size = (
-            np.prod(x_feature_sizes).item()
-            if all(isinstance(dim, int) for dim in x_feature_sizes)
-            else x_shape[-1]
-        )
 
-        # Compute batch shape and size.
+        # Handle potential symbolic dimensions in feature size
+        if not all(isinstance(dim, (int, float)) for dim in x_feature_sizes):
+            # If we have symbolic dimensions, just use the last dimension directly
+            x_feature_size = x_shape[-1]
+        else:
+            # Otherwise, compute the product
+            x_feature_size = np.prod(x_feature_sizes).item()
+
+        # Compute batch shape
         x_batch_sizes = [x_shape[d] for d in x_batch_dims]
-        dynamic_dim = None
-        for dim in x_batch_sizes:
-            if isinstance(dim, str):
-                dynamic_dim = dim
-                break
-        x_batch_size = (
-            dynamic_dim if dynamic_dim is not None else np.prod(x_batch_sizes).item()
-        )
+
+        # Handle symbolic batch dimensions and avoid numpy product
+        if len(x_batch_sizes) == 1:
+            # Simple case: only one batch dimension
+            x_batch_size = x_batch_sizes[0]
+        else:
+            # For multiple batch dimensions, check for symbolic dimensions
+            has_symbolic = any(
+                not isinstance(dim, (int, float)) for dim in x_batch_sizes
+            )
+            if has_symbolic:
+                # If we have symbolic dimensions, we need to preserve the first one
+                # This is a simplification that works for the common case of ("B", ...)
+                for dim in x_batch_sizes:
+                    if not isinstance(dim, (int, float)):
+                        x_batch_size = dim
+                        break
+                else:
+                    # Fallback if no symbolic dim was found
+                    x_batch_size = x_batch_sizes[0]
+            else:
+                # Safe path for concrete dimensions only
+                x_batch_size = 1
+                for dim in x_batch_sizes:
+                    x_batch_size *= dim
 
         # For a standard Linear, kernel shape is (in_features, out_features)
         out_features = kernel_shape[1]
@@ -145,7 +165,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
     def abstract_eval(x, kernel, bias, dimension_numbers=None):
         """Abstract evaluation function for Linear."""
         shapes = LinearPlugin._shape_linear(x.shape, kernel.shape, dimension_numbers)
-        return core.ShapedArray(shapes["output"], x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=shapes["output"], dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of Linear to ONNX format."""

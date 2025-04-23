@@ -54,14 +54,14 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
             "callable": nnx.BatchNorm(
                 num_features=1, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(2, 1)],
+            "input_shapes": [("B", 1)],
         },
         {
             "testcase": "batch_norm_2d",
             "callable": nnx.BatchNorm(
                 num_features=8, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(16, 8)],
+            "input_shapes": [("B", 8)],
         },
         {
             "testcase": "batch_norm_2d_use_bias_false",
@@ -72,7 +72,7 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
                 epsilon=1e-5,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(16, 8)],
+            "input_shapes": [("B", 8)],
         },
         {
             "testcase": "batch_norm_2d_use_scale_false",
@@ -83,14 +83,14 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
                 epsilon=1e-5,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(16, 8)],
+            "input_shapes": [("B", 8)],
         },
         {
             "testcase": "batch_norm_4d",
             "callable": nnx.BatchNorm(
                 num_features=3, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
-            "input_shapes": [(2, 4, 4, 3)],
+            "input_shapes": [("B", 4, 4, 3)],
         },
         {
             "testcase": "batch_norm_4d_use_bias_false",
@@ -101,7 +101,7 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
                 epsilon=1e-5,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 4, 4, 3)],
+            "input_shapes": [("B", 4, 4, 3)],
         },
         {
             "testcase": "batch_norm_4d_use_scale_false",
@@ -112,7 +112,7 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
                 epsilon=1e-5,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(2, 4, 4, 3)],
+            "input_shapes": [("B", 4, 4, 3)],
         },
         {
             "testcase": "batch_norm_minimal",
@@ -132,7 +132,8 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, **kwargs):
         """Abstract evaluation function for BatchNorm."""
-        return core.ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of BatchNorm to ONNX format."""
