@@ -112,11 +112,23 @@ def resolve_function_inputs(converter, eqn, parent_builder):
 
 
 def create_example_arg(aval):
-    return (
-        jnp.ones(aval.shape, dtype=aval.dtype)
-        if aval.shape
-        else jnp.zeros((), dtype=aval.dtype)
-    )
+    """Create an example argument for function tracing.
+
+    Handles both concrete shapes and shapes with symbolic dimensions.
+    """
+    if not aval.shape:
+        return jnp.zeros((), dtype=aval.dtype)
+
+    # Check if the shape contains any symbolic dimensions
+    has_symbolic_dim = any(not isinstance(dim, int) for dim in aval.shape)
+
+    if has_symbolic_dim:
+        # Create a placeholder ShapedArray instead of concrete array
+        # This avoids trying to materialize arrays with symbolic dimensions
+        return aval
+    else:
+        # For concrete shapes, create actual array
+        return jnp.ones(aval.shape, dtype=aval.dtype)
 
 
 def register_input_metadata(builder, var_name, aval):
@@ -602,12 +614,50 @@ def map_and_register_outputs(
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
+
+        # Get the shape and dtype from metadata
         shape, dtype = shape_dtype
-        var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
+
+        # Check for symbolic dimensions in shape
+        # Skip ShapedArray creation if there are symbolic dimensions - just preserve var.aval
+        if all(isinstance(dim, (int, float)) for dim in shape):
+            # Only create ShapedArray for concrete shapes
+            var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
+        else:
+            # For symbolic shapes, preserve dimensions but update the dtype if needed
+            if hasattr(var, "aval") and var.aval is not None:
+                # If we already have an aval with the right shape, just update dtype if needed
+                if var.aval.dtype != helper.tensor_dtype_to_np_dtype(dtype):
+                    var.aval = var.aval.update(
+                        dtype=helper.tensor_dtype_to_np_dtype(dtype)
+                    )
+            else:
+                # If we don't have an aval, we need to construct one that preserves symbolic dims
+                # This is a fallback that might not handle all cases
+                logger.warning(
+                    f"Creating placeholder aval for var with symbolic dimensions: {shape}"
+                )
+                # Use the first dimension from the original var if available
+                if (
+                    hasattr(var, "aval")
+                    and hasattr(var.aval, "shape")
+                    and var.aval.shape
+                ):
+                    placeholder_shape = var.aval.shape
+                else:
+                    # Create a default shape - this is not ideal but better than failing
+                    placeholder_shape = (2,) * len(shape)
+                var.aval = ShapedArray(
+                    placeholder_shape, helper.tensor_dtype_to_np_dtype(dtype)
+                )
+
         parent_output_name = parent_builder.get_unique_name("var")
         converter.var_to_name[var] = parent_output_name
         converter.name_to_var[parent_output_name] = var
         call_outputs.append(parent_output_name)
+
+        # Important: Register shape metadata in parent builder
+        # We need to preserve the original shape with symbolic dimensions here
         parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
