@@ -37,12 +37,14 @@ nnx.dropout_p.multiple_results = False  # Single output
         {
             "testcase": "dropout_init_params",
             "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(5)),
-            "input_shapes": [(5, 10)],
+            "input_shapes": [("B", 10)],
         },
         {
             "testcase": "dropout_call_params",
             "callable": nnx.Dropout(rate=0.5, deterministic=False, rngs=nnx.Rngs(5)),
-            "input_shapes": [(5, 10)],
+            "input_shapes": [
+                (2, 10)
+            ],  # Use concrete batch size 2 instead of symbolic 'B'
             "input_params": {
                 "deterministic": True,
             },
@@ -58,7 +60,8 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, deterministic, *, rate):
         """Abstract evaluation function for dropout."""
-        return ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         x_name = s.get_name(node_inputs[0])
