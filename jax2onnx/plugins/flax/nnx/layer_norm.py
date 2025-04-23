@@ -56,7 +56,8 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, scale, bias, epsilon, axis):
         """Abstract evaluation function for LayerNorm."""
-        return core.ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of LayerNorm to ONNX format."""
