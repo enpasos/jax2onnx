@@ -1,32 +1,5 @@
 # file: jax2onnx/converter/function_handling.py
-"""ONNX function‑export helpers
 
-General fix for the *double‑nesting* problem
--------------------------------------------
-When a module decorated with ``@onnx_function`` contains **no other
-logic** than calling another instance of *itself*, the exporter used to
-create a redundant wrapper chain:
-
-```
-SuperBlock_0()  # outer graph
-  └─ SuperBlock_1()   # useless pass‑through
-        └─ real ops (LayerNormalization …)
-```
-
-That duplication happens because the decorator’s monkey‑patch emits the
-primitive again when JAX rewrites the body.  Instead of trying to guess
-which patches to remove, we now **detect and inline any pass‑through
-wrapper that meets all these conditions**:
-
-1. the traced sub‑graph contains **exactly one node**;
-2. that node is a call to an ONNX function in the custom domain; and
-3. its *display name* (i.e. original class name, *without* the numeric
-   suffix like ``_0``/``_1``) is the same as the wrapper we are about to
-   register.
-
-Legitimate nesting (different instance keys, additional surrounding
-nodes, recursive composition, etc.) is not affected.
-"""
 
 from __future__ import annotations
 
@@ -372,6 +345,16 @@ def propagate_eqn_parameters(eqn, params):
 
 
 def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder):
+    """Set up a sub-converter for handling function bodies.
+
+    This function creates a child ONNX builder and converter, ensuring symbolic
+    dimensions are properly propagated from parent to child.
+    """
+    # ------------------------------------------------------------------ #
+    # 1.  Create a *child* builder, but seed it with the symbol aliases   #
+    #     already discovered for the outer graph so that the original     #
+    #     symbolic names ('B', etc.) survive inside the Function.         #
+    # ------------------------------------------------------------------ #
     sub_builder = OnnxBuilder(
         parent_builder.name_generator,
         parent_builder.opset,
@@ -379,11 +362,36 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
         initializers=parent_builder.initializers,
         converter=converter,  # Pass converter reference
     )
+
+    # ──► propagate var ⇢ symbol aliases to preserve symbolic dimensions
+    if hasattr(parent_builder, "var_to_symbol_map") and hasattr(
+        sub_builder, "var_to_symbol_map"
+    ):
+        sub_builder.var_to_symbol_map.update(parent_builder.var_to_symbol_map)
+
+    # Optional: keep a link so the Function can fall back to parent map for new aliases
+    sub_builder.parent = parent_builder
+
+    # ------------------------------------------------------------------ #
+    # 2.  Create the converter for the Function and propagate symbolic    #
+    #     dimension mapping information                                   #
+    # ------------------------------------------------------------------ #
     sub_converter = converter.__class__(sub_builder)
+
+    # Propagate dimension variable to name mapping
+    if hasattr(converter, "_dimvar_to_name") and hasattr(
+        sub_converter, "_dimvar_to_name"
+    ):
+        sub_converter._dimvar_to_name.update(converter._dimvar_to_name)
+
+    # Propagate equation parameters
     params = propagate_eqn_parameters(eqn, params)
     sub_converter.params = params
+
+    # Propagate call parameters if available
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
+
     return sub_converter, sub_builder, params
 
 
