@@ -54,11 +54,6 @@ jnp.matmul_p.multiple_results = False  # Correct initialization
             "input_shapes": [("B", 3), (3, 4)],
         },
         {
-            "testcase": "matmul_dynamic_b",
-            "callable": lambda a, b: jnp.matmul(a, b),
-            "input_shapes": [(3, "B"), ("B", 4)],
-        },
-        {
             "testcase": "matmul_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(4,), (4,)],

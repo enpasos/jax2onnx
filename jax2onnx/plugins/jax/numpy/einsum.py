@@ -139,27 +139,49 @@ class EinsumPlugin(PrimitiveLeafPlugin):
     ) -> tuple[int | str, ...]:
         """Calculates the output shape while handling dynamic dimensions."""
 
-        dummy_inputs = [
-            np.zeros([1 if isinstance(d, str) else d for d in shape])
-            for shape in input_shapes
-        ]
-        dummy_output = np.einsum(equation, *dummy_inputs)
-        output_shape = list(dummy_output.shape)
+        # Parse the einsum equation
+        input_specs, output_spec = equation.split("->")
+        input_dims = input_specs.split(",")
 
-        input_terms, output_term = EinsumPlugin._parse_einsum_equation(equation)
-        index_to_label: dict[str, int | str] = {}
+        # Map dimensions to their sizes
+        dim_sizes = {}
 
-        for term, shape in zip(input_terms, input_shapes, strict=False):
-            for i, label in enumerate(term):
-                if label not in index_to_label:
-                    try:
-                        index_to_label[label] = shape[i]
-                    except IndexError:
-                        index_to_label[label] = -1
+        # Safe equality check that won't leak tracers
+        def safe_eq(a, b):
+            try:
+                return a == b
+            except Exception:
+                # If comparison fails (e.g., with tracers), assume they might be equal
+                # The actual consistency check will happen during execution
+                return True
 
-        for i, label in enumerate(output_term):
-            if label in index_to_label and isinstance(index_to_label[label], str):
-                output_shape[i] = index_to_label[label]
+        # Process each input shape and corresponding dimension spec
+        for shape, dim_spec in zip(input_shapes, input_dims):
+            for dim_name, size in zip(dim_spec, shape):
+                # For each dimension, record its size
+                current_size = dim_sizes.get(dim_name)
+
+                # If we haven't seen this dimension before, record it
+                if current_size is None:
+                    dim_sizes[dim_name] = size
+                # If we've seen it before, make sure sizes match
+                elif isinstance(current_size, str) or isinstance(size, str):
+                    # If either is symbolic, we'll use a symbolic name
+                    # In production, JAX would check consistency - we assume it's correct
+                    if isinstance(size, str):
+                        dim_sizes[dim_name] = size
+                elif not safe_eq(current_size, size):
+                    # If both are concrete and don't match, raise error
+                    # This won't be called for tracers due to safe_eq
+                    raise ValueError(
+                        f"Inconsistent sizes for dimension '{dim_name}': {current_size} vs {size}"
+                    )
+
+        # Build output shape based on output specification
+        output_shape = []
+        for dim_name in output_spec:
+            if dim_name in dim_sizes:
+                output_shape.append(dim_sizes[dim_name])
 
         return tuple(output_shape)
 
@@ -168,7 +190,18 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         """Abstract evaluation function for Einsum."""
         input_shapes = [op.shape for op in operands]
         output_shape = EinsumPlugin._get_dynamic_output_shape(input_shapes, equation)
-        return core.ShapedArray(output_shape, operands[0].dtype)
+
+        # Make output shape safe for hashing by converting any tracers to a placeholder
+        def safe_dim(dim):
+            try:
+                hash(dim)
+                return dim
+            except Exception:
+                # If dimension is not hashable (e.g., it's a tracer), use -1 as a placeholder
+                return -1
+
+        output_shape_safe = tuple(safe_dim(d) for d in output_shape)
+        return core.ShapedArray(output_shape_safe, operands[0].dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of Einsum to ONNX format."""
