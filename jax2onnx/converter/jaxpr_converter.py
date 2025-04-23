@@ -27,6 +27,7 @@ from jax2onnx.plugin_system import (
     PrimitiveLeafPlugin,
     import_all_plugins,
 )
+from jax2onnx.converter.onnx_builder import _symbol_name, _canonical_symbol
 
 
 class Jaxpr2OnnxConverter:
@@ -67,6 +68,8 @@ class Jaxpr2OnnxConverter:
         self._register_primitive_handlers()
 
         self.symbolic_shapes = {}
+
+        self.dim_to_symbol = lambda d: _canonical_symbol(self.builder, d)
 
     def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> extend_core.Var:
         """Create a new JAX variable with the given dtype and shape."""
@@ -191,7 +194,7 @@ class Jaxpr2OnnxConverter:
         """Add an input variable to the ONNX graph and store its shape."""
         name = self.get_var_name(var)
         self.builder.add_input(name, shape, dtype)
-        sym_shape = tuple(getattr(d, "symbol", d) for d in shape)
+        sym_shape = tuple(self.dim_to_symbol(d) for d in var.aval.shape)
         self.register_shape(name, shape, dtype)
         self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
         return name
@@ -209,12 +212,10 @@ class Jaxpr2OnnxConverter:
         self, name: str, shape: tuple[int, ...], dtype: Any = np.float32
     ) -> str:
         """Add shape information for a variable in the ONNX graph."""
-        from .onnx_builder import _symbol_name
 
         self.builder.add_value_info(name, shape, dtype)
-        sym_shape = tuple(
-            _symbol_name(d) if not isinstance(d, int) else d for d in shape
-        )
+        sym_shape = tuple(self.dim_to_symbol(d) for d in shape)
+
         self.register_shape(name, shape, dtype)
         self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
         return name
@@ -239,6 +240,39 @@ class Jaxpr2OnnxConverter:
         # JAX expects a tuple, not a set, for abstracted_axes
         return tuple(symbolic_axes) if symbolic_axes else None
 
+    def dim_to_symbol(self, d):
+        """Translate JAX shape-dimension `d` into a stable symbolic string
+        or a concrete int."""
+        # 0) plain integer → just return it
+        if isinstance(d, int):
+            return d
+
+        # 1) exact identity hit
+        if d in getattr(self, "_dimvar_to_name", {}):
+            return self._dimvar_to_name[d]
+
+        # 2) hit by (count, dtype) — survives Var cloning
+        key = (getattr(d, "count", None), str(getattr(d, "aval", "")))
+        if key in getattr(self, "_dimvar_to_name_by_count", {}):
+            return self._dimvar_to_name_by_count[key]
+
+        # 3) modern JAX: DimExpr carries .symbol
+        if hasattr(d, "symbol") and d.symbol is not None:
+            return str(d.symbol)
+
+        # 4) fall back to old helper
+        from jax2onnx.converter.onnx_builder import _symbol_name
+
+        return _symbol_name(d)
+
+        # Step	Description	Dynamic Dim Handling
+        # -	User provides symbolic dimensions ("B")	User-level symbolic dimension
+        # -	Map symbolic dimensions to concrete ints	Temporary numeric placeholders
+        # -	Create concrete zero-arrays for JAX tracer	Concrete numeric array
+        # -	Trace with abstracted_axes	JAX records symbolic shapes (DimVar)
+        # -	Extract symbolic shapes post-tracing	Explicit symbolic shapes recorded
+        # -	Export symbolic shapes into ONNX	ONNX dynamic shape (dim_param)
+
     def trace_jaxpr(
         self,
         fn: Any,
@@ -247,7 +281,10 @@ class Jaxpr2OnnxConverter:
         params: dict[str, Any] | None = None,
     ) -> None:
         """Trace a JAX function to generate its JAXPR representation and convert it to ONNX."""
+        import jax
         import jax.numpy as jnp
+        from jax2onnx.converter.onnx_builder import _symbol_name
+        from onnx import helper
 
         self.logger.debug("trace_jaxpr ... preserve_graph= %s", preserve_graph)
         if not preserve_graph:
@@ -256,124 +293,160 @@ class Jaxpr2OnnxConverter:
             self.name_to_const.clear()
             self.shape_env.clear()
 
-        self.symbolic_shapes = {}  # <== already present
+        self.symbolic_shapes = {}
 
+        # 1) Drop duplicate parameter from example_args, if any
         modified_args = list(example_args)
+        self.logger.debug("modified_args (initially): %s", modified_args)
         if params and len(modified_args) >= 2:
-            last_arg = modified_args[-1]
-            is_tracer = str(type(last_arg)).find("DynamicJaxprTracer") >= 0
-            for param_name in params.keys():
-                if param_name in params and (
-                    isinstance(last_arg, bool)
+            last = modified_args[-1]
+            is_tracer = "DynamicJaxprTracer" in str(type(last))
+            for pname in params:
+                if (
+                    isinstance(last, bool)
                     or is_tracer
-                    or (
-                        isinstance(last_arg, (int, float))
-                        and not hasattr(last_arg, "shape")
-                    )
+                    or (isinstance(last, (int, float)) and not hasattr(last, "shape"))
                 ):
-                    self.logger.debug(
-                        "Removing potential duplicate '%s' parameter from example_args",
-                        param_name,
-                    )
+                    self.logger.debug("Removing duplicate param '%s'", pname)
                     modified_args = modified_args[:-1]
                     break
+        self.logger.debug("modified_args after 1): %s", modified_args)
 
-        symbolic_axes = self._extract_symbolic_axes(example_args)
-        use_abstracted_axes = bool(symbolic_axes)
-
-        # Prepare dummy inputs with static shapes, but store symbolic ones
-        symbolic_dim_map = {}
-        symbolic_dim_to_ints = {}
-
-        if use_abstracted_axes:
-            for arg in modified_args:
-                if hasattr(arg, "shape"):
-                    for d in arg.shape:
-                        if not isinstance(d, int):
-                            symbolic_dim_to_ints.setdefault(d, set())
-
-            for arg in modified_args:
-                if hasattr(arg, "shape"):
-                    for i, d in enumerate(arg.shape):
-                        if not isinstance(d, int):
-                            for other_arg in modified_args:
-                                if hasattr(other_arg, "shape"):
-                                    for od in other_arg.shape:
-                                        if d == od and isinstance(od, int):
-                                            symbolic_dim_to_ints[d].add(od)
-
-            for d in symbolic_dim_to_ints:
-                symbolic_dim_map[d] = (
-                    max(symbolic_dim_to_ints[d]) if symbolic_dim_to_ints[d] else 2
+        # 2) Determine which axes to abstract
+        abstracted_axes = tuple(
+            (
+                tuple(
+                    _symbol_name(dim) if not isinstance(dim, int) else None
+                    for dim in arg.shape
                 )
+                if hasattr(arg, "shape")
+                else None
+            )
+            for arg in example_args
+        )
+        use_abstracted_axes = any(
+            any(dim is not None for dim in axes)
+            for axes in abstracted_axes
+            if axes is not None
+        )
+        self.logger.debug(
+            "use_abstracted_axes: %s, symbolic_axes: %s",
+            use_abstracted_axes,
+            abstracted_axes,
+        )
 
-            def static_shape(shape):
-                return tuple(
-                    symbolic_dim_map[d] if not isinstance(d, int) else d for d in shape
-                )
+        # 3) Build placeholder map: symbolic_dim → int
+        symbolic_dim_to_ints: dict[Any, set[int]] = {}
+        for arg in modified_args:
+            if hasattr(arg, "shape"):
+                for d in arg.shape:
+                    if not isinstance(d, int):
+                        symbolic_dim_to_ints.setdefault(d, set())
+        for arg in modified_args:
+            if hasattr(arg, "shape"):
+                for d in arg.shape:
+                    if not isinstance(d, int):
+                        for other in modified_args:
+                            if hasattr(other, "shape"):
+                                for od in other.shape:
+                                    if od == d and isinstance(od, int):
+                                        symbolic_dim_to_ints[d].add(od)
+        symbolic_dim_map = {
+            d: (max(vals) if vals else 2) for d, vals in symbolic_dim_to_ints.items()
+        }
+        self.logger.debug("symbolic_dim_map: %s", symbolic_dim_map)
 
-            for i, arg in enumerate(modified_args):
-                if hasattr(arg, "shape") and hasattr(arg, "dtype"):
-                    static = static_shape(arg.shape)
-                    modified_args[i] = jnp.zeros(static, dtype=arg.dtype)
-                    # Store symbolic shape for input
-                    name = self.get_var_name(arg)
-                    from .onnx_builder import _symbol_name
-
-                    sym_shape = tuple(
-                        _symbol_name(d) if not isinstance(d, int) else d
-                        for d in arg.shape
-                    )
-                    self.symbolic_shapes[name] = sym_shape
-
-        # Trace
-        with temporary_monkey_patches(allow_function_primitives=True):
-            if params is None:
-                if use_abstracted_axes:
-                    closed_jaxpr = jax.make_jaxpr(fn, abstracted_axes=symbolic_axes)(
-                        *modified_args
-                    )
-                else:
-                    closed_jaxpr = jax.make_jaxpr(fn)(*modified_args)
+        # 4) Build concrete zero‐arrays for JAX tracing (never ShapeDtypeStruct!)
+        tracing_args: list[Any] = []
+        for arg in modified_args:
+            if hasattr(arg, "shape") and hasattr(arg, "dtype"):
+                static = tuple(symbolic_dim_map.get(d, d) for d in arg.shape)
+                tracing_args.append(jnp.zeros(static, dtype=arg.dtype))
             else:
-                if use_abstracted_axes:
-                    closed_jaxpr = jax.make_jaxpr(fn, abstracted_axes=symbolic_axes)(
-                        *modified_args, **params
-                    )
-                else:
-                    closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
+                tracing_args.append(arg)
+        self.logger.debug("tracing_args: %s", tracing_args)
 
-        self.logger.debug(closed_jaxpr)
+        # 5) Trace with abstracted_axes if applicable
+        with temporary_monkey_patches(allow_function_primitives=True):
+            mkjaxpr = (
+                jax.make_jaxpr(fn, abstracted_axes=abstracted_axes)
+                if use_abstracted_axes
+                else jax.make_jaxpr(fn)
+            )
+            closed = mkjaxpr(*tracing_args, **(params or {}))
 
-        self.jaxpr = closed_jaxpr.jaxpr
+        self.logger.debug(closed)
+        self.jaxpr = closed.jaxpr
         self.output_vars = self.jaxpr.outvars
-        jaxpr, consts = self.jaxpr, closed_jaxpr.consts
 
-        self._process_jaxpr(jaxpr, consts)
+        # --- map traced dim-vars → user tokens ----------------------------------
+        offset = len(self.jaxpr.invars) - len(example_args)
+        self._dimvar_to_name = {}
 
-        # Register symbolic shape metadata for outputs
-        for var in jaxpr.outvars:
+        for i, orig_arg in enumerate(example_args):
+            invar = self.jaxpr.invars[i + offset]  # tensor invar that matches
+            if not hasattr(orig_arg, "shape"):
+                continue
+            for orig_dim, traced_dim in zip(orig_arg.shape, invar.aval.shape):
+                if not isinstance(orig_dim, int):
+                    # record both by object id and by object itself (defensive)
+                    self._dimvar_to_name[id(traced_dim)] = str(orig_dim)
+                    self._dimvar_to_name[traced_dim] = str(orig_dim)
+
+        self.builder.var_to_symbol_map = self._dimvar_to_name  # one line
+        # ------------------------------------------------------------------------
+
+        # 6) Track symbolic dim names based on original → traced mapping
+        self._dimvar_to_name = {}  # maps DimVar → original symbolic name like "B"
+        self.builder.dimvar_to_name = self._dimvar_to_name
+        for arg_idx, orig_arg in enumerate(example_args):
+            if hasattr(orig_arg, "shape"):
+                traced_shape = self.jaxpr.invars[arg_idx].aval.shape
+                for orig_dim, traced_dim in zip(orig_arg.shape, traced_shape):
+                    if not isinstance(orig_dim, int):
+                        self._dimvar_to_name[traced_dim] = str(orig_dim)
+
+        # ────────────────────────────────────────────────────────
+        # Expose the mapping globally so onnx_builder can use it
+        from jax2onnx.converter import onnx_builder as _ob
+
+        for dimvar, user_sym in self._dimvar_to_name.items():
+            _ob.DIMVAR_STR2SYMBOL[str(dimvar)] = user_sym  # ← use str-key
+        # ────────────────────────────────────────────────────────
+
+        self._dimvar_to_name_by_str = {
+            str(k): v for k, v in self._dimvar_to_name.items()
+        }
+        self.builder.dimvar_to_name_by_str = (
+            self._dimvar_to_name_by_str
+        )  # pass to builder
+
+        # Add a mapping that preserves across Var cloning using count+aval as key
+        self._dimvar_to_name_by_count: dict[tuple[int, str], str] = {
+            (d.count, str(getattr(d, "aval", ""))): name
+            for d, name in self._dimvar_to_name.items()
+        }
+
+        # 7) Record symbolic shapes using the _dimvar_to_name mapping
+
+        for var in (*self.jaxpr.invars, *self.jaxpr.constvars, *self.jaxpr.outvars):
+            if hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                name = self.get_var_name(var)
+                sym_shape = tuple(self.dim_to_symbol(d) for d in var.aval.shape)
+                self.symbolic_shapes[name] = sym_shape
+
+        # 8) Convert the JAXPR to ONNX graph
+        self._process_jaxpr(self.jaxpr, closed.consts)
+
+        # 9) Register outputs with symbolic shapes
+        for var in self.jaxpr.outvars:
             name = self.get_var_name(var)
             if name in self.builder.value_info:
                 continue
-
-            if hasattr(var, "aval"):
-                shape = tuple(var.aval.shape)
-                sym_shape = self.symbolic_shapes.get(name, shape)
-                dtype = helper.np_dtype_to_tensor_dtype(var.aval.dtype)
-                self.builder.register_value_info_metadata(name, sym_shape, dtype)
-                self.builder.add_value_info(name, sym_shape, dtype)
-            else:
-                raise RuntimeError(
-                    f"[MissingShape] Cannot infer shape for output var {name}"
-                )
-
-        # After tracing, store symbolic shapes for all variables
-        for var in self.var_to_name:
-            if hasattr(var, "aval") and hasattr(var.aval, "shape"):
-                name = self.get_var_name(var)
-                sym_shape = tuple(getattr(d, "symbol", d) for d in var.aval.shape)
-                self.symbolic_shapes[name] = sym_shape
+            sym_shape = tuple(self.dim_to_symbol(d) for d in var.aval.shape)
+            dtype = helper.np_dtype_to_tensor_dtype(var.aval.dtype)
+            self.builder.register_value_info_metadata(name, sym_shape, dtype)
+            self.builder.add_value_info(name, sym_shape, dtype)
 
     def add_initializer(
         self,
@@ -399,24 +472,39 @@ class Jaxpr2OnnxConverter:
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
         """Process a JAXPR and convert it to ONNX nodes."""
 
+        # needed for dim-name fallback when a DimVar has no entry in
+        # self._dimvar_to_name (avoids NameError)
+        from jax2onnx.converter.onnx_builder import _symbol_name
+
         # Add input variables to the ONNX graph, skipping any that are already added
         # (such as parameters added via add_scalar_input)
         for var in jaxpr.invars:
-            # Only add as input if not a symbolic axis or integer constant
+            # Skip scalar symbolic tokens
             if (
                 hasattr(var, "aval")
                 and getattr(var.aval, "dtype", None) == np.int32
                 and var.aval.shape == ()
             ):
-                # Heuristic: skip scalar int32s (likely symbolic axis tokens)
                 continue
-            var_name = self.match_call_param_by_type_and_order(var)
-            if var_name is None:
-                var_name = self.get_var_name(var)
-            if not any(
-                input_info.name == var_name for input_info in self.builder.inputs
-            ):
-                self.add_input(var, var.aval.shape, var.aval.dtype)
+
+            var_name = self.match_call_param_by_type_and_order(
+                var
+            ) or self.get_var_name(var)
+
+            # Convert each dim using the DimVar→name map if available
+            shape = tuple(
+                (
+                    self._dimvar_to_name.get(
+                        d, getattr(d, "symbol", None) or _symbol_name(d)
+                    )
+                    if not isinstance(d, int)
+                    else d
+                )
+                for d in var.aval.shape
+            )
+
+            if not any(inp.name == var_name for inp in self.builder.inputs):
+                self.add_input(var, shape, var.aval.dtype)
 
         # Add constants to the ONNX graph.
         for i, const in enumerate(consts):

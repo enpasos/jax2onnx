@@ -56,7 +56,7 @@ def prepare_example_args(input_shapes, default_batch_size=2):
                 for d in (spec if isinstance(spec, (tuple, list)) else (spec,))
             )
             example_args.append(ShapeDtypeStruct(shape, jnp.float32))
-        return example_args
+        return example_args, token_to_var  # NEW
     else:
         # Fallback: all static dims, use zero arrays as before
         processed_shapes = []
@@ -69,7 +69,7 @@ def prepare_example_args(input_shapes, default_batch_size=2):
                 else:
                     new_shape.append(dim)
             processed_shapes.append(tuple(new_shape))
-        return [jnp.zeros(s, dtype=jnp.float32) for s in processed_shapes]
+        return [jnp.zeros(s, dtype=jnp.float32) for s in processed_shapes], {}
 
 
 def to_onnx(
@@ -97,7 +97,7 @@ def to_onnx(
         An ONNX ModelProto object representing the converted model.
     """
     # Generate concrete example arguments based on provided shapes
-    example_args = prepare_example_args(input_shapes)
+    example_args, var_to_symbol_map = prepare_example_args(input_shapes)
 
     unique_name_generator = UniqueNameGenerator()
     builder = OnnxBuilder(
@@ -105,6 +105,9 @@ def to_onnx(
     )  # Will set converter below
     converter = Jaxpr2OnnxConverter(builder)
     builder.converter = converter  # Ensure builder has back-reference
+
+    # single source-of-truth dict lives on the builder
+    builder.symbol_name_for_dim = {id(k): v for k, v in var_to_symbol_map.items()}
 
     # Store the parameters that should be exposed as inputs in the ONNX model
     converter.call_params = input_params or {}

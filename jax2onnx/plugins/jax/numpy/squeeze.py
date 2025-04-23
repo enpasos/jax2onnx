@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/jax/numpy/squeeze.py
+
 from typing import TYPE_CHECKING
 
 from jax import core
@@ -7,6 +9,11 @@ from onnx import helper
 
 from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+
+import logging
+
+logger = logging.getLogger("jax2onnx.converter.function_handling")
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -136,6 +143,9 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         var = node_inputs[0]
         var_name = s.get_var_name(var)
         input_shape = s.symbolic_shapes.get(var_name, var.aval.shape)
+        logger.debug(
+            f"SqueezePlugin.to_onnx: input_name={input_name}, input_shape={input_shape}, axes={axes}"
+        )
 
         # Normalize axes into positive indices; collect any symbolic axes
         normalized_axes = []

@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import logging
 import numpy as np
 import onnx
 from jax.extend.core import Literal
@@ -19,8 +18,14 @@ from onnx import (
 # === Import name generators ===
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 
+import logging
+
+logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
+
+DIMVAR_STR2SYMBOL: dict[str, str] = {}  # populated by converter
 
 
 def _as_tuple(x):
@@ -68,13 +73,53 @@ ONNX_DTYPE_MAP = {
 }
 
 
-def _symbol_name(dim):
-    """Return a safe, non-empty ONNX dim_param string for a JAX DimVar."""
+def _symbol_name(dim) -> str:
+    logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+    logger.debug(f"_symbol_name called with dim={dim} (type={type(dim).__name__})")
+
     if isinstance(dim, str):
+        logger.debug(f"  → returning string dim: {dim}")
         return dim
-    if hasattr(dim, "symbol"):
-        return str(dim.symbol) or "S"
-    return ""
+    elif isinstance(dim, int):
+        logger.debug(f"  → returning integer dim as string: {dim}")
+        return str(dim)
+    elif hasattr(dim, "name"):
+        logger.debug(f"  → returning dim.name: {dim.name}")
+        return dim.name
+    elif hasattr(dim, "__str__"):
+        str_val = str(dim)
+        logger.debug(f"  → returning str(dim): {str_val}")
+        return str_val
+    else:
+        fallback = f"dim_{id(dim)}"
+        logger.warning(
+            f"Unexpected dim type: {type(dim)} - falling back to default naming: {fallback}"
+        )
+        return fallback
+
+
+def _canonical_symbol(builder, dim):
+    """Return either an int or a user-friendly symbolic name."""
+    if isinstance(dim, int):
+        return dim
+    name = getattr(builder, "symbol_name_for_dim", {}).get(id(dim))
+    if name is not None:
+        return name
+    # fall back to legacy behaviour
+    return _symbol_name(dim)
+
+
+def _resolve_symbol(builder, dim):
+    """Return a user-friendly symbolic name for an ONNX dim or None."""
+    # 1) exact object match
+    if dim in builder.var_to_symbol_map:
+        return builder.var_to_symbol_map[dim]
+    # 2) same object *id* (Var has been copied)
+    key = builder.var_to_symbol_map.get(id(dim))
+    if key is not None:
+        return key
+    # 3) same repr() string
+    return builder.var_to_symbol_map.get(str(dim))
 
 
 def _to_dim_proto_val(dim):
@@ -94,33 +139,6 @@ def _to_dim_proto_val(dim):
         return True, str(dim.symbol)
     # Fallback
     return True, ""
-
-
-def make_value_info(name, shape, dtype):
-    from onnx import TensorShapeProto, TypeProto, ValueInfoProto, TensorProto
-
-    vi = ValueInfoProto()
-    vi.name = name
-
-    tensor_type = TypeProto.Tensor()
-    tensor_type.elem_type = (
-        dtype
-        if isinstance(dtype, int)
-        else ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
-    )
-
-    tensor_shape = TensorShapeProto()
-    for dim in shape:
-        dim_proto = TensorShapeProto.Dimension()
-        if isinstance(dim, int):
-            dim_proto.dim_value = dim
-        else:
-            dim_proto.dim_param = _symbol_name(dim)
-        tensor_shape.dim.append(dim_proto)
-
-    tensor_type.shape.CopyFrom(tensor_shape)
-    vi.type.tensor_type.CopyFrom(tensor_type)
-    return vi
 
 
 class OnnxBuilder:
@@ -157,8 +175,49 @@ class OnnxBuilder:
         ] = {}
         self.dtype_env: dict[str, onnx.TensorProto.DataType] = {}
         self.value_info_origin: dict[str, str] = {}  # Initialize value_info_origin
-
+        self.dimvar_to_name = {}  # Initialize mapping explicitly
+        self.dimvar_to_name_by_str = {}  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
+
+    def make_value_info(self, name: str, shape: tuple, dtype: Any):
+        from onnx import TensorShapeProto, TypeProto, ValueInfoProto, TensorProto
+        import logging
+
+        logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
+        vi = ValueInfoProto()
+        vi.name = name
+
+        tensor_type = TypeProto.Tensor()
+        tensor_type.elem_type = (
+            dtype
+            if isinstance(dtype, int)
+            else ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
+        )
+
+        logger.debug(
+            f"🔍 make_value_info for '{name}' with shape={shape}, dtype={dtype}"
+        )
+
+        tensor_shape = TensorShapeProto()
+        for i, dim in enumerate(shape):
+            dim_proto = TensorShapeProto.Dimension()
+            if isinstance(dim, int):
+                dim_proto.dim_value = dim
+                logger.debug(f"  - dim[{i}] = {dim} (int value)")
+            else:
+                friendly = _resolve_symbol(self, dim)
+                if friendly is None:
+                    friendly = _symbol_name(dim)  # ← current fallback
+                dim_proto.dim_param = friendly
+                logger.debug(f"  - dim[{i}] = {dim} (type={type(dim).__name__})")
+                logger.debug(f"    → final dim_param = '{friendly}'")
+
+            tensor_shape.dim.append(dim_proto)
+
+        tensor_type.shape.CopyFrom(tensor_shape)
+        vi.type.tensor_type.CopyFrom(tensor_type)
+        return vi
 
     def register_value_info_metadata(
         self,
@@ -176,10 +235,43 @@ class OnnxBuilder:
             dtype: Data type of the variable (NumPy dtype or ONNX TensorProto enum).
             origin: Optional description of the metadata's origin.
         """
+        import logging
+
+        logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
+        logger.debug(
+            f"🔍 [register_value_info_metadata] name={name}, shape={shape} (type={type(shape).__name__}), dtype={dtype}"
+        )
+
+        # Log each dimension's type to help identify problematic dimensions
+        if shape:
+            for i, dim in enumerate(shape):
+                logger.debug(f"  - shape[{i}] = {dim} (type={type(dim).__name__})")
+
+                # Check if dim is in dimvar_to_name mapping
+                if hasattr(self, "dimvar_to_name") and dim in self.dimvar_to_name:
+                    logger.debug(
+                        f"    ✓ Found in dimvar_to_name: {self.dimvar_to_name[dim]}"
+                    )
+
+                # Check string-based mapping
+                if (
+                    hasattr(self, "dimvar_to_name_by_str")
+                    and str(dim) in self.dimvar_to_name_by_str
+                ):
+                    logger.debug(
+                        f"    ✓ Found in dimvar_to_name_by_str: {self.dimvar_to_name_by_str[str(dim)]}"
+                    )
+
         # Use symbolic shape if available
         sym = getattr(self, "converter", None)
         if sym and hasattr(sym, "symbolic_shapes"):
+            old_shape = shape
             shape = sym.symbolic_shapes.get(name, shape)
+            if shape != old_shape:
+                logger.debug(
+                    f"  → Shape overridden from symbolic_shapes: {old_shape} → {shape}"
+                )
 
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
@@ -294,7 +386,7 @@ class OnnxBuilder:
         shape = _as_tuple(shape)
 
         # Use our centralized make_value_info function for consistency
-        tensor_def = make_value_info(name, shape, dtype)
+        tensor_def = self.make_value_info(name, shape, dtype)
         collection.append(tensor_def)
 
     def add_input(
@@ -325,7 +417,7 @@ class OnnxBuilder:
         if sym and hasattr(sym, "symbolic_shapes"):
             shape = sym.symbolic_shapes.get(name, shape)
 
-        vi = make_value_info(name, shape, dtype)
+        vi = self.make_value_info(name, shape, dtype)
 
         # Enrich doc_string if we have origin info
         origin = self.value_info_origin.get(name)
@@ -454,7 +546,7 @@ class OnnxBuilder:
 
         # Otherwise use the make_value_info logic for consistency
         # Create a dummy tensor and extract its dtype
-        dummy_info = make_value_info("dummy", (), dtype)
+        dummy_info = self.make_value_info("dummy", (), dtype)
         return dummy_info.type.tensor_type.elem_type
 
     def add_function(
@@ -903,8 +995,18 @@ class OnnxBuilder:
             The name of the registered scalar input.
         """
         shape = ()
-        value_info = make_value_info(name, shape, dtype)
+        value_info = self.make_value_info(name, shape, dtype)
         self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
         logging.debug(f"Added scalar parameter input: {name} (dtype: {dtype})")
         return name
+
+    def _dim_to_symbol(self, d):
+        if isinstance(d, int):
+            return d
+        s = self._dimvar_to_name_by_str.get(str(d))
+        if s:  # found via string key
+            return s
+        if hasattr(d, "symbol") and d.symbol:
+            return str(d.symbol)
+        return _symbol_name(d)  # final fallback
