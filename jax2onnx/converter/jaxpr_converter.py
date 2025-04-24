@@ -28,6 +28,7 @@ from jax2onnx.plugin_system import (
     import_all_plugins,
 )
 from jax2onnx.converter.onnx_builder import _symbol_name, _canonical_symbol
+from jax2onnx.utils.debug import sdebug
 
 
 class Jaxpr2OnnxConverter:
@@ -291,6 +292,7 @@ class Jaxpr2OnnxConverter:
         self.builder.var_to_symbol_map[id(d)] = sym
         self.builder.var_to_symbol_map[str(d)] = sym
 
+        logger.debug("[dim_to_symbol] %s (%s)  →  %s", d, type(d).__name__, sym)
         return sym  # <— now make_value_info gets "B" (or '__sym0')
 
         # Step	Description	Dynamic Dim Handling
@@ -344,7 +346,11 @@ class Jaxpr2OnnxConverter:
         abstracted_axes = tuple(
             (
                 tuple(
-                    _symbol_name(dim) if not isinstance(dim, int) else None
+                    (
+                        _symbol_name(self.builder, dim)
+                        if not isinstance(dim, int)
+                        else None
+                    )
                     for dim in arg.shape
                 )
                 if hasattr(arg, "shape")
@@ -523,7 +529,7 @@ class Jaxpr2OnnxConverter:
             shape = tuple(
                 (
                     self._dimvar_to_name.get(
-                        d, getattr(d, "symbol", None) or _symbol_name(d)
+                        d, getattr(d, "symbol", None) or _symbol_name(self.builder, d)
                     )
                     if not isinstance(d, int)
                     else d

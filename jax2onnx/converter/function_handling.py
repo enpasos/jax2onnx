@@ -350,6 +350,15 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
     This function creates a child ONNX builder and converter, ensuring symbolic
     dimensions are properly propagated from parent to child.
     """
+    logger.debug(
+        "⇢ enter @onnx_function  (parent symbols: %s)",
+        (
+            parent_builder.var_to_symbol_map
+            if hasattr(parent_builder, "var_to_symbol_map")
+            else {}
+        ),
+    )
+
     # ------------------------------------------------------------------ #
     # 1.  Create a *child* builder, but seed it with the symbol aliases   #
     #     already discovered for the outer graph so that the original     #
@@ -363,11 +372,24 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
         converter=converter,  # Pass converter reference
     )
 
-    # ──► propagate var ⇢ symbol aliases to preserve symbolic dimensions
-    if hasattr(parent_builder, "var_to_symbol_map") and hasattr(
-        sub_builder, "var_to_symbol_map"
-    ):
+    # ─────────────────────────  DEBUG / bookkeeping  ────────────────
+    if not hasattr(sub_builder, "var_to_symbol_map"):
+        sub_builder.var_to_symbol_map = {}
+
+    if hasattr(parent_builder, "var_to_symbol_map"):
         sub_builder.var_to_symbol_map.update(parent_builder.var_to_symbol_map)
+
+    for k, v in list(sub_builder.var_to_symbol_map.items()):
+        sub_builder.var_to_symbol_map.setdefault(str(k), v)
+        sub_builder.var_to_symbol_map.setdefault(v, v)
+    logger.debug("   inherited symbols → %s", sub_builder.var_to_symbol_map)
+    # ────────────────────────────────────────────────────────────────
+
+    # Propagate other symbolic dimension related maps
+    if hasattr(parent_builder, "symbolic_shapes") and hasattr(
+        sub_builder, "symbolic_shapes"
+    ):
+        sub_builder.symbolic_shapes.update(parent_builder.symbolic_shapes)
 
     # Optional: keep a link so the Function can fall back to parent map for new aliases
     sub_builder.parent = parent_builder
@@ -376,19 +398,33 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
     # 2.  Create the converter for the Function and propagate symbolic    #
     #     dimension mapping information                                   #
     # ------------------------------------------------------------------ #
+
+    # ──► Create the *Function*-local JaxprConverter and hand over
+    #     its private symbol tables
     sub_converter = converter.__class__(sub_builder)
 
-    # Propagate dimension variable to name mapping
+    # share Var → 'B' table
     if hasattr(converter, "_dimvar_to_name") and hasattr(
         sub_converter, "_dimvar_to_name"
     ):
         sub_converter._dimvar_to_name.update(converter._dimvar_to_name)
 
+    # share the canonical tuple of abstracted axes
+    if hasattr(converter, "symbolic_axes"):
+        sub_converter.symbolic_axes = converter.symbolic_axes
+
+    # make sure to enable shape polymorphism in the sub-converter
+    if hasattr(converter, "use_abstracted_axes"):
+        sub_converter.use_abstracted_axes = converter.use_abstracted_axes
+
+    # (optional) allow the child converter to fall back to the parent
+    sub_converter.parent = converter
+
     # Propagate equation parameters
     params = propagate_eqn_parameters(eqn, params)
     sub_converter.params = params
 
-    # Propagate call parameters if available
+    # Propagate other parameters if available
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
 
