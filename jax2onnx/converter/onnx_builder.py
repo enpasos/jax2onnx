@@ -72,6 +72,35 @@ ONNX_DTYPE_MAP = {
 }
 
 
+# ─── new util helpers ────────────────────────────────────────────────────────
+def _is_unknown_dim(d) -> bool:  # -1 / None / ""  → unknown
+    return d in (-1, None, "")
+
+
+def _is_shape_more_specific(old: tuple, new: tuple) -> bool:
+    """
+    Return *True* iff `new` has the **same rank** and **fewer unknown
+    dimensions** than `old`.  This prevents a 1-D placeholder like
+    (-1,) from being overwritten by an unrelated 3-D shape.
+    """
+    if old == new or len(old) != len(new):
+        return False
+    return sum(_is_unknown_dim(d) for d in new) < sum(_is_unknown_dim(d) for d in old)
+
+
+def _is_shape_more_specific(old: tuple, new: tuple) -> bool:
+    """
+    Return True if `new` refines `old`, e.g. (-1,) → ('B',) or
+    contains concrete ints where the old one had -1 / None.
+    """
+    if len(old) != len(new):
+        return True
+    for o, n in zip(old, new):
+        if o in (-1, None) and n not in (-1, None):
+            return True
+    return False
+
+
 # Convert the method to a standalone function that takes an object and dimension
 def _symbol_name(obj, dim) -> str:
     """Get a symbolic dimension name from a dimension object.
@@ -214,10 +243,12 @@ class OnnxBuilder:
         self.dimvar_to_name = {}  # Initialize mapping explicitly
         self.dimvar_to_name_by_str = {}  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
+        self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
 
     def make_value_info(self, name: str, shape: tuple, dtype: Any):
         from onnx import TensorShapeProto, TypeProto, ValueInfoProto, TensorProto
         import logging
+        import jax
 
         logger = logging.getLogger("jax2onnx.converter.onnx_builder")
 

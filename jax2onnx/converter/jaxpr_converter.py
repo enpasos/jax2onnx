@@ -431,6 +431,16 @@ class Jaxpr2OnnxConverter:
         self.jaxpr = closed.jaxpr
         self.output_vars = self.jaxpr.outvars
 
+        self.logger.debug("🧩 traced jaxpr invars:")
+        for i, invar in enumerate(self.jaxpr.invars):
+            self.logger.debug(
+                "  invar[%d]: %s shape: %s", i, invar, getattr(invar, "aval", None)
+            )
+
+        self.logger.debug("🧠 _dimvar_to_name mapping at this point:")
+        for k, v in self._dimvar_to_name.items():
+            self.logger.debug("  %s → %s", k, v)
+
         # ──────────────────────────────────────────────────────────────────────
         # 5) extend the dim-var ↔ user-symbol table  (***key change***)
         # ──────────────────────────────────────────────────────────────────────
