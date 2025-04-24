@@ -1,6 +1,7 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from typing import Any
+from typing import Any, Dict, Tuple, Sequence
+import logging
 
 import numpy as np
 import onnx
@@ -17,8 +18,6 @@ from onnx import (
 
 # === Import name generators ===
 from jax2onnx.converter.name_generator import UniqueNameGenerator
-
-import logging
 
 logger = logging.getLogger("jax2onnx.converter.onnx_builder")
 
@@ -73,82 +72,87 @@ ONNX_DTYPE_MAP = {
 }
 
 
-def _symbol_name(dim) -> str:
-    logger = logging.getLogger("jax2onnx.converter.onnx_builder")
-    logger.debug(f"_symbol_name called with dim={dim} (type={type(dim).__name__})")
+# Convert the method to a standalone function that takes an object and dimension
+def _symbol_name(obj, dim) -> str:
+    """Get a symbolic dimension name from a dimension object.
 
-    if isinstance(dim, str):
-        logger.debug(f"  → returning string dim: {dim}")
-        return dim
-    elif isinstance(dim, int):
-        logger.debug(f"  → returning integer dim as string: {dim}")
-        return str(dim)
-    elif hasattr(dim, "name"):
-        logger.debug(f"  → returning dim.name: {dim.name}")
-        return dim.name
-    elif hasattr(dim, "__str__"):
-        str_val = str(dim)
-        logger.debug(f"  → returning str(dim): {str_val}")
-        return str_val
+    Args:
+        obj: The object containing var_to_symbol_map (typically OnnxBuilder)
+        dim: The dimension object (could be int, str, or DimVar)
+
+    Returns:
+        A string representation of the dimension
+    """
+    name = str(dim) if not isinstance(dim, str) else dim
+    if hasattr(obj, "var_to_symbol_map"):
+        resolved = obj.var_to_symbol_map.get(dim, obj.var_to_symbol_map.get(str(dim)))
+        final = resolved or name
     else:
-        fallback = f"dim_{id(dim)}"
-        logger.warning(
-            f"Unexpected dim type: {type(dim)} - falling back to default naming: {fallback}"
-        )
-        return fallback
+        final = name
+    # ─────────────  DEBUG  ─────────────
+    logger.debug("[_symbol_name] dim=%s (%s)  →  %s", dim, type(dim).__name__, final)
+    # ──────────────────────────────────
+    return final
 
 
 def _canonical_symbol(builder, dim):
     """Return either an int or a user-friendly symbolic name."""
     if isinstance(dim, int):
         return dim
-    name = getattr(builder, "symbol_name_for_dim", {}).get(id(dim))
-    if name is not None:
-        return name
-    # fall back to legacy behaviour
-    return _symbol_name(dim)
+
+    # First try to get from builder's var_to_symbol_map
+    if hasattr(builder, "var_to_symbol_map"):
+        # Try direct lookup
+        if dim in builder.var_to_symbol_map:
+            return builder.var_to_symbol_map[dim]
+        # Try string lookup
+        if str(dim) in builder.var_to_symbol_map:
+            return builder.var_to_symbol_map[str(dim)]
+
+    # Then try name for dimension by id if available
+    if hasattr(builder, "symbol_name_for_dim"):
+        name = builder.symbol_name_for_dim.get(id(dim))
+        if name is not None:
+            return name
+
+    # Fall back to _symbol_name for compatibility
+    if hasattr(dim, "symbol") and dim.symbol:
+        return str(dim.symbol)
+
+    # For string dimensions, return as is
+    if isinstance(dim, str):
+        return dim
+
+    # Last resort: convert to string
+    return str(dim)
 
 
-def _resolve_symbol(builder, dim):
-    """Return a user-friendly symbolic name for an ONNX dim or None."""
+def _resolve_symbol(obj, dim):
+    """Resolve a symbolic dimension to its canonical name.
 
-    # debug log dim type and value
-    logger.debug(f"_resolve_symbol called with dim={dim} (type={type(dim).__name__})")
+    Args:
+        obj: The object containing var_to_symbol_map (typically OnnxBuilder)
+        dim: The dimension object (could be int, str, or DimVar)
 
-    # PRELUDE – if dim is already a string that *looks* like a JAX Var
-    #            and we know an alias for the underlying object/id,
-    #            create the missing <string> → <symbol> entry on the fly
-    if isinstance(dim, str) and dim.startswith("Var(id="):
-        # extract the numeric id
-        try:
-            obj_id = int(dim.split("Var(id=")[1].split(")")[0])
-        except Exception:
-            obj_id = None
-        if obj_id is not None and obj_id in builder.var_to_symbol_map:
-            sym = builder.var_to_symbol_map[obj_id]
-            # cache the alias so the next lookup hits immediately
-            builder.var_to_symbol_map[dim] = sym
-            logger.debug(f"Created new alias mapping: {dim} → {sym} from extracted ID")
-            return sym
-
-    # 1) exact object match
-    if dim in builder.var_to_symbol_map:
-        logger.debug(
-            f"1) exact object match ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
-        )
-        return builder.var_to_symbol_map[dim]
-    # 2) same object *id* (Var has been copied)
-    key = builder.var_to_symbol_map.get(id(dim))
-    if key is not None:
-        logger.debug(
-            f"2) same object *id* (Var has been copied) ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
-        )
-        return key
-    # 3) same repr() string
+    Returns:
+        The resolved symbolic name or str(dim) if not found
+    """
+    # first pass through the fast-path
+    if hasattr(obj, "var_to_symbol_map"):
+        resolved = obj.var_to_symbol_map.get(dim, obj.var_to_symbol_map.get(str(dim)))
+        final = resolved or str(dim)
+    else:
+        final = str(dim)
+    # ─────────────  DEBUG  ─────────────
     logger.debug(
-        f"3) same repr() string ... builder.var_to_symbol_map: {builder.var_to_symbol_map}"
+        "[_resolve_symbol] %s (%s)  →  %s   (table=%s)",
+        dim,
+        type(dim).__name__,
+        final,
+        getattr(obj, "var_to_symbol_map", {}),
     )
-    return builder.var_to_symbol_map.get(str(dim))
+    # ──────────────────────────────────
+    return final
 
 
 def _to_dim_proto_val(dim):
@@ -237,7 +241,7 @@ class OnnxBuilder:
             else:
                 friendly = _resolve_symbol(self, dim)
                 if friendly is None:
-                    friendly = _symbol_name(dim)  # ← current fallback
+                    friendly = _symbol_name(self, dim)  # ← current fallback
                 dim_proto.dim_param = friendly
                 logger.debug(f"  - dim[{i}] = {dim} (type={type(dim).__name__})")
                 logger.debug(f"    → final dim_param = '{friendly}'")
@@ -1038,4 +1042,4 @@ class OnnxBuilder:
             return s
         if hasattr(d, "symbol") and d.symbol:
             return str(d.symbol)
-        return _symbol_name(d)  # final fallback
+        return _symbol_name(self, d)  # final fallback
