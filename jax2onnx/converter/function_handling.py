@@ -404,10 +404,9 @@ def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder
     sub_converter = converter.__class__(sub_builder)
 
     # share Var → 'B' table
-    if hasattr(converter, "_dimvar_to_name") and hasattr(
-        sub_converter, "_dimvar_to_name"
-    ):
-        sub_converter._dimvar_to_name.update(converter._dimvar_to_name)
+    if hasattr(converter, "_dimvar_to_name"):
+        # Start with a copy of parent's dimension mapping
+        sub_converter._dimvar_to_name = dict(converter._dimvar_to_name)
 
     # share the canonical tuple of abstracted axes
     if hasattr(converter, "symbolic_axes"):
