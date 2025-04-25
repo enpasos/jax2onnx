@@ -13,7 +13,7 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 import logging
 
-logger = logging.getLogger("jax2onnx.converter.function_handling")
+logger = logging.getLogger("jax2onnx.plugins.jax.numpy.squeeze")
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter

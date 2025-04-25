@@ -551,6 +551,25 @@ class OnnxBuilder:
             raise RuntimeError(
                 f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
             )
+
+        # ──────────────────────────────────────────────────────────────
+        # NEW: make sure graph *outputs* carry the refined (symbolic)
+        #      shapes that live in self.value_info_metadata
+        # ──────────────────────────────────────────────────────────────
+        # fixed_outputs: list[onnx.ValueInfoProto] = []
+        # from onnx import helper as _h
+        #
+        # for vi in self.outputs:
+        #     if vi.name in self.value_info_metadata:
+        #         shape, dtype = self.value_info_metadata[vi.name]
+        #         fixed_outputs.append(_h.make_tensor_value_info(vi.name, dtype, shape))
+        #     else:
+        #         # nothing special recorded → keep the original
+        #         fixed_outputs.append(vi)
+        #
+        # # replace in-place so the rest of the builder sees the update
+        # self.outputs[:] = fixed_outputs
+
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
