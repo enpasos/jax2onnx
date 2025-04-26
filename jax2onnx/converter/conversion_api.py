@@ -83,7 +83,6 @@ def to_onnx(
         # Removed var_to_symbol_name_map from here
     )
     # Set the map as an attribute *after* initialization
-    # OnnxBuilder has self.var_to_symbol_map, we are assigning the computed one.
     builder.var_to_symbol_map = var_to_symbol_map
     logger.debug(f"Set builder.var_to_symbol_map: {builder.var_to_symbol_map}")
 

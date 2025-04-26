@@ -524,3 +524,62 @@ class Jaxpr2OnnxConverter:
             self.logger.debug(
                 "Registered %d primitive handlers", len(self.primitive_handlers)
             )
+
+    def _process_eqn(self, eqn: Any) -> None:
+        """Process a single JAXPR equation by dispatching to the appropriate plugin handler."""
+
+        if not hasattr(eqn, "primitive"):
+            # Should not happen for standard jaxprs, maybe handle call primitives?
+            self.logger.warning(
+                f"Equation type without 'primitive' attribute encountered: {type(eqn)}. Skipping: {eqn}"
+            )
+            return
+
+        primitive = eqn.primitive
+        name = primitive.name
+
+        # Check if it's handled by function plugins first (if applicable)
+        is_function_handler = (
+            name in ONNX_FUNCTION_PLUGIN_REGISTRY
+        )  # Use the actual registry name
+
+        handler = self.primitive_handlers.get(name)
+        if handler is None:
+            raise NotImplementedError(
+                f"No ONNX handler registered for JAX primitive: '{name}'"
+            )
+
+        self.logger.debug(f"Processing eqn for primitive: {name}")
+        try:
+            # Call the handler (typically a method on the plugin instance or a lambda)
+            # The handler expects: self (converter), eqn object, params dict
+            handler(self, eqn, eqn.params)  # Pass self, eqn, params
+        except Exception as e:
+            self.logger.error(
+                f"Error processing primitive '{name}' with handler {handler}. Eqn: {eqn}",
+                exc_info=True,
+            )
+            raise RuntimeError(f"Failed processing primitive '{name}'") from e
+
+        # --- Handle output shapes for non-function primitives ---
+        # (This logic might need refinement based on how function plugin outputs are handled)
+        # Register shape info for the output variables of this equation
+        # Use the safe dim-to-symbol conversion
+        if not is_function_handler:  # Only for leaf primitives?
+            for outvar in eqn.outvars:
+                if (
+                    outvar is not None
+                    and hasattr(outvar, "aval")
+                    and hasattr(outvar.aval, "shape")
+                ):
+                    output_name = self.get_name(outvar)  # Get ONNX name
+                    # Use the potentially symbolic shape from the aval
+                    shape_tuple = tuple(
+                        self._dim_to_symbol_safe(d) for d in outvar.aval.shape
+                    )
+                    dtype = outvar.aval.dtype
+                    # Add shape info to the builder
+                    self.add_shape_info(output_name, shape_tuple, dtype)
+                else:
+                    # Handle literals or vars without shape info if necessary
+                    pass
