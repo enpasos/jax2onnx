@@ -1,41 +1,36 @@
+# In file: jax2onnx/converter/conversion_api.py
+
 # Keep existing imports
 from typing import Any, Dict, Sequence, Tuple, Union, List  # Add List
 import onnx
 import logging
-
-# Assuming _create_symbolic_input_avals is moved or imported correctly
-from jax2onnx.converter.dynamic_utils import _create_symbolic_input_avals
+from jax2onnx.converter.dynamic_utils import (
+    _create_symbolic_input_avals,
+)  # Import the helper
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
-
-# Keep jax imports
 import jax
-import jax.export as export
+import jax.export as export  # Keep this import
 import jax.numpy as jnp
 from jax import ShapeDtypeStruct, core  # Keep core
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
-# Remove or keep prepare_example_args depending on whether it's still needed
-# for non-symbolic paths or backwards compatibility. If solely focusing on
-# the new symbolic path, it might be removable later.
-# def prepare_example_args(...): ...
 
-# Keep _create_symbolic_input_avals if defined here, or ensure it's imported
-# from dynamic_utils.py
+# Remove or comment out the old prepare_example_args if no longer needed
+# def prepare_example_args(...): ...
 
 
 def to_onnx(
     fn: Any,
-    # Modify signature: Assume 'inputs' is list of shapes for now
-    # Or adjust based on how user_interface passes it
+    # Assume 'inputs' is passed as a list/sequence of shape tuples
     inputs: Sequence[Sequence[Union[int, str]]],
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
-    default_dtype: Any = jnp.float32,  # Add default dtype parameter
+    default_dtype: Any = jnp.float32,  # Default dtype if not specified otherwise
     # ... other parameters ...
 ) -> onnx.ModelProto:
     """
@@ -51,17 +46,17 @@ def to_onnx(
 
     # --- Step 0: Format input_specs ---
     # Create the list of (shape, dtype) tuples needed by the helper
+    # This assumes 'inputs' is a list of shapes and uses default_dtype.
+    # Future enhancement: Allow user to pass [(shape, dtype), ...] directly.
     try:
         input_specs: List[Tuple[Sequence[Union[int, str]], Any]] = []
         for shape_spec in inputs:
             # Ensure shape_spec is a tuple/list before processing
             if not isinstance(shape_spec, (tuple, list)):
-                shape_spec = (
-                    shape_spec,
-                )  # Handle scalar shapes like (B,) passed as "B"
-            input_specs.append(
-                (tuple(shape_spec), default_dtype)
-            )  # Pair shape with default dtype
+                # Handle scalar shapes like (B,) potentially passed as just "B"
+                shape_spec = (shape_spec,)
+            # Pair the processed shape tuple with the default dtype
+            input_specs.append((tuple(shape_spec), default_dtype))
     except Exception as e:
         logger.error(
             f"Failed to format input shapes/dtypes. Input: {inputs}. Error: {e}",
@@ -74,15 +69,17 @@ def to_onnx(
     logger.debug(f"Formatted input_specs: {input_specs}")
 
     # --- Step 1: Prepare Abstract Inputs with Symbolic Dimensions ---
+    # Call the helper function (defined in dynamic_utils.py)
     symbolic_avals, var_to_symbol_map = _create_symbolic_input_avals(input_specs)
 
     # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
+    # Pass the reverse map (symbol obj -> name str) to the builder
     builder = OnnxBuilder(
         unique_name_generator,
         opset=opset,
         converter=None,
-        var_to_symbol_name_map=var_to_symbol_map,
+        var_to_symbol_name_map=var_to_symbol_map,  # Pass map for later ONNX mapping
     )
     converter = Jaxpr2OnnxConverter(builder)
     builder.converter = converter
@@ -90,11 +87,10 @@ def to_onnx(
     converter.call_params = input_params or {}
 
     # --- Step 2: Trace the function using Symbolic Avals ---
-    # Reminder: converter.trace_jaxpr needs modification next
+    # Reminder: converter.trace_jaxpr needs modification next to accept symbolic_avals
     logger.info("Initiating JAX tracing with symbolic abstract values...")
-    converter.trace_jaxpr(
-        fn, symbolic_avals, params=input_params
-    )  # Pass symbolic_avals
+    # *** NEXT STEP: Modify converter.trace_jaxpr to accept symbolic_avals ***
+    converter.trace_jaxpr(fn, symbolic_avals, params=input_params)
     logger.info("JAX tracing finished.")
 
     # --- Step 3: Build and Optimize ONNX model ---
