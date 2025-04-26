@@ -71,7 +71,7 @@ def to_onnx(
 
     return to_onnx_impl(
         fn=fn,
-        input_shapes=input_shapes,
+        inputs=input_shapes,
         input_params=input_params,
         model_name=model_name,
         opset=opset,

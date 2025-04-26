@@ -54,12 +54,6 @@ if not hasattr(jnp, "concat_p"):
             "input_shapes": [("B", 1, 8), ("B", 10, 8)],
             "expected_output_shapes": [("B", 11, 8)],
         },
-        {
-            "testcase": "concat_abstract_middle_dim_dynamic",
-            "callable": lambda a, b: jnp.concatenate((a, b), axis=1),
-            "input_shapes": [("B", 1, 8), ("B", 10, 8)],
-            "expected_output_shapes": [("B", 11, 8)],
-        },
     ],
 )
 class ConcatPlugin(PrimitiveLeafPlugin):
