@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/conversion_api.py
+
 """
 Conversion API Module
 
@@ -5,12 +7,13 @@ This module provides the core API functions for converting JAX functions and mod
 It serves as the implementation layer for the public API exposed through user_interface.py.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Sequence, Tuple, Union
 
 import onnx
 
 import logging
 
+from jax2onnx.converter.dynamic_utils import _create_symbolic_input_avals
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -18,6 +21,8 @@ from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 import jax.export as export
 import jax.numpy as jnp
 from jax import ShapeDtypeStruct
+
+logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
 
 def prepare_example_args(input_shapes, default_batch_size=2):
@@ -81,54 +86,59 @@ def prepare_example_args(input_shapes, default_batch_size=2):
 
 def to_onnx(
     fn: Any,
-    input_shapes: Any,
+    # Change signature: 'inputs' likely holds [(shape, dtype), ...] structure
+    inputs: Sequence[
+        Tuple[Sequence[Union[int, str]], Any]
+    ],  # Or adjust based on actual input structure
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
+    # ... other parameters ...
 ) -> onnx.ModelProto:
     """
-    Converts a JAX function into an ONNX model.
-
-    This is the core implementation of the conversion process. It traces the JAX function,
-    captures its computational graph as JAXPR, and then converts it to the ONNX format.
-
-    Args:
-        fn: JAX function to convert.
-        input_shapes: Shapes of the inputs to the function.
-        input_params: Additional parameters for inference (optional). These will be
-                     converted to ONNX model inputs rather than baked into the model.
-        model_name: Name of the ONNX model.
-        opset: ONNX opset version to use.
-
-    Returns:
-        An ONNX ModelProto object representing the converted model.
+    Converts a JAX function into an ONNX model. (Docstring potentially updated)
     """
-    # Generate concrete example arguments based on provided shapes
-    example_args, var_to_symbol_map = prepare_example_args(input_shapes)
+    logger.info(f"Starting JAX to ONNX conversion for '{model_name}'")
+    logger.debug(f"Received inputs spec: {inputs}")
+    logger.debug(
+        f"Received input_params: {input_params.keys() if input_params else 'None'}"
+    )
 
+    # --- Step 1: Prepare Abstract Inputs with Symbolic Dimensions ---
+    # Assuming 'inputs' is the validated list like [(shape_tuple, dtype), ...]
+    # If 'inputs' has a different structure, adjust the call accordingly.
+    symbolic_avals, var_to_symbol_map = _create_symbolic_input_avals(inputs)
+
+    # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
+    # Pass the reverse map to the builder/converter for later use in ONNX mapping
     builder = OnnxBuilder(
-        unique_name_generator, opset=opset, converter=None
-    )  # Will set converter below
+        unique_name_generator,
+        opset=opset,
+        converter=None,
+        var_to_symbol_name_map=var_to_symbol_map,  # Pass the map here
+    )
     converter = Jaxpr2OnnxConverter(builder)
-    builder.converter = converter  # Ensure builder has back-reference
+    builder.converter = converter
 
-    # single source-of-truth dict lives on the builder
-    builder.symbol_name_for_dim = {id(k): v for k, v in var_to_symbol_map.items()}
-
-    # Store the parameters that should be exposed as inputs in the ONNX model
     converter.call_params = input_params or {}
 
-    # Trace the function to capture its structure
-    # Pass the input_params explicitly to the trace_jaxpr function
-    # This ensures parameters affect the JAX call graph during tracing
-    converter.trace_jaxpr(fn, example_args, params=input_params)
+    # --- Step 2: Trace the function using Symbolic Avals ---
+    # Note: converter.trace_jaxpr needs to be modified next to *accept*
+    # symbolic_avals directly instead of example_args / input_shapes.
+    logger.info("Initiating JAX tracing with symbolic abstract values...")
+    converter.trace_jaxpr(
+        fn, symbolic_avals, params=input_params
+    )  # Pass symbolic_avals
+    logger.info("JAX tracing finished.")
 
-    # Continue with the normal conversion process
+    # --- Step 3: Build and Optimize ONNX model ---
+    logger.info("Building ONNX model...")
     builder.filter_unused_initializers()
-
     model = builder.create_onnx_model(model_name)
+    logger.info("Optimizing ONNX model...")
     model = improve_onnx_model(model)
+    logger.info("ONNX model conversion complete.")
 
     return model
 
@@ -143,7 +153,7 @@ def analyze_constants(model: onnx.ModelProto):
     Args:
         model: The ONNX model to analyze.
     """
-    logging.info("\n🔍 Constant Analysis Report (Verbose)")
+    logger.info("\n🔍 Constant Analysis Report (Verbose)")
     graph = model.graph
     graph_inputs = {inp.name for inp in graph.input}
     initializers = {init.name for init in graph.initializer}
@@ -151,19 +161,19 @@ def analyze_constants(model: onnx.ModelProto):
         node.output[0]: node for node in graph.node if node.op_type == "Constant"
     }
     function_names = {f.name for f in model.functions}
-    logging.info("\n📦 Top-Level Inputs:")
+    logger.info("\n📦 Top-Level Inputs:")
     for inp in graph.input:
-        logging.info(f"  - {inp.name}")
-    logging.info("\n🧊 Initializers (Style 2):")
+        logger.info(f"  - {inp.name}")
+    logger.info("\n🧊 Initializers (Style 2):")
     for init in graph.initializer:
-        logging.info(f"  - {init.name}")
-    logging.info("\n🧱 Constant Nodes in Main Graph (Style 2):")
+        logger.info(f"  - {init.name}")
+    logger.info("\n🧱 Constant Nodes in Main Graph (Style 2):")
     for name in const_nodes:
-        logging.info(f"  - {name}")
-    logging.info("\n🧩 Function Call Inputs:")
+        logger.info(f"  - {name}")
+    logger.info("\n🧩 Function Call Inputs:")
     for node in graph.node:
         if node.op_type in function_names:
-            logging.info(f"\n▶ Function Call: {node.op_type}")
+            logger.info(f"\n▶ Function Call: {node.op_type}")
             for inp in node.input:
                 style = "Unknown/Intermediate"
                 if inp in initializers:
@@ -172,9 +182,9 @@ def analyze_constants(model: onnx.ModelProto):
                     style = "Style 1 (passed in as input)"
                 elif inp in const_nodes:
                     style = "Style 2 (constant node)"
-                logging.info(f"  - {inp} → {style}")
-    logging.info("\n🔗 Constant Usage Map:")
+                logger.info(f"  - {inp} → {style}")
+    logger.info("\n🔗 Constant Usage Map:")
     for node in graph.node:
         for inp in node.input:
             if inp.startswith("const_") or inp.startswith("var_"):
-                logging.info(f"  - {inp} used in {node.op_type}")
+                logger.info(f"  - {inp} used in {node.op_type}")

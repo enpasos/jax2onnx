@@ -2,9 +2,11 @@
 
 import functools
 from typing import Callable, Any
-from jax import core
+from jax import Array, core
 import logging
 import jax.numpy as jnp  # Need jnp for default axis value potentially
+from jax.extend.core import Primitive
+import numpy as np
 
 logger_wrapper = logging.getLogger("jax2onnx.PatchedCallableWrapper")
 
@@ -12,7 +14,7 @@ logger_wrapper = logging.getLogger("jax2onnx.PatchedCallableWrapper")
 class PatchedCallableWrapper:
     """Wraps an original function to bind a primitive, passing the original."""
 
-    def __init__(self, original_fn: Callable, primitive: core.Primitive):
+    def __init__(self, original_fn: Callable, primitive: Primitive):
         self._original_fn = original_fn
         self._primitive = primitive
         # Copy metadata for better introspection/debugging
@@ -42,7 +44,7 @@ class PatchedCallableWrapper:
         if not isinstance(arrays_tuple, (tuple, list)):
             # Allow single array input, treat as sequence of one
             if isinstance(
-                arrays_tuple, (np.ndarray, jax.Array, core.Tracer, core.ShapedArray)
+                arrays_tuple, (np.ndarray, Array, core.Tracer, core.ShapedArray)
             ):
                 logger_wrapper.debug(
                     "Single array passed to concatenate, wrapping in tuple."
