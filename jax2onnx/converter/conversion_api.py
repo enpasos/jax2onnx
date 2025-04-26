@@ -69,25 +69,32 @@ def to_onnx(
     logger.debug(f"Formatted input_specs: {input_specs}")
 
     # --- Step 1: Prepare Abstract Inputs with Symbolic Dimensions ---
-    # Call the helper function (defined in dynamic_utils.py)
+    # (Assumes this part is now correct)
     symbolic_avals, var_to_symbol_map = _create_symbolic_input_avals(input_specs)
 
     # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
-    # Pass the reverse map (symbol obj -> name str) to the builder
+
+    # Initialize OnnxBuilder *without* the map argument
     builder = OnnxBuilder(
         unique_name_generator,
         opset=opset,
         converter=None,
-        var_to_symbol_name_map=var_to_symbol_map,  # Pass map for later ONNX mapping
+        # Removed var_to_symbol_name_map from here
     )
+    # Set the map as an attribute *after* initialization
+    # OnnxBuilder has self.var_to_symbol_map, we are assigning the computed one.
+    builder.var_to_symbol_map = var_to_symbol_map
+    logger.debug(f"Set builder.var_to_symbol_map: {builder.var_to_symbol_map}")
+
+    # Initialize Converter and link back (no change here)
     converter = Jaxpr2OnnxConverter(builder)
     builder.converter = converter
 
     converter.call_params = input_params or {}
 
     # --- Step 2: Trace the function using Symbolic Avals ---
-    # Reminder: converter.trace_jaxpr needs modification next to accept symbolic_avals
+    # Reminder: converter.trace_jaxpr needs modification next
     logger.info("Initiating JAX tracing with symbolic abstract values...")
     # *** NEXT STEP: Modify converter.trace_jaxpr to accept symbolic_avals ***
     converter.trace_jaxpr(fn, symbolic_avals, params=input_params)
