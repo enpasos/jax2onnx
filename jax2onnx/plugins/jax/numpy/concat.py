@@ -13,6 +13,8 @@ from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 import logging
 import numpy as np
+
+from jax import export
 from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.concat")
@@ -63,189 +65,86 @@ class ConcatPlugin(PrimitiveLeafPlugin):
     on the original function passed via params.
     """
 
-    # In file: jax2onnx/plugins/jax/numpy/concat.py
-    # Inside class ConcatPlugin:
-
     @staticmethod
-    def abstract_eval(*avals, **params):  # Keep **params to receive axis
+    def abstract_eval(*avals, **params):  # Signature receives *avals and **params
         """
-        Performs abstract evaluation manually, assuming input dimension objects
-        (in aval.shape) support required arithmetic and comparison.
-        Replicates expected JAX internal logic for concatenate.
+        Performs abstract evaluation by retrieving the original function
+        from params and calling jax.eval_shape. (Re-testing this approach).
         """
-        import jax
-        import jax.numpy as jnp
-        from jax import core
-        import logging
-        import numpy as np
+        logger.debug("ConcatPlugin: Entering abstract_eval (eval_shape attempt)")
+        logger.debug(f"Received avals: {avals}")
+        logger.debug(f"Received params: {params.keys()}")
 
-        logger = logging.getLogger("jax2onnx.plugins.jax.numpy.concat")
+        # --- Retrieve original function and axis from params ---
+        if "_original_fn" not in params:
+            raise ValueError("'_original_fn' not found in abstract_eval params.")
+        original_fn = params["_original_fn"]
 
-        # --- Extract axis from params ---
-        # (Assumes PatchedCallableWrapper is still in use for now to pass params)
         if "axis" not in params:
-            raise ValueError("'axis' parameter not found in abstract_eval params.")
+            raise ValueError("'axis' not found in abstract_eval params.")
         axis = params["axis"]
 
-        logger.debug(
-            "ConcatPlugin: Entering abstract_eval (Manual Calculation - Final)"
-        )
-        logger.debug(f"Received axis: {axis} (type: {type(axis)})")
-        logger.debug(f"Received *avals tuple (length {len(avals)}): {avals}")
+        # Ensure axis is concrete integer (check just in case)
+        if isinstance(axis, core.Tracer):
+            raise TypeError("Axis cannot be tracer in abstract_eval params.")
+        if not isinstance(axis, int):
+            try:
+                axis = int(axis)
+            except Exception:
+                raise TypeError(f"Axis param must be int, got {type(axis)}")
 
-        # --- Input Validation and Aval Extraction ---
+        # The inputs *avals are already the abstract values
+        if not all(isinstance(a, core.AbstractValue) for a in avals):
+            logger.error(
+                f"Received non-AbstractValue arguments in *avals: {[type(a) for a in avals]}"
+            )
+            raise TypeError("Inputs to abstract_eval must be AbstractValue instances.")
         if not avals:
             raise ValueError(
                 "abstract_eval received no AbstractValue arguments in *avals."
             )
-        if not all(isinstance(a, core.AbstractValue) for a in avals):
-            logger.error(
-                f"Received non-AbstractValue arguments: {[type(a) for a in avals]}"
-            )
-            raise TypeError("Inputs to abstract_eval must be AbstractValue instances.")
 
-        first_aval = avals[0]
-
-        # --- Dtype Resolution ---
-        try:
-            output_dtype = jnp.result_type(*[a.dtype for a in avals])
-        except Exception as e:
-            logger.warning(
-                f"Could not compute result_type, falling back to first aval dtype. Error: {e}"
-            )
-            output_dtype = first_aval.dtype
-
-        # --- Shape Calculation ---
-        if not hasattr(first_aval, "ndim") or not hasattr(first_aval, "shape"):
-            raise TypeError(f"Input aval {first_aval} does not have ndim or shape.")
-        rank = first_aval.ndim
-
-        # Verify ranks match
-        for i, aval in enumerate(avals[1:], 1):
-            if not hasattr(aval, "ndim") or aval.ndim != rank:
-                all_shapes_repr = [repr(getattr(a, "shape", "N/A")) for a in avals]
-                raise TypeError(
-                    f"Concatenate inputs must have same rank ({rank}). Got shapes {all_shapes_repr} at index {i}"
-                )
-
-        # Ensure axis is a valid integer
-        if isinstance(axis, core.Tracer):  # Should not happen if from params
-            raise TypeError("Axis for concatenate cannot be a tracer.")
-        if not isinstance(axis, int):
-            try:
-                axis = int(axis)
-            except (ValueError, TypeError):
-                raise TypeError(f"Axis must be an integer, got {type(axis)}")
-        if not -rank <= axis < rank:
-            raise ValueError(f"Axis {axis} out of range for rank {rank}")
-        axis = axis % rank
-
-        # Helper to get dimension object from shape
-        def get_dim(aval, idx):
-            try:
-                # Assume aval.shape contains int or operable symbolic objects (DimVar/_DimExpr)
-                return aval.shape[idx]
-            except IndexError as e:
-                raise ValueError(
-                    f"Cannot access dimension {idx} in shape {aval.shape}"
-                ) from e
-            except TypeError as e:
-                logger.error(
-                    f"TypeError accessing aval.shape[{idx}] for aval {aval}. Shape: {getattr(aval, 'shape', 'N/A')}, Error: {e}"
-                )
-                raise TypeError(f"Cannot index shape of aval {aval}") from e
-
-        output_shape_list = []
-        logger.debug("Calculating output shape dimension by dimension:")
-        for i in range(rank):
-            dims_at_i = [get_dim(aval, i) for aval in avals]
-            logger.debug(
-                f"  Axis {i}: Dimensions = {dims_at_i} (Types: {[type(d) for d in dims_at_i]})"
-            )
-
-            if i == axis:
-                # Concatenation axis: Sum integers, try symbolic math using '+'
-                final_axis_dim = 0
-                for d_idx, d in enumerate(dims_at_i):
-                    try:
-                        logger.debug(
-                            f"    Axis {i} (Concat): Adding dim {d} (type {type(d)}) to current sum {final_axis_dim} (type {type(final_axis_dim)})"
-                        )
-                        if d_idx == 0:
-                            final_axis_dim = d
-                        else:
-                            # Attempt addition - relies on JAX DimVar/_DimExpr supporting '+'
-                            final_axis_dim = final_axis_dim + d
-                        logger.debug(
-                            f"      -> New sum: {final_axis_dim} (type {type(final_axis_dim)})"
-                        )
-                    except TypeError as e:
-                        logger.error(
-                            f"    Failed adding dimensions on axis {i}: {final_axis_dim} + {d}. Error: {e}"
-                        )
-                        raise TypeError(
-                            f"Cannot add dimensions of type {type(final_axis_dim)} and {type(d)} on axis {i}"
-                        ) from e
-                    except Exception as e:
-                        logger.error(
-                            f"    Unexpected error adding dimensions on axis {i}: {final_axis_dim} + {d}. Error: {e}",
-                            exc_info=True,
-                        )
-                        raise
-                output_shape_list.append(final_axis_dim)
-                logger.debug(f"  Axis {i} (Concat) Result: {final_axis_dim}")
-
-            else:
-                # Non-concatenation axis: Check consistency using '=='
-                representative_dim = dims_at_i[0]
-                for k in range(1, len(dims_at_i)):
-                    current_dim = dims_at_i[k]
-                    try:
-                        # Attempt comparison - relies on JAX DimVar/_DimExpr supporting '=='
-                        logger.debug(
-                            f"    Axis {i} (Non-Concat): Comparing {representative_dim} ({type(representative_dim)}) == {current_dim} ({type(current_dim)})"
-                        )
-                        are_equal = representative_dim == current_dim
-                        logger.debug(f"      -> Comparison result: {are_equal}")
-                        if not are_equal:
-                            raise TypeError(
-                                f"Concat incompatible dimensions at non-concat axis {i}: "
-                                f"{representative_dim} vs {current_dim}"
-                            )
-                    except TypeError as e:
-                        logger.error(
-                            f"    Failed comparing dimensions {representative_dim} ({type(representative_dim)}) and "
-                            f"{current_dim} ({type(current_dim)}) on axis {i}: {e}"
-                        )
-                        raise TypeError(f"Cannot compare dimensions on axis {i}") from e
-                    except Exception as e:
-                        logger.error(
-                            f"    Unexpected error comparing dimensions on axis {i}: {representative_dim} vs {current_dim}. Error: {e}",
-                            exc_info=True,
-                        )
-                        raise
-                output_shape_list.append(representative_dim)
-                logger.debug(f"  Axis {i} (Non-Concat) Result: {representative_dim}")
-
-        # --- Return ShapedArray with computed shape tuple ---
-        final_output_shape_tuple = tuple(output_shape_list)
         logger.debug(
-            f"Manual calculation - Final output shape tuple: {final_output_shape_tuple}"
+            f"Calling jax.eval_shape on {original_fn.__name__} with avals: {avals}, axis: {axis}"
         )
 
+        def f(*args):
+            return original_fn(args, axis=axis)
+
         try:
-            # This tuple should contain integers and JAX's hashable symbolic objects (DimVar/DimExpr)
-            result_aval = core.ShapedArray(final_output_shape_tuple, output_dtype)
-            logger.debug(f"--- abstract_eval END (Success) ---")
-            return result_aval
+
+            # avals come in ShapedArray form, so we need to convert them to  jax.ShapeDtypeStruct(a_shape, jnp.float32)
+
+            shape_dtype_structs = [
+                (
+                    jax.ShapeDtypeStruct(a.shape, jnp.float32)
+                    if isinstance(a, core.ShapedArray)
+                    else a
+                )
+                for a in avals
+            ]
+
+            exported = export.export(jax.jit(f))(*shape_dtype_structs)
+            result_avals = exported.out_avals
+
         except TypeError as e:
-            # If this still fails (e.g., unhashable DimExpr), JAX internal handling is complex.
+            # Catching the expected TypeError
             logger.error(
-                f"TypeError creating ShapedArray with computed shape tuple: {final_output_shape_tuple}. Error: {e}",
-                exc_info=True,
+                f"Caught expected TypeError from jax.eval_shape: {e}", exc_info=True
             )
-            logger.debug(f"--- abstract_eval END (ShapedArray Creation Failed) ---")
+            logger.error(
+                "This confirms jax.eval_shape cannot be called with AbstractValue inputs from within abstract_eval."
+            )
+            # Re-raise the original error to stop the test execution clearly
             raise
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"Unexpected error during jax.eval_shape: {e}", exc_info=True)
+            # logger.error(f"Inputs to eval_shape - Partial Func: {partial_fn}, Avals Tuple: {tuple(avals)}")
+            raise
+
+        logger.debug(f"Result aval from jax.eval_shape (if successful): {result_avals}")
+        return result_avals  # This line likely won't be reached
 
     def get_patch_params(self) -> tuple[Any, str, Callable]:
         """Returns parameters needed for monkey patching jnp.concatenate with the wrapper."""

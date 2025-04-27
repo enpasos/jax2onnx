@@ -76,4 +76,19 @@ class PatchedCallableWrapper:
         logger_wrapper.debug(
             f"Binding {self._primitive.name} with {len(arrays_tuple)} array args and params: {list(bind_params.keys())}"
         )
+
+        # QUICKFIX inside PatchedCallableWrapper before primitive.bind
+        if "axis" in bind_params:
+            axis = bind_params["axis"]
+            if isinstance(axis, core.Tracer):
+                if hasattr(axis, "aval") and hasattr(axis.aval, "constant_value"):
+                    constant_value = axis.aval.constant_value
+                    if constant_value is None:
+                        raise TypeError(
+                            "Axis tracer has no constant value during bind."
+                        )
+                    bind_params["axis"] = int(constant_value)
+                else:
+                    raise TypeError(f"Axis is tracer and cannot be concretized: {axis}")
+
         return self._primitive.bind(*arrays_tuple, **bind_params)
