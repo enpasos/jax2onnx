@@ -2,7 +2,7 @@
 
 
 from typing import TYPE_CHECKING
-
+import jax
 import numpy as np
 import onnx
 from flax import nnx
@@ -42,9 +42,7 @@ nnx.dropout_p.multiple_results = False  # Single output
         {
             "testcase": "dropout_call_params",
             "callable": nnx.Dropout(rate=0.5, deterministic=False, rngs=nnx.Rngs(5)),
-            "input_shapes": [
-                (2, 10)
-            ],  # Use concrete batch size 2 instead of symbolic 'B'
+            "input_shapes": [("B", 10)],
             "input_params": {
                 "deterministic": True,
             },
@@ -60,8 +58,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, deterministic, *, rate):
         """Abstract evaluation function for dropout."""
-        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
-        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
+        return ShapedArray(x.shape, x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         x_name = s.get_name(node_inputs[0])
@@ -72,6 +69,12 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         logging.debug(f"[DEBUG] Input tensor name: {x_name}")
         logging.debug(f"[DEBUG] Deterministic input: {det_input}")
         logging.debug(f"[DEBUG] Output name: {output_name}")
+
+        det_name = "deterministic"
+        # if det_input is a Variable then change_var_name
+
+        if isinstance(det_input, jax._src.core.Var):
+            s.change_var_name(det_input, det_name)
 
         # Static parameter: rate
         rate = params.get("rate", 0.0)
@@ -87,13 +90,24 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             )
             training_tensor = np.array(training_mode, dtype=bool)
             training_mode_name = s.builder.get_constant_name(training_tensor)
+
+            # Add value_info for the training mode tensor
+            s.builder.add_value_info(
+                training_mode_name, shape=(), dtype=onnx.TensorProto.BOOL
+            )
+            logging.debug(
+                f"[DEBUG] Added value_info for training_mode: {training_mode_name}"
+            )
         else:
             logging.debug("[DEBUG] Dynamic deterministic input detected")
-            det_name = s.get_name(det_input)
             det_aval = det_input.aval
             det_shape = det_aval.shape
             det_dtype_enum = onnx.TensorProto.BOOL
-
+            # Register the input with the correct name and type
+            s.builder.register_value_info_metadata(
+                det_name, shape=det_shape, dtype=det_dtype_enum
+            )
+            s.builder.add_value_info(det_name, shape=det_shape, dtype=det_dtype_enum)
             flipped_name = s.get_unique_name("training_mode")
             not_node = helper.make_node(
                 "Not",
@@ -102,16 +116,14 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("not_deterministic"),
             )
             s.add_node(not_node)
-            logging.debug(
-                f"[DEBUG] Added NOT node to invert deterministic: input={det_name}, output={flipped_name}"
-            )
-
-            s.builder.register_value_info_metadata(
-                flipped_name, shape=det_shape, dtype=det_dtype_enum
-            )
+            # Add value_info for the flipped training_mode variable
             s.builder.add_value_info(
                 flipped_name, shape=det_shape, dtype=det_dtype_enum
             )
+            logging.debug(
+                f"[DEBUG] Added NOT node to invert deterministic: input={det_name}, output={flipped_name}"
+            )
+            logging.debug(f"[DEBUG] Added value_info for training_mode: {flipped_name}")
             training_mode_name = flipped_name
 
         # ONNX Dropout node
