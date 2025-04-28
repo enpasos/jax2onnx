@@ -1,13 +1,15 @@
 # file: jax2onnx/plugins/jax/numpy/squeeze.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
+import jax
 from jax import core
 from jax import numpy as jnp
 from jax.extend.core import Primitive
 from onnx import helper
 
 from jax2onnx.converter.dynamic_utils import encode_dims
+from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -85,57 +87,107 @@ class SqueezePlugin(PrimitiveLeafPlugin):
     Plugin for converting jax.numpy.squeeze to ONNX.
     """
 
-    @staticmethod
-    def _squeeze_abstract_eval(x, axes: tuple[int, ...] | None):
-        """
-        Compute the output shape for squeeze.
-        - If no axes are provided, squeeze all dimensions that are 1.
-        - If axes are provided, only remove dimensions that are concretely 1.
-        - Dynamic dimensions (strings or tracers) are not squeezed.
-        """
-        x_shape = list(x.shape)
-
-        def safe_dim(dim):
-            try:
-                hash(dim)
-                return dim
-            except Exception:
-                return -1
-
-        if axes is None:
-            new_shape = tuple(
-                safe_dim(dim)
-                for dim in x_shape
-                if not (isinstance(dim, int) and dim == 1)
-            )
-        else:
-            normalized_axes = [
-                axis if axis >= 0 else axis + len(x_shape) for axis in axes
-            ]
-            for axis in normalized_axes:
-                if axis >= len(x_shape):
-                    raise ValueError(f"Invalid axis {axis} for shape {x_shape}")
-                if isinstance(x_shape[axis], int) and x_shape[axis] != 1:
-                    raise ValueError(
-                        f"Cannot squeeze dimension {axis} of shape {x_shape}: size is not 1."
-                    )
-            new_shape = tuple(
-                safe_dim(dim)
-                for i, dim in enumerate(x_shape)
-                if i not in normalized_axes
-            )
-        return core.ShapedArray(new_shape, x.dtype)
+    _ORIGINAL_OP = None  # Will be filled by patch_info
 
     @staticmethod
-    def abstract_eval(x, axes: tuple[int, ...] | None):
-        return SqueezePlugin._squeeze_abstract_eval(x, axes)
+    def abstract_eval(x, axes=None, *, axis=None):
+        """
+        Compute the output shape for squeeze using jax.eval_shape to handle symbolic dimensions.
+
+        This delegates shape computation to JAX itself, ensuring correct behavior with symbolic shapes.
+
+        Parameters:
+            x: The input array to squeeze
+            axes: The axes to squeeze (expected from _squeeze)
+            axis: Alternative param name (expected from the patched_callable_wrapper)
+        """
+        # Handle either 'axes' or 'axis' parameter
+        if axis is not None:
+            if axes is not None:
+                logger.warning(
+                    "Both 'axes' and 'axis' provided to abstract_eval; using 'axis'"
+                )
+            axes = axis
+
+        # 1. Sanity checks
+        if not isinstance(x, core.ShapedArray):
+            raise TypeError("expected ShapedArray input")
+
+        # 2. Specs for eval_shape
+        spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+
+        # 3. Helper using the un-patched op
+        orig = SqueezePlugin._ORIGINAL_OP
+        if orig is None:
+            logger.warning(
+                "Original squeeze op not available, using fallback shape computation."
+            )
+            # Fallback if original op is not available
+            shape = list(x.shape)
+            if axes is None:
+                new_shape = [d for d in shape if not (isinstance(d, int) and d == 1)]
+            else:
+                # Handle negative indices
+                ndim = len(shape)
+                normalized_axes = [(ax + ndim) if ax < 0 else ax for ax in axes]
+                new_shape = [d for i, d in enumerate(shape) if i not in normalized_axes]
+            return core.ShapedArray(tuple(new_shape), x.dtype)
+
+        # 4. Convert axes to the form expected by the original op
+        axis_arg = None
+        if axes is not None:
+            # Handle both single int and tuple/list cases
+            if isinstance(axes, (tuple, list)):
+                # If length is 1, pass as single int for better compatibility
+                if len(axes) == 1:
+                    axis_arg = int(axes[0])
+                else:
+                    # Otherwise keep as tuple
+                    axis_arg = axes
+            else:
+                # Single integer case
+                axis_arg = int(axes)
+
+        def _helper(x):
+            return orig(x, axis=axis_arg)
+
+        # 5. Use JAX's eval_shape for correct symbolic dimension handling
+        try:
+            result = jax.eval_shape(_helper, spec)
+            return core.ShapedArray(result.shape, result.dtype)
+        except Exception as e:
+            logger.error(f"Error in abstract_eval for squeeze: {e}")
+            # Fallback if eval_shape fails
+            shape = list(x.shape)
+            if axes is None:
+                new_shape = [d for d in shape if not (isinstance(d, int) and d == 1)]
+            else:
+                # Handle negative indices
+                ndim = len(shape)
+                normalized_axes = [(ax + ndim) if ax < 0 else ax for ax in axes]
+                new_shape = [d for i, d in enumerate(shape) if i not in normalized_axes]
+            return core.ShapedArray(tuple(new_shape), x.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles ONNX conversion for jnp.squeeze."""
         from onnx import helper
         from jax2onnx.converter.dynamic_utils import encode_dims
 
-        axes = params["axes"]
+        # Handle either 'axes' or 'axis' parameter name
+        if "axes" in params:
+            axes = params["axes"]
+        elif "axis" in params:
+            # Convert the axis parameter to a tuple of axes
+            axis_val = params["axis"]
+            if isinstance(axis_val, (tuple, list)):
+                axes = axis_val  # Already a tuple/list
+            else:
+                axes = (axis_val,)  # Make single value into a tuple
+            logger.debug(f"Converting 'axis' parameter to 'axes': {axes}")
+        else:
+            # No axes specified, squeeze all size-1 dimensions
+            axes = None
+
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
 
@@ -150,13 +202,29 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         # Normalize axes into positive indices; collect any symbolic axes
         normalized_axes = []
         symbolic_axes = []
-        for axis in axes:
-            axis_val = axis if axis >= 0 else axis + len(input_shape)
-            if 0 <= axis_val < len(input_shape):
-                if isinstance(input_shape[axis_val], int):
-                    normalized_axes.append(axis_val)
-                else:
-                    symbolic_axes.append(axis_val)
+        if axes is not None:
+            for axis in axes:
+                axis_val = axis if axis >= 0 else axis + len(input_shape)
+                if 0 <= axis_val < len(input_shape):
+                    if isinstance(input_shape[axis_val], int):
+                        normalized_axes.append(axis_val)
+                    else:
+                        symbolic_axes.append(axis_val)
+
+        # Special case: if all dimensions are size-1, perform a direct reshape to scalar
+        if all(isinstance(dim, int) and dim == 1 for dim in input_shape):
+            # Direct reshape to scalar is more reliable than squeeze for this case
+            shape_name = s.get_unique_name("scalar_shape")
+            s.builder.add_initializer(name=shape_name, vals=[], dims=[0])
+            reshape_node = helper.make_node(
+                "Reshape",
+                inputs=[input_name, shape_name],
+                outputs=[output_name],
+                name=s.get_unique_name("reshape_to_scalar"),
+            )
+            s.add_node(reshape_node)
+            s.add_shape_info(output_name, ())
+            return
 
         # Identify which of those are actual size-1 dims
         static_axes = [i for i in normalized_axes if input_shape[i] == 1]
@@ -176,18 +244,23 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         # If there are static axes, supply them as an initializer
         if static_axes:
             axes_name = s.get_unique_name("squeeze_axes")
-            s.add_initializer(name=axes_name, vals=encode_dims(static_axes))
+            s.builder.add_initializer(
+                name=axes_name, vals=encode_dims(static_axes), dims=[len(static_axes)]
+            )
             squeeze_inputs = [input_name, axes_name]
-            # Remove those dims from the shape
             output_shape = tuple(
                 dim for i, dim in enumerate(input_shape) if i not in static_axes
             )
         else:
-            # No axes argument or all singleton dims: squeeze all size-1 dims
+            # No axes specified, squeeze all size-1 dimensions with ONNX Squeeze
             squeeze_inputs = [input_name]
             output_shape = tuple(
                 dim for dim in input_shape if not (isinstance(dim, int) and dim == 1)
             )
+            # If we end up with an empty shape after removing all size-1 dims,
+            # ONNX can't represent a true scalar, so default to a 1D tensor
+            if not output_shape:
+                output_shape = (1,)
 
         squeeze_node = helper.make_node(
             "Squeeze",
@@ -212,21 +285,17 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         return jnp.squeeze_p.bind(a, axes=axes)
 
     @staticmethod
-    def get_monkey_patch():
-        """Provides patching information for Squeeze."""
-
-        def patched_squeeze(a, axis: int | tuple[int, ...] | None = None):
-            return SqueezePlugin._squeeze(a, axis)
-
-        return patched_squeeze
-
-    @staticmethod
     def patch_info():
         """Provides patching information for Squeeze."""
+
+        def _creator(orig_fn):
+            SqueezePlugin._ORIGINAL_OP = orig_fn
+            return PatchedCallableWrapper(orig_fn, jnp.squeeze_p)
+
         return {
             "patch_targets": [jnp],
-            "patch_function": lambda _: SqueezePlugin.get_monkey_patch(),
             "target_attribute": "squeeze",
+            "patch_function": _creator,
         }
 
 

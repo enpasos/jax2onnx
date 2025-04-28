@@ -1,6 +1,9 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+import jax
+import jax.numpy as jnp
+from jax import lax
 import numpy as np
 from flax import nnx
 from jax import core
@@ -191,83 +194,85 @@ class ConvPlugin(PrimitiveLeafPlugin):
     """
 
     @staticmethod
-    def _compute_conv_output_shape(x_shape, kernel_shape, strides, padding):
-        """Compute output shape for convolution."""
-        batch_size = x_shape[0]
-        input_h, input_w = x_shape[1:3]
-        kernel_h, kernel_w = kernel_shape[0:2]
-        out_channels = kernel_shape[3]
-        stride_h, stride_w = strides
-
-        # Compute output dimensions based on padding
+    def _compute_conv_output_shape(
+        x_shape: tuple[int, ...],
+        kernel_shape: tuple[int, ...],
+        strides: Sequence[int] | int,
+        padding: str,
+    ) -> tuple[int, ...]:
+        """
+        Compute the output shape for a 2D convolution.
+        Assumes:
+          - Input is in NHWC format: (N, H, W, C)
+          - Kernel is in HWIO format: (filter_height, filter_width, in_channels, out_channels)
+        """
+        if isinstance(strides, int):
+            strides = (strides, strides)
+        N, H, W, _ = x_shape
+        filter_height, filter_width, _, out_channels = kernel_shape
         if padding.upper() == "VALID":
-            # For VALID padding, we need to handle potential tracers by avoiding direct arithmetic
-            try:
-                if (
-                    isinstance(input_h, (int, float))
-                    and isinstance(kernel_h, (int, float))
-                    and isinstance(stride_h, (int, float))
-                ):
-                    out_h = (input_h - kernel_h) // stride_h + 1
-                else:
-                    out_h = input_h  # Preserve for symbolic dimensions
-
-                if (
-                    isinstance(input_w, (int, float))
-                    and isinstance(kernel_w, (int, float))
-                    and isinstance(stride_w, (int, float))
-                ):
-                    out_w = (input_w - kernel_w) // stride_w + 1
-                else:
-                    out_w = input_w  # Preserve for symbolic dimensions
-            except (TypeError, ValueError):
-                # If computation fails due to tracers, preserve dimensions
-                out_h, out_w = input_h, input_w
-        else:  # SAME padding
-            try:
-                if isinstance(input_h, (int, float)) and isinstance(
-                    stride_h, (int, float)
-                ):
-                    out_h = -(-input_h // stride_h)  # Ceiling division
-                else:
-                    out_h = input_h  # Preserve for symbolic dimensions
-
-                if isinstance(input_w, (int, float)) and isinstance(
-                    stride_w, (int, float)
-                ):
-                    out_w = -(-input_w // stride_w)  # Ceiling division
-                else:
-                    out_w = input_w  # Preserve for symbolic dimensions
-            except (TypeError, ValueError):
-                # If computation fails due to tracers, preserve dimensions
-                out_h, out_w = input_h, input_w
-
-        return (batch_size, out_h, out_w, out_channels)
+            out_H = (H - filter_height) // strides[0] + 1
+            out_W = (W - filter_width) // strides[1] + 1
+        elif padding.upper() == "SAME":
+            # Use ceiling division for SAME padding.
+            out_H = -(-H // strides[0])
+            out_W = -(-W // strides[1])
+        else:
+            raise ValueError("Unsupported padding: " + padding)
+        return (N, out_H, out_W, out_channels)
 
     @staticmethod
-    def abstract_eval(x, kernel, bias, strides, padding, dilations, dimension_numbers):
-        """Abstract evaluation: computes output shape and dtype."""
-        try:
-            # Try to compute output shape safely
-            out_shape = ConvPlugin._compute_conv_output_shape(
-                x.shape, kernel.shape, strides, padding
+    def abstract_eval(  # <-- signature unchanged
+        x: core.ShapedArray,
+        kernel: core.ShapedArray,
+        bias: core.ShapedArray,
+        strides,
+        padding,
+        dilations,
+        dimension_numbers,
+    ):
+        """
+        Shape-inference for nnx.conv_p that works with **symbolic dimensions**.
+
+        We delegate all the algebra to `jax.eval_shape` on top of
+        `lax.conv_general_dilated`; in this way any `_DimExpr`
+        (e.g. the `'B'` batch symbol) just flows through untouched.
+        """
+
+        # ---- normalise scalar vs tuple params ----------------------------------
+        if isinstance(strides, int):
+            strides = (strides, strides)
+        if isinstance(dilations, int):
+            dilations = (dilations, dilations)
+        if dimension_numbers is None:
+            # flax nnx default
+            dimension_numbers = ("NHWC", "HWIO", "NHWC")
+
+        # ---- build ShapeDtypeStruct specs --------------------------------------
+        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
+        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
+
+        # ---- helper that JAX will analyse --------------------------------------
+        def _helper(lhs, rhs, b):
+            out = lax.conv_general_dilated(
+                lhs,
+                rhs,
+                window_strides=strides,
+                padding=padding,
+                lhs_dilation=None,
+                rhs_dilation=dilations,
+                dimension_numbers=dimension_numbers,
             )
+            # broadcast bias over all but the channel dim (assumes output NHWC)
+            bias_reshaped = jnp.reshape(b, (1,) * (out.ndim - 1) + (-1,))
+            return out + bias_reshaped
 
-            # Update the input's shape instead of creating a new ShapedArray
-            # This avoids issues with unhashable tracers
-            return x.update(shape=out_shape, weak_type=False)
-        except (TypeError, ValueError):
-            # Fallback: if we can't compute shape due to tracers,
-            # we'll preserve batch size and set output channels correctly
-            batch_size = x.shape[0]
-            out_channels = kernel.shape[3]
+        # ---- ask JAX for the symbolic output aval ------------------------------
+        out_aval = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
 
-            # Keep spatial dimensions unchanged as a fallback
-            h, w = x.shape[1:3]
-
-            # Create output shape and update
-            out_shape = (batch_size, h, w, out_channels)
-            return x.update(shape=out_shape, weak_type=False)
+        # ---- return as ShapedArray for the tracer ------------------------------
+        return core.ShapedArray(out_aval.shape, out_aval.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Convert conv operation to ONNX format."""
@@ -299,11 +304,29 @@ class ConvPlugin(PrimitiveLeafPlugin):
         )  # (B, C, H, W)
         s.add_shape_info(pre_transpose_name, pre_transposed_shape)
 
-        # Convert kernel constant: from HWIO to OIHW.
+        # --- Convert kernel HWIO → OIHW ---------------------------------
         kernel_name = s.get_name(kernel_var)
-        kernel_const = s.name_to_const[kernel_name]
-        transposed_kernel = np.transpose(kernel_const, [3, 2, 0, 1])
-        weights_name = s.get_constant_name(transposed_kernel)
+
+        if kernel_name in s.name_to_const:  # ── static / literal weights
+            kernel_const = s.name_to_const[kernel_name]  # HWIO
+            transposed_kernel = np.transpose(kernel_const, (3, 2, 0, 1))  # OIHW
+            weights_name = s.get_constant_name(transposed_kernel)  # → initializer
+            filter_shape = kernel_const.shape  # (H,W,I,O)
+        else:  # ── dynamic tensor weights
+            weights_name = s.get_unique_name("kernel_OIHW")
+            kernel_transpose_node = helper.make_node(
+                "Transpose",
+                inputs=[kernel_name],
+                outputs=[weights_name],
+                name=s.get_unique_name("transpose_kernel"),
+                perm=[3, 2, 0, 1],  # HWIO → OIHW
+            )
+            s.add_node(kernel_transpose_node)
+            # Shapes are still static (H,W,I,O) → record both layouts
+            k_shape = kernel_var.aval.shape  # (H, W, I, O)
+            k_OIHW = (k_shape[3], k_shape[2], k_shape[0], k_shape[1])
+            s.add_shape_info(weights_name, k_OIHW, kernel_var.aval.dtype)
+            filter_shape = k_shape  # (H,W,I,O)
 
         # Determine convolution parameters.
         strides = params.get("strides", (1, 1))
@@ -338,7 +361,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
             # Compute symmetric padding for height and width.
             # ONNX expects pads in the order: [pad_top, pad_left, pad_bottom, pad_right]
             input_shape = input_var.aval.shape  # (B, H, W, C)
-            filter_shape = kernel_const.shape  # (H, W, I, O)
             # Height padding.
             in_h = input_shape[1]
             filt_h = filter_shape[0]
@@ -361,7 +383,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         # Compute the conv node's intermediate output shape (in NCHW):
         # First, get the expected final output shape in JAX (NHWC) using our helper:
         jax_output_shape = ConvPlugin._compute_conv_output_shape(
-            jax_input_shape, kernel_const.shape, strides, padding
+            jax_input_shape, filter_shape, strides, padding
         )
         # Then, compute the intermediate shape by transposing NHWC -> NCHW.
         conv_output_shape_NCHW = tuple(jax_output_shape[i] for i in [0, 3, 1, 2])
