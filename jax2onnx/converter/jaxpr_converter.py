@@ -84,9 +84,24 @@ class Jaxpr2OnnxConverter:
         """Get or create a unique name for a JAX variable."""
         if var not in self.var_to_name:
             name = self.get_unique_name("var")
+            self.set_var_name(var, name)
+        return self.var_to_name[var]
+
+    def set_var_name(self, var: Any, name: str) -> None:
+        """Set a custom name for a JAX variable."""
+        self.var_to_name[var] = name
+        self.name_to_var[name] = var
+
+    def change_var_name(self, var: Any, name: str) -> None:
+        """Change the name of a JAX variable."""
+        if var in self.var_to_name:
+            old_name = self.var_to_name[var]
+            del self.name_to_var[old_name]
             self.var_to_name[var] = name
             self.name_to_var[name] = var
-        return self.var_to_name[var]
+            self.builder.change_var_name(old_name, name)
+        else:
+            raise ValueError(f"Variable {var} not found in var_to_name mapping.")
 
     def get_constant_name(self, val: Any) -> str:
         """Get or create a name for a constant value in the ONNX graph."""

@@ -1,3 +1,4 @@
+# file: jax2onnx/plugins/flax/nnx/linear.py
 from typing import TYPE_CHECKING
 
 import numpy as np

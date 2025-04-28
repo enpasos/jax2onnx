@@ -456,6 +456,22 @@ class OnnxBuilder:
         tensor_def = self.make_value_info(name, shape, dtype)
         collection.append(tensor_def)
 
+    def change_var_name(self, old_name, new_name) -> None:
+        """Change the name of a JAX variable."""
+        # check  dtype_env
+        dtype_env = self.dtype_env.get(old_name)
+        self.dtype_env[new_name] = dtype_env
+        # correct inputs
+        for i, vi in enumerate(self.inputs):
+            if vi.name == old_name:
+                self.inputs[i].name = new_name
+                break
+        # correct outputs
+        for i, vi in enumerate(self.outputs):
+            if vi.name == old_name:
+                self.outputs[i].name = new_name
+                break
+
     def add_input(
         self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
     ) -> None:
