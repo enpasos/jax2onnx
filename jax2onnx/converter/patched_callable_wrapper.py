@@ -132,13 +132,16 @@ class PatchedCallableWrapper:
                     raise TypeError(
                         f"Axis is tracer and cannot be concretized: {axis_val}"
                     )
-            elif not isinstance(axis_val, int):
-                # If it's already concrete but not int, try converting
+            elif not isinstance(axis_val, (int, tuple)):
+                # If it's already concrete but not int or tuple, try converting
                 try:
                     bind_params["axis"] = int(axis_val)
                 except (ValueError, TypeError):
                     raise TypeError(
-                        f"Axis must be an integer or concretizable tracer, got {type(axis_val)}"
+                        f"Axis must be an integer, tuple, or concretizable tracer, got {type(axis_val)}"
                     )
+            elif isinstance(axis_val, tuple):
+                # Handle tuple of axes - no conversion needed for squeeze which accepts tuple axes
+                logger_wrapper.debug(f"Using tuple axis value directly: {axis_val}")
 
         return self._primitive.bind(*arrays_tuple, **bind_params)
