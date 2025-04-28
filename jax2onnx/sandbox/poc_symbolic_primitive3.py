@@ -1,12 +1,13 @@
-# file: jax2onnx/sandbox/poc_symbolic_primitive2.py
+# file: jax2onnx/sandbox/poc_symbolic_primitive3.py
 """
-Minimal proof-of-concept: a custom concat primitive that understands
-symbolic dimensions created with jax.export.symbolic_shape.
+PoC: custom concatenate primitive whose *abstract_eval* delegates
+shape-inference to **jax.eval_shape** while the outer jax.make_jaxpr
+trace is still running – including a symbolic batch dimension "B".
 """
 
 from typing import Sequence
-import functools
 import logging
+import types
 
 import jax
 import jax.numpy as jnp
@@ -23,19 +24,18 @@ logging.basicConfig(
 logger = logging.getLogger("POC_SymbolicPrimitive")
 
 # ----------------------------------------------------------------------
-# 1.  Define the primitive ------------------------------------------------
+# 1.  Primitive definition ---------------------------------------------
 # ----------------------------------------------------------------------
 poc_concat_p = Primitive("poc_concat")
 poc_concat_p.multiple_results = False
 
 
 # ----------------------------------------------------------------------
-# 2.  Fallback Python implementation (only needed for eager mode) --------
+# 2.  Python fallback (eager) ------------------------------------------
 # ----------------------------------------------------------------------
 def _poc_concat_impl(*arrays, axis: int):
     from jax import lax
 
-    # use the correct keyword *dimension* (or just pass axis positionally)
     return lax.concatenate(arrays, dimension=axis)
 
 
@@ -43,13 +43,13 @@ poc_concat_p.def_impl(_poc_concat_impl)
 
 
 # ----------------------------------------------------------------------
-# 3.  abstract_eval – delegates shape logic to jax.export ---------------
+# 3.  abstract_eval – **via jax.eval_shape** ---------------------------
 # ----------------------------------------------------------------------
 def _poc_concat_abstract_eval(*avals: core.ShapedArray, axis: int):
     """
-    Compute output shape/dtype using `jax.export`.  This works as long as
-    the *original* (un-patched) jnp.concatenate is used inside the helper
-    `f`, so we stash that function in a global.
+    • Runs *inside* the outer trace started by jax.make_jaxpr.
+    • Converts incoming avals → ShapeDtypeStruct.
+    • Uses jax.eval_shape on the *original* jnp.concatenate.
     """
 
     if "_POC_ORIG_FN" not in globals():
@@ -57,19 +57,18 @@ def _poc_concat_abstract_eval(*avals: core.ShapedArray, axis: int):
 
     orig_concat = globals()["_POC_ORIG_FN"]
 
-    # Build ShapeDtypeStructs from the incoming avals
-    shapespecs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
+    # 1) Convert the incoming abstract values
+    specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
 
-    # helper that calls the original concatenate
-    def f(*args):
-        return orig_concat(args, axis=axis)
+    # 2) Helper that calls the UN-patched concatenate
+    def f(*xs):
+        return orig_concat(xs, axis=axis)
 
-    # Ask JAX to export → gives us out_avals that include symbolic dims
-    exported = export.export(jax.jit(f))(*shapespecs)
-    out_aval = exported.out_avals[0]  # single result
+    # 3) Let JAX work out the result shape/dtype
+    out_aval = jax.eval_shape(f, *specs)  # <- key change
+    out_aval = jax.tree_util.tree_leaves(out_aval)[0]  # single result
 
-    logger.debug(f"abstract_eval result   : {out_aval.shape} {out_aval.dtype}")
-
+    logger.debug(f"abstract_eval result: {out_aval.shape}  {out_aval.dtype}")
     return core.ShapedArray(out_aval.shape, out_aval.dtype)
 
 
@@ -77,41 +76,38 @@ poc_concat_p.def_abstract_eval(_poc_concat_abstract_eval)
 
 
 # ----------------------------------------------------------------------
-# 4.  User-facing wrapper -------------------------------------------------
+# 4.  User-facing wrapper ----------------------------------------------
 # ----------------------------------------------------------------------
 def poc_concat_wrapper(arrays: Sequence[jax.Array], *, axis: int = 0):
-    # IMPORTANT: bind *individual* tensors, not the tuple itself
+    # Bind *individual* tensors, not the tuple itself
     return poc_concat_p.bind(*arrays, axis=axis)
 
 
 # ----------------------------------------------------------------------
-# 5.  PoC driver ----------------------------------------------------------
+# 5.  PoC driver --------------------------------------------------------
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     logger.info("---- PoC with symbolic batch dimension 'B' ----")
 
-    # a) Create the symbolic dim
-    B = export.symbolic_shape("B")[0]  # _DimExpr
+    # a) Create symbolic dim
+    B = export.symbolic_shape("B")[0]
     logger.info(f"symbolic dim object: {B!r}")
 
-    # b) Remember the real jnp.concatenate (needed inside abstract_eval)
-    _POC_ORIG_FN = jnp.concatenate  # noqa: N806  (upper-case global)
+    # b) Remember real jnp.concatenate
+    _POC_ORIG_FN = jnp.concatenate  # noqa: N806
 
-    # c) Patch jnp.concatenate so tracing hits our primitive
+    # c) Monkey-patch jnp.concatenate so tracing hits our primitive
     def patched_concat(arrays, *, axis: int = 0, **kw):
-        # ignore other kwargs for this PoC
         return poc_concat_wrapper(arrays, axis=axis)
 
-    import types  # for type checking in IDEs
-
     assert isinstance(jnp.concatenate, types.FunctionType)
-    jnp.concatenate = patched_concat  # monkey-patch
+    jnp.concatenate = patched_concat
 
-    # d) Function we will trace – uses jnp.concatenate *after* patch
+    # d) Function that uses the patched op
     def fn(a, b):
         return jnp.concatenate((a, b), axis=1)
 
-    # e) Trace with ShapeDtypeStruct inputs that contain the symbolic dim
+    # e) Trace with symbolic shapes      (== “inside trace” part)
     a_spec = jax.ShapeDtypeStruct((B, 1, 8), jnp.float32)
     b_spec = jax.ShapeDtypeStruct((B, 10, 8), jnp.float32)
 
@@ -119,7 +115,7 @@ if __name__ == "__main__":
     logger.info("Traced JAXPR with symbolic shape:")
     print(jaxpr)
 
-    # f) Run with two concrete batch sizes – proves no retracing
+    # f) Run with different batch sizes – no retracing
     for batch in (3, 5):
         a = jnp.ones((batch, 1, 8), jnp.float32)
         b = jnp.ones((batch, 10, 8), jnp.float32) * 2
