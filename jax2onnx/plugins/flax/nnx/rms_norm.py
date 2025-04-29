@@ -1,20 +1,12 @@
-"""
-RMS Norm Plugin for JAX → ONNX conversion
-
-This plugin converts **`flax.nnx.RMSNorm`** layers into the native ONNX
-**`RMSNormalization`** operator whenever the exported model uses opset ≥ 23.
-For lower opsets it transparently falls back to the manual graph that was
-previously implemented (Pow → ReduceMean → Add → Sqrt → Div → Mul).
-
-The public behaviour of the primitive (signature, monkey‑patch, tests) is
-unchanged – only the ONNX emission differs.
-"""
+# filepath: /home/enpasos/projects/jax2onnx/jax2onnx/plugins/flax/nnx/rms_norm.py
+# file: jax2onnx/plugins/flax/nnx/rms_norm.py
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List
-
 import numpy as np
+import jax
+from types import SimpleNamespace
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
@@ -61,18 +53,45 @@ nnx.rms_norm_p.multiple_results = False
 class RMSNormPlugin(PrimitiveLeafPlugin):
     """Convert *flax.nnx.RMSNorm* to ONNX.
 
-    * **If** `builder.opset_version >= 23` &rarr; emit a single
+    * **If** `builder.opset_version >= 23` &rarr; emit a single
       `RMSNormalization` node (native ONNX op).
     * **Else** fall back to the explicit graph that reproduces the same maths.
     """
 
+    # Store original implementation
+    _ORIG_CALL = None
+
     # ------------------------------------------------------------------
-    # JAX abstract evaluation – shape/dtype passthrough
+    # JAX abstract evaluation – using jax.eval_shape for symbolic dims
     # ------------------------------------------------------------------
 
     @staticmethod
-    def abstract_eval(x, scale, *_, **__):  # noqa: D401 – simple passthrough
-        return core.ShapedArray(x.shape, x.dtype)
+    def abstract_eval(x, scale, *_, **kwargs):
+        """Shape inference via :pyfunc:`jax.eval_shape`."""
+        # Build ShapeDtypeStruct specs for symbolic-shape safe evaluation
+        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        scale_spec = jax.ShapeDtypeStruct(scale.shape, scale.dtype)
+
+        # Extract epsilon parameter
+        epsilon = kwargs.get("epsilon", 1e-6)
+
+        def _helper(xv, sv):
+            """Helper function that executes the actual RMS normalization."""
+            if RMSNormPlugin._ORIG_CALL is None:
+                # Fall back to our own implementation if original not captured
+                mean = (xv**2).mean(axis=-1, keepdims=True)
+                inv_sqrt = jax.lax.rsqrt(mean + epsilon)
+                return xv * inv_sqrt * sv
+
+            # Create a dummy module object with all required attributes
+            dummy = SimpleNamespace(
+                scale=SimpleNamespace(value=sv),
+                epsilon=epsilon,
+            )
+            return RMSNormPlugin._ORIG_CALL(dummy, xv)
+
+        out = jax.eval_shape(_helper, x_spec, scale_spec)
+        return core.ShapedArray(out.shape, out.dtype)
 
     # ------------------------------------------------------------------
     # ONNX lowering
@@ -88,13 +107,17 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         # ------------------------------------------------------------------
         # Resolve names / shapes / dtypes
         # ------------------------------------------------------------------
-        input_name = s.get_name(node_inputs[0])
-        scale_name = s.get_name(node_inputs[1])
-        output_name = s.get_name(node_outputs[0])
+        x_var = node_inputs[0]
+        scale_var = node_inputs[1]
+        y_var = node_outputs[0]
+
+        input_name = s.get_name(x_var)
+        scale_name = s.get_name(scale_var)
+        output_name = s.get_name(y_var)
         epsilon = float(params.get("epsilon", 1e-5))
 
-        input_shape = s.shape_env[input_name]
-        input_dtype = s.builder.dtype_env[input_name]
+        input_shape = tuple(x_var.aval.shape)
+        input_dtype = x_var.aval.dtype
         axis = len(input_shape) - 1  # normalise over the last dimension
 
         # ------------------------------------------------------------------
@@ -123,7 +146,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         s.add_node(helper.make_node("Pow", [input_name, two_const], [pow2], name=pow2))
         s.builder.add_value_info(pow2, tuple(input_shape), input_dtype)
 
-        # 2. mean(x²) over last axis (axes as tensor, ONNX ≥ 13)
+        # 2. mean(x²) over last axis (axes as tensor, ONNX ≥ 13)
         axes_tensor = s.get_constant_name(np.array([axis], dtype=np.int64))
         mean = s.get_unique_name("mean")
         s.add_node(
@@ -172,27 +195,30 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         return nnx.rms_norm_p.bind(x, scale, epsilon=epsilon)
 
     @staticmethod
-    def rms_norm(x, scale, epsilon):  # noqa: D401 – public helper
+    def rms_norm(x, scale, epsilon):  # noqa: D401 – public helper
         return RMSNormPlugin._rms_norm(x, scale, epsilon)
 
     @staticmethod
     def get_monkey_patch():
-        def patched_rms_norm_call(self, x):  # noqa: D401 – inline patch fn
+        def patched_rms_norm_call(self, x):  # noqa: D401 – inline patch fn
             return RMSNormPlugin._rms_norm(x, self.scale.value, self.epsilon)
 
         return patched_rms_norm_call
 
     @staticmethod
-    def patch_info():  # noqa: D401 – required by PrimitiveLeafPlugin
+    def patch_info():  # noqa: D401 – required by PrimitiveLeafPlugin
         return {
             "patch_targets": [nnx.RMSNorm],
-            "patch_function": lambda _: RMSNormPlugin.get_monkey_patch(),
+            "patch_function": lambda orig_fn: RMSNormPlugin.get_monkey_patch(),
             "target_attribute": "__call__",
+            "store_original": lambda orig_fn: setattr(
+                RMSNormPlugin, "_ORIG_CALL", orig_fn
+            ),
         }
 
 
 # -----------------------------------------------------------------------------
-# Register abstract‑eval fn so that JAX knows the primitive’s output shape/dtype
+# Register abstract‑eval fn so that JAX knows the primitive's output shape/dtype
 # -----------------------------------------------------------------------------
 
 nnx.rms_norm_p.def_abstract_eval(RMSNormPlugin.abstract_eval)

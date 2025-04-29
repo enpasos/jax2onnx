@@ -1,101 +1,129 @@
-# Symbolic‑Dimension Support in **jax2onnx**
+# Symbolic-Dimension Support in **jax2onnx**
 
-This guide is for plugin authors who want to add or migrate primitive‑handlers so that they **round‑trip JAX symbolic shapes to ONNX symbolic dimensions**.
+This guide is for plugin authors who want to add or migrate primitive-handlers so that they **round-trip JAX symbolic shapes to ONNX symbolic dimensions**.
 
 ---
-## 1. Why we need it
-*   JAX ≥ 0.6.0 can treat dimensions as symbols (e.g. `"B"`) that are only resolved at run‑time.
+## 1 Why we need it
+*   JAX ≥ 0.6 treats dimensions as symbols (e.g. `"B"`) that are only resolved at run-time.
 *   ONNX supports the same idea through `dim_param`.
-*   Until now `jax2onnx` converted those strings *literally* and many custom primitives lost the information during their `abstract_eval` step.
+*   Without explicit care, a primitive’s `abstract_eval` can destroy the symbol and the exported model becomes fully-static.
 
-> **Key idea**: keep the symbol alive during tracing by delegating shape‑inference to JAX itself (`jax.eval_shape`).
+> **Key idea** Let **JAX** do the algebra by calling `jax.eval_shape` on the *original* implementation; never re-implement shape maths by hand.
 
 ---
-## 2. High‑level flow
-1. **User API** – in `to_onnx` the user still writes
+## 2 High-level flow
+1. **User API**  
    ```python
    to_onnx(fn, input_shapes=[("B", 1, 8)])
    ```
-2. **conversion_api** – converts each string (e.g. `"B"`) to a real JAX `_DimExpr` using `export.symbolic_shape`.  These objects live in the `ShapeDtypeStruct`s that seed `jax.make_jaxpr`.
-3. **Plugins** – every primitive handler gets those symbolic objects inside `aval.shape`.
-4. **abstract_eval** – the handler runs `jax.eval_shape` on the **original JAX op** to obtain an output `ShapeDtypeStruct`, converts that to a `ShapedArray` and returns it.
-5. **ONNX builder** – keeps a `var_to_symbol_map` so that when the final graph is written the symbol name (`"B"`) is restored into `dim_param`.
+2. **conversion_api** – strings like `"B"` are replaced by true `_DimExpr` objects and stored inside every `ShapeDtypeStruct`.
+3. **Plugin → abstract_eval** – receives those symbolic objects in `aval.shape` and calls `jax.eval_shape` on the **un-patched** JAX op.
+4. **var_to_symbol_map** – the builder tracks which `_DimExpr` maps to which original string and writes `dim_param="B"` into the ONNX graph.
 
 ---
-## 3. Boiler‑plate for a plugin
+## 3 Boiler-plate for a plugin (new pattern)
 
 ```python
+from types import SimpleNamespace
+import jax, jax.numpy as jnp
+from jax import core
+from jax.extend.core import Primitive
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+
 class <MyPrimitive>Plugin(PrimitiveLeafPlugin):
-    _ORIGINAL_OP: Callable | None = None  # filled by patch
+    _ORIG_CALL: callable | None = None      # filled once in patch
 
-    # --- abstract_eval --------------------------------------------------
+    # ------------------------------------------------------------
+    # abstract_eval – delegate to original __call__ via eval_shape
+    # ------------------------------------------------------------
     @staticmethod
-    def abstract_eval(*avals: core.ShapedArray, **params):
-        axis: int = params["axis"]  # example extra param
+    def abstract_eval(*in_avals: core.ShapedArray, **params):
+        if <MyPrimitive>Plugin._ORIG_CALL is None:
+            raise RuntimeError("original op not captured yet")
 
-        # 1. Sanity checks
-        if not all(isinstance(a, core.ShapedArray) for a in avals):
-            raise TypeError("expected ShapedArray inputs")
+        # build ShapeDtypeStruct specs
+        specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in in_avals]
 
-        # 2. Specs for eval_shape
-        specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
-
-        # 3. helper using the *un‑patched* op
-        orig = <MyPrimitive>Plugin._ORIGINAL_OP
         def _helper(*xs):
-            return orig(xs, axis=axis)  # call original op
+            """Call the pristine method on a dummy object."""
+            dummy = SimpleNamespace(
+                # every field the real method expects:
+                kernel  = SimpleNamespace(value=xs[1]),
+                bias    = SimpleNamespace(value=xs[2]) if len(xs) > 2 else None,
+                strides = params["strides"],
+                padding = params["padding"],
+                # plus helpers sometimes referenced by nnx modules
+                promote_dtype        = lambda args, dtype=None: args,
+                conv_general_dilated = jax.lax.conv_general_dilated,
+            )
+            return <MyPrimitive>Plugin._ORIG_CALL(dummy, xs[0])
 
-        result = jax.eval_shape(_helper, *specs)
-        out = jax.tree_util.tree_leaves(result)[0]
-        return core.ShapedArray(out.shape, out.dtype)
+        out_spec = jax.eval_shape(_helper, *specs)
+        out_spec = jax.tree_util.tree_leaves(out_spec)[0]       # scalar output
+        return core.ShapedArray(out_spec.shape, out_spec.dtype)
 
-    # --- patch_info -----------------------------------------------------
+    # ------------------------------------------------------------
+    # monkey-patch – capture original & inject primitive binding
+    # ------------------------------------------------------------
+    @staticmethod
+    def _bind_primitive(x, kernel, bias, **attrs):
+        return nnx.<my_primitive>_p.bind(x, kernel, bias, **attrs)
+
+    @staticmethod
+    def get_monkey_patch(orig_fn):          # <-- orig_fn provided by framework
+        <MyPrimitive>Plugin._ORIG_CALL = orig_fn     # capture once
+
+        def patched(self, x):
+            # optional zero-bias convenience
+            bias = self.bias.value if self.bias is not None else jnp.zeros(
+                (self.kernel.value.shape[-1],), self.kernel.value.dtype
+            )
+            return <MyPrimitive>Plugin._bind_primitive(
+                x, self.kernel.value, bias,
+                strides=self.strides, padding=self.padding,
+                dimension_numbers=getattr(self, "dimension_numbers", None),
+            )
+
+        return patched
+
     @staticmethod
     def patch_info():
-        def _creator(orig_fn):
-            <MyPrimitive>Plugin._ORIGINAL_OP = orig_fn
-            return PatchedCallableWrapper(orig_fn, jnp.<op>_p)
         return {
-            "patch_targets": [jnp],
-            "target_attribute": "<op>",
-            "patch_function": _creator,
+            "patch_targets": [nnx.<MyPrimitiveClass>],
+            "target_attribute": "__call__",
+            "patch_function": <MyPrimitive>Plugin.get_monkey_patch,
         }
 ```
 
-That is *all* that is needed—no manual symbolic math, no shape strings.
+A real-world example is **`conv.py`** in the repo.
 
 ---
-## 4. Migration checklist
-| ✓ | Step |
+## 4 Migration checklist
+| ✓ | Step |
 |---|------|
-| ☐ | Capture the original JAX function in `patch_info` and store it on the plugin class. |
-| ☐ | Rewrite `abstract_eval` to use **only** `jax.eval_shape` (or `jax.export` if lowering is actually needed – rare). |
-| ☐ | Ensure extra params (e.g. `axis`) are **plain `int` / `bool` / enum**, _never_ tracers.  Use `int(axis)` as safeguard. |
-| ☐ | Do **not** call `jax.numpy` inside `abstract_eval` – always the stored original op to avoid recursion. |
-| ☐ | Add/extend test‑cases with symbolic batches: `("B", …)` and verify `expected_output_shapes`. |
+| ☐ | `patch_info` returns a **factory** that receives `orig_fn`; store it on the class. |
+| ☐ | `abstract_eval` uses only `jax.eval_shape` on that original fn. |
+| ☐ | Build a `SimpleNamespace` carrying *all* attributes that the original method reads. |
+| ☐ | Never import or call jax.numpy inside `abstract_eval` – let the real op do the work. |
+| ☐ | Unit tests include at least one symbolic-batch shape such as `("B", 32, 32, 3)`. |
 
 ---
-## 5. Known pitfalls & remedies
-| Symptom | Root cause | Fix |
-|---------|-----------|------|
-| `UnexpectedTracerError` in abstract_eval | Tried to do arithmetic directly on tracers | Don’t.  Hand control to `jax.eval_shape`. |
-| `AssertionError ctx.axis_size_env is None` inside MLIR | You used `jax.export` inside abstract_eval **with** lowering; not supported while outer trace is running | Switch to `jax.eval_shape` or use `jax.export` _without lowering_ (`lower=False` once available). |
-| Infinite recursion | helper function calls the patched op which re‑enters primitive | Always call the **original** un‑patched op. |
+## 5 Common pitfalls
+| Symptom | Cause | Remedy |
+|---------|-------|--------|
+| `UnexpectedTracerError` | Manual math on tracers | Delegate to `jax.eval_shape`. |
+| `…got an unexpected keyword argument …` inside eval_shape | Your dummy instance misses an attribute the original method accesses | Add that field to the `SimpleNamespace`. |
+| Extra `Transpose` nodes for constant kernels | You left the transpose in the graph | Pre-transpose the numpy constant *before* registering it as an initializer (see `conv.py`). |
 
 ---
-## 6. Example: finished `concatenate` plugin
-See `jax2onnx/plugins/jax/numpy/concatenate.py` in the repo – the tests:
-```
-pytest tests/primitives/test_jnp.py::Test_concatenate -v
-```
-all pass including the dynamic‑symbolic‑batch case.
+## 6 Reference implementation
+* **`jax2onnx/plugins/flax/nnx/conv.py`** – full pattern with constants vs runtime tensors, dummy instance, etc.
+* **`jax2onnx/plugins/jax/numpy/concatenate.py`** – light-weight unary example.
 
 ---
-## 7. Extending to new primitives
-1. Copy the skeleton above.
-2. Replace `<op>` / `<MyPrimitive>` and parameter handling.
-3. Add ONNX emission code in `to_onnx` if missing.
-4. Add pytest case with symbolic dim(s).
+## 7 Adding a new primitive
 
-You now have a primitive that **just works** for static, dynamic and symbolic shapes 👏.
-
+1. Copy the boiler-plate above.
+2. Fill in `<MyPrimitive>` placeholders and ONNX emission logic in `to_onnx`.
+3. Provide tests with both static and symbolic shapes.
+4. Enjoy automatic support for dynamic & symbolic dimensions 👏.
