@@ -552,7 +552,13 @@ class OnnxBuilder:
         return remaining_missing
 
     def _build_graph(self, name: str) -> GraphProto:
+        # 1. existing clean-ups
         self.filter_unused_initializers()
+
+        # 2. NEW ─ remove graph-inputs that collide with node-outputs /
+        #          initializers / are never consumed
+        self._filter_redundant_inputs()
+
         missing = self.find_missing_value_info()
 
         # Automatically handle deterministic flags
@@ -1112,3 +1118,80 @@ class OnnxBuilder:
         if hasattr(d, "symbol") and d.symbol:
             return str(d.symbol)
         return _symbol_name(self, d)  # final fallback
+
+    # ------------------------------------------------------------------
+    #  Remove any ValueInfo that is *not* referenced by nodes, outputs
+    #  or initializers.  This prevents compile-time constants that were
+    #  later replaced (e.g. transposed kernels) from surfacing as graph
+    #  inputs.
+    # ------------------------------------------------------------------
+    def _filter_unused_inputs(self):
+        used_names: set[str] = set()
+
+        # all node inputs
+        for n in self.nodes:
+            used_names.update(n.input)
+
+        # graph outputs must stay
+        used_names.update(o.name for o in self.outputs)
+
+        # and every initializer is baked into the model
+        # Build a mapping from initializer names for quick lookup
+        self.initializers_by_name = {init.name: init for init in self.initializers}
+        used_names.update(self.initializers_by_name.keys())
+
+        # keep only genuinely used inputs
+        before = len(self.inputs)
+        self.inputs = [vi for vi in self.inputs if vi.name in used_names]
+
+        if before != len(self.inputs):
+            logger.debug(
+                "Pruned %d unused graph inputs (constants that became "
+                "initializers or were otherwise dropped).",
+                before - len(self.inputs),
+            )
+
+    # ------------------------------------------------------------------
+    # helper
+    # ------------------------------------------------------------------
+    def _filter_redundant_inputs(self) -> None:
+        """Drop every `graph.input` that
+        * is also produced by some node **or**
+        * duplicates an initializer **or**
+        * is not consumed by any node.
+        """
+        node_in, node_out = set(), set()
+        for n in self.nodes:
+            node_in.update([t for t in n.input if t])
+            node_out.update([t for t in n.output if t])
+
+        # Build initializers dictionary if not already done
+        if not hasattr(self, "initializers_by_name"):
+            self.initializers_by_name = {init.name: init for init in self.initializers}
+
+        inits = set(self.initializers_by_name.keys())
+        g_outs = set(o.name for o in self.outputs)
+
+        before = len(self.inputs)
+        self.inputs = [
+            vi
+            for vi in self.inputs
+            if (
+                # must still be needed
+                vi.name in node_in
+                or vi.name in g_outs
+            )
+            and (
+                # …but not produced inside
+                vi.name
+                not in node_out
+            )
+            and (
+                # …and not shadow an initializer
+                vi.name
+                not in inits
+            )
+        ]
+
+        if before != len(self.inputs):
+            logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
