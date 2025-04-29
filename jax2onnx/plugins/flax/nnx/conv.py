@@ -236,6 +236,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         x: core.ShapedArray,
         kernel: core.ShapedArray,
         bias: core.ShapedArray,
+        use_bias: bool,
         strides,
         padding,
         dilations,
@@ -470,11 +471,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
         # s.add_shape_info(final_output_name, jax_output_shape)
 
     @staticmethod
-    def _conv(x, kernel, bias, strides, padding, dilations, dimension_numbers):
+    def _conv(
+        x, kernel, bias, use_bias, strides, padding, dilations, dimension_numbers
+    ):
         return nnx.conv_p.bind(
             x,
             kernel,
             bias,
+            use_bias=use_bias,
             strides=strides,
             padding=padding,
             dilations=dilations,
@@ -504,6 +508,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 x,
                 self.kernel.value,
                 bias,
+                self.use_bias,
                 self.strides,
                 self.padding,
                 getattr(self, "dilations", (1, 1)),
