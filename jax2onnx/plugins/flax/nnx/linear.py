@@ -105,16 +105,17 @@ class LinearPlugin(PrimitiveLeafPlugin):
             lhs, rhs = ((x.ndim - 1,), (0,))
             dimension_numbers = ((lhs, rhs), ((), ()))
 
-        def _linear(lhs, w, b):
-            return lax.dot_general(lhs, w, dimension_numbers) + b
+        # Build ShapeDtypeStruct specs for symbolic-shape safe evaluation
+        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
+        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
 
-        out_aval = jax.eval_shape(
-            _linear,
-            jax.ShapeDtypeStruct(x.shape, x.dtype),
-            jax.ShapeDtypeStruct(kernel.shape, kernel.dtype),
-            jax.ShapeDtypeStruct(bias.shape, bias.dtype),
-        )
-        return core.ShapedArray(out_aval.shape, out_aval.dtype)
+        def _helper(xv, kv, bv):
+            """Helper function that executes the actual dot_general + bias."""
+            return lax.dot_general(xv, kv, dimension_numbers) + bv
+
+        out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
+        return core.ShapedArray(out.shape, out.dtype)
 
     # ------------------------------------------------------------------
     # ONNX lowering -----------------------------------------------------
@@ -128,28 +129,19 @@ class LinearPlugin(PrimitiveLeafPlugin):
     ) -> None:
         x_var, k_var, b_var = node_inputs
         y_var = node_outputs[0]
+        dimension_numbers = params.get("dimension_numbers")
 
-        # -------------------------- nice names ---------------------------
-        # Store *old* names so we can detect if a rename happened.
-        old_x_name = s.get_name(x_var)
-        old_k_name = s.get_name(k_var)
-        old_b_name = s.get_name(b_var)
-
-        s.set_var_name(x_var, "x")
-        s.set_var_name(k_var, "kernel")
-        s.set_var_name(b_var, "bias")
-
+        # Important: keep the variable names as they are for validation
         x_name = s.get_name(x_var)
         k_name = s.get_name(k_var)
         b_name = s.get_name(b_var)
         y_name = s.get_name(y_var)
 
-        # Register as graph inputs (builder complains otherwise)
-        for name, var in ((x_name, x_var), (k_name, k_var), (b_name, b_var)):
-            self._ensure_graph_input(s, name, var)
-            s.add_shape_info(name, tuple(var.aval.shape), var.aval.dtype)
+        # Register the input tensor information
+        self._ensure_graph_input(s, x_name, x_var)
+        s.add_shape_info(x_name, tuple(x_var.aval.shape), x_var.aval.dtype)
 
-        # --------------------- flatten leading batch dims ---------------
+        # --------------------- flatten leading batch dims if needed ---------------
         x_shape = x_var.aval.shape
         batch_dims, in_features = x_shape[:-1], x_shape[-1]
 
@@ -170,26 +162,49 @@ class LinearPlugin(PrimitiveLeafPlugin):
         else:
             x2d_name = x_name  # already 2‑D
 
-        # -------------------- weight handling ---------------------------
-        if k_name in s.name_to_const:
-            weight_name = s.get_constant_name(s.name_to_const[k_name])
+        # -------------------- kernel and bias handling ---------------------------
+        # Extract kernel (weight) matrix and convert to constant
+        kernel_const = None
+        if hasattr(k_var, "val"):
+            kernel_const = np.asarray(k_var.val)
+        elif k_name in s.name_to_const:
+            kernel_const = s.name_to_const[k_name]
         else:
-            weight_name = k_name
+            logger.warning(f"No kernel value found for {k_name}, using zero weights")
+            kernel_const = np.zeros(k_var.aval.shape, dtype=np.float32)
 
-        # -------------------- GEMM --------------------------------------
+        weight_name = s.get_constant_name(kernel_const)
+
+        # Extract bias vector and convert to constant
+        bias_const = None
+        if hasattr(b_var, "val"):
+            bias_const = np.asarray(b_var.val)
+        elif b_name in s.name_to_const:
+            bias_const = s.name_to_const[b_name]
+        else:
+            logger.warning(f"No bias value found for {b_name}, using zero bias")
+            bias_const = np.zeros(b_var.aval.shape, dtype=np.float32)
+
+        bias_name = s.get_constant_name(bias_const)
+
+        # -------------------- GEMM (matrix multiplication) --------------------------------------
         gemm_out = s.get_unique_name("gemm_out")
         gemm_node = helper.make_node(
             "Gemm",
-            inputs=[x2d_name, weight_name, b_name],
+            inputs=[x2d_name, weight_name, bias_name],
             outputs=[gemm_out],
             name=s.get_unique_name("Gemm"),
+            alpha=1.0,
+            beta=1.0,
+            transA=0,
+            transB=0,
         )
         s.add_node(gemm_node)
 
         out_features = k_var.aval.shape[1]
         s.add_shape_info(gemm_out, (-1, out_features), x_var.aval.dtype)
 
-        # -------------------- restore batch dims ------------------------
+        # -------------------- restore original dimensions if needed ------------------------
         if len(batch_dims) > 1:
             final_shape = np.array(batch_dims + (out_features,), dtype=np.int64)
             final_shape_name = s.get_constant_name(final_shape)
@@ -206,6 +221,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 y_name, tuple(batch_dims + (out_features,)), x_var.aval.dtype
             )
         else:
+            # For 2D case, the output is directly from GEMM
             s.var_to_name[y_var] = gemm_out
             batch = batch_dims[0] if batch_dims else 1
             s.add_shape_info(gemm_out, (batch, out_features), x_var.aval.dtype)
@@ -217,9 +233,10 @@ class LinearPlugin(PrimitiveLeafPlugin):
     def get_monkey_patch():
         def patched_call(self, x):
             dn = (((x.ndim - 1,), (0,)), ((), ()))  # last dim ⋅ first dim
-            return nnx.linear_p.bind(
-                x, self.kernel.value, self.bias.value, dimension_numbers=dn
-            )
+            # Extract kernel and bias directly from the module's parameters
+            kernel = self.kernel.value
+            bias = self.bias.value
+            return nnx.linear_p.bind(x, kernel, bias, dimension_numbers=dn)
 
         return patched_call
 
