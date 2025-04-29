@@ -448,7 +448,7 @@ class Jaxpr2OnnxConverter:
             const_var = jaxpr.constvars[i]
             self.var_to_name[const_var] = const_name
             self.name_to_var[const_name] = const_var
-            # self.name_to_const[const_name] = const # Maybe builder stores this?
+            self.name_to_const[const_name] = const
 
         # Add input variables with symbolic shapes
         for var in jaxpr.invars:
