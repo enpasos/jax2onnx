@@ -373,7 +373,16 @@ class Jaxpr2OnnxConverter:
 
         # --- Step 1: Use received symbolic_avals directly ---
         # No need to create concrete tracing_args based on symbolic_dim_map
-        tracing_args = symbolic_avals  # Use the symbolic avals directly
+        # Always hand ShapeDtypeStructs to jax.make_jaxpr
+        tracing_args = [
+            (
+                jax.ShapeDtypeStruct(a.shape, a.dtype)  # ✔ keeps _DimExpr symbols
+                if hasattr(a, "shape")
+                and hasattr(a, "dtype")  # Check for ShapedArray attributes
+                else a
+            )  # already a ShapeDtypeStruct
+            for a in symbolic_avals
+        ]
         self.logger.debug(f"Using tracing_args (symbolic avals): {tracing_args}")
 
         # --- Step 2: Call jax.make_jaxpr ---
