@@ -1,5 +1,8 @@
+# file: jax2onnx/plugins/flax/nnx/conv.py
+
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +10,7 @@ from jax import lax
 import numpy as np
 from flax import nnx
 from jax import core
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Literal  # Import Literal from new location
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -221,8 +224,15 @@ class ConvPlugin(PrimitiveLeafPlugin):
             raise ValueError("Unsupported padding: " + padding)
         return (N, out_H, out_W, out_channels)
 
+    # -----------------------------------------------------------------
+    #  abstract_eval – delegate to the *original* Conv implementation
+    #                 via **jax.eval_shape**
+    # -----------------------------------------------------------------
+    # Will be filled once, when we monkey–patch nnx.Conv
+    _ORIGINAL_CONV_CALL: Callable | None = None
+
     @staticmethod
-    def abstract_eval(  # <-- signature unchanged
+    def abstract_eval(
         x: core.ShapedArray,
         kernel: core.ShapedArray,
         bias: core.ShapedArray,
@@ -231,48 +241,89 @@ class ConvPlugin(PrimitiveLeafPlugin):
         dilations,
         dimension_numbers,
     ):
-        """
-        Shape-inference for nnx.conv_p that works with **symbolic dimensions**.
+        """Symbolic-shape rule that mirrors the concatenate example."""
 
-        We delegate all the algebra to `jax.eval_shape` on top of
-        `lax.conv_general_dilated`; in this way any `_DimExpr`
-        (e.g. the `'B'` batch symbol) just flows through untouched.
-        """
+        if ConvPlugin._ORIGINAL_CONV_CALL is None:
+            raise RuntimeError("Original nnx.Conv.__call__ not captured.")
 
-        # ---- normalise scalar vs tuple params ----------------------------------
+        # normalise scalars → tuples (Flax default)
         if isinstance(strides, int):
             strides = (strides, strides)
         if isinstance(dilations, int):
             dilations = (dilations, dilations)
-        if dimension_numbers is None:
-            # flax nnx default
-            dimension_numbers = ("NHWC", "HWIO", "NHWC")
 
-        # ---- build ShapeDtypeStruct specs --------------------------------------
+        # Shape-dtype specs
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
-        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
+        bias_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
 
-        # ---- helper that JAX will analyse --------------------------------------
-        def _helper(lhs, rhs, b):
-            out = lax.conv_general_dilated(
-                lhs,
-                rhs,
-                window_strides=strides,
+        def _helper(xv, kv, bv):
+            """
+            Call the *original* nnx.Conv.__call__.
+            We fabricate a lightweight dummy-instance that carries all
+            attributes the method needs (kernel, bias, strides, …).
+            """
+            if ConvPlugin._ORIGINAL_CONV_CALL is None:  # safety net
+                raise RuntimeError("Original nnx.Conv.__call__ missing.")
+
+            # Extract kernel dimensions - kernel is in HWIO format
+            _, _, in_features, out_features = kv.shape
+            kernel_height, kernel_width = kv.shape[0], kv.shape[1]
+            kernel_size = (kernel_height, kernel_width)
+
+            # Define a promote_dtype function that acts like the original one
+            def promote_dtype_func(args, dtype=None):
+                # If no dtype specified, just return args unchanged
+                if dtype is None:
+                    return args
+                # Otherwise, we would cast all arrays to dtype - but in abstract evaluation,
+                # we just return the arrays as is
+                return args
+
+            # Import lax function for conv_general_dilated
+            from jax import lax
+
+            dummy = SimpleNamespace(
+                # parameters exposed as .value like real nnx.Param
+                kernel=SimpleNamespace(value=kv),
+                bias=None if bv is None else SimpleNamespace(value=bv),
+                # required attributes from the Conv initialization
+                kernel_size=kernel_size,  # Needed by nnx.Conv.__call__
+                in_features=in_features,
+                out_features=out_features,
+                # hyper-parameters expected by the method
+                strides=strides,
                 padding=padding,
-                lhs_dilation=None,
-                rhs_dilation=dilations,
+                dilations=dilations,
                 dimension_numbers=dimension_numbers,
+                # sane defaults for rarely-used attrs
+                feature_group_count=1,
+                input_dilation=1,
+                kernel_dilation=1,
+                use_bias=bv is not None,
+                lhs_dilation=None,
+                rhs_dilation=None,
+                precision=None,
+                # Add missing attributes referenced in Conv.__call__ implementation
+                mask=None,  # Missing in original implementation
+                kernel_shape=(
+                    kernel_height,
+                    kernel_width,
+                    in_features,
+                    out_features,
+                ),  # HWIO format
+                dtype=None,  # Default to None, as in the original
+                # Add the promote_dtype function
+                promote_dtype=promote_dtype_func,
+                # Add the conv_general_dilated function
+                conv_general_dilated=lax.conv_general_dilated,
             )
-            # broadcast bias over all but the channel dim (assumes output NHWC)
-            bias_reshaped = jnp.reshape(b, (1,) * (out.ndim - 1) + (-1,))
-            return out + bias_reshaped
 
-        # ---- ask JAX for the symbolic output aval ------------------------------
-        out_aval = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
+            return ConvPlugin._ORIGINAL_CONV_CALL(dummy, xv)
 
-        # ---- return as ShapedArray for the tracer ------------------------------
-        return core.ShapedArray(out_aval.shape, out_aval.dtype)
+        out = jax.eval_shape(_helper, x_spec, k_spec, bias_spec)
+        out = jax.tree_util.tree_leaves(out)[0]  # single tensor
+        return core.ShapedArray(out.shape, out.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Convert conv operation to ONNX format."""
@@ -304,15 +355,32 @@ class ConvPlugin(PrimitiveLeafPlugin):
         )  # (B, C, H, W)
         s.add_shape_info(pre_transpose_name, pre_transposed_shape)
 
-        # --- Convert kernel HWIO → OIHW ---------------------------------
+        # ------------------------------------------------------------------ #
+        # Kernel: detect once-for-all constants v. runtime tensors
+        # ------------------------------------------------------------------ #
         kernel_name = s.get_name(kernel_var)
 
-        if kernel_name in s.name_to_const:  # ── static / literal weights
-            kernel_const = s.name_to_const[kernel_name]  # HWIO
+        # -----------------------------------------------------------------
+        #  Detect compile-time constants *robustly*
+        #   – Literal            (jax.extend.core.Literal)
+        #   – or   name_to_const entry keyed by the variable *name*
+        # -----------------------------------------------------------------
+        kernel_const = None
+        if isinstance(
+            kernel_var, Literal
+        ):  # Use imported Literal instead of core.Literal
+            kernel_const = np.asarray(kernel_var.val)
+        else:
+            kernel_const = s.name_to_const.get(kernel_name, None)
+
+        if kernel_const is not None:  # ─ constant ─
+            #   JAX supplies kernels in HWIO – transpose here to OIHW and
+            #   register the **transposed** tensor as an initializer. No
+            #   runtime Transpose node is inserted.
             transposed_kernel = np.transpose(kernel_const, (3, 2, 0, 1))  # OIHW
-            weights_name = s.get_constant_name(transposed_kernel)  # → initializer
-            filter_shape = kernel_const.shape  # (H,W,I,O)
-        else:  # ── dynamic tensor weights
+            weights_name = s.builder.get_constant_name(transposed_kernel)
+            filter_shape = kernel_const.shape  # HWIO
+        else:  # ─ dynamic ─
             weights_name = s.get_unique_name("kernel_OIHW")
             kernel_transpose_node = helper.make_node(
                 "Transpose",
@@ -414,8 +482,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
         )
 
     @staticmethod
-    def get_monkey_patch():
-        """Returns a patched version of Conv.__call__ that handles missing bias."""
+    def get_monkey_patch(orig_fn: Callable):
+        """
+        *Store* the original nnx.Conv.__call__ (for abstract_eval)
+        and return a patched replacement that routes through the new
+        primitive while auto-filling a zero-bias when `use_bias=False`.
+        """
+        ConvPlugin._ORIGINAL_CONV_CALL = orig_fn  # <── one-time capture
+
         import jax.numpy as jnp
 
         def patched_conv_call(self, x):
@@ -442,7 +516,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
     def patch_info():
         return {
             "patch_targets": [nnx.Conv],
-            "patch_function": lambda _: ConvPlugin.get_monkey_patch(),
+            "patch_function": ConvPlugin.get_monkey_patch,  # ← gets `orig_fn`
+            "target_attribute": "__call__",
         }
 
 
