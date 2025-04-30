@@ -8,12 +8,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "jax>=0.6.0",
-    "flax>=0.10.5",
+    "flax>=0.10.6",
     "ml_dtypes==0.5.1",
     "optax==0.2.4",
     "orbax-checkpoint==0.11.6",
     "orbax-export==0.0.6",
-    "netron>=8.2.8",
+    "netron>=8.2.9",
     "onnx>=1.17.0",
     "onnxruntime>=1.21.1",
 ]

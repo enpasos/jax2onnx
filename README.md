@@ -98,13 +98,14 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.0**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
-- **0.4.4**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
+- **0.5.1**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
+- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
 
 ### **Current Productive Version**
-- **0.4.3** *(PyPI)*: Fixed a bug in the validation of JAX callable outputs against their ONNX counterparts. This fix exposed previously hidden failing tests, which are now fixed.
+- **0.4.4** *(PyPI)*: Added support for `lax.cos`, `lax.cosh`, `lax.sin`, `lax.sinh` and `lax.scatter` primitives. 
 
 ### **Past Versions**
+- **0.4.3**: Fixed a bug in the validation of JAX callable outputs against their ONNX counterparts. This fix exposed previously hidden failing tests, which are now fixed.
 - **0.4.2**: Cleanup and fixes to the basic ONNX function release.
 - **0.4.1** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
   Each `@onnx_function` decorator creates a new ONNX function instance on the call graph.
@@ -151,10 +152,12 @@ If conversion doesn't work out of the box, it could be due to:
 | [lax.add](https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html) | [Add](https://onnx.ai/onnx/operators/onnx__Add.html) | [`add`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/add.onnx) ✅ | v0.2.0 |
 | [lax.argmax](https://docs.jax.dev/en/latest/_autosummary/jax.lax.argmax.html) | [ArgMax](https://onnx.ai/onnx/operators/onnx__ArgMax.html) | [`argmax_test1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/argmax_test1.onnx) ✅<br>[`argmax_test2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/argmax_test2.onnx) ✅ | v0.2.0 |
 | [lax.argmin](https://docs.jax.dev/en/latest/_autosummary/jax.lax.argmin.html) | [ArgMin](https://onnx.ai/onnx/operators/onnx__ArgMin.html) | [`argmin_test1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/argmin_test1.onnx) ✅<br>[`argmin_test2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/argmin_test2.onnx) ✅ | v0.2.0 |
-| [lax.broadcast_in_dim](https://docs.jax.dev/en/latest/_autosummary/jax.lax.broadcast_in_dim.html) | [Expand](https://onnx.ai/onnx/operators/onnx__Expand.html) | [`broadcast_in_dim`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim.onnx) ✅<br>[`broadcast_in_dim_2d_to_3d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim_2d_to_3d.onnx) ✅<br>[`broadcast_in_dim_scalar`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim_scalar.onnx) ✅ | v0.2.0 |
+| [lax.broadcast_in_dim](https://jax.readthedocs.io/en/latest/jax-primitives.html) | [Expand](https://onnx.ai/onnx/operators/onnx__Expand.html)<br>[Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | [`broadcast_in_dim`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim.onnx) ✅<br>[`broadcast_in_dim_2d_to_3d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim_2d_to_3d.onnx) ✅<br>[`broadcast_in_dim_scalar`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/broadcast_in_dim_scalar.onnx) ✅ | v0.2.0 |
 | [lax.concatenate](https://docs.jax.dev/en/latest/_autosummary/jax.lax.concatenate.html) | [Concat](https://onnx.ai/onnx/operators/onnx__Concat.html) | [`concatenate`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/concatenate.onnx) ✅<br>[`concatenate_axis1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/concatenate_axis1.onnx) ✅<br>[`concatenate_dynamic_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/concatenate_dynamic_dynamic.onnx) ✅<br>[`concatenate_dynamic`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/concatenate_dynamic.onnx) ✅<br>[`concatenate_3d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/concatenate_3d.onnx) ✅ | v0.2.0 |
 | [lax.conv](https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html) | [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html) | [`conv`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/conv.onnx) ✅<br>[`conv2`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/conv2.onnx) ✅ | v0.2.0 |
 | [lax.convert_element_type](https://docs.jax.dev/en/latest/_autosummary/jax.lax.convert_element_type.html) | [Cast](https://onnx.ai/onnx/operators/onnx__Cast.html) | [`convert_element_type`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/convert_element_type.onnx) ✅ | v0.2.0 |
+| [lax.cos](https://docs.jax.dev/en/latest/_autosummary/jax.lax.cos.html) | [Cos](https://onnx.ai/onnx/operators/onnx__Cos.html) | [`cos`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/cos.onnx) ✅ | v0.4.4 |
+| [lax.cosh](https://docs.jax.dev/en/latest/_autosummary/jax.lax.cosh.html) | [Cosh](https://onnx.ai/onnx/operators/onnx__Cosh.html) | [`cosh`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/cosh.onnx) ✅ | v0.4.4 |
 | [lax.device_put](https://jax.readthedocs.io/en/latest/jax.device_put.html) | [Identity](https://onnx.ai/onnx/operators/onnx__Identity.html) | [`device_put_array`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/device_put_array.onnx) ✅<br>[`device_put_scalar`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/device_put_scalar.onnx) ✅ | v0.4.0 |
 | [lax.div](https://docs.jax.dev/en/latest/_autosummary/jax.lax.div.html) | [Div](https://onnx.ai/onnx/operators/onnx__Div.html) | [`div`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/div.onnx) ✅ | v0.2.0 |
 | [lax.dot_general](https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html) | [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html) | [`dot_general`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/dot_general.onnx) ✅ | v0.2.0 |
@@ -175,6 +178,9 @@ If conversion doesn't work out of the box, it could be due to:
 | [lax.reduce_min](https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_min.html) | [ReduceMin](https://onnx.ai/onnx/operators/onnx__ReduceMin.html) | [`reduce_min`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/reduce_min.onnx) ✅ | v0.2.0 |
 | [lax.reduce_sum](https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html) | [ReduceSum](https://onnx.ai/onnx/operators/onnx__ReduceSum.html) | [`reduce_sum`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/reduce_sum.onnx) ✅ | v0.2.0 |
 | [lax.reshape](https://docs.jax.dev/en/latest/_autosummary/jax.lax.reshape.html) | [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | [`reshape`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/reshape.onnx) ✅ | v0.2.0 |
+| [lax.scatter](https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html) | [ScatterElements](https://onnx.ai/onnx/operators/onnx__ScatterElements.html) | [`scatter_set_axis0`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/scatter_set_axis0.onnx) ✅<br>[`scatter_set_middle`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/scatter_set_middle.onnx) ✅ | v0.4.4 |
+| [lax.sin](https://docs.jax.dev/en/latest/_autosummary/jax.lax.sin.html) | [Sin](https://onnx.ai/onnx/operators/onnx__Sin.html) | [`sin`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sin.onnx) ✅ | v0.4.4 |
+| [lax.sinh](https://docs.jax.dev/en/latest/_autosummary/jax.lax.sinh.html) | [Sinh](https://onnx.ai/onnx/operators/onnx__Sinh.html) | [`sinh`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sinh.onnx) ✅ | v0.4.4 |
 | [lax.slice](https://docs.jax.dev/en/latest/_autosummary/jax.lax.slice.html) | [Slice](https://onnx.ai/onnx/operators/onnx__Slice.html) | [`slice_test1`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/slice_test1.onnx) ✅ | v0.1.0 |
 | [lax.sort](https://docs.jax.dev/en/latest/_autosummary/jax.lax.sort.html) | [TopK](https://onnx.ai/onnx/operators/onnx__TopK.html) | [`sort_1d`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sort_1d.onnx) ✅<br>[`sort_1d_empty`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sort_1d_empty.onnx) ✅<br>[`sort_1d_single`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sort_1d_single.onnx) ✅<br>[`sort_1d_larger`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sort_1d_larger.onnx) ✅<br>[`sort_1d_specific_values`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sort_1d_specific_values.onnx) ✅ | v0.2.0 |
 | [lax.sqrt](https://docs.jax.dev/en/latest/_autosummary/jax.lax.sqrt.html) | [Sqrt](https://onnx.ai/onnx/operators/onnx__Sqrt.html) | [`sqrt`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/primitives/lax/sqrt.onnx) ✅ | v0.2.0 |
@@ -271,7 +277,7 @@ If conversion doesn't work out of the box, it could be due to:
 | Library       | Versions |  
 |:--------------|:---------| 
 | `JAX`         | 0.6.0    | 
-| `Flax`        | 0.10.5   | 
+| `Flax`        | 0.10.6   | 
 | `onnx`        | 1.17.0   |  
 | `onnxruntime` | 1.21.1   |  
 
@@ -322,6 +328,8 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ---
 
 ## 🌟 Special Thanks
+
+Special thanks for plugin contributions to: @burakksen
 
 Special thanks to @lutzroeder for making shapes internal to ONNX function visible in his great Netron viewer.
 
