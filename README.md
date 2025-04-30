@@ -98,8 +98,8 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.0**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
-- **0.4.4**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
+- **0.5.1**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
+- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
 
 ### **Current Productive Version**
 - **0.4.3** *(PyPI)*: Fixed a bug in the validation of JAX callable outputs against their ONNX counterparts. This fix exposed previously hidden failing tests, which are now fixed.
