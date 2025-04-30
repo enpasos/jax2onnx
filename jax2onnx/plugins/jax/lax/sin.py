@@ -18,7 +18,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Sin.html",
         }
     ],
-    since="v0.2.0",
+    since="v0.4.4",
     context="primitives.lax",
     component="sin",
     testcases=[
