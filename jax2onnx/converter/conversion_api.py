@@ -17,6 +17,8 @@ from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 
+logger = logging.getLogger("jax2onnx.converter.conversion_api")
+
 
 def prepare_example_args(input_shapes, default_batch_size=2):
     """
@@ -94,6 +96,8 @@ def to_onnx(
 
     model = builder.create_onnx_model(model_name)
     model = improve_onnx_model(model)
+
+    logger.debug(onnx.helper.printable_graph(model.graph))
 
     return model
 
