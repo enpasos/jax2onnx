@@ -6,7 +6,7 @@ import sys
 from onnx import ModelProto
 
 # Replace with the actual path to your ONNX model
-onnx_model_path = "docs/onnx/primitives/nnx/dropout_call_params.onnx"
+onnx_model_path = "docs/onnx/primitives/lax/scatter_set_axis0.onnx"
 # Example using one of the previous models:
 # onnx_model_path = "function_with_intermediate_shape.onnx"
 

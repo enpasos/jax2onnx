@@ -18,6 +18,8 @@ from jax import ShapeDtypeStruct, core  # Keep core
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
+logger = logging.getLogger("jax2onnx.converter.conversion_api")
+
 
 # Remove or comment out the old prepare_example_args if no longer needed
 # def prepare_example_args(...): ...
@@ -106,6 +108,8 @@ def to_onnx(
     logger.info("Optimizing ONNX model...")
     model = improve_onnx_model(model)
     logger.info("ONNX model conversion complete.")
+
+    logger.debug(onnx.helper.printable_graph(model.graph))
 
     return model
 
