@@ -18,8 +18,6 @@ from jax import ShapeDtypeStruct, core  # Keep core
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
-logger = logging.getLogger("jax2onnx.converter.conversion_api")
-
 
 # Remove or comment out the old prepare_example_args if no longer needed
 # def prepare_example_args(...): ...
