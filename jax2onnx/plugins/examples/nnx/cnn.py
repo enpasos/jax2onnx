@@ -39,7 +39,7 @@ register_example(
         {
             "testcase": "simple_cnn",
             "callable": CNN(rngs=nnx.Rngs(0)),
-            "input_shapes": [(2, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )

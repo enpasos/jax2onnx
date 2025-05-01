@@ -15,6 +15,8 @@ import jax.random
 import jax.numpy as jnp
 import numpy as np
 from jax.extend import core as extend_core
+from jax.extend.core import Literal
+from jax import core
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
@@ -24,6 +26,7 @@ from jax2onnx.plugin_system import (
     PrimitiveLeafPlugin,
     import_all_plugins,
 )
+from jax._src.export.shape_poly import _DimExpr
 
 # Keep _symbol_name, _canonical_symbol if used elsewhere, maybe remove from here if only trace_jaxpr used them
 from jax2onnx.converter.onnx_builder import _symbol_name, _canonical_symbol
@@ -44,6 +47,8 @@ class Jaxpr2OnnxConverter:
     generates equivalent ONNX operations.
     """
 
+    # Map symbolic dimensions to their origin tensor names and axes
+
     def __init__(self, builder: OnnxBuilder):
         self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
         self.builder = builder
@@ -55,6 +60,10 @@ class Jaxpr2OnnxConverter:
         self.primitive_handlers: dict[str, Any] = {}
         self.shape_env: dict[str, tuple[int, ...]] = {}
         self.name_to_const: dict[str, Any] = {}
+        # ------------------------------------------------------------------
+        # Mapping: symbolic dimension expression -> (tensor_name, axis)
+        # ------------------------------------------------------------------
+        self.symbolic_dim_to_origin: dict[_DimExpr, tuple[str, int]] = {}
         import_all_plugins()
         self._register_primitive_handlers()
         self.symbolic_shapes = {}
@@ -82,6 +91,97 @@ class Jaxpr2OnnxConverter:
 
     def get_var_name(self, var: Any) -> str:
         """Get or create a unique name for a JAX variable."""
+
+        # ────────────────────────────────────────────────────────────────
+        # Plain Python int / float  (appears e.g. as the literal `3`)
+        # ────────────────────────────────────────────────────────────────
+        from numbers import Number
+
+        if isinstance(var, Number) and not hasattr(var, "aval"):
+            import numpy as _np
+            from onnx import helper, TensorProto
+
+            # JAX integer literals default to int32
+            value = _np.array(var, dtype=_np.int32)
+            wanted_dtype = self._ensure_onnx_dtype(value.dtype)  # INT32
+
+            const_name = self.get_constant_name(value)
+            meta = self.builder.value_info_metadata[const_name]
+            have_dtype = meta["dtype"] if isinstance(meta, dict) else meta[1]
+
+            cast_source = const_name
+            if have_dtype != wanted_dtype:
+                # ①  insert Cast so we end up with the right dtype
+                cast_source = self.get_unique_name("const_cast")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[const_name],
+                        outputs=[cast_source],
+                        to=int(wanted_dtype),
+                        name=self.get_unique_name("const_cast"),
+                    )
+                )
+                self.add_shape_info(cast_source, (), value.dtype)
+
+            # ②  final Identity (just to give the scalar a fresh name)
+            tensor_name = self.get_unique_name("lit")
+            self.builder.add_node(
+                helper.make_node(
+                    "Identity",
+                    inputs=[cast_source],
+                    outputs=[tensor_name],
+                    name=self.get_unique_name("lit_const"),
+                )
+            )
+            self.add_shape_info(tensor_name, (), value.dtype)
+            return tensor_name
+
+        # ①  Literals -> create  a Constant node
+        if isinstance(var, Literal):
+            import numpy as np
+            from onnx import TensorProto
+
+            # create/lookup the constant initializer
+            value = np.asarray(var.val)
+            const_name = self.get_constant_name(value)
+
+            tensor_name = self.get_unique_name("lit")
+            self.builder.add_node(  # type: ignore[attr-defined]
+                helper.make_node(
+                    "Identity",
+                    inputs=[const_name],
+                    outputs=[tensor_name],
+                    name=self.get_unique_name("lit_const"),
+                )
+            )
+            # fix up any dtype mismatch between the initializer and the JAX literal
+            expected_onnx_dtype = self._ensure_onnx_dtype(value.dtype)
+            const_meta = self.builder.value_info_metadata.get(const_name)
+            if const_meta is None:
+                actual_onnx_dtype = expected_onnx_dtype
+            elif isinstance(const_meta, dict):  # modern metadata format
+                actual_onnx_dtype = const_meta["dtype"]
+            else:  # legacy: tuple(shape, dtype)
+                actual_onnx_dtype = const_meta[1]
+
+            if actual_onnx_dtype != expected_onnx_dtype:
+                cast_name = self.get_unique_name("lit_cast")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[tensor_name],
+                        outputs=[cast_name],
+                        to=int(expected_onnx_dtype),
+                        name=self.get_unique_name("lit_fixdtype"),
+                    )
+                )
+                tensor_name = cast_name
+
+            self.add_shape_info(tensor_name, value.shape, value.dtype)
+            return tensor_name  # ← do *not* add to self.var_to_name
+
+        # ②  every normal Var
         if var not in self.var_to_name:
             name = self.get_unique_name("var")
             self.set_var_name(var, name)
@@ -408,6 +508,15 @@ class Jaxpr2OnnxConverter:
         self.jaxpr = closed.jaxpr
         self.output_vars = getattr(self.jaxpr, "outvars", [])  # Access outvars safely
 
+        # --------------------------------------------------------------
+        # Record symbolic dimensions present in the graph inputs
+        # --------------------------------------------------------------
+        for input_var, input_spec in zip(self.jaxpr.invars, symbolic_avals):
+            tensor_name = self.get_name(input_var)
+            for axis, dim in enumerate(input_spec.shape):
+                if isinstance(dim, _DimExpr):
+                    self.symbolic_dim_to_origin[dim] = (tensor_name, axis)
+
         # --- Step 3: Post-trace Processing (Update internal state) ---
         # Ensure the builder has the necessary map for subsequent operations
         # It should have been set in conversion_api.py
@@ -486,9 +595,11 @@ class Jaxpr2OnnxConverter:
                 continue
             name = self.get_var_name(var)
             if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
-                self.logger.warning(
-                    f"Output var {name} missing aval/shape. Skipping add_output."
-                )
+                # scalar literal → shape=(), dtype=int32 (matches get_var_name)
+                if not any(o.name == name for o in self.builder.outputs):
+                    from numpy import int32
+
+                    self.builder.add_output(name, (), int32)
                 continue
             shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
             dtype = var.aval.dtype
