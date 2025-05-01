@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from jax import core
 from jax import numpy as jnp
 from jax.extend.core import Primitive
-from onnx import helper
+from onnx import helper, TensorProto  # <-- Add import
 
 from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -61,6 +61,11 @@ jnp.reshape_p.multiple_results = False  # Correct initialization
             "testcase": "reshape_from_scalar",
             "callable": lambda a: jnp.reshape(a, (1,)),
             "input_shapes": [()],
+        },
+        {
+            "testcase": "reshape_cnn",
+            "callable": lambda x: jnp.reshape(x.shape[0], -1),
+            "input_shapes": [("B", 64, 14, 14)],
         },
     ],
 )
@@ -144,32 +149,48 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of Reshape to ONNX format."""
+        input_var = node_inputs[0]
+        output_var = node_outputs[0]
         newshape = params["newshape"]
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_name(node_outputs[0])
 
-        input_shape = node_inputs[0].aval.shape
+        input_name = s.get_name(input_var)
+        # --- allocate an output name without registering wrong meta ---
+        output_name = s.get_unique_name("reshape_out")
+        s.var_to_name[output_var] = output_name
+
+        input_shape = input_var.aval.shape
+        # Note: output_shape calculation might need refinement for symbolic dims later
         output_shape = ReshapePlugin._get_dynamic_output_shape(input_shape, newshape)
         processed_newshape = ReshapePlugin._process_newshape(newshape)
 
-        shape_tensor_name = s.builder.get_constant_name(encode_dims(processed_newshape))
+        # --- Determine ONNX Input Type (Enum) ---
+        # Use the JAX aval dtype – that is always correct and avoids the
+        # int32 / int64 mix-ups we have seen with scalar constants
+        input_dtype_enum = s._ensure_onnx_dtype(input_var.aval.dtype)
 
+        # --- Determine Expected ONNX Output Type ---
+        # ONNX Reshape output type matches the input data type
+        onnx_output_dtype_enum = input_dtype_enum
+
+        # --- Create Shape Tensor ---
+        # Use encode_dims to handle potential symbolic dimensions ('B') in the shape
+        shape_tensor_vals = encode_dims(processed_newshape)
+        shape_tensor_name = s.get_constant_name(
+            np.array(shape_tensor_vals, dtype=np.int64)
+        )
+
+        # --- Create Reshape Node ---
         reshape_node = helper.make_node(
             "Reshape",
             inputs=[input_name, shape_tensor_name],
             outputs=[output_name],
             name=s.get_unique_name("reshape"),
-            allowzero=0,  # Explicit allowzero=0
+            allowzero=0,  # Set allowzero=0 based on NumPy/JAX behavior
         )
         s.add_node(reshape_node)
 
-        # Ensure shape contains only integers by replacing dynamic dimensions with -1
-        sanitized_output_shape = tuple(
-            dim if isinstance(dim, int) else -1 for dim in output_shape
-        )
-        s.builder.add_value_info(
-            output_name, shape=sanitized_output_shape, dtype=node_inputs[0].aval.dtype
-        )
+        # --- register *once* with the final, correct dtype ---
+        s.add_shape_info(output_name, output_shape, onnx_output_dtype_enum)
 
     @staticmethod
     def _reshape(a, newshape, order="C"):
