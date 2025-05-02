@@ -62,19 +62,35 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         out_name = s.get_name(out_var)
         dim_expr = params["dim"]
 
-        # --- Static-dimension: directly emit a constant scalar ---
+        # --- Static-dimension: emit a Cast from the constant to i32 ---
         if isinstance(dim_expr, int):
-            const_array = np.array(dim_expr, dtype=np.int32)  # ← INT32 now
+            # 1) make a (int64) initializer for the value
+            const_array = np.array(dim_expr, dtype=np.int64)
             const_name = s.get_constant_name(const_array)
+
+            # 2) Cast it down to INT32 for JAX's i32
+            cast_name = s.get_unique_name("dim_as_value_static_cast")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[const_name],
+                    outputs=[cast_name],
+                    to=int(TensorProto.INT32),
+                    name=s.get_unique_name("dim_as_value_static_cast"),
+                )
+            )
+            s.add_shape_info(cast_name, (), np.int32)
+
+            # 3) (Optional) fresh name for the final output
             s.add_node(
                 helper.make_node(
                     "Identity",
-                    inputs=[const_name],
+                    inputs=[cast_name],
                     outputs=[out_name],
-                    name=s.get_unique_name("dim_as_value_static"),
+                    name=s.get_unique_name("dim_as_value_static_id"),
                 )
             )
-            s.add_shape_info(out_name, (), np.int32)  # ← keep types consistent
+            s.add_shape_info(out_name, (), np.int32)
             return
 
         # --- Dynamic-dimension: look up origin axis and extract at runtime ---

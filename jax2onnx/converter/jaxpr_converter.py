@@ -93,61 +93,45 @@ class Jaxpr2OnnxConverter:
         """Get or create a unique name for a JAX variable."""
 
         # ────────────────────────────────────────────────────────────────
-        # Plain Python int / float  (appears e.g. as the literal `3`)
+        # Plain Python int / float (e.g., literal `3`)
         # ────────────────────────────────────────────────────────────────
         from numbers import Number
 
         if isinstance(var, Number) and not hasattr(var, "aval"):
-            import numpy as _np
-            from onnx import helper, TensorProto
-
-            # JAX integer literals default to int32
-            value = _np.array(var, dtype=_np.int32)
-            wanted_dtype = self._ensure_onnx_dtype(value.dtype)  # INT32
-
+            value = np.array(var, dtype=np.int32)
             const_name = self.get_constant_name(value)
-            meta = self.builder.value_info_metadata[const_name]
-            have_dtype = meta["dtype"] if isinstance(meta, dict) else meta[1]
+            wanted_dtype = self._ensure_onnx_dtype(value.dtype)
 
+            # Cast to ensure dtype matches int32 exactly
             cast_source = const_name
-            if have_dtype != wanted_dtype:
-                # ①  insert Cast so we end up with the right dtype
-                cast_source = self.get_unique_name("const_cast")
-                self.builder.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[const_name],
-                        outputs=[cast_source],
-                        to=int(wanted_dtype),
-                        name=self.get_unique_name("const_cast"),
-                    )
-                )
-                self.add_shape_info(cast_source, (), value.dtype)
-
-            # ②  final Identity (just to give the scalar a fresh name)
-            tensor_name = self.get_unique_name("lit")
+            cast_name = self.get_unique_name("lit_cast_to_i32")
             self.builder.add_node(
                 helper.make_node(
-                    "Identity",
-                    inputs=[cast_source],
-                    outputs=[tensor_name],
-                    name=self.get_unique_name("lit_const"),
+                    "Cast",
+                    inputs=[const_name],
+                    outputs=[cast_name],
+                    to=int(wanted_dtype),
+                    name=cast_name,
                 )
             )
-            self.add_shape_info(tensor_name, (), value.dtype)
-            return tensor_name
+            self.add_shape_info(cast_name, (), value.dtype)
+            return cast_name
 
-        # ①  Literals -> create  a Constant node
+        # ────────────────────────────────────────────────────────────────
+        # Handle Literal (JAX constant-folded literals)
+        # ────────────────────────────────────────────────────────────────
         if isinstance(var, Literal):
-            import numpy as np
-            from onnx import TensorProto
-
-            # create/lookup the constant initializer
             value = np.asarray(var.val)
+
+            # Cast integer literals explicitly to INT32 to match JAX's convention
+            if np.issubdtype(value.dtype, np.integer):
+                value = value.astype(np.int32)
+
             const_name = self.get_constant_name(value)
 
+            # Cast explicitly in ONNX if required
             tensor_name = self.get_unique_name("lit")
-            self.builder.add_node(  # type: ignore[attr-defined]
+            self.builder.add_node(
                 helper.make_node(
                     "Identity",
                     inputs=[const_name],
@@ -155,14 +139,15 @@ class Jaxpr2OnnxConverter:
                     name=self.get_unique_name("lit_const"),
                 )
             )
-            # fix up any dtype mismatch between the initializer and the JAX literal
+
             expected_onnx_dtype = self._ensure_onnx_dtype(value.dtype)
             const_meta = self.builder.value_info_metadata.get(const_name)
+
             if const_meta is None:
                 actual_onnx_dtype = expected_onnx_dtype
-            elif isinstance(const_meta, dict):  # modern metadata format
+            elif isinstance(const_meta, dict):
                 actual_onnx_dtype = const_meta["dtype"]
-            else:  # legacy: tuple(shape, dtype)
+            else:
                 actual_onnx_dtype = const_meta[1]
 
             if actual_onnx_dtype != expected_onnx_dtype:
@@ -179,9 +164,11 @@ class Jaxpr2OnnxConverter:
                 tensor_name = cast_name
 
             self.add_shape_info(tensor_name, value.shape, value.dtype)
-            return tensor_name  # ← do *not* add to self.var_to_name
+            return tensor_name  # Do *not* add to var_to_name mapping
 
-        # ②  every normal Var
+        # ────────────────────────────────────────────────────────────────
+        # Every other normal Var
+        # ────────────────────────────────────────────────────────────────
         if var not in self.var_to_name:
             name = self.get_unique_name("var")
             self.set_var_name(var, name)
