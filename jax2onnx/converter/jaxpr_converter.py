@@ -609,6 +609,9 @@ class Jaxpr2OnnxConverter:
                 self.builder.add_output(identity_output_name, shape, dtype)
                 self.add_shape_info(identity_output_name, shape, dtype)
             elif hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                # if the plugin already emitted this output, skip it
+                if any(o.name == name for o in self.builder.outputs):
+                    continue
                 shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
                 dtype = var.aval.dtype
                 self.add_output(var, shape, dtype)
