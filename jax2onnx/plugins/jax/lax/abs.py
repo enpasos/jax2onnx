@@ -18,7 +18,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html",
         }
     ],
-    since="v0.4.4",
+    since="v0.5.0",
     context="primitives.lax",
     component="abs",
     testcases=[
