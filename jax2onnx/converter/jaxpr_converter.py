@@ -122,49 +122,11 @@ class Jaxpr2OnnxConverter:
         # ────────────────────────────────────────────────────────────────
         if isinstance(var, Literal):
             value = np.asarray(var.val)
-
-            # Cast integer literals explicitly to INT32 to match JAX's convention
             if np.issubdtype(value.dtype, np.integer):
                 value = value.astype(np.int32)
-
             const_name = self.get_constant_name(value)
-
-            # Cast explicitly in ONNX if required
-            tensor_name = self.get_unique_name("lit")
-            self.builder.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[const_name],
-                    outputs=[tensor_name],
-                    name=self.get_unique_name("lit_const"),
-                )
-            )
-
-            expected_onnx_dtype = self._ensure_onnx_dtype(value.dtype)
-            const_meta = self.builder.value_info_metadata.get(const_name)
-
-            if const_meta is None:
-                actual_onnx_dtype = expected_onnx_dtype
-            elif isinstance(const_meta, dict):
-                actual_onnx_dtype = const_meta["dtype"]
-            else:
-                actual_onnx_dtype = const_meta[1]
-
-            if actual_onnx_dtype != expected_onnx_dtype:
-                cast_name = self.get_unique_name("lit_cast")
-                self.builder.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[tensor_name],
-                        outputs=[cast_name],
-                        to=int(expected_onnx_dtype),
-                        name=self.get_unique_name("lit_fixdtype"),
-                    )
-                )
-                tensor_name = cast_name
-
-            self.add_shape_info(tensor_name, value.shape, value.dtype)
-            return tensor_name  # Do *not* add to var_to_name mapping
+            self.add_shape_info(const_name, value.shape, value.dtype)
+            return const_name
 
         # ────────────────────────────────────────────────────────────────
         # Every other normal Var
@@ -545,15 +507,67 @@ class Jaxpr2OnnxConverter:
         self.logger.info("Jaxpr processing complete.")
 
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
-        # ... (Add constants logic - needs self.get_constant_name) ...
+        # --------------------------------------------------------------------
+        # 1) Special‐case: static‐only JAXPR (e.g. `lambda x: x.shape[0]` ⇒ literal)
+        # --------------------------------------------------------------------
+        if not jaxpr.eqns and len(jaxpr.invars) == 1 and len(jaxpr.outvars) == 1:
+            inp = jaxpr.invars[0]
+            out = jaxpr.outvars[0]
+            # Only proceed if the JAXPR actually returns a literal int
+            from jax.extend.core import Literal
+
+            if isinstance(out, Literal) or isinstance(out, (int,)):
+                # pull out the integer
+                static_val = int(out.val if isinstance(out, Literal) else out)
+                # --- emit exactly the static‐dim ONNX snippet ---
+                import numpy as _np
+                from onnx import TensorProto
+
+                # 1) make int64 initializer
+                arr = _np.array(static_val, dtype=_np.int64)
+                init_name = self.get_constant_name(arr)
+
+                # 2) Cast it down to INT32
+                cast_name = self.get_unique_name("dim_as_value_static_cast")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[init_name],
+                        outputs=[cast_name],
+                        to=int(TensorProto.INT32),
+                        name=cast_name,
+                    )
+                )
+                # record its shape (scalar) and dtype
+                self.add_shape_info(cast_name, (), _np.int32)
+
+                # 3) Identity into the real output var
+                out_name = self.get_var_name(out)
+                id_name = self.get_unique_name("dim_as_value_static_id")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Identity", inputs=[cast_name], outputs=[out_name], name=id_name
+                    )
+                )
+                self.add_shape_info(out_name, (), _np.int32)
+                # 4) register it as graph output
+                self.builder.add_output(out_name, (), _np.int32)
+                return
+
+        # --------------------------------------------------------------------
+        # 2) Otherwise, normal path: register any true JAXPR‐constvars...
+        # --------------------------------------------------------------------
         for i, const in enumerate(consts):
-            const_name = self.get_constant_name(
-                const
-            )  # Builder handles registration now
+            # register initializer-name → value
+            const_name = self.get_constant_name(const)
             const_var = jaxpr.constvars[i]
             self.var_to_name[const_var] = const_name
             self.name_to_var[const_name] = const_var
             self.name_to_const[const_name] = const
+            # also register the "logical var name" (in case it differs)
+            var_name = self.get_var_name(const_var)
+            if var_name != const_name:
+                self.name_to_const[var_name] = const
 
         # Add input variables with symbolic shapes
         for var in jaxpr.invars:
@@ -561,36 +575,46 @@ class Jaxpr2OnnxConverter:
                 continue
             var_name = self.get_var_name(var)
             if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
-                self.logger.warning(
-                    f"Input var {var_name} missing aval/shape. Skipping add_input."
-                )
                 continue
             shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
             dtype = var.aval.dtype
             if not any(inp.name == var_name for inp in self.builder.inputs):
-                self.add_input(var, shape, dtype)  # Passes symbolic shape tuple
+                self.add_input(var, shape, dtype)
 
         # Process equations
         for eqn in jaxpr.eqns:
-            self._process_eqn(
-                eqn
-            )  # Ensure this handles symbolic shapes in output avals
+            self._process_eqn(eqn)
 
-        # Add outputs with symbolic shapes
+        # Explicitly handle outputs
         for var in jaxpr.outvars:
             if var is None:
                 continue
             name = self.get_var_name(var)
-            if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
-                # scalar literal → shape=(), dtype=int32 (matches get_var_name)
-                if not any(o.name == name for o in self.builder.outputs):
-                    from numpy import int32
 
-                    self.builder.add_output(name, (), int32)
-                continue
-            shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
-            dtype = var.aval.dtype
-            self.add_output(var, shape, dtype)  # Pass symbolic shape tuple
+            if name in self.name_to_const:
+                # Explicitly wrap initializer in Identity for valid ONNX output
+                identity_output_name = self.get_unique_name("const_output")
+                dtype = np.asarray(self.name_to_const[name]).dtype
+                shape = ()
+
+                identity_node = helper.make_node(
+                    "Identity",
+                    inputs=[name],
+                    outputs=[identity_output_name],
+                    name=self.get_unique_name("identity_const_out"),
+                )
+                self.builder.add_node(identity_node)
+
+                # Set the output explicitly to the Identity node's output
+                self.builder.add_output(identity_output_name, shape, dtype)
+                self.add_shape_info(identity_output_name, shape, dtype)
+            elif hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
+                dtype = var.aval.dtype
+                self.add_output(var, shape, dtype)
+            else:
+                if not any(o.name == name for o in self.builder.outputs):
+                    self.builder.add_output(name, (), np.int32)
 
     # --- Ensure add_input/add_output/add_shape_info pass symbolic tuples ---
     # These might be simplified if the builder handles most logic now
