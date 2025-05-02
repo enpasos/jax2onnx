@@ -156,56 +156,86 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         newshape = params["newshape"]
 
         input_name = s.get_name(input_var)
-        # we'll name the raw reshape output "reshape_out", but may rebind below
-        raw_output = s.get_unique_name("reshape_out")
-        s.var_to_name[output_var] = raw_output
+        output_name = s.get_name(output_var)  # Final desired output name
 
-        # Determine shape and types
+        # Determine shapes and types
         input_shape = input_var.aval.shape
         output_shape = self._get_dynamic_output_shape(input_shape, newshape)
 
-        # data‐tensor dtype
-        data_dtype_enum = s._ensure_onnx_dtype(input_var.aval.dtype)
+        # Input data-tensor dtype
+        input_dtype = input_var.aval.dtype
+        input_dtype_enum = s._ensure_onnx_dtype(input_dtype)
 
-        # Shape tensor (for reshape's 2nd input)
+        # Expected final output dtype based on JAX type system
+        expected_output_dtype = output_var.aval.dtype
+        expected_output_dtype_enum = s._ensure_onnx_dtype(expected_output_dtype)
+
+        # Shape tensor (for reshape's 2nd input) - MUST BE INT64 for ONNX
         shape_tensor_vals = encode_dims(self._process_newshape(newshape))
         shape_tensor_name = s.get_constant_name(
             np.array(shape_tensor_vals, dtype=np.int64)
         )
 
-        # Emit ONNX node
+        reshape_data_input_name = input_name
+        reshape_data_input_dtype_enum = input_dtype_enum
+
+        # Check if input data is integer and cast it to INT64 for Reshape
+        if input_dtype_enum in (TensorProto.INT32, TensorProto.INT64):
+            if input_dtype_enum == TensorProto.INT32:
+                casted_input_name = s.get_unique_name(f"{input_name}_casted_int64")
+                s.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[input_name],
+                        outputs=[casted_input_name],
+                        to=int(TensorProto.INT64),
+                        name=s.get_unique_name("cast_reshape_input_to_int64"),
+                    )
+                )
+                s.add_shape_info(casted_input_name, input_shape, np.int64)
+                reshape_data_input_name = casted_input_name
+                reshape_data_input_dtype_enum = TensorProto.INT64
+            # If already INT64, no cast needed, input name and type are already correct
+        # else: input is float, bool etc. - no cast needed
+
+        # Emit ONNX Reshape node - Its output will have reshape_data_input_dtype_enum
+        temp_reshape_output_name = s.get_unique_name(f"{input_name}_reshaped")
         reshape_node = helper.make_node(
             "Reshape",
-            inputs=[input_name, shape_tensor_name],
-            outputs=[raw_output],
+            inputs=[reshape_data_input_name, shape_tensor_name],
+            outputs=[temp_reshape_output_name],  # Use intermediate name
             name=s.get_unique_name("reshape"),
             allowzero=0,
         )
         s.add_node(reshape_node)
+        # Register shape info for the intermediate output (type matches reshape input)
+        s.add_shape_info(
+            temp_reshape_output_name, output_shape, reshape_data_input_dtype_enum
+        )
 
-        # --- now, figure out what ONNX dtype *should* be on the graph output ---
-        expected_dtype_enum = s._ensure_onnx_dtype(output_var.aval.dtype)
-
-        # if the reshape's data‐tensor dtype != JAX's expected dtype, cast it
-        if data_dtype_enum != expected_dtype_enum:
-            cast_out = s.get_unique_name("reshape_cast")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[raw_output],
-                    outputs=[cast_out],
-                    to=int(expected_dtype_enum),
-                    name=s.get_unique_name("cast"),
-                )
+        # Cast the Reshape output back to the type expected by JAX if necessary
+        if reshape_data_input_dtype_enum != expected_output_dtype_enum:
+            cast_node = helper.make_node(
+                "Cast",
+                inputs=[temp_reshape_output_name],
+                outputs=[output_name],  # Final output name
+                to=int(expected_output_dtype_enum),
+                name=s.get_unique_name("cast_reshape_output_to_expected"),
             )
-            # rebind the converter's var‐name so the final graph output is cast_out
-            s.var_to_name[output_var] = cast_out
-            final_name = cast_out
+            s.add_node(cast_node)
+            # Register shape info for the final casted output
+            s.add_shape_info(output_name, output_shape, expected_output_dtype_enum)
         else:
-            final_name = raw_output
-
-        # register the final‐typed shape_info on whatever actually flows out
-        s.add_shape_info(final_name, output_shape, expected_dtype_enum)
+            # If no cast needed, use Identity to rename intermediate output to final output
+            identity_node = helper.make_node(
+                "Identity",
+                inputs=[temp_reshape_output_name],
+                outputs=[output_name],  # Final output name
+                name=s.get_unique_name("identity_reshape_output"),
+            )
+            s.add_node(identity_node)
+            # Register shape info for the final output (same type as reshape output)
+            s.add_shape_info(output_name, output_shape, expected_output_dtype_enum)
 
     @staticmethod
     def _reshape(a, newshape, order="C"):
