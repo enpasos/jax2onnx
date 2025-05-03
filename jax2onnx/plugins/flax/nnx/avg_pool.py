@@ -1,9 +1,9 @@
 # file: jax2onnx/plugins/flax/nnx/avg_pool.py
-from collections.abc import Sequence
+from collections.abc import Sequence  # Ensure Sequence is imported
 from typing import TYPE_CHECKING, Callable, Any
 
-from flax import nnx  # nnx.avg_pool lives here
-import jax  # Need jax for eval_shape
+from flax import nnx
+import jax
 from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
@@ -112,7 +112,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
     ):
         """Use jax.eval_shape on the original nnx.avg_pool."""
         if AvgPoolPlugin._ORIG_CALL is None:
-            raise RuntimeError("Original nnx.avg_pool not captured by AvgPoolPlugin.")
+            raise RuntimeError("Original nnx.avg_pool not captured.")
 
         # --- Correctly handle default stride for abstract eval ---
         actual_strides = strides if strides is not None else (1,) * len(window_shape)
@@ -136,8 +136,6 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
 
         # Return the abstract value (ShapedArray)
         return core.ShapedArray(out_spec.shape, out_spec.dtype)
-
-    # --- REMOVED _compute_avg_pool_output_shape ---
 
     # ------------------------------------------------------------
     # ONNX Conversion Logic (to_onnx)
