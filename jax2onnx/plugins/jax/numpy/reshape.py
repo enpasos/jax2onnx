@@ -66,7 +66,7 @@ jnp.reshape_p.multiple_results = False  # Correct initialization
         },
         {
             "testcase": "reshape_cnn",
-            "callable": lambda x: jnp.reshape(x.shape[0], -1),
+            "callable": lambda x: x.reshape(x.shape[0], -1),
             "input_shapes": [("B", 64, 14, 14)],
         },
     ],
