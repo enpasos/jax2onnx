@@ -336,9 +336,9 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ## 🌟 Special Thanks
 
-Special thanks for plugin contributions to: @burakksen
+Special thanks for plugin contributions to [@burakksen](https://github.com/burakksen)
 
-Special thanks to @lutzroeder for making shapes internal to ONNX function visible in his great Netron viewer.
+Special thanks to [@lutzroeder](https://github.com/lutzroeder) for making shapes internal to ONNX function visible in his great Netron viewer.
 
 - [ONNX: Function value_info support #1447](https://github.com/lutzroeder/netron/issues/1447)
 
