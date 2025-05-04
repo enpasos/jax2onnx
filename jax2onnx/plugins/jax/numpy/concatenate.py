@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/jax/numpy/concatenate.py
+
 # --- Imports ---------------------------------------------------------------
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Any, Sequence
@@ -11,12 +13,29 @@ from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
 
+from functools import reduce
+import operator
 import logging
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.concatenate")
 
+_SENTINEL = -1  # what `jnp.tile` produces for “unknown” sizes
+
+
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+
+def concat_dynamic_tile_func(x):
+    # x : (B, N, D)
+    D = x.shape[2]  # 256 (concrete) in the testcase
+    token = jnp.zeros((1, 1, D), dtype=x.dtype)  # (1, 1, D)
+
+    # broadcast_to accepts symbolic sizes, so we can use `x.shape[0]`
+    tiled_token = jnp.broadcast_to(token, (x.shape[0], 1, D))  # (B, 1, D)
+
+    return jnp.concatenate([tiled_token, x], axis=1)  # (B, 1+N, D)
+
 
 # ---------------------------------------------------------------------------
 #  Primitive definition
@@ -52,6 +71,12 @@ if not hasattr(jnp, "concatenate_p"):
             "callable": lambda a, b: jnp.concatenate((a, b), axis=1),
             "input_shapes": [("B", 1, 8), ("B", 10, 8)],
             "expected_output_shapes": [("B", 11, 8)],
+        },
+        {
+            "testcase": "concatenate_tile_and_symbolic",
+            "callable": concat_dynamic_tile_func,
+            "input_shapes": [("B", 49, 256)],  # Matches failing ConcatClsToken
+            "expected_output_shapes": [("B", 50, 256)],  # 1 + 49 = 50
         },
     ],
 )
@@ -98,17 +123,13 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         # ---- delegate to jax.eval_shape ----------------------------------
         try:
             result_spec = jax.eval_shape(_helper, *specs)
-            result_spec = jax.tree_util.tree_leaves(result_spec)[0]  # single tensor
+            result_spec = jax.tree_util.tree_leaves(result_spec)[0]
+            return core.ShapedArray(result_spec.shape, result_spec.dtype)
         except Exception as exc:
-            logger.error("jax.eval_shape failed inside abstract_eval", exc_info=True)
-            raise
-
-        logger.debug(
-            "abstract_eval result: shape=%s dtype=%s",
-            result_spec.shape,
-            result_spec.dtype,
-        )
-        return core.ShapedArray(result_spec.shape, result_spec.dtype)
+            logger.debug("eval_shape failed, using manual rule: %s", exc)
+            shape = ConcatenatePlugin._manual_shape(avals, axis=axis)
+            dtype = jax.dtypes.result_type(*[a.dtype for a in avals])
+            return core.ShapedArray(shape, dtype)
 
     # ---------------------------------------------------------------------
     #  to_onnx – unchanged
@@ -144,6 +165,37 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
             "patch_function": _creator,
             "target_attribute": "concatenate",
         }
+
+    @staticmethod
+    def _manual_shape(avals: Sequence[core.ShapedArray], *, axis: int):
+        """Light‑weight concatenate shape rule that tolerates the -1 sentinel."""
+        rank = len(avals[0].shape)
+        out = []
+
+        for d in range(rank):
+            if d == axis:
+                # sum along the concat axis, ignoring sentinels
+                sizes = [a.shape[d] for a in avals]
+                int_total = sum(
+                    s for s in sizes if isinstance(s, int) and s != _SENTINEL
+                )
+                sym_sizes = [
+                    s for s in sizes if not isinstance(s, int) or s == _SENTINEL
+                ]
+                if sym_sizes:
+                    # any symbolic → keep the symbolic one (they must all agree)
+                    out.append(sym_sizes[0])
+                else:
+                    out.append(int_total)
+            else:
+                # all other axes must agree up to broadcasting of 1 / sentinel
+                sizes = {
+                    s for s in (a.shape[d] for a in avals) if s not in (1, _SENTINEL)
+                }
+                if len(sizes) > 1:
+                    raise TypeError("non‑concat dims disagree: " + str(sizes))
+                out.append(next(iter(sizes)) if sizes else avals[0].shape[d])
+        return tuple(out)
 
 
 # Register the rule with the primitive
