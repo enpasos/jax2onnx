@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from flax import nnx
+from jax import numpy as jnp
 from jax import core, nn
 from jax.extend.core import Primitive
 from onnx import TensorProto, helper
@@ -12,6 +13,25 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+# --------------------------------------------------------------------------- #
+#  Ensure `jnp.einsum` has a batching rule installed.                         #
+#  * If the upstream JAX helper is importable, reuse it.                      #
+#  * Otherwise assume the custom `jax2onnx` einsum plugin has already         #
+#    registered its own rule (import order: numpy‑plugins are usually loaded  #
+#    before nn‑plugins).                                                      #
+# --------------------------------------------------------------------------- #
+from jax.interpreters import batching
+
+try:
+    # JAX keeps the rule inside the private module; may disappear in future.
+    from importlib import import_module
+
+    _std_rule = import_module("jax._src.numpy.einsum").einsum_batching_rule
+    batching.primitive_batchers.setdefault(jnp.einsum_p, _std_rule)
+except (ModuleNotFoundError, AttributeError):
+    # Either the private symbol moved or our own einsum plugin is in charge.
+    pass
 
 
 nn.dot_product_attention_p = Primitive("nn.dot_product_attention")
@@ -266,10 +286,32 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def patch_info():
         return {
-            "patch_targets": [nnx],
+            "patch_targets": [nn],
             "patch_function": lambda _: DotProductAttentionPlugin.get_monkey_patch(),
             "target_attribute": "dot_product_attention",
         }
 
 
 nn.dot_product_attention_p.def_abstract_eval(DotProductAttentionPlugin.abstract_eval)
+
+
+# Add batching rule
+def dpa_batch(xs, dims, *, axis=-1):
+    # assume all operands have the same batch axis
+    assert len(set(d for d in dims if d is not None)) == 1
+    q, k, v, *rest = xs
+    # Move the batch axis to the front if it isn't already
+    bdim = dims[0]
+    if bdim != 0:
+        q = jnp.moveaxis(q, bdim, 0)
+        k = jnp.moveaxis(k, bdim, 0)
+        v = jnp.moveaxis(v, bdim, 0)
+        rest = [
+            jnp.moveaxis(r, d, 0) if d is not None else r
+            for r, d in zip(rest, dims[3:])
+        ]
+    out = nn.dot_product_attention(q, k, v, *rest, axis=axis)
+    return out, 0
+
+
+batching.primitive_batchers[nn.dot_product_attention_p] = dpa_batch

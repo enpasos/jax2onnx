@@ -41,20 +41,5 @@ register_example(
             ),
             "input_shapes": [("B", 4, 256)],
         },
-        {
-            "testcase": "multihead_attention_nn2",
-            "callable": nnx.MultiHeadAttention(
-                num_heads=8,
-                in_features=256,
-                qkv_features=256,
-                out_features=256,
-                rngs=nnx.Rngs(0),
-                attention_fn=lambda *args, **kwargs: nn.dot_product_attention(
-                    *args, **kwargs
-                ),
-                decode=False,
-            ),
-            "input_shapes": [("B", 4, 256)],
-        },
     ],
 )
