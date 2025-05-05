@@ -499,8 +499,8 @@ def rename_and_register_param_inputs(
 
                 if isinstance(param_value, bool):
                     dtype = onnx.TensorProto.BOOL
-                elif isinstance(param_value, int):
-                    dtype = onnx.TensorProto.INT64
+                elif isinstance(param_value, (int, np.integer)):
+                    dtype = onnx.TensorProto.INT32
                 else:
                     dtype = onnx.TensorProto.FLOAT
             else:
