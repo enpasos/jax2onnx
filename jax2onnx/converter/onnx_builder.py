@@ -389,21 +389,40 @@ class OnnxBuilder:
     def get_constant_name(self, val):
         if isinstance(val, Literal):
             val = val.val
-        np_val = np.array(val)
-        if np_val.dtype == np.float64:
-            np_val = np_val.astype(np.float32)
-        try:
-            onnx_dtype = self._numpy_dtype_to_onnx(np_val.dtype)
-        except TypeError:
-            logging.warning(
-                f"Could not convert value {val} to numpy array. Skipping initializer."
+
+        # Explicit dtype logic for Python scalars
+        from onnx import TensorProto
+
+        if isinstance(val, (bool, int, float)):
+            dtype_enum = (
+                TensorProto.BOOL
+                if isinstance(val, bool)
+                else TensorProto.INT32 if isinstance(val, int) else TensorProto.FLOAT
             )
-            return self.get_unique_name("invalid_const")
+            np_val = np.array(
+                val,
+                dtype={
+                    TensorProto.BOOL: np.bool_,
+                    TensorProto.INT32: np.int32,
+                    TensorProto.FLOAT: np.float32,
+                }[dtype_enum],
+            )
+        else:
+            np_val = np.array(val)
+            if np_val.dtype == np.float64:
+                np_val = np_val.astype(np.float32)
+            try:
+                dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
+            except TypeError:
+                logging.warning(
+                    f"Could not convert value {val} to numpy array. Skipping initializer."
+                )
+                return self.get_unique_name("invalid_const")
 
         name = self.get_unique_instance_name("const")
         tensor = helper.make_tensor(
             name=name,
-            data_type=onnx_dtype,
+            data_type=dtype_enum,
             dims=np_val.shape,
             vals=np_val.flatten().tolist(),
         )
@@ -413,7 +432,7 @@ class OnnxBuilder:
         self.register_value_info_metadata(
             name,
             shape=tuple(np_val.shape),
-            dtype=onnx_dtype,  # dtype is ONNX enum here!
+            dtype=dtype_enum,  # dtype is ONNX enum here!
         )
 
         return name
