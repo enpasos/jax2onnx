@@ -38,9 +38,6 @@ jnp.tile_p.multiple_results = False
 
 
 # --- Input functions for testcases ---
-def _my_tile(t):
-    repeats_tensor = jnp.array([3, 1, 1], dtype=jnp.int32)
-    return jnp.tile(t, repeats_tensor)
 
 
 def _my_dynamic_tile(x):
@@ -61,10 +58,10 @@ def _my_dynamic_tile(x):
     component="tile",
     testcases=[
         {
-            "testcase": "tile_repeats_tensor",  # Uses _my_tile -> dynamic repeats array
-            "callable": _my_tile,
+            "testcase": "tile_repeats",
+            "callable": lambda a: jnp.tile(a, (3, 1, 1)),
             "input_shapes": [(1, 1, 8)],
-            # "expected_output_shapes": [(3, 1, 8)],
+            "expected_output_shapes": [(3, 1, 8)],
         },
         {
             "testcase": "tile_a",
