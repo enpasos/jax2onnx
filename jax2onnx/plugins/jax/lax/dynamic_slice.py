@@ -20,7 +20,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.1.0",  # Or update if changing functionality
     context="primitives.lax",
     component="dynamic_slice",
     testcases=[
@@ -28,22 +28,29 @@ if TYPE_CHECKING:
             "testcase": "dynamic_slice_test1",
             "callable": lambda x: jax.lax.dynamic_slice(x, [1], [2]),
             "input_shapes": [(5,)],
+            # "expected_output_shapes": [(2,)],  # Added expected shape
         },
         {
             "testcase": "dynamic_slice_2d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 2), (2, 3)),
             "input_shapes": [(4, 6)],
+            # "expected_output_shapes": [(2, 3)],  # Added expected shape
         },
         {
             "testcase": "dynamic_slice_3d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 0, 2), (2, 3, 1)),
             "input_shapes": [(3, 4, 5)],
+            # "expected_output_shapes": [(2, 3, 1)],  # Added expected shape
         },
-        # {
-        #     "testcase": "dynamic_slice_vit",
-        #     "callable": lambda x: jax.lax.dynamic_slice(x, (0, 0, 0), (1, 50, 256)),
-        #     "input_shapes": [(3, 4, 5)],
-        # },
+        # Test case relevant to the error context
+        {
+            "testcase": "dynamic_slice_vit_like",
+            "callable": lambda x: jax.lax.dynamic_slice(
+                x, (0, 0, 0), ("B", 1, 256)
+            ),  # Use symbolic dim
+            "input_shapes": [("B", 50, 256)],
+            "expected_output_shapes": [("B", 1, 256)],
+        },
     ],
 )
 class DynamicSlicePlugin(PrimitiveLeafPlugin):
