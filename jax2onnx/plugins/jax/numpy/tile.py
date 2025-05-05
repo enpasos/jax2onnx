@@ -40,6 +40,12 @@ jnp.tile_p.multiple_results = False
 # --- Input functions for testcases ---
 
 
+def _tile_param(a):
+    B = a.shape[0]
+    param = jnp.zeros((1, 1, 4), dtype=a.dtype)
+    return jnp.tile(param, (B, 1, 1))
+
+
 def _my_dynamic_tile(x):
     B = x.shape[0]
     repeats = (B, 1, 1)
@@ -116,6 +122,12 @@ def _my_dynamic_tile(x):
             "callable": _my_dynamic_tile,  # repeats=(B, 1, 1)
             "input_shapes": [("B", 1, 256)],  # Symbolic input
             # TODO: "expected_output_shapes": [("B*B", 1, 256)],
+        },
+        {
+            "testcase": "tile_param_symbolic",
+            "callable": _tile_param,
+            "input_shapes": [("B", 5)],
+            "expected_output_shapes": [("B", 1, 4)],
         },
     ],
 )
@@ -359,33 +371,35 @@ class TilePlugin(PrimitiveLeafPlugin):
                         raise ValueError(
                             f"Symbolic dimension '{r}' has no registered input origin."
                         )
+
                     source_tensor_name, source_axis_index = origin
 
+                    # ---- Shape node ---------------------------------------------------
                     shape_out = s.get_unique_name(f"shape_of_{source_tensor_name}")
                     s.add_node(
                         helper.make_node(
                             "Shape", inputs=[source_tensor_name], outputs=[shape_out]
                         )
                     )
-                    if source_tensor_name == input_name:
-                        source_rank_val = input_rank
-                    else:
-                        try:
-                            source_shape_meta, _ = builder.get_shape_dtype(
-                                source_tensor_name
-                            )
-                            source_rank_val = len(source_shape_meta)
-                        except ValueError:
-                            raise ValueError(
-                                f"Could not find shape metadata for symbolic dim source '{source_tensor_name}'."
-                            )
-                    builder.register_value_info_metadata(
-                        shape_out, (source_rank_val,), TensorProto.INT64
-                    )
-                    builder.add_value_info(
-                        shape_out, (source_rank_val,), TensorProto.INT64
-                    )
 
+                    # try to add value‑info with the real rank if we know it
+                    try:
+                        source_shape_meta, _ = builder.get_shape_dtype(
+                            source_tensor_name
+                        )
+                        builder.register_value_info_metadata(
+                            shape_out, (len(source_shape_meta),), TensorProto.INT64
+                        )
+                        builder.add_value_info(
+                            shape_out, (len(source_shape_meta),), TensorProto.INT64
+                        )
+                    except ValueError:
+                        # builder doesn't know the rank yet → register a minimal stub
+                        builder.add_value_info(
+                            shape_out, (None,), TensorProto.INT64  # 1‑D, unknown length
+                        )
+
+                    # ---- Gather the single dimension we need --------------------------
                     axis_const = builder.get_constant_name(
                         np.array([source_axis_index], dtype=np.int64)
                     )
