@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/jax/lax/dynamic_slice.py
+
 from typing import TYPE_CHECKING
 
 import jax
@@ -45,9 +47,21 @@ if TYPE_CHECKING:
         # Test case relevant to the error context
         {
             "testcase": "dynamic_slice_vit_like",
+            "context": "jax.lax.dynamic_slice",
+            # Use the actual batch‑dimension (may be symbolic) instead of the
+            # string sentinel.  Works for both static and polymorphic shapes.
             "callable": lambda x: jax.lax.dynamic_slice(
-                x, (0, 0, 0), ("B", 1, 256)
-            ),  # Use symbolic dim
+                x, (0, 0, 0), (x.shape[0], 1, 256)
+            ),
+            "input_shapes": [(3, 50, 256)],
+            "expected_output_shapes": [(3, 1, 256)],
+        },
+        {
+            "testcase": "dynamic_slice_vit_like_dynamic",
+            "context": "jax.lax.dynamic_slice",
+            "callable": lambda x: jax.lax.dynamic_slice(
+                x, (0, 0, 0), (x.shape[0], 1, 256)
+            ),
             "input_shapes": [("B", 50, 256)],
             "expected_output_shapes": [("B", 1, 256)],
         },
