@@ -1112,7 +1112,7 @@ class OnnxBuilder:
     def _dim_to_symbol(self, d):
         if isinstance(d, int):
             return d
-        s = self._dimvar_to_name_by_str.get(str(d))
+        s = self.dimvar_to_name_by_str.get(str(d))
         if s:  # found via string key
             return s
         if hasattr(d, "symbol") and d.symbol:
