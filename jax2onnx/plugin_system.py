@@ -138,8 +138,31 @@ class FunctionPlugin(PrimitivePlugin):
             del kwargs["instance_key"]
 
         try:
-            # For functions with dynamic/symbolic dimensions, we can't use jax.eval_shape directly
-            # Instead, we'll preserve the input shapes and make a best effort to determine output shape
+            # --------------------------------------------------------------
+            # 1.  Let JAX infer the shape if it can.
+            #     `jax.eval_shape` works on *abstract values* (ShapedArray /
+            #     ShapeDtypeStruct) and is symbol‑safe, so most functions
+            #     (including `get_token`, `reshape`, user code, …) are
+            #     handled automatically.
+            # --------------------------------------------------------------
+            if self._orig_fn is not None:
+                # Drop tracing helper kwarg that we added in the wrapper.
+                kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
+
+                out_aval = jax.eval_shape(self._orig_fn, *args, **kwargs)
+                if isinstance(out_aval, ShapedArray):
+                    return out_aval
+
+                # eval_shape can also return pytrees; keep the old heuristics
+                # as a fallback when the result is not a single array.
+
+        except Exception:
+            # We'll fall through to the heuristics below.
+            pass
+
+            # --------------------------------------------------------------
+            # 2.  Heuristics for common nn layers (unchanged from before)
+            # --------------------------------------------------------------
 
             # 1. For class methods: inspect the function and handle based on class structure
             if hasattr(self._orig_fn, "__self__"):
