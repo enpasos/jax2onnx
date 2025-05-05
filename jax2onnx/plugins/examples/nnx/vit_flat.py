@@ -365,8 +365,8 @@ register_example(
 )
 
 
-def get_token(x) -> jnp.ndarray:
-    return x[:, 0, :]
+def get_token(x, index) -> jnp.ndarray:
+    return x[:, index, :]
 
 
 register_example(
