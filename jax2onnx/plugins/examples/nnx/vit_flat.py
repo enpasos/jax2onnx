@@ -378,7 +378,7 @@ register_example(
     testcases=[
         {
             "testcase": "get_token_flat",
-            "callable": lambda x: get_token(x),
+            "callable": lambda x: get_token(x, 0),
             "input_shapes": [("B", 50, 256)],
         },
     ],
