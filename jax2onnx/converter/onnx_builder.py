@@ -343,6 +343,16 @@ class OnnxBuilder:
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
 
+    def to_function_proto(self, name):
+        return onnx.helper.make_function(
+            domain="",
+            name=name,
+            inputs=self.input_value_infos,
+            outputs=self.output_value_infos,
+            nodes=self.nodes,
+            opset_imports=[onnx.helper.make_opsetid("", self.opset_version)],
+        )
+
     def get_value_info_metadata_with_origin(
         self, name: str
     ) -> tuple[tuple[int, ...], Any, str | None] | None:
