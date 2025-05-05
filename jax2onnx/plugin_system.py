@@ -320,7 +320,6 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, plugin_converter, converter, eqn, params):
-
         orig_fn = self._orig_fn
 
         # if existing remove "instance_key" from params
@@ -330,7 +329,67 @@ class FunctionPlugin(PrimitivePlugin):
             instance = INSTANCE_MAP.get(key)
             orig_fn = instance
 
-        function_handler(self.name, converter, eqn, orig_fn, params)
+        from jax import numpy as jnp
+        import numpy as np
+        import copy
+
+        # --- Separate ONNX params and JAX params ---
+        # Avoid deepcopy on JAX Tracers: do a shallow copy and only deepcopy safe values
+        import jax
+        from jax.core import Tracer
+
+        def safe_copy_dict(d):
+            result = {}
+            for k, v in d.items():
+                # Don't deepcopy JAX Tracers or arrays
+                if isinstance(v, Tracer):
+                    result[k] = v
+                elif hasattr(v, "aval"):
+                    result[k] = v
+                else:
+                    try:
+                        result[k] = copy.deepcopy(v)
+                    except Exception:
+                        result[k] = v
+            return result
+
+        onnx_params = safe_copy_dict(params)
+        jax_params = safe_copy_dict(params)
+
+        # ── new: lift scalar kwargs to ONNX constants ─────────────────────
+        for k, v in list(params.items()):
+            # ── 1. Python scalar: lift to 0‑D initializer named *exactly* k ──
+            if isinstance(v, (bool, int, float, np.generic)):
+                const_name = k  # <── keep original name
+                # avoid double‑registration if several eqns share that kw‑arg
+                if const_name not in converter.builder.initializers:
+                    converter.builder.add_initializer_from_scalar(const_name, v)
+                onnx_params[k] = const_name
+                # jax_params[k] stays as the original scalar
+
+            # ── 2. traced scalar (shape == ()): choose a sane default value ──
+            elif isinstance(v, Tracer) and getattr(v.aval, "shape", None) == ():
+                aval_dtype = v.aval.dtype
+                if aval_dtype == jnp.bool_:
+                    default_value = True
+                elif np.issubdtype(aval_dtype, np.integer):
+                    default_value = 0
+                else:
+                    default_value = 0.0
+
+                const_name = k  # <── same trick as above
+                if const_name not in converter.builder.initializers:
+                    converter.builder.add_initializer_from_scalar(
+                        const_name, default_value
+                    )
+                onnx_params[k] = const_name
+                # jax_params[k] stays as the original traced value
+
+        # Call function_handler with ONNX params for graph, but pass jax_params for tracing
+        # Pass the original params as well for use in function_handler
+        function_handler(
+            self.name, converter, eqn, orig_fn, onnx_params, jax_params, params
+        )
 
 
 ########################################
