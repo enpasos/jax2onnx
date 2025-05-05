@@ -609,9 +609,19 @@ def trace_function_body(
     Returns:
         A tuple of (sub_converter, sub_builder, internal_input_vars)
     """
+
     sub_converter, sub_builder, params = setup_sub_converter(
         converter, eqn, params, unique_node_name, parent_builder
     )
+
+    # Propagate equation parameters (fix for dual param dicts)
+    if isinstance(params, dict) and "onnx_params" in params and "jax_params" in params:
+        params_to_use = params["jax_params"]
+    else:
+        params_to_use = params
+    params_to_use = propagate_eqn_parameters(eqn, params_to_use)
+    sub_converter.params = params_to_use
+    params = params_to_use
 
     trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
         params, example_args
@@ -729,7 +739,9 @@ def function_handler(
     converter: "Jaxpr2OnnxConverter",
     eqn,
     orig_fn: Callable,
-    params,
+    onnx_params,
+    jax_params=None,
+    params=None,
 ):
     """
     Convert a primitive produced by ``@onnx_function``.
@@ -756,7 +768,7 @@ def function_handler(
     )
 
     extra_param_inputs = handle_function_parameters(
-        params,
+        params if params is not None else onnx_params,
         converter,
         eqn,
         parent_builder,
@@ -767,10 +779,12 @@ def function_handler(
 
     logger.debug(f"Tracing function body for: {unique_node_name}")
 
+    # Use jax_params for tracing if provided, else fallback to onnx_params
+    trace_params = jax_params if jax_params is not None else onnx_params
     sub_converter, sub_builder, _ = trace_function_body(
         converter,
         orig_fn,
-        params,
+        trace_params,
         example_args,
         unique_node_name,
         parent_builder,

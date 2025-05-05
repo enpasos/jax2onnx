@@ -343,6 +343,24 @@ class OnnxBuilder:
         self.value_info_metadata[name] = (shape, dtype)
         self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
 
+    def add_initializer_from_scalar(self, name, value):
+        from onnx import numpy_helper, TensorProto
+        import numpy as np
+
+        if isinstance(value, bool):
+            dtype = TensorProto.BOOL
+            np_value = np.array(value, dtype=np.bool_)
+        elif isinstance(value, int):
+            dtype = TensorProto.INT64
+            np_value = np.array(value, dtype=np.int64)
+        else:  # float
+            dtype = TensorProto.FLOAT
+            np_value = np.array(value, dtype=np.float32)
+
+        # tensor = numpy_helper.from_array(np_value, name=name)
+        # self.add_initializer(tensor)
+        self.add_initializer(name, np_value, dtype, [])
+
     def to_function_proto(self, name):
         return onnx.helper.make_function(
             domain="",
