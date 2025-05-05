@@ -149,19 +149,41 @@ class FunctionPlugin(PrimitivePlugin):
                 # Drop tracing helper kwarg that we added in the wrapper.
                 kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
 
-                out_aval = jax.eval_shape(self._orig_fn, *args, **kwargs)
-                if isinstance(out_aval, ShapedArray):
-                    return out_aval
+                # convert all args from ShapeArray to jax.ShapeDtypeStruct
+                specs = [
+                    (
+                        jax.ShapeDtypeStruct(arg.shape, arg.dtype)
+                        if isinstance(arg, ShapedArray)
+                        else arg
+                    )
+                    for arg in args
+                ]
+
+                out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
+
+                # we need to convert the output back to ShapedArray
+                if isinstance(out_aval, jax.ShapeDtypeStruct):
+                    # Convert the output to ShapedArray
+                    out_aval = self._aval_to_shaped_array(out_aval)
+                elif isinstance(out_aval, tuple):
+                    # If the output is a tuple, convert each element to ShapedArray
+                    out_aval = tuple(
+                        self._aval_to_shaped_array(aval) for aval in out_aval
+                    )
+                elif isinstance(out_aval, list):
+                    # If the output is a list, convert each element to ShapedArray
+                    out_aval = [self._aval_to_shaped_array(aval) for aval in out_aval]
+
+                return out_aval
 
                 # eval_shape can also return pytrees; keep the old heuristics
                 # as a fallback when the result is not a single array.
 
-        except Exception:
-            # We'll fall through to the heuristics below.
-            pass
+        except Exception as e:
+            print(f"Error in eval_shape: {e}")
 
             # --------------------------------------------------------------
-            # 2.  Heuristics for common nn layers (unchanged from before)
+            # 2.  Heuristics for common nn layers
             # --------------------------------------------------------------
 
             # 1. For class methods: inspect the function and handle based on class structure

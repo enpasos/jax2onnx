@@ -6,7 +6,7 @@ import sys
 from onnx import ModelProto
 
 # Replace with the actual path to your ONNX model
-onnx_model_path = "docs/onnx/examples/onnx_functions/006_one_function_outer.onnx"
+onnx_model_path = "docs/onnx/examples/nnx/classification_head.onnx"
 # Example using one of the previous models:
 # onnx_model_path = "function_with_intermediate_shape.onnx"
 

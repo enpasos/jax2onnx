@@ -371,8 +371,8 @@ register_example(
 
 
 @onnx_function
-def get_token(x, index) -> jnp.ndarray:
-    return x[:, index, :]
+def get_first_token(x) -> jnp.ndarray:
+    return x[:, 0, :]
 
 
 register_example(
@@ -384,7 +384,7 @@ register_example(
     testcases=[
         {
             "testcase": "get_token",
-            "callable": lambda x: get_token(x, 0),
+            "callable": lambda x: get_first_token(x),
             "input_shapes": [("B", 50, 256)],
         },
     ],
@@ -406,7 +406,7 @@ class ClassificationHead(nnx.Module):
         self.dense = nnx.Linear(num_hiddens, num_classes, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = get_token(x, 0)
+        x = get_first_token(x)
 
         x = self.layer_norm(x)
         return nnx.log_softmax(self.dense(x))

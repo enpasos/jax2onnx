@@ -703,6 +703,9 @@ def map_and_register_outputs(
         # Important: Register shape metadata in parent builder
         # We need to preserve the original shape with symbolic dimensions here
         parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
+        # keep the converter’s symbolic table in sync
+        if hasattr(converter, "symbolic_shapes"):
+            converter.symbolic_shapes[parent_output_name] = shape
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
     return call_outputs
