@@ -10,6 +10,10 @@ from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 
+from jax import config
+
+config.update("jax_dynamic_shapes", True)
+
 
 def to_onnx(
     fn: Callable,
@@ -67,7 +71,7 @@ def to_onnx(
 
     return to_onnx_impl(
         fn=fn,
-        input_shapes=input_shapes,
+        inputs=input_shapes,
         input_params=input_params,
         model_name=model_name,
         opset=opset,

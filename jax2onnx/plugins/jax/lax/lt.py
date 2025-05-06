@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 import jax
+
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -26,7 +27,16 @@ if TYPE_CHECKING:
             "testcase": "lt",
             "callable": lambda x1, x2: x1 < x2,
             "input_shapes": [(3,), (3,)],
-        }
+            # --- FIX: Use shape tuple only ---
+            # "expected_output_shapes": [(3,)],
+        },
+        # {
+        #     "testcase": "lt_int32_int64",
+        #     "callable": lambda x1, x2: x1 < x2,
+        #     "input_shapes": [((), np.int32), ((), np.int64)],
+        #     # --- FIX: Use shape tuple only ---
+        #     "expected_output_shapes": [()],
+        # },
     ],
 )
 class LtPlugin(PrimitiveLeafPlugin):

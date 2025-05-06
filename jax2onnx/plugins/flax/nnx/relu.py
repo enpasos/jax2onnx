@@ -29,14 +29,14 @@ nnx.relu_p.multiple_results = False  # Correct initialization
     component="relu",
     testcases=[
         {
-            "testcase": "relu",
+            "testcase": "relu_1d",
             "callable": lambda x: nnx.relu(x),
             "input_shapes": [(3,)],
         },
         {
-            "testcase": "relu_2",
+            "testcase": "relu_4d",
             "callable": lambda x: nnx.relu(x),
-            "input_shapes": [(2, 28, 28, 32)],
+            "input_shapes": [("B", 28, 28, 32)],
         },
     ],
 )

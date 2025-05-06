@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from flax import nnx
-from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
@@ -34,7 +33,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
         {
             "testcase": "layer_norm",
             "callable": nnx.LayerNorm(num_features=32, epsilon=1e-5, rngs=nnx.Rngs(0)),
-            "input_shapes": [(10, 20, 32)],
+            "input_shapes": [("B", 20, 32)],
         },
         {
             "testcase": "layer_norm_multiaxis",
@@ -44,7 +43,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 feature_axes=(1, 2, 3),
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(1, 3, 3, 64)],
+            "input_shapes": [("B", 3, 3, 64)],
         },
     ],
 )
@@ -56,7 +55,8 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, scale, bias, epsilon, axis):
         """Abstract evaluation function for LayerNorm."""
-        return core.ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of LayerNorm to ONNX format."""

@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
 import jax
-import numpy as np
 from onnx import helper
 
+from jax2onnx.converter.dynamic_utils import encode_dims
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -57,16 +57,14 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             )
 
         processed_newshape = _process_newshape(new_shape)
-        concrete_shape = _concretize_shape(processed_newshape)
+        _concretize_shape(processed_newshape)
 
         if len(new_shape) == 2 and new_shape[0] == 1 and input_shape == (new_shape[1],):
             s.var_to_name[node_outputs[0]] = input_name
             return
 
         # ✅ FIX HERE: Use get_constant_name to reliably register metadata
-        shape_name = s.builder.get_constant_name(
-            np.array(concrete_shape, dtype=np.int64)
-        )
+        shape_name = s.get_constant_name(encode_dims(new_shape))
 
         node = helper.make_node(
             "Reshape",

@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
 from flax import nnx
-from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
@@ -31,7 +30,7 @@ nnx.softmax_p.multiple_results = False  # Correct initialization
         {
             "testcase": "softmax",
             "callable": lambda x: nnx.softmax(x),
-            "input_shapes": [(3,)],
+            "input_shapes": [("B", 2)],
         }
     ],
 )
@@ -43,7 +42,8 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, axis=-1):
         """Abstract evaluation function for Softmax."""
-        return core.ShapedArray(x.shape, x.dtype)
+        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
+        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of Softmax to ONNX format."""

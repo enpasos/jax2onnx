@@ -1,5 +1,3 @@
-# file: jax2onnx/converter/jaxpr_converter.py
-
 """
 JAXPR to ONNX Converter Module
 
@@ -8,17 +6,14 @@ to ONNX format. It provides the main Jaxpr2OnnxConverter class which traverses t
 representation of a JAX function and converts it to equivalent ONNX operations.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Union
 import logging
-
 import jax
 import jax.random
-import jax.numpy as jnp
 import numpy as np
 from jax.extend import core as extend_core
+from jax.extend.core import Literal, ClosedJaxpr
 from onnx import helper
-
-# Using ONNX's built-in mapping instead of custom dtype_utils
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
 from jax2onnx.plugin_system import (
@@ -27,6 +22,10 @@ from jax2onnx.plugin_system import (
     PrimitiveLeafPlugin,
     import_all_plugins,
 )
+from jax._src.export.shape_poly import _DimExpr
+from jax import ShapeDtypeStruct
+
+logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
 
 
 class Jaxpr2OnnxConverter:
@@ -39,29 +38,36 @@ class Jaxpr2OnnxConverter:
     generates equivalent ONNX operations.
     """
 
+    # Map symbolic dimensions to their origin tensor names and axes
+
+    # mapping from ONNX tensor name → its symbolic shape (a tuple of ints or dim-names)
+    symbolic_shapes: dict[str, tuple[Union[int, str], ...]]
+
     def __init__(self, builder: OnnxBuilder):
         self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
-        # Initialize the converter with an ONNX builder instance.
         self.builder = builder
-        self.params: Dict[str, Any] = {}  # Parameters for tracing
-        self.call_params: Dict[str, Any] = {}  # Parameters that should be ONNX inputs
-
-        # Mapping between variables and their names in the ONNX graph.
+        setattr(self.builder, "converter", self)
+        self.params: Dict[str, Any] = {}
+        self.call_params: Dict[str, Any] = {}
         self.var_to_name: dict[Any, str] = {}
         self.name_to_var: dict[str, Any] = {}
-
-        # Handlers for JAX primitives.
         self.primitive_handlers: dict[str, Any] = {}
-
-        # Environment to track variable shapes.
         self.shape_env: dict[str, tuple[int, ...]] = {}
-
-        # Mapping for constants in the ONNX graph.
         self.name_to_const: dict[str, Any] = {}
-
-        # Import and register all plugins.
+        # ------------------------------------------------------------------
+        # Mapping: symbolic dimension expression -> (tensor_name, axis)
+        # ------------------------------------------------------------------
+        self.symbolic_dim_to_origin: dict[_DimExpr, tuple[str, int]] = {}
         import_all_plugins()
         self._register_primitive_handlers()
+        self.symbolic_shapes = {}
+        # Initialize DimVar -> Name mappings needed for dim_to_symbol
+        self._dimvar_to_name = getattr(builder, "var_to_symbol_map", {})
+        self._dimvar_to_name_by_str = {
+            str(k): v for k, v in self._dimvar_to_name.items()
+        }
+        # Note: dim_to_symbol might need access to the builder's map directly later
+        # self.dim_to_symbol = lambda d: _canonical_symbol(self.builder, d) # Maybe pass builder?
 
     def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> extend_core.Var:
         """Create a new JAX variable with the given dtype and shape."""
@@ -79,11 +85,65 @@ class Jaxpr2OnnxConverter:
 
     def get_var_name(self, var: Any) -> str:
         """Get or create a unique name for a JAX variable."""
+
+        # ────────────────────────────────────────────────────────────────
+        # Plain Python int / float (e.g., literal `3`)
+        # ────────────────────────────────────────────────────────────────
+        from numbers import Number
+
+        if isinstance(var, Number) and not hasattr(var, "aval"):
+            value = np.array(var, dtype=np.int32)
+            const_name = self.get_constant_name(value)
+            wanted_dtype = self._ensure_onnx_dtype(value.dtype)
+
+            # Cast to ensure dtype matches int32 exactly
+            cast_name = self.get_unique_name("lit_cast_to_i32")
+            self.builder.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[const_name],
+                    outputs=[cast_name],
+                    to=int(wanted_dtype),
+                    name=cast_name,
+                )
+            )
+            self.add_shape_info(cast_name, (), value.dtype)
+            return cast_name
+
+        # ────────────────────────────────────────────────────────────────
+        # Handle Literal (JAX constant-folded literals)
+        # ────────────────────────────────────────────────────────────────
+        if isinstance(var, Literal):
+            value = np.asarray(var.val)
+            if np.issubdtype(value.dtype, np.integer):
+                value = value.astype(np.int32)
+            const_name = self.get_constant_name(value)
+            self.add_shape_info(const_name, value.shape, value.dtype)
+            return const_name
+
+        # ────────────────────────────────────────────────────────────────
+        # Every other normal Var
+        # ────────────────────────────────────────────────────────────────
         if var not in self.var_to_name:
             name = self.get_unique_name("var")
+            self.set_var_name(var, name)
+        return self.var_to_name[var]
+
+    def set_var_name(self, var: Any, name: str) -> None:
+        """Set a custom name for a JAX variable."""
+        self.var_to_name[var] = name
+        self.name_to_var[name] = var
+
+    def change_var_name(self, var: Any, name: str) -> None:
+        """Change the name of a JAX variable."""
+        if var in self.var_to_name:
+            old_name = self.var_to_name[var]
+            del self.name_to_var[old_name]
             self.var_to_name[var] = name
             self.name_to_var[name] = var
-        return self.var_to_name[var]
+            self.builder.change_var_name(old_name, name)
+        else:
+            raise ValueError(f"Variable {var} not found in var_to_name mapping.")
 
     def get_constant_name(self, val: Any) -> str:
         """Get or create a name for a constant value in the ONNX graph."""
@@ -163,43 +223,55 @@ class Jaxpr2OnnxConverter:
             )
             return TensorProto.FLOAT
 
+    def _handle_pjit(self, eqn, params):
+        """Inline a `pjit` call inside the current graph."""
+
+        # ① fetch the closed jaxpr (API changed a few times)
+        closed = params.get("call_jaxpr") or params.get("jaxpr")
+        if isinstance(closed, ClosedJaxpr):
+            inner_jaxpr = closed.jaxpr
+            consts = closed.consts
+        else:  # already an open jaxpr
+            inner_jaxpr = closed
+            consts = params.get("consts", ())
+
+        # ② recursively convert the body
+        self._process_jaxpr(inner_jaxpr, consts)
+
+        # ③ wire inner outputs → outer outputs
+        for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
+            inner_name = self.get_name(inner_var)
+            self.set_var_name(outer_var, inner_name)
+
     def register_shape(self, name: str, shape: tuple[int, ...], dtype: Any) -> str:
-        """Register shape and dtype information for a tensor."""
+        """Register shape and dtype information for a tensor, preserving symbolic dims."""
         # Convert dtype to ONNX TensorProto enum if needed
         onnx_dtype = self._ensure_onnx_dtype(dtype)
 
+        # If the shape comes from a ShapeDtypeStruct or similar, preserve symbolic tokens
+        # Try to recover symbolic names if present (e.g., from .symbol attribute or original spec)
+        symbolic_shape = tuple(d.symbol if hasattr(d, "symbol") else d for d in shape)
+
         # Register with the builder
-        self.builder.register_value_info_metadata(name, shape, onnx_dtype)
+        self.builder.register_value_info_metadata(name, symbolic_shape, onnx_dtype)
 
         # Store locally for quick access
-        self.shape_env[name] = shape
+        self.shape_env[name] = symbolic_shape
 
         return name
 
-    def add_input(
-        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add an input variable to the ONNX graph and store its shape."""
+    def add_input(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
         name = self.get_var_name(var)
-        self.builder.add_input(name, shape, dtype)
-        self.register_shape(name, shape, dtype)
+        self.builder.add_input(
+            name, shape, dtype
+        )  # Pass potentially symbolic shape tuple
         return name
 
-    def add_output(
-        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add an output variable to the ONNX graph and store its shape."""
+    def add_output(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
         name = self.get_var_name(var)
-        self.builder.add_output(name, shape, dtype)
-        self.register_shape(name, shape, dtype)
-        return name
-
-    def add_shape_info(
-        self, name: str, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add shape information for a variable in the ONNX graph."""
-        self.builder.add_value_info(name, shape, dtype)
-        self.register_shape(name, shape, dtype)
+        self.builder.add_output(
+            name, shape, dtype
+        )  # Pass potentially symbolic shape tuple
         return name
 
     def get_name(self, var: Any) -> str:
@@ -211,241 +283,340 @@ class Jaxpr2OnnxConverter:
         else:
             raise NotImplementedError("not yet implemented")
 
+    def _extract_symbolic_axes(self, example_args):
+        # Returns a tuple of all symbolic dimension tokens in the example args (if any)
+        symbolic_axes = set()
+        for arg in example_args:
+            if hasattr(arg, "shape"):
+                for d in arg.shape:
+                    if not isinstance(d, int):
+                        symbolic_axes.add(d)
+        # JAX expects a tuple, not a set, for abstracted_axes
+        return tuple(symbolic_axes) if symbolic_axes else None
+
+    def dim_to_symbol(self, d):
+        """Translate JAX shape-dimension `d` into a stable symbolic string
+        or a concrete int."""
+        # 0) plain integer → just return it
+        if isinstance(d, int):
+            return d
+
+        # 1) exact identity hit
+        if d in getattr(self, "_dimvar_to_name", {}):
+            return self._dimvar_to_name[d]
+
+        # 2) hit by (count, dtype) — survives Var cloning
+        key = (getattr(d, "count", None), str(getattr(d, "aval", "")))
+        if key in getattr(self, "_dimvar_to_name_by_count", {}):
+            return self._dimvar_to_name_by_count[key]
+
+        # 3) modern JAX: DimExpr carries .symbol
+        if hasattr(d, "symbol") and d.symbol is not None:
+            return str(d.symbol)
+
+        # 4) fall back to old helper
+
+        _logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
+        _logger.debug("  - FALLBACK to _symbol_name: %s ⚠️", d)
+
+        # try to reuse an existing symbol (same position in the arg-shape)
+        sym = None
+        if (
+            hasattr(self.builder, "current_arg_axes")
+            and self.builder.current_arg_axes is not None
+        ):
+            # current_arg_axes e.g. (None, 'B', None)
+            idx = getattr(self.builder, "current_axis_index", 0)  # maintained by caller
+            if idx < len(self.builder.current_arg_axes):
+                sym = self.builder.current_arg_axes[idx]  # 'B' or None
+
+        if not sym:  # still nothing? invent one
+            if hasattr(self.builder, "_unique_symbol"):
+                sym = self.builder._unique_symbol()  # e.g. '__sym0'
+            else:
+                sym = f"__sym{id(d) % 1000}"  # fallback if _unique_symbol doesn't exist
+
+        # register every alias so the object can be found again later
+        if not hasattr(self.builder, "var_to_symbol_map"):
+            self.builder.var_to_symbol_map = {}
+
+        self.builder.var_to_symbol_map[d] = sym
+        self.builder.var_to_symbol_map[id(d)] = sym
+        self.builder.var_to_symbol_map[str(d)] = sym
+
+        logger.debug("[dim_to_symbol] %s (%s)  →  %s", d, type(d).__name__, sym)
+        return sym  # <— now make_value_info gets "B" (or '__sym0')
+
+        # Step	Description	Dynamic Dim Handling
+        # -	User provides symbolic dimensions ("B")	User-level symbolic dimension
+        # -	Map symbolic dimensions to concrete ints	Temporary numeric placeholders
+        # -	Create concrete zero-arrays for JAX tracer	Concrete numeric array
+        # -	Trace with abstracted_axes	JAX records symbolic shapes (DimVar)
+        # -	Extract symbolic shapes post-tracing	Explicit symbolic shapes recorded
+        # -	Export symbolic shapes into ONNX	ONNX dynamic shape (dim_param)
+
+    ###############################################################################
+    # NOTE: this *replaces* the old trace_jaxpr implementation
+    ###############################################################################
+    # --- Helper for safe dimension-to-symbol conversion (Keep from response #33) ---
+    def _dim_to_symbol_safe(self, d):
+        if isinstance(d, int):
+            return d
+        # Use the builder's map which should be up-to-date
+        # Try object, then str representation
+        resolved = self.builder.var_to_symbol_map.get(d)
+        if resolved is None:
+            resolved = self.builder.var_to_symbol_map.get(str(d))
+        if resolved is None:
+            # Fallback for unknown symbolic objects (might be internal JAX exprs)
+            logger.warning(
+                f"Cannot resolve symbolic dim {d} (type: {type(d)}) to name. Using str()."
+            )
+            resolved = str(d)  # Use string representation as fallback name
+        return resolved
+
+    # --- MODIFIED trace_jaxpr Method ---
     def trace_jaxpr(
         self,
         fn: Any,
-        example_args: list[Any],
+        # Change signature: Now expects the list of symbolic ShapeDtypeStruct avals
+        symbolic_avals: List[ShapeDtypeStruct],  # Changed name and type hint
         preserve_graph: bool = False,
         params: dict[str, Any] | None = None,
     ) -> None:
-        """Trace a JAX function to generate its JAXPR representation and convert it to ONNX."""
-
-        self.logger.debug("trace_jaxpr ... preserve_graph= %s", preserve_graph)
+        """
+        Trace a JAX function to JAXPR using pre-computed symbolic abstract values
+        and convert it to ONNX.
+        """
+        self.logger.debug(
+            f"trace_jaxpr called with {len(symbolic_avals)} symbolic avals. preserve_graph={preserve_graph}"
+        )
         if not preserve_graph:
-            self.builder.reset()
+            # Reset state for top-level call
+            # NOTE: Ensure builder.reset() doesn't clear var_to_symbol_map or re-assign it after reset
+            # Maybe builder reset needs adjustment, or we fetch the map *after* reset?
+            # Let's assume builder keeps the map or we re-set it from conversion_api if needed.
+            # self.builder.reset() # Defer reset or handle map persistence carefully
             self.var_to_name.clear()
             self.name_to_const.clear()
-            self.shape_env.clear()
+            self.shape_env.clear()  # This seems safe to clear
+            # Fetch map from builder, assuming it was set in conversion_api
+            self._dimvar_to_name = getattr(self.builder, "var_to_symbol_map", {})
+            self._dimvar_to_name_by_str = {
+                str(k): v for k, v in self._dimvar_to_name.items()
+            }
+            self.symbolic_shapes.clear()
+        else:
+            # For nested calls, inherit maps - ensure builder map is current context
+            self._dimvar_to_name = getattr(self.builder, "var_to_symbol_map", {})
+            self._dimvar_to_name_by_str = {
+                str(k): v for k, v in self._dimvar_to_name.items()
+            }
+            # Keep existing self.symbolic_shapes for nested scope? This needs thought.
 
-        # Check if any parameters might be duplicated in example_args and params
-        modified_args = list(example_args)
+        # --- Step 1: Use received symbolic_avals directly ---
+        # No need to create concrete tracing_args based on symbolic_dim_map
+        # Always hand ShapeDtypeStructs to jax.make_jaxpr
+        tracing_args = [
+            (
+                jax.ShapeDtypeStruct(a.shape, a.dtype)  # ✔ keeps _DimExpr symbols
+                if hasattr(a, "shape")
+                and hasattr(a, "dtype")  # Check for ShapedArray attributes
+                else a
+            )  # already a ShapeDtypeStruct
+            for a in symbolic_avals
+        ]
+        self.logger.debug(f"Using tracing_args (symbolic avals): {tracing_args}")
 
-        # Handle potential duplicate parameters that are passed both in example_args and params
-        if params and len(modified_args) >= 2:
-            # Check if the last arg is a potential duplicate parameter
-            last_arg = modified_args[-1]
-            is_tracer = str(type(last_arg)).find("DynamicJaxprTracer") >= 0
-
-            # Check for static parameters that might be duplicated
-            for param_name in params.keys():
-                if param_name in params and (
-                    isinstance(last_arg, bool)
-                    or is_tracer
-                    or (
-                        isinstance(last_arg, (int, float))
-                        and not hasattr(last_arg, "shape")
-                    )
-                ):
-                    self.logger.debug(
-                        "Removing potential duplicate '%s' parameter from example_args",
-                        param_name,
-                    )
-                    modified_args = modified_args[:-1]
-                    break
-
-        # Simply trace the function with all parameters
+        # --- Step 2: Call jax.make_jaxpr ---
+        # We *should not* need abstracted_axes if symbolic shapes are explicit in avals
+        # JAX handles polymorphism based on the symbolic objects in the input avals.
         with temporary_monkey_patches(allow_function_primitives=True):
-            if params is None:
-                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args)
-            else:
-                closed_jaxpr = jax.make_jaxpr(fn)(*modified_args, **params)
-
-        self.logger.debug(closed_jaxpr)
-
-        self.jaxpr = closed_jaxpr.jaxpr
-        self.output_vars = self.jaxpr.outvars
-        jaxpr, consts = self.jaxpr, closed_jaxpr.consts
-
-        self._process_jaxpr(jaxpr, consts)
-
-        for var in jaxpr.outvars:
-            name = self.get_var_name(var)
-            if name in self.builder.value_info:
-                continue
-
-            if hasattr(var, "aval"):
-                shape = tuple(var.aval.shape)
-                dtype = helper.np_dtype_to_tensor_dtype(var.aval.dtype)
-                self.builder.register_value_info_metadata(name, shape, dtype)
-                self.builder.add_value_info(name, shape, dtype)
-            else:
-                raise RuntimeError(
-                    f"[MissingShape] Cannot infer shape for output var {name}"
+            # Remove abstracted_axes argument if it was previously used
+            mk = jax.make_jaxpr(fn)
+            try:
+                # Pass symbolic avals directly as arguments
+                closed = mk(*tracing_args, **(params or {}))
+            except Exception as e:
+                self.logger.error(
+                    f"jax.make_jaxpr failed with symbolic avals. Error: {e}",
+                    exc_info=True,
                 )
+                self.logger.error(f"Function: {fn}")
+                self.logger.error(f"Tracing Args (Symbolic Avals): {tracing_args}")
+                self.logger.error(f"Params: {params}")
+                raise
 
-    def add_initializer(
-        self,
-        name: str,
-        vals: Any,
-        data_type: int = helper.TensorProto.INT64,
-        dims: list[int] | None = None,
-    ) -> str:
-        """Add a tensor initializer to the model."""
+        self.logger.debug(f"Jaxpr generated: {closed}")
+        self.jaxpr = closed.jaxpr
+        self.output_vars = getattr(self.jaxpr, "outvars", [])  # Access outvars safely
 
-        if dims is None:
-            dims = [len(vals)]
+        # --------------------------------------------------------------
+        # Record symbolic dimensions present in the graph inputs
+        # --------------------------------------------------------------
+        for input_var, input_spec in zip(self.jaxpr.invars, symbolic_avals):
+            tensor_name = self.get_name(input_var)
+            for axis, dim in enumerate(input_spec.shape):
+                if isinstance(dim, _DimExpr):
+                    self.symbolic_dim_to_origin[dim] = (tensor_name, axis)
 
-        tensor = helper.make_tensor(
-            name=name,
-            data_type=data_type,
-            dims=dims,
-            vals=vals,
+        # --- Step 3: Post-trace Processing (Update internal state) ---
+        # Ensure the builder has the necessary map for subsequent operations
+        # It should have been set in conversion_api.py
+        self.builder.var_to_symbol_map = self._dimvar_to_name
+
+        # Store symbolic shapes for *all* vars seen in the final jaxpr
+        # using the safe conversion back to string names
+        self.symbolic_shapes = {}
+        all_vars = (
+            getattr(self.jaxpr, "invars", [])
+            + getattr(self.jaxpr, "constvars", [])
+            + getattr(self.jaxpr, "outvars", [])
         )
-        self.builder.initializers.append(tensor)
-        return name
+        for var in all_vars:
+            if var is not None and hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                try:
+                    name = self.get_name(var)  # Handles Vars and Literals
+                    # Convert potentially symbolic shape back to tuple with string names
+                    sym_shape = tuple(
+                        self._dim_to_symbol_safe(d) for d in var.aval.shape
+                    )
+                    self.symbolic_shapes[name] = sym_shape
+                    self.logger.debug(
+                        f"Stored symbolic shape for {name} ('{type(var)}'): {sym_shape}"
+                    )
+                except Exception as e:
+                    # Log details about the variable causing issues
+                    var_repr = repr(var)
+                    aval_repr = repr(getattr(var, "aval", None))
+                    self.logger.warning(
+                        f"Could not process/store symbolic shape for var {var_repr} with aval {aval_repr}. Error: {e}",
+                        exc_info=False,
+                    )  # Keep log concise
+
+        # --- Step 4: Convert JAXPR to ONNX Graph ---
+        self.logger.info("Processing generated jaxpr...")
+        # Pass the map explicitly or ensure _process_jaxpr uses self.builder.var_to_symbol_map
+        self._process_jaxpr(self.jaxpr, closed.consts)
+        self.logger.info("Jaxpr processing complete.")
 
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
-        """Process a JAXPR and convert it to ONNX nodes."""
+        # --------------------------------------------------------------------
+        # 1) Special‐case: static‐only JAXPR (e.g. `lambda x: x.shape[0]` ⇒ literal)
+        # --------------------------------------------------------------------
+        if not jaxpr.eqns and len(jaxpr.invars) == 1 and len(jaxpr.outvars) == 1:
+            jaxpr.invars[0]
+            out = jaxpr.outvars[0]
+            # Only proceed if the JAXPR actually returns a literal int
+            from jax.extend.core import Literal
 
-        # Add input variables to the ONNX graph, skipping any that are already added
-        # (such as parameters added via add_scalar_input)
-        for var in jaxpr.invars:
-            # here we need to call a function that returns the name of the variable
-            # match_call_param_by_type_and_order may use call_params
-            # call_params should be stored by name and type (not value)
-            var_name = self.match_call_param_by_type_and_order(var)
-            if var_name is None:
-                var_name = self.get_var_name(var)
-            # Check if this input is already in the builder's inputs
-            # This avoids duplicate inputs for parameters that were added as scalar inputs
-            if not any(
-                input_info.name == var_name for input_info in self.builder.inputs
-            ):
-                self.add_input(var, var.aval.shape, var.aval.dtype)
+            if isinstance(out, Literal) or isinstance(out, (int,)):
+                # pull out the integer
+                static_val = int(out.val if isinstance(out, Literal) else out)
+                # --- emit exactly the static‐dim ONNX snippet ---
+                import numpy as _np
+                from onnx import TensorProto
 
-        # Add constants to the ONNX graph.
+                # 1) make int64 initializer
+                arr = _np.array(static_val, dtype=_np.int64)
+                init_name = self.get_constant_name(arr)
+
+                # 2) Cast it down to INT32
+                cast_name = self.get_unique_name("dim_as_value_static_cast")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[init_name],
+                        outputs=[cast_name],
+                        to=int(TensorProto.INT32),
+                        name=cast_name,
+                    )
+                )
+                # record its shape (scalar) and dtype
+                self.add_shape_info(cast_name, (), _np.int32)
+
+                # 3) Identity into the real output var
+                out_name = self.get_var_name(out)
+                id_name = self.get_unique_name("dim_as_value_static_id")
+                self.builder.add_node(
+                    helper.make_node(
+                        "Identity", inputs=[cast_name], outputs=[out_name], name=id_name
+                    )
+                )
+                self.add_shape_info(out_name, (), _np.int32)
+                # 4) register it as graph output
+                self.builder.add_output(out_name, (), _np.int32)
+                return
+
+        # --------------------------------------------------------------------
+        # 2) Otherwise, normal path: register any true JAXPR‐constvars...
+        # --------------------------------------------------------------------
         for i, const in enumerate(consts):
+            # register initializer-name → value
             const_name = self.get_constant_name(const)
             const_var = jaxpr.constvars[i]
             self.var_to_name[const_var] = const_name
             self.name_to_var[const_name] = const_var
             self.name_to_const[const_name] = const
+            # also register the "logical var name" (in case it differs)
+            var_name = self.get_var_name(const_var)
+            if var_name != const_name:
+                self.name_to_const[var_name] = const
 
-        # Process equations in the JAXPR.
+        # Add input variables with symbolic shapes
+        for var in jaxpr.invars:
+            if var is None:
+                continue
+            var_name = self.get_var_name(var)
+            if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
+                continue
+            shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
+            dtype = var.aval.dtype
+            if not any(inp.name == var_name for inp in self.builder.inputs):
+                self.add_input(var, shape, dtype)
+
+        # Process equations
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
-        # Add output variables to the ONNX graph.
+        # Explicitly handle outputs
         for var in jaxpr.outvars:
-            name = self.get_var_name(var)
-            shape: tuple[int, ...]
-            dtype: Any
-
-            metadata = self.builder.get_value_info_metadata_with_origin(name)
-            if metadata:
-                shape, dtype_enum, _ = metadata
-                try:
-                    dtype = helper.tensor_dtype_to_np_dtype(dtype_enum)
-                except Exception:
-                    self.logger.debug(
-                        "Could not convert dtype enum %s for %s, fallback to var.aval",
-                        dtype_enum,
-                        name,
-                    )
-                    shape = tuple(var.aval.shape)
-                    dtype = var.aval.dtype
-            else:
-                self.logger.warning(
-                    "No metadata found for output var '%s', using fallback.", name
-                )
-                shape = tuple(var.aval.shape)
-                dtype = var.aval.dtype
-
-            self.add_output(var, shape, dtype)
-
-    def _process_eqn(self, eqn: Any) -> None:
-        """Process a single JAXPR equation."""
-
-        if not hasattr(eqn, "primitive"):
-            raise NotImplementedError(f"Non-primitive equation: {eqn}")
-
-        primitive = eqn.primitive
-        name = primitive.name
-
-        is_function_handler = name in ONNX_FUNCTION_PLUGIN_REGISTRY.keys()
-
-        handler = self.primitive_handlers.get(name)
-        if handler is None:
-            raise NotImplementedError(f"Primitive {name} not implemented")
-
-        handler(self, eqn, eqn.params)
-
-        if not is_function_handler:
-            for outvar in eqn.outvars:
-                output_name = self.get_name(outvar)
-                if hasattr(outvar, "aval"):
-                    self.add_shape_info(
-                        output_name, outvar.aval.shape, outvar.aval.dtype
-                    )
-                else:
-                    self.logger.warning(
-                        "Cannot add shape info for %s, missing .aval.", output_name
-                    )
-
-    def match_call_param_by_type_and_order(self, var: Any) -> str | None:
-        """Match a variable to a parameter in call_params based on type and order."""
-
-        if not self.call_params or not hasattr(var, "aval"):
-            return None
-
-        # Check if this variable matches any parameter by type and shape
-        var_dtype = var.aval.dtype
-        var_shape = tuple(var.aval.shape)
-
-        # Special handling for boolean parameters like 'deterministic'
-        if var_dtype == jnp.bool_ and var_shape == ():
-            # Look for boolean parameters in call_params
-            for param_name, param_value in self.call_params.items():
-                if isinstance(param_value, bool):
-                    # Skip parameters that have already been matched
-                    param_key = f"{param_name}"
-                    if param_key in self.var_to_name.values():
-                        continue
-
-                    self.logger.debug(
-                        "Matching boolean variable to parameter '%s'", param_name
-                    )
-                    # Store this mapping
-                    self.var_to_name[var] = param_name
-                    self.name_to_var[param_name] = var
-                    return param_name
-
-        # Track position to maintain matching by order for non-boolean parameters
-        matched_params = []
-
-        for param_name, param_value in self.call_params.items():
-            # Skip parameters that have already been matched
-            param_key = f"{param_name}"
-            if param_key in self.var_to_name.values():
+            if var is None:
                 continue
+            name = self.get_var_name(var)
 
-            # Check if parameter type and shape match the variable
-            if hasattr(param_value, "dtype") and hasattr(param_value, "shape"):
-                param_dtype = param_value.dtype
-                param_shape = tuple(param_value.shape)
+            if name in self.name_to_const:
+                # Explicitly wrap initializer in Identity for valid ONNX output
+                identity_output_name = self.get_unique_name("const_output")
+                dtype = np.asarray(self.name_to_const[name]).dtype
+                shape = ()
 
-                if param_dtype == var_dtype and param_shape == var_shape:
-                    matched_params.append((param_name, param_value))
+                identity_node = helper.make_node(
+                    "Identity",
+                    inputs=[name],
+                    outputs=[identity_output_name],
+                    name=self.get_unique_name("identity_const_out"),
+                )
+                self.builder.add_node(identity_node)
 
-        # If we found matches, use the first one
-        if matched_params:
-            param_name, _ = matched_params[0]
-            # Store this mapping
-            self.var_to_name[var] = param_name
-            self.name_to_var[param_name] = var
-            return param_name
+                # Set the output explicitly to the Identity node's output
+                self.builder.add_output(identity_output_name, shape, dtype)
+                self.add_shape_info(identity_output_name, shape, dtype)
+            elif hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                # if the plugin already emitted this output, skip it
+                if any(o.name == name for o in self.builder.outputs):
+                    continue
+                shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
+                dtype = var.aval.dtype
+                self.add_output(var, shape, dtype)
+            else:
+                if not any(o.name == name for o in self.builder.outputs):
+                    self.builder.add_output(name, (), np.int32)
 
-        return None
+    def add_shape_info(self, name: str, shape: tuple, dtype: Any = np.float32) -> str:
+        # Note: shape passed here might already be symbolic strings from _dim_to_symbol_safe
+        self.builder.add_value_info(name, shape, dtype)
+        return name
 
     def _create_identity_node(
         self, node_inputs: list[Any], node_outputs: list[Any], prefix: str
@@ -476,7 +647,71 @@ class Jaxpr2OnnxConverter:
             primitive = plugin.primitive
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
+        # built‑in call‑style primitive that we inline
+        self.primitive_handlers["pjit"] = lambda conv, eqn, params: conv._handle_pjit(
+            eqn, params
+        )
+
         if self.primitive_handlers:
             self.logger.debug(
                 "Registered %d primitive handlers", len(self.primitive_handlers)
             )
+
+    def _process_eqn(self, eqn: Any) -> None:
+        """Process a single JAXPR equation by dispatching to the appropriate plugin handler."""
+
+        if not hasattr(eqn, "primitive"):
+            # Should not happen for standard jaxprs, maybe handle call primitives?
+            self.logger.warning(
+                f"Equation type without 'primitive' attribute encountered: {type(eqn)}. Skipping: {eqn}"
+            )
+            return
+
+        primitive = eqn.primitive
+        name = primitive.name
+
+        # Check if it's handled by function plugins first (if applicable)
+        is_function_handler = (
+            name in ONNX_FUNCTION_PLUGIN_REGISTRY
+        )  # Use the actual registry name
+
+        handler = self.primitive_handlers.get(name)
+        if handler is None:
+            raise NotImplementedError(
+                f"No ONNX handler registered for JAX primitive: '{name}'"
+            )
+
+        self.logger.debug(f"Processing eqn for primitive: {name}")
+        try:
+            # Call the handler (typically a method on the plugin instance or a lambda)
+            # The handler expects: self (converter), eqn object, params dict
+            handler(self, eqn, eqn.params)  # Pass self, eqn, params
+        except Exception as e:
+            self.logger.error(
+                f"Error processing primitive '{name}' with handler {handler}. Eqn: {eqn}",
+                exc_info=True,
+            )
+            raise RuntimeError(f"Failed processing primitive '{name}'") from e
+
+        # --- Handle output shapes for non-function primitives ---
+        # (This logic might need refinement based on how function plugin outputs are handled)
+        # Register shape info for the output variables of this equation
+        # Use the safe dim-to-symbol conversion
+        if not is_function_handler:  # Only for leaf primitives?
+            for outvar in eqn.outvars:
+                if (
+                    outvar is not None
+                    and hasattr(outvar, "aval")
+                    and hasattr(outvar.aval, "shape")
+                ):
+                    output_name = self.get_name(outvar)  # Get ONNX name
+                    # Use the potentially symbolic shape from the aval
+                    shape_tuple = tuple(
+                        self._dim_to_symbol_safe(d) for d in outvar.aval.shape
+                    )
+                    dtype = outvar.aval.dtype
+                    # Add shape info to the builder
+                    self.add_shape_info(output_name, shape_tuple, dtype)
+                else:
+                    # Handle literals or vars without shape info if necessary
+                    pass
