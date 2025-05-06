@@ -1,5 +1,5 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_007.py
-# Note: Original header comment mentioned 006, corrected to 007
+
 
 import jax.numpy as jnp
 from flax import nnx
@@ -52,8 +52,8 @@ class MultiHeadAttention(nnx.Module):
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.attention(x, deterministic)
-        x = self.dropout(x, deterministic)
+        x = self.attention(x, deterministic=deterministic)
+        x = self.dropout(x, deterministic=deterministic)
         return x
 
 

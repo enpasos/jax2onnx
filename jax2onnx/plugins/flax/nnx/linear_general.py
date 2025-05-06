@@ -93,6 +93,28 @@ _ORIGINAL_LG_CALL: Callable | None = None
             ),
             "input_shapes": [(2, 4, 8, 32)],
         },
+        {
+            "testcase": "linear_general_abstract_eval_axes",
+            "callable": nnx.LinearGeneral(
+                in_features=(256,),
+                out_features=(8, 32),
+                axis=(-1,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 10, 256)],
+            "expected_output_shape": (3, 10, 8, 32),
+        },
+        {
+            "testcase": "linear_general_abstract_eval_axes_pair",
+            "callable": nnx.LinearGeneral(
+                in_features=(8, 32),
+                out_features=(256,),
+                axis=(-2, -1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 10, 8, 32)],
+            "expected_output_shape": (3, 10, 256),
+        },
     ],
 )
 class LinearGeneralPlugin(PrimitiveLeafPlugin):
@@ -382,9 +404,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         _ORIGINAL_LG_CALL = orig_fn
 
         def patched_linear_general_call(self, x):
+            # --- 🔑 convert potentially‑negative axes to positive indices ----
+            rank = max(x.ndim, 1)  # 👈 avoid "modulo 0"
+            if isinstance(self.axis, int):
+                lhs_contract = (self.axis % rank,)
+            else:
+                lhs_contract = tuple((a % rank) for a in self.axis)
+
             contracting_dims = (
-                (self.axis,) if isinstance(self.axis, int) else self.axis,
-                tuple(range(len(self.in_features))),
+                lhs_contract,
+                tuple(range(len(self.in_features))),  # rhs_contracting dims
             )
             dimension_numbers = (contracting_dims, ((), ()))
             return LinearGeneralPlugin._linear_general(
