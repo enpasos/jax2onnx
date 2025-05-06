@@ -362,7 +362,7 @@ register_example(
                 num_classes=10,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [(5, 28, 28, 1)],
+            "input_shapes": [("B", 28, 28, 1)],
         }
     ],
 )

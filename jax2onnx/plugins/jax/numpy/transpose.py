@@ -42,7 +42,7 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
         {
             "testcase": "transpose_4d",
             "callable": lambda a: jnp.transpose(a, axes=(0, 2, 3, 1)),
-            "input_shapes": [(1, 2, 3, 4)],
+            "input_shapes": [("B", 2, 3, 4)],
         },
         {
             "testcase": "transpose_square_matrix",
@@ -60,7 +60,7 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
             "input_shapes": [(2, 3, 4)],
         },
         {
-            "testcase": "transpose_dynamic",
+            "testcase": "transpose_3d",
             "callable": lambda a: jnp.transpose(a, axes=(0, 2, 1)),
             "input_shapes": [("B", 3, 4)],  # Dynamic batch dimension
         },
@@ -73,7 +73,7 @@ class TransposePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _transpose_abstract_eval(x, axes: tuple[int, ...] | None):
-        """Computes the output shape for jnp.transpose."""
+        """Computes the output shape for jnp.transpose, robust to tracers."""
         x_shape = list(x.shape)
         if axes is None:
             axes = tuple(reversed(range(len(x_shape))))
@@ -82,8 +82,16 @@ class TransposePlugin(PrimitiveLeafPlugin):
                 f"Axes length {len(axes)} does not match input rank {len(x_shape)}"
             )
 
-        output_shape = [x_shape[i] for i in axes]
-        return core.ShapedArray(tuple(output_shape), x.dtype)
+        def safe_dim(dim):
+            # Accept int, str, or use -1 for tracers/unhashable
+            try:
+                hash(dim)
+                return dim
+            except Exception:
+                return -1
+
+        output_shape = tuple(safe_dim(x_shape[i]) for i in axes)
+        return core.ShapedArray(output_shape, x.dtype)
 
     @staticmethod
     def abstract_eval(x, axes: tuple[int, ...] | None):
@@ -99,10 +107,6 @@ class TransposePlugin(PrimitiveLeafPlugin):
         # If axes is None, default to reversing the axes.
         if axes is None:
             axes = tuple(reversed(range(len(input_shape))))
-        # This part is not needed, the bind function already manage that
-        # elif isinstance(axes, int):
-        #     n = len(input_shape)
-        #     axes = (axes,) + tuple(i for i in range(n) if i != axes)
         else:
             axes = tuple(axes)  # Ensure axes is a tuple.
 

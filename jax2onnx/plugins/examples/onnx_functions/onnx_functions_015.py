@@ -51,7 +51,7 @@ register_example(
         {
             "testcase": "015_one_function_with_input_param_without_default_value",
             "callable": SuperBlock(),
-            "input_shapes": [(5, 10, 3)],
+            "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "input_params": {
                 "deterministic": True,

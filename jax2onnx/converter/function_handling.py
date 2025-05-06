@@ -1,32 +1,5 @@
 # file: jax2onnx/converter/function_handling.py
-"""ONNX function‑export helpers
 
-General fix for the *double‑nesting* problem
--------------------------------------------
-When a module decorated with ``@onnx_function`` contains **no other
-logic** than calling another instance of *itself*, the exporter used to
-create a redundant wrapper chain:
-
-```
-SuperBlock_0()  # outer graph
-  └─ SuperBlock_1()   # useless pass‑through
-        └─ real ops (LayerNormalization …)
-```
-
-That duplication happens because the decorator’s monkey‑patch emits the
-primitive again when JAX rewrites the body.  Instead of trying to guess
-which patches to remove, we now **detect and inline any pass‑through
-wrapper that meets all these conditions**:
-
-1. the traced sub‑graph contains **exactly one node**;
-2. that node is a call to an ONNX function in the custom domain; and
-3. its *display name* (i.e. original class name, *without* the numeric
-   suffix like ``_0``/``_1``) is the same as the wrapper we are about to
-   register.
-
-Legitimate nesting (different instance keys, additional surrounding
-nodes, recursive composition, etc.) is not affected.
-"""
 
 from __future__ import annotations
 
@@ -35,6 +8,7 @@ import inspect
 import logging
 import re
 from typing import TYPE_CHECKING
+import numpy as np  # Add missing numpy import
 
 import jax.numpy as jnp
 from jax.core import ShapedArray
@@ -112,11 +86,23 @@ def resolve_function_inputs(converter, eqn, parent_builder):
 
 
 def create_example_arg(aval):
-    return (
-        jnp.ones(aval.shape, dtype=aval.dtype)
-        if aval.shape
-        else jnp.zeros((), dtype=aval.dtype)
-    )
+    """Create an example argument for function tracing.
+
+    Handles both concrete shapes and shapes with symbolic dimensions.
+    """
+    if not aval.shape:
+        return jnp.zeros((), dtype=aval.dtype)
+
+    # Check if the shape contains any symbolic dimensions
+    has_symbolic_dim = any(not isinstance(dim, int) for dim in aval.shape)
+
+    if has_symbolic_dim:
+        # Create a placeholder ShapedArray instead of concrete array
+        # This avoids trying to materialize arrays with symbolic dimensions
+        return aval
+    else:
+        # For concrete shapes, create actual array
+        return jnp.ones(aval.shape, dtype=aval.dtype)
 
 
 def register_input_metadata(builder, var_name, aval):
@@ -178,11 +164,12 @@ def process_scalar_parameters(
                 continue
         elif handling_mode == "constant":
             # Treat as constant
+            # use INT32 for plain Python ints to match JAX's default
             dtype_enum = (
                 onnx.TensorProto.BOOL
                 if isinstance(param_value, bool)
                 else (
-                    onnx.TensorProto.INT64
+                    onnx.TensorProto.INT32
                     if isinstance(param_value, int)
                     else onnx.TensorProto.FLOAT
                 )
@@ -213,7 +200,7 @@ def process_scalar_parameters(
                 onnx.TensorProto.BOOL
                 if isinstance(param_value, bool)
                 else (
-                    onnx.TensorProto.INT64
+                    onnx.TensorProto.INT32
                     if isinstance(param_value, int)
                     else onnx.TensorProto.FLOAT
                 )
@@ -360,17 +347,88 @@ def propagate_eqn_parameters(eqn, params):
 
 
 def setup_sub_converter(converter, eqn, params, unique_node_name, parent_builder):
+    """Set up a sub-converter for handling function bodies.
+
+    This function creates a child ONNX builder and converter, ensuring symbolic
+    dimensions are properly propagated from parent to child.
+    """
+    logger.debug(
+        "⇢ enter @onnx_function  (parent symbols: %s)",
+        (
+            parent_builder.var_to_symbol_map
+            if hasattr(parent_builder, "var_to_symbol_map")
+            else {}
+        ),
+    )
+
+    # ------------------------------------------------------------------ #
+    # 1.  Create a *child* builder, but seed it with the symbol aliases   #
+    #     already discovered for the outer graph so that the original     #
+    #     symbolic names ('B', etc.) survive inside the Function.         #
+    # ------------------------------------------------------------------ #
     sub_builder = OnnxBuilder(
         parent_builder.name_generator,
         parent_builder.opset,
         unique_node_name + "_graph",
         initializers=parent_builder.initializers,
+        converter=converter,  # Pass converter reference
     )
+
+    # ─────────────────────────  DEBUG / bookkeeping  ────────────────
+    if not hasattr(sub_builder, "var_to_symbol_map"):
+        sub_builder.var_to_symbol_map = {}
+
+    if hasattr(parent_builder, "var_to_symbol_map"):
+        sub_builder.var_to_symbol_map.update(parent_builder.var_to_symbol_map)
+
+    for k, v in list(sub_builder.var_to_symbol_map.items()):
+        sub_builder.var_to_symbol_map.setdefault(str(k), v)
+        sub_builder.var_to_symbol_map.setdefault(v, v)
+    logger.debug("   inherited symbols → %s", sub_builder.var_to_symbol_map)
+    # ────────────────────────────────────────────────────────────────
+
+    # Propagate other symbolic dimension related maps
+    if hasattr(parent_builder, "symbolic_shapes") and hasattr(
+        sub_builder, "symbolic_shapes"
+    ):
+        sub_builder.symbolic_shapes.update(parent_builder.symbolic_shapes)
+
+    # Optional: keep a link so the Function can fall back to parent map for new aliases
+    sub_builder.parent = parent_builder
+
+    # ------------------------------------------------------------------ #
+    # 2.  Create the converter for the Function and propagate symbolic    #
+    #     dimension mapping information                                   #
+    # ------------------------------------------------------------------ #
+
+    # ──► Create the *Function*-local JaxprConverter and hand over
+    #     its private symbol tables
     sub_converter = converter.__class__(sub_builder)
+
+    # share Var → 'B' table
+    if hasattr(converter, "_dimvar_to_name"):
+        # Start with a copy of parent's dimension mapping
+        sub_converter._dimvar_to_name = dict(converter._dimvar_to_name)
+
+    # share the canonical tuple of abstracted axes
+    if hasattr(converter, "symbolic_axes"):
+        sub_converter.symbolic_axes = converter.symbolic_axes
+
+    # make sure to enable shape polymorphism in the sub-converter
+    if hasattr(converter, "use_abstracted_axes"):
+        sub_converter.use_abstracted_axes = converter.use_abstracted_axes
+
+    # (optional) allow the child converter to fall back to the parent
+    sub_converter.parent = converter
+
+    # Propagate equation parameters
     params = propagate_eqn_parameters(eqn, params)
     sub_converter.params = params
+
+    # Propagate other parameters if available
     if hasattr(converter, "call_params"):
         sub_converter.call_params = converter.call_params
+
     return sub_converter, sub_builder, params
 
 
@@ -442,8 +500,8 @@ def rename_and_register_param_inputs(
 
                 if isinstance(param_value, bool):
                     dtype = onnx.TensorProto.BOOL
-                elif isinstance(param_value, int):
-                    dtype = onnx.TensorProto.INT64
+                elif isinstance(param_value, (int, np.integer)):
+                    dtype = onnx.TensorProto.INT32
                 else:
                     dtype = onnx.TensorProto.FLOAT
             else:
@@ -552,9 +610,19 @@ def trace_function_body(
     Returns:
         A tuple of (sub_converter, sub_builder, internal_input_vars)
     """
+
     sub_converter, sub_builder, params = setup_sub_converter(
         converter, eqn, params, unique_node_name, parent_builder
     )
+
+    # Propagate equation parameters (fix for dual param dicts)
+    if isinstance(params, dict) and "onnx_params" in params and "jax_params" in params:
+        params_to_use = params["jax_params"]
+    else:
+        params_to_use = params
+    params_to_use = propagate_eqn_parameters(eqn, params_to_use)
+    sub_converter.params = params_to_use
+    params = params_to_use
 
     trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
         params, example_args
@@ -601,19 +669,65 @@ def map_and_register_outputs(
             raise RuntimeError(
                 f"[❌] Missing metadata for subgraph output '{sub_name}'."
             )
+
+        # Get the shape and dtype from metadata
         shape, dtype = shape_dtype
-        var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
+
+        # Check for symbolic dimensions in shape
+        # Skip ShapedArray creation if there are symbolic dimensions - just preserve var.aval
+        if all(isinstance(dim, (int, float)) for dim in shape):
+            # Only create ShapedArray for concrete shapes
+            var.aval = ShapedArray(shape, helper.tensor_dtype_to_np_dtype(dtype))
+        else:
+            # For symbolic shapes, preserve dimensions but update the dtype if needed
+            if hasattr(var, "aval") and var.aval is not None:
+                # If we already have an aval with the right shape, just update dtype if needed
+                if var.aval.dtype != helper.tensor_dtype_to_np_dtype(dtype):
+                    var.aval = var.aval.update(
+                        dtype=helper.tensor_dtype_to_np_dtype(dtype)
+                    )
+            else:
+                # If we don't have an aval, we need to construct one that preserves symbolic dims
+                # This is a fallback that might not handle all cases
+                logger.warning(
+                    f"Creating placeholder aval for var with symbolic dimensions: {shape}"
+                )
+                # Use the first dimension from the original var if available
+                if (
+                    hasattr(var, "aval")
+                    and hasattr(var.aval, "shape")
+                    and var.aval.shape
+                ):
+                    placeholder_shape = var.aval.shape
+                else:
+                    # Create a default shape - this is not ideal but better than failing
+                    placeholder_shape = (2,) * len(shape)
+                var.aval = ShapedArray(
+                    placeholder_shape, helper.tensor_dtype_to_np_dtype(dtype)
+                )
+
         parent_output_name = parent_builder.get_unique_name("var")
         converter.var_to_name[var] = parent_output_name
         converter.name_to_var[parent_output_name] = var
         call_outputs.append(parent_output_name)
+
+        # Important: Register shape metadata in parent builder
+        # We need to preserve the original shape with symbolic dimensions here
         parent_builder.register_value_info_metadata(parent_output_name, shape, dtype)
+        # keep the converter’s symbolic table in sync
+        if hasattr(converter, "symbolic_shapes"):
+            converter.symbolic_shapes[parent_output_name] = shape
         parent_builder.add_value_info(parent_output_name, shape, dtype)
 
     return call_outputs
 
 
 # --- little helper -----------------------------------------------------------
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# utilities
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def _base_name(name: str) -> str:
@@ -626,18 +740,22 @@ def function_handler(
     converter: "Jaxpr2OnnxConverter",
     eqn,
     orig_fn: Callable,
-    params,
+    onnx_params,
+    jax_params=None,
+    params=None,
 ):
-    """Convert a primitive produced by ``@onnx_function``.
+    """
+    Convert a primitive produced by ``@onnx_function``.
 
-    The implementation is identical to the upstream version *except* for
-    one **redundancy‑elimination** block executed *after* we have traced
-    the body.  The rest of the logic (parameter promotion, metadata
-    propagation, etc.) is untouched.
+    Compared with the previous implementation this version
+    **(a)** inlines trivial pass‑through wrappers and
+    **(b)** registers every non‑trivial function as a proper
+    `FunctionProto`, guaranteeing ORT can resolve the
+    op‑type at load time.
     """
 
     # ------------------------------------------------------------------
-    # 1) Boiler‑plate checks and setup (unchanged)
+    # 1) Boiler‑plate: checks, name generation, input preparation
     # ------------------------------------------------------------------
     if orig_fn is None:
         raise RuntimeError(f"Original function for {name} not recorded.")
@@ -651,7 +769,7 @@ def function_handler(
     )
 
     extra_param_inputs = handle_function_parameters(
-        params,
+        params if params is not None else onnx_params,
         converter,
         eqn,
         parent_builder,
@@ -662,10 +780,12 @@ def function_handler(
 
     logger.debug(f"Tracing function body for: {unique_node_name}")
 
+    # Use jax_params for tracing if provided, else fallback to onnx_params
+    trace_params = jax_params if jax_params is not None else onnx_params
     sub_converter, sub_builder, _ = trace_function_body(
         converter,
         orig_fn,
-        params,
+        trace_params,
         example_args,
         unique_node_name,
         parent_builder,
@@ -675,23 +795,18 @@ def function_handler(
     )
 
     # ------------------------------------------------------------------
-    # 2) *Redundancy check* – inline trivial pass‑through wrappers
+    # 2)  INLINE  trivial wrappers  (the body contains exactly one node
+    #     that merely calls the *real* function)
     # ------------------------------------------------------------------
     inner_nodes = list(sub_builder.nodes)
-    if (
-        len(inner_nodes) == 1
-        # Avoid AttributeError if builder has no `custom_domain` attribute.
-        # The duplication we target is strictly identified by matching base names.
-        and _base_name(inner_nodes[0].op_type) == _base_name(unique_node_name)
+    if len(inner_nodes) == 1 and _base_name(inner_nodes[0].op_type) == _base_name(
+        unique_node_name
     ):
         logger.debug(f"Inlining trivial wrapper '{unique_node_name}' (calls itself).")
 
         parent_builder._propagate_nested_functions(sub_builder)
         parent_builder.merge_value_info_metadata_from(sub_builder)
 
-        # Build *new* call‑node that invokes the real inner function using
-        # the correct outer variable names.  We reuse the helper so it also
-        # registers missing value_info.
         call_outputs = map_and_register_outputs(
             inner_nodes[0].op_type,
             sub_builder,
@@ -700,7 +815,9 @@ def function_handler(
             converter,
             eqn,
         )
+
         param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
+
         create_function_call(
             inner_nodes[0].op_type,
             input_names,
@@ -709,10 +826,10 @@ def function_handler(
             parent_builder,
             name,
         )
-        return  # 🎉 done – wrapper collapsed
+        return  # wrapper collapsed – done!
 
     # ------------------------------------------------------------------
-    # 3) Normal path – register wrapper as its own FunctionProto
+    # 3)  NORMAL path – keep the wrapper as a reusable ONNX function
     # ------------------------------------------------------------------
     param_inputs = collect_used_param_inputs(sub_builder, parent_builder)
 
@@ -744,9 +861,3 @@ def function_handler(
         parent_builder,
         name,
     )
-
-
-# ---------------------------------------------------------------------------
-# All helper functions from the original module remain unchanged below.  Only
-# the *body* of `function_handler` and the small `_base_name` helper have
-# been added.

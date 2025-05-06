@@ -1,8 +1,7 @@
-# file: jax2onnx/converter/onnx_builder.py
-
-from typing import Any
+from typing import Any, Dict, Union, Optional, List, Tuple, cast
 
 import logging
+
 import numpy as np
 import onnx
 from jax.extend.core import Literal
@@ -13,14 +12,27 @@ from onnx import (
     NodeProto,
     TensorProto,
     ValueInfoProto,
+    TypeProto,
+    TensorShapeProto,
     helper,
 )
 
 # === Import name generators ===
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 
+logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
+
+# Define Shape type for type checking
+Shape = Union[Tuple[Any, ...], List[Any], None]
+
+# Add a specific type for the value_info_metadata entries
+ValueInfoMetadataType = Tuple[Tuple[Any, ...], Any]
+ValueInfoMetadataWithOriginType = Tuple[Tuple[Any, ...], Any, Optional[str]]
+
+DIMVAR_STR2SYMBOL: dict[str, str] = {}  # populated by converter
 
 
 def _as_tuple(x):
@@ -36,70 +48,156 @@ def _as_tuple(x):
     return tuple(x) if isinstance(x, (list, tuple)) else (x,)
 
 
-def make_value_info(name, shape, dtype):
+# You can define this globally (in onnx_builder.py)
+ONNX_DTYPE_MAP = {
+    np.float32: TensorProto.FLOAT,
+    np.dtype("float32"): TensorProto.FLOAT,
+    np.float64: TensorProto.DOUBLE,
+    np.dtype("float64"): TensorProto.DOUBLE,
+    np.int8: TensorProto.INT8,
+    np.dtype("int8"): TensorProto.INT8,
+    np.uint8: TensorProto.UINT8,
+    np.dtype("uint8"): TensorProto.UINT8,
+    np.int16: TensorProto.INT16,
+    np.dtype("int16"): TensorProto.INT16,
+    np.uint16: TensorProto.UINT16,
+    np.dtype("uint16"): TensorProto.UINT16,
+    np.int32: TensorProto.INT32,
+    np.dtype("int32"): TensorProto.INT32,
+    np.uint32: TensorProto.UINT32,
+    np.dtype("uint32"): TensorProto.UINT32,
+    np.int64: TensorProto.INT64,
+    np.dtype("int64"): TensorProto.INT64,
+    np.uint64: TensorProto.UINT64,
+    np.dtype("uint64"): TensorProto.UINT64,
+    np.bool_: TensorProto.BOOL,
+    np.dtype("bool"): TensorProto.BOOL,
+    bool: TensorProto.BOOL,
+    "int64": TensorProto.INT64,
+    "bool": TensorProto.BOOL,
+}
+
+
+# ─── new util helpers ────────────────────────────────────────────────────────
+def _is_unknown_dim(d) -> bool:  # -1 / None / ""  → unknown
+    return d in (-1, None, "")
+
+
+def _is_shape_more_specific(old: tuple, new: tuple) -> bool:
     """
-    Creates an ONNX ValueInfoProto object for a tensor.
+    Return True if `new` refines `old`, e.g. (-1,) → ('B',) or
+    contains concrete ints where the old one had -1 / None.
+    """
+    if len(old) != len(new):
+        return True
+    for o, n in zip(old, new):
+        if o in (-1, None) and n not in (-1, None):
+            return True
+    return False
+
+
+# Convert the method to a standalone function that takes an object and dimension
+def _symbol_name(obj, dim) -> str:
+    """Get a symbolic dimension name from a dimension object.
 
     Args:
-        name: Name of the tensor.
-        shape: Shape of the tensor as a tuple.
-        dtype: Data type of the tensor (NumPy or ONNX TensorProto enum).
+        obj: The object containing var_to_symbol_map (typically OnnxBuilder)
+        dim: The dimension object (could be int, str, or DimVar)
 
     Returns:
-        An ONNX ValueInfoProto object.
+        A string representation of the dimension
     """
-    # If dtype is already an integer (ONNX enum), use it directly
-    if isinstance(dtype, int):
-        onnx_dtype = dtype
+    name = str(dim) if not isinstance(dim, str) else dim
+    if hasattr(obj, "var_to_symbol_map"):
+        resolved = obj.var_to_symbol_map.get(dim, obj.var_to_symbol_map.get(str(dim)))
+        final = resolved or name
     else:
-        # Build a mapping of common numpy types to ONNX TensorProto types
-        # This is needed because helper.np_dtype_to_tensor_dtype might not handle class types
-        from onnx import TensorProto
+        final = name
+    # ─────────────  DEBUG  ─────────────
+    logger.debug("[_symbol_name] dim=%s (%s)  →  %s", dim, type(dim).__name__, final)
+    # ──────────────────────────────────
+    return final
 
-        dtype_map = {
-            np.float32: TensorProto.FLOAT,
-            np.dtype("float32"): TensorProto.FLOAT,
-            np.float64: TensorProto.DOUBLE,
-            np.dtype("float64"): TensorProto.DOUBLE,
-            np.int8: TensorProto.INT8,
-            np.dtype("int8"): TensorProto.INT8,
-            np.uint8: TensorProto.UINT8,
-            np.dtype("uint8"): TensorProto.UINT8,
-            np.int16: TensorProto.INT16,
-            np.dtype("int16"): TensorProto.INT16,
-            np.uint16: TensorProto.UINT16,
-            np.dtype("uint16"): TensorProto.UINT16,
-            np.int32: TensorProto.INT32,
-            np.dtype("int32"): TensorProto.INT32,
-            np.uint32: TensorProto.UINT32,
-            np.dtype("uint32"): TensorProto.UINT32,
-            np.int64: TensorProto.INT64,
-            np.dtype("int64"): TensorProto.INT64,
-            np.uint64: TensorProto.UINT64,
-            np.dtype("uint64"): TensorProto.UINT64,
-            np.bool_: TensorProto.BOOL,
-            np.dtype("bool"): TensorProto.BOOL,
-            bool: TensorProto.BOOL,
-            "int64": TensorProto.INT64,
-            "bool": TensorProto.BOOL,
-        }
 
-        # Try to get the dtype from our mapping
-        if dtype in dtype_map:
-            onnx_dtype = dtype_map[dtype]
-        elif hasattr(dtype, "dtype"):
-            # If it's a numpy scalar type with a dtype attribute
-            onnx_dtype = dtype_map.get(dtype.dtype, TensorProto.FLOAT)
-        else:
-            try:
-                # Try numpy's dtype conversion as a fallback
-                np_dtype = np.dtype(dtype)
-                onnx_dtype = dtype_map.get(np_dtype, TensorProto.FLOAT)
-            except (TypeError, ValueError):
-                # Default to float if all else fails
-                onnx_dtype = TensorProto.FLOAT
+def _canonical_symbol(builder, dim):
+    """Return either an int or a user-friendly symbolic name."""
+    if isinstance(dim, int):
+        return dim
 
-    return helper.make_tensor_value_info(name, onnx_dtype, shape)
+    # First try to get from builder's var_to_symbol_map
+    if hasattr(builder, "var_to_symbol_map"):
+        # Try direct lookup
+        if dim in builder.var_to_symbol_map:
+            return builder.var_to_symbol_map[dim]
+        # Try string lookup
+        if str(dim) in builder.var_to_symbol_map:
+            return builder.var_to_symbol_map[str(dim)]
+
+    # Then try name for dimension by id if available
+    if hasattr(builder, "symbol_name_for_dim"):
+        name = builder.symbol_name_for_dim.get(id(dim))
+        if name is not None:
+            return name
+
+    # Fall
+
+    # Fall back to _symbol_name for compatibility
+    if hasattr(dim, "symbol") and dim.symbol:
+        return str(dim.symbol)
+
+    # For string dimensions, return as is
+    if isinstance(dim, str):
+        return dim
+
+    # Last resort: convert to string
+    return str(dim)
+
+
+def _resolve_symbol(obj, dim):
+    """Resolve a symbolic dimension to its canonical name.
+
+    Args:
+        obj: The object containing var_to_symbol_map (typically OnnxBuilder)
+        dim: The dimension object (could be int, str, or DimVar)
+
+    Returns:
+        The resolved symbolic name or str(dim) if not found
+    """
+    # first pass through the fast-path
+    if hasattr(obj, "var_to_symbol_map"):
+        resolved = obj.var_to_symbol_map.get(dim, obj.var_to_symbol_map.get(str(dim)))
+        final = resolved or str(dim)
+    else:
+        final = str(dim)
+    # ─────────────  DEBUG  ─────────────
+    logger.debug(
+        "[_resolve_symbol] %s (%s)  →  %s   (table=%s)",
+        dim,
+        type(dim).__name__,
+        final,
+        getattr(obj, "var_to_symbol_map", {}),
+    )
+    # ──────────────────────────────────
+    return final
+
+
+def _to_dim_proto_val(dim):
+    """
+    Convert a JAX shape element into (is_param, value_or_name).
+
+    • int           → (False,  int_value)
+    • str           → (True,   "B")
+    • JAX DimVar    → (True,   dim.symbol)
+    """
+    if isinstance(dim, int):
+        return False, dim
+    if isinstance(dim, str):
+        return True, dim
+    # JAX Dimension variables have a `.symbol` attribute
+    if hasattr(dim, "symbol"):
+        return True, str(dim.symbol)
+    # Fallback
+    return True, ""
 
 
 class OnnxBuilder:
@@ -114,9 +212,13 @@ class OnnxBuilder:
         opset: int = 21,
         model_name: str = "",
         initializers: list[Any] | None = None,
+        converter: Any = None,  # <-- Add converter argument
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
+
+        # maps {DimVar-object-or-id → canonical user symbol, e.g. "B"}
+        self.var_to_symbol_map: dict[Any, str] = {}
 
         self.nodes: list[NodeProto] = []
         self.inputs: list[ValueInfoProto] = []
@@ -129,20 +231,73 @@ class OnnxBuilder:
         self.display_name_map: dict[str, str] = {}
 
         # Metadata for value information.
-        self.value_info_metadata: dict[str, tuple[tuple[int, ...], Any]] = {}
+        # Update type annotations to match the more flexible type needs
+        self.value_info_metadata: dict[str, ValueInfoMetadataType] = {}
         self.value_info_metadata_with_origin: dict[
-            str, tuple[tuple[int, ...], Any, str | None]
+            str, ValueInfoMetadataWithOriginType
         ] = {}
         self.dtype_env: dict[str, onnx.TensorProto.DataType] = {}
         self.value_info_origin: dict[str, str] = {}  # Initialize value_info_origin
+        self.dimvar_to_name: Dict[Any, str] = {}  # Initialize mapping explicitly
+        self.dimvar_to_name_by_str: Dict[str, str] = (
+            {}
+        )  # Add mapping by string representation
+        self.converter = converter  # <-- Store converter reference
+        self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
+
+    def make_value_info(self, name: str, shape: Shape, dtype: Any):
+        # Ensure shape is always a tuple (handle None case)
+        shape_tuple = () if shape is None else _as_tuple(shape)
+
+        from onnx import ValueInfoProto, TensorProto
+        import logging
+
+        logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
+        vi = ValueInfoProto()
+        vi.name = name
+
+        tensor_type = TypeProto.Tensor()
+        tensor_type.elem_type = (
+            dtype
+            if isinstance(dtype, int)
+            else ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
+        )
+
+        logger.debug(
+            f"🔍 make_value_info for '{name}' with shape={shape_tuple}, dtype={dtype}"
+        )
+
+        tensor_shape = TensorShapeProto()
+        for i, dim in enumerate(shape_tuple):
+            dim_proto = TensorShapeProto.Dimension()
+            if isinstance(dim, int):
+                dim_proto.dim_value = dim
+                logger.debug(f"  - dim[{i}] = {dim} (int value)")
+            else:
+                friendly = _resolve_symbol(self, dim)
+                if friendly is None:
+                    friendly = _symbol_name(self, dim)  # ← current fallback
+                dim_proto.dim_param = friendly
+                logger.debug(f"  - dim[{i}] = {dim} (type={type(dim).__name__})")
+                logger.debug(f"    → final dim_param = '{friendly}'")
+
+            tensor_shape.dim.append(dim_proto)
+
+        tensor_type.shape.CopyFrom(tensor_shape)
+        vi.type.tensor_type.CopyFrom(tensor_type)
+        return vi
 
     def register_value_info_metadata(
         self,
         name: str,
-        shape: tuple[int, ...],
-        dtype: np.dtype | int,  # `int` covers TensorProto enums
-        origin: str | None = None,
+        shape: Shape,
+        dtype: Union[np.dtype, int],
+        origin: Optional[str] = None,
     ):
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
+
         """
         Register metadata for a value_info entry, including shape, dtype, and origin.
 
@@ -152,8 +307,93 @@ class OnnxBuilder:
             dtype: Data type of the variable (NumPy dtype or ONNX TensorProto enum).
             origin: Optional description of the metadata's origin.
         """
-        self.value_info_metadata[name] = (shape, dtype)
-        self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
+        import logging
+
+        logger = logging.getLogger("jax2onnx.converter.onnx_builder")
+
+        logger.debug(
+            f"🔍 [register_value_info_metadata] name={name}, shape={shape_tuple} (type={type(shape_tuple).__name__}), dtype={dtype}"
+        )
+
+        # Log each dimension's type to help identify problematic dimensions
+        if shape_tuple:
+            for i, dim in enumerate(shape_tuple):
+                logger.debug(f"  - shape[{i}] = {dim} (type={type(dim).__name__})")
+
+                # Check if dim is in dimvar_to_name mapping
+                if hasattr(self, "dimvar_to_name") and dim in self.dimvar_to_name:
+                    logger.debug(
+                        f"    ✓ Found in dimvar_to_name: {self.dimvar_to_name[dim]}"
+                    )
+
+                # Check string-based mapping
+                if (
+                    hasattr(self, "dimvar_to_name_by_str")
+                    and str(dim) in self.dimvar_to_name_by_str
+                ):
+                    logger.debug(
+                        f"    ✓ Found in dimvar_to_name_by_str: {self.dimvar_to_name_by_str[str(dim)]}"
+                    )
+
+        # Use symbolic shape if available
+        sym = getattr(self, "converter", None)
+        if sym and hasattr(sym, "symbolic_shapes"):
+            old_shape = shape
+            shape = sym.symbolic_shapes.get(name, shape)
+            if shape != old_shape:
+                logger.debug(
+                    f"  → Shape overridden from symbolic_shapes: {old_shape} → {shape}"
+                )
+
+        # Cast to the expected types to fix type errors
+        self.value_info_metadata[name] = cast(
+            ValueInfoMetadataType, (shape_tuple, dtype)
+        )
+        self.value_info_metadata_with_origin[name] = cast(
+            ValueInfoMetadataWithOriginType, (shape_tuple, dtype, origin or "traced")
+        )
+
+    def add_initializer_from_scalar(self, name, value):
+        from onnx import TensorProto
+        import numpy as np
+
+        if isinstance(value, bool):
+            dtype = TensorProto.BOOL
+            np_value = np.array(value, dtype=np.bool_)
+        elif isinstance(value, int):
+            dtype = TensorProto.INT64
+            np_value = np.array(value, dtype=np.int64)
+        else:  # float
+            dtype = TensorProto.FLOAT
+            np_value = np.array(value, dtype=np.float32)
+
+        # Create the tensor with proper boolean handling
+        if np_value.dtype == np.bool_:
+            tensor = helper.make_tensor(
+                name=name,
+                data_type=TensorProto.BOOL,
+                dims=np_value.shape,
+                # Use bool_data instead of int32_data for boolean values
+                vals=np_value.astype(np.bool_).flatten().tolist(),
+            )
+            self.initializers.append(tensor)
+            self.register_value_info_metadata(
+                name, shape=tuple(np_value.shape), dtype=TensorProto.BOOL
+            )
+            return name
+        else:
+            # Regular handling for non-boolean types
+            return self.add_initializer(name, np_value, dtype, [])
+
+    def to_function_proto(self, name):
+        return onnx.helper.make_function(
+            domain="",
+            name=name,
+            inputs=self.input_value_infos,
+            outputs=self.output_value_infos,
+            nodes=self.nodes,
+            opset_imports=[onnx.helper.make_opsetid("", self.opset_version)],
+        )
 
     def get_value_info_metadata_with_origin(
         self, name: str
@@ -191,21 +431,40 @@ class OnnxBuilder:
     def get_constant_name(self, val):
         if isinstance(val, Literal):
             val = val.val
-        np_val = np.array(val)
-        if np_val.dtype == np.float64:
-            np_val = np_val.astype(np.float32)
-        try:
-            onnx_dtype = self._numpy_dtype_to_onnx(np_val.dtype)
-        except TypeError:
-            logging.warning(
-                f"Could not convert value {val} to numpy array. Skipping initializer."
+
+        # Explicit dtype logic for Python scalars
+        from onnx import TensorProto
+
+        if isinstance(val, (bool, int, float)):
+            dtype_enum = (
+                TensorProto.BOOL
+                if isinstance(val, bool)
+                else TensorProto.INT32 if isinstance(val, int) else TensorProto.FLOAT
             )
-            return self.get_unique_name("invalid_const")
+            np_val = np.array(
+                val,
+                dtype={
+                    TensorProto.BOOL: np.bool_,
+                    TensorProto.INT32: np.int32,
+                    TensorProto.FLOAT: np.float32,
+                }[dtype_enum],
+            )
+        else:
+            np_val = np.array(val)
+            if np_val.dtype == np.float64:
+                np_val = np_val.astype(np.float32)
+            try:
+                dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
+            except TypeError:
+                logging.warning(
+                    f"Could not convert value {val} to numpy array. Skipping initializer."
+                )
+                return self.get_unique_name("invalid_const")
 
         name = self.get_unique_instance_name("const")
         tensor = helper.make_tensor(
             name=name,
-            data_type=onnx_dtype,
+            data_type=dtype_enum,
             dims=np_val.shape,
             vals=np_val.flatten().tolist(),
         )
@@ -215,7 +474,7 @@ class OnnxBuilder:
         self.register_value_info_metadata(
             name,
             shape=tuple(np_val.shape),
-            dtype=onnx_dtype,  # dtype is ONNX enum here!
+            dtype=dtype_enum,  # dtype is ONNX enum here!
         )
 
         return name
@@ -259,23 +518,46 @@ class OnnxBuilder:
         self,
         collection: list[ValueInfoProto],
         name: str,
-        shape: tuple[int, ...] | None,
+        shape: Shape,
         dtype: Any,
     ):
-        shape = _as_tuple(shape)
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
 
         # Use our centralized make_value_info function for consistency
-        tensor_def = make_value_info(name, shape, dtype)
+        tensor_def = self.make_value_info(name, shape_tuple, dtype)
         collection.append(tensor_def)
 
+    def change_var_name(self, old_name, new_name) -> None:
+        """Change the name of a JAX variable."""
+        # check  dtype_env
+        dtype_env = self.dtype_env.get(old_name)
+        self.dtype_env[new_name] = dtype_env
+        # correct inputs
+        for i, vi in enumerate(self.inputs):
+            if vi.name == old_name:
+                self.inputs[i].name = new_name
+                break
+        # correct outputs
+        for i, vi in enumerate(self.outputs):
+            if vi.name == old_name:
+                self.outputs[i].name = new_name
+                break
+
     def add_input(
-        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
+        self,
+        name: str,
+        shape: tuple[Any, ...] | None,
+        dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
-        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
+        self,
+        name: str,
+        shape: tuple[Any, ...] | None,
+        dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
         # if any(v.name == name for v in self.outputs):
         #     return  # Already added
@@ -285,30 +567,34 @@ class OnnxBuilder:
     def add_value_info(
         self,
         name: str,
-        shape: tuple[int, ...],
-        dtype: np.dtype | int,
+        shape: Shape,
+        dtype: Union[np.dtype, int],
     ):
-        # Ensure shape is a tuple
-        shape = _as_tuple(shape)
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
 
-        vi = make_value_info(name, shape, dtype)
+        # Use symbolic shape if registered (override shape as in register_value_info_metadata)
+        sym = getattr(self, "converter", None)
+        if sym and hasattr(sym, "symbolic_shapes"):
+            shape_tuple = sym.symbolic_shapes.get(name, shape_tuple)
 
-        # Optionally enrich doc_string with origin info (if available)
+        vi = self.make_value_info(name, shape_tuple, dtype)
+
+        # Enrich doc_string if we have origin info
         origin = self.value_info_origin.get(name)
         if origin:
             vi.doc_string = f"origin: {origin}"
 
         self.value_info.append(vi)
 
-        # Register metadata for consistency
+        # Get ONNX enum dtype if needed
         if isinstance(dtype, int):
-            # If dtype is already ONNX enum, use it directly
             onnx_dtype = dtype
         else:
-            # Get the dtype from the created value_info
             onnx_dtype = vi.type.tensor_type.elem_type
 
-        self.register_value_info_metadata(name, shape, onnx_dtype)
+        # Pass the tuple version to register_value_info_metadata
+        self.register_value_info_metadata(name, shape_tuple, onnx_dtype)
 
     def create_node(
         self, op_type: str, inputs: list[str], outputs: list[str], **kwargs: Any
@@ -345,7 +631,13 @@ class OnnxBuilder:
         return remaining_missing
 
     def _build_graph(self, name: str) -> GraphProto:
+        # 1. existing clean-ups
         self.filter_unused_initializers()
+
+        # 2. NEW ─ remove graph-inputs that collide with node-outputs /
+        #          initializers / are never consumed
+        self._filter_redundant_inputs()
+
         missing = self.find_missing_value_info()
 
         # Automatically handle deterministic flags
@@ -360,6 +652,25 @@ class OnnxBuilder:
             raise RuntimeError(
                 f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
             )
+
+        # ──────────────────────────────────────────────────────────────
+        # NEW: make sure graph *outputs* carry the refined (symbolic)
+        #      shapes that live in self.value_info_metadata
+        # ──────────────────────────────────────────────────────────────
+        # fixed_outputs: list[onnx.ValueInfoProto] = []
+        # from onnx import helper as _h
+        #
+        # for vi in self.outputs:
+        #     if vi.name in self.value_info_metadata:
+        #         shape, dtype = self.value_info_metadata[vi.name]
+        #         fixed_outputs.append(_h.make_tensor_value_info(vi.name, dtype, shape))
+        #     else:
+        #         # nothing special recorded → keep the original
+        #         fixed_outputs.append(vi)
+        #
+        # # replace in-place so the rest of the builder sees the update
+        # self.outputs[:] = fixed_outputs
+
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
@@ -422,7 +733,7 @@ class OnnxBuilder:
 
         # Otherwise use the make_value_info logic for consistency
         # Create a dummy tensor and extract its dtype
-        dummy_info = make_value_info("dummy", (), dtype)
+        dummy_info = self.make_value_info("dummy", (), dtype)
         return dummy_info.type.tensor_type.elem_type
 
     def add_function(
@@ -871,8 +1182,95 @@ class OnnxBuilder:
             The name of the registered scalar input.
         """
         shape = ()
-        value_info = make_value_info(name, shape, dtype)
+        value_info = self.make_value_info(name, shape, dtype)
         self.inputs.append(value_info)
         self.register_value_info_metadata(name, shape, dtype, origin="call_parameter")
         logging.debug(f"Added scalar parameter input: {name} (dtype: {dtype})")
         return name
+
+    def _dim_to_symbol(self, d):
+        if isinstance(d, int):
+            return d
+        s = self.dimvar_to_name_by_str.get(str(d))
+        if s:  # found via string key
+            return s
+        if hasattr(d, "symbol") and d.symbol:
+            return str(d.symbol)
+        return _symbol_name(self, d)  # final fallback
+
+    # ------------------------------------------------------------------
+    #  Remove any ValueInfo that is *not* referenced by nodes, outputs
+    #  or initializers.  This prevents compile-time constants that were
+    #  later replaced (e.g. transposed kernels) from surfacing as graph
+    #  inputs.
+    # ------------------------------------------------------------------
+    def _filter_unused_inputs(self):
+        used_names: set[str] = set()
+
+        # all node inputs
+        for n in self.nodes:
+            used_names.update(n.input)
+
+        # graph outputs must stay
+        used_names.update(o.name for o in self.outputs)
+
+        # and every initializer is baked into the model
+        # Build a mapping from initializer names for quick lookup
+        self.initializers_by_name = {init.name: init for init in self.initializers}
+        used_names.update(self.initializers_by_name.keys())
+
+        # keep only genuinely used inputs
+        before = len(self.inputs)
+        self.inputs = [vi for vi in self.inputs if vi.name in used_names]
+
+        if before != len(self.inputs):
+            logger.debug(
+                "Pruned %d unused graph inputs (constants that became "
+                "initializers or were otherwise dropped).",
+                before - len(self.inputs),
+            )
+
+    # ------------------------------------------------------------------
+    # helper
+    # ------------------------------------------------------------------
+    def _filter_redundant_inputs(self) -> None:
+        """Drop every `graph.input` that
+        * is also produced by some node **or**
+        * duplicates an initializer **or**
+        * is not consumed by any node.
+        """
+        node_in, node_out = set(), set()
+        for n in self.nodes:
+            node_in.update([t for t in n.input if t])
+            node_out.update([t for t in n.output if t])
+
+        # Build initializers dictionary if not already done
+        if not hasattr(self, "initializers_by_name"):
+            self.initializers_by_name = {init.name: init for init in self.initializers}
+
+        inits = set(self.initializers_by_name.keys())
+        g_outs = set(o.name for o in self.outputs)
+
+        before = len(self.inputs)
+        self.inputs = [
+            vi
+            for vi in self.inputs
+            if (
+                # must still be needed
+                vi.name in node_in
+                or vi.name in g_outs
+            )
+            and (
+                # …but not produced inside
+                vi.name
+                not in node_out
+            )
+            and (
+                # …and not shadow an initializer
+                vi.name
+                not in inits
+            )
+        ]
+
+        if before != len(self.inputs):
+            logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))

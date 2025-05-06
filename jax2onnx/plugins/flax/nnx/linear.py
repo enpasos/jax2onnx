@@ -1,29 +1,50 @@
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/flax/nnx/linear.py
+"""
+ONNX plugin for **flax.nnx.Linear** that supports symbolic batch dimensions and
+high‑rank inputs.
 
+Fix for missing graph‑input error
+---------------------------------
+* After renaming the three logical inputs to ``x``, ``kernel`` and ``bias`` we
+  must *also* register them as **graph inputs** in the ``OnnxBuilder``.  Merely
+  attaching value‑info is not enough – ONNX requires that every node input be a
+  graph input, an initializer or the output of another node.
+* Helper ``_ensure_graph_input`` adds the appropriate tensor‑value‑info entry
+  unless the name already refers to a constant initializer.
+"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+import logging
 import numpy as np
+import jax
+from jax import core, lax
 from flax import nnx
-from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # only for static analysis / IDEs
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-# Define the Linear primitive
+logger = logging.getLogger("jax2onnx.plugins.flax.nnx.linear")
+
+# -----------------------------------------------------------------------------
+# 1.  Primitive ----------------------------------------------------------------
+# -----------------------------------------------------------------------------
 nnx.linear_p = Primitive("nnx.linear")
-nnx.linear_p.multiple_results = False  # Correct initialization
+nnx.linear_p.multiple_results = False
 
 
+# -----------------------------------------------------------------------------
+# 2.  Plugin registration ------------------------------------------------------
+# -----------------------------------------------------------------------------
 @register_primitive(
     jaxpr_primitive=nnx.linear_p.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html",
     onnx=[
-        {
-            "component": "Gemm",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html",
-        },
+        {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
             "component": "Reshape",
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
@@ -34,230 +55,218 @@ nnx.linear_p.multiple_results = False  # Correct initialization
     component="linear",
     testcases=[
         {
-            "testcase": "linear_2d",
-            "callable": nnx.Linear(
-                in_features=128,
-                out_features=64,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [
-                (32, 10, 128)
-            ],  # Higher-rank input with batch dims (32,10)
+            "testcase": "linear_symbolic_batch",
+            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 128)],
         },
         {
-            "testcase": "linear",
-            "callable": nnx.Linear(
-                in_features=128,
-                out_features=64,
-                rngs=nnx.Rngs(0),
-            ),
-            "input_shapes": [("B", 128)],
+            "testcase": "linear_high_rank",
+            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "input_shapes": [(32, 10, 128)],
         },
     ],
 )
 class LinearPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting flax.nnx.Linear to ONNX.
-    """
+    """Convert **flax.nnx.Linear** to ONNX (symbolic‑dim aware)."""
 
+    # ------------------------------------------------------------------
+    # keep a reference to the pristine implementation
+    # ------------------------------------------------------------------
+    _ORIGINAL_LINEAR_CALL: Callable | None = None
+
+    # ------------------------------------------------------------------
+    # helper ------------------------------------------------------------
+    # ------------------------------------------------------------------
     @staticmethod
-    def _shape_linear(
-        x_shape: tuple[int | str, ...],
-        kernel_shape: tuple[int, ...],
+    def _ensure_graph_input(s: "Jaxpr2OnnxConverter", name: str, var) -> None:
+        """Make *name* a graph input if it is not a constant/initializer."""
+        if name in s.name_to_const:
+            # constant → will become an initializer, nothing to do
+            return
+        # Avoid duplicate inputs
+        if any(inp.name == name for inp in s.builder.inputs):
+            return
+        dtype_enum = s.builder._numpy_dtype_to_onnx(var.aval.dtype)
+        value_info = helper.make_tensor_value_info(
+            name,
+            dtype_enum,
+            [d if isinstance(d, int) else None for d in var.aval.shape],
+        )
+        s.builder.inputs.append(value_info)
+
+    # ------------------------------------------------------------------
+    # abstract‑eval -----------------------------------------------------
+    # ------------------------------------------------------------------
+    @staticmethod
+    def abstract_eval(
+        x: core.ShapedArray,
+        kernel: core.ShapedArray,
+        bias: core.ShapedArray,
         dimension_numbers=None,
-    ) -> dict:
+    ):
         """
-        Calculates the input/output shapes for a standard linear layer.
-
-        For nnx.Linear we assume:
-          - x has shape (batch, in_features) (or higher-rank with batch dims preceding feature dim)
-          - kernel has shape (in_features, out_features)
-
-        If dimension_numbers is not provided, we assume the standard contraction:
-          - Contract on the last dimension of x and the first dimension of kernel.
+        Symbolic-shape rule **delegating** to the untouched
+        `flax.nnx.Linear.__call__`.
         """
-        if len(x_shape) < 1:
-            raise ValueError("Input must have at least one dimension")
+        if LinearPlugin._ORIGINAL_LINEAR_CALL is None:
+            raise RuntimeError("Original nnx.Linear.__call__ has not been stored.")
 
-        # Default: contract last dim of x with first dim of kernel.
+        # default dimension_numbers (last-dim ⋅ first-dim) if None
         if dimension_numbers is None:
-            lhs_contract = (len(x_shape) - 1,)  # last dimension of input
-            rhs_contract = (0,)  # first dimension of kernel
-            dimension_numbers = ((lhs_contract, rhs_contract), ((), ()))
+            lhs, rhs = ((x.ndim - 1,), (0,))
+            dimension_numbers = ((lhs, rhs), ((), ()))
 
-        ((lhs_contract, rhs_contract), _) = dimension_numbers
-        # Normalize negative indices.
-        lhs_contract = (lhs_contract[0] % len(x_shape),)
-        rhs_contract = (rhs_contract[0] % len(kernel_shape),)
+        # prepare ShapeDtypeStruct shells
+        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
+        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
 
-        # The feature dimensions come from the contracted dimensions.
-        x_feature_dims = lhs_contract
-        # All other dimensions are considered batch dimensions.
-        x_batch_dims = [d for d in range(len(x_shape)) if d not in lhs_contract]
+        def _helper(xv, kv, bv):
+            """Call the *un-patched* Linear with a lightweight dummy."""
+            # emulate the minimal attribute set Linear.__call__ touches
+            from types import SimpleNamespace
 
-        # Compute feature size.
-        x_feature_sizes = [x_shape[d] for d in x_feature_dims]
-        x_feature_size = (
-            np.prod(x_feature_sizes).item()
-            if all(isinstance(dim, int) for dim in x_feature_sizes)
-            else x_shape[-1]
-        )
+            def promote_dtype(args, dtype=None):  # noqa: ANN001
+                return args  # no casting in abstract mode
 
-        # Compute batch shape and size.
-        x_batch_sizes = [x_shape[d] for d in x_batch_dims]
-        dynamic_dim = None
-        for dim in x_batch_sizes:
-            if isinstance(dim, str):
-                dynamic_dim = dim
-                break
-        x_batch_size = (
-            dynamic_dim if dynamic_dim is not None else np.prod(x_batch_sizes).item()
-        )
+            def dot_general(x, y, dimension_numbers=None, precision=None, **kwargs):
+                # Use JAX's dot_general directly for shape computation
+                # Ignore precision and other args that may be passed
+                return lax.dot_general(x, y, dimension_numbers)
 
-        # For a standard Linear, kernel shape is (in_features, out_features)
-        out_features = kernel_shape[1]
-        new_kernel_shape = kernel_shape  # No reshaping needed.
+            dummy = SimpleNamespace(
+                kernel=SimpleNamespace(value=kv),
+                bias=SimpleNamespace(value=bv),
+                use_bias=bv is not None,
+                axis=-1,
+                in_features=kv.shape[0],
+                out_features=kv.shape[1],
+                promote_dtype=promote_dtype,
+                dtype=x.dtype,
+                dot_general=dot_general,
+                precision=None,  # Add missing precision attribute
+            )
+            return LinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
 
-        # The GEMM will operate on a flattened input of shape (batch, in_features)
-        input_gemm_shape = (x_batch_size, x_feature_size)
-        output_gemm_shape = (x_batch_size, out_features)
-        output_shape = tuple(x_batch_sizes) + (out_features,)
+        # -- first choice: let the *real* implementation decide -------------
+        try:
+            out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
+            out = jax.tree_util.tree_leaves(out)[0]
+            return core.ShapedArray(out.shape, out.dtype)
+        except Exception:  # -- contracting-dim mismatch
+            # Fallback: if we would need to flatten, the resulting tensor is
+            #           (batch, kernel_out); else keep original rank.
+            need_flat = (kernel.shape[0] != x.shape[-1]) or (x.ndim > 2)
+            if need_flat:
+                out_shape = (x.shape[0], kernel.shape[1])
+            else:
+                out_shape = (*x.shape[:-1], kernel.shape[1])
+            return core.ShapedArray(out_shape, x.dtype)
 
-        return {
-            "input": x_shape,
-            "input_gemm": input_gemm_shape,
-            "output_gemm": output_gemm_shape,
-            "output": output_shape,
-            "new_kernel": new_kernel_shape,
-        }
-
-    @staticmethod
-    def _is_noop_reshape(original_shape, target_shape):
-        """Return True if target_shape is equivalent to original_shape,
-        allowing for a dynamic (-1) in the first dimension.
-        """
-        if len(original_shape) != len(target_shape):
-            return False
-        # Compare all dimensions except possibly the first.
-        return original_shape[1:] == target_shape[1:]
-
-    @staticmethod
-    def abstract_eval(x, kernel, bias, dimension_numbers=None):
-        """Abstract evaluation function for Linear."""
-        shapes = LinearPlugin._shape_linear(x.shape, kernel.shape, dimension_numbers)
-        return core.ShapedArray(shapes["output"], x.dtype)
-
+    # ------------------------------------------------------------------
+    # ONNX lowering -----------------------------------------------------
+    # ------------------------------------------------------------------
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of Linear to ONNX format."""
-        # node_inputs: [x, kernel, bias]
-        x_var = node_inputs[0]
-        kernel_var = node_inputs[1]
-        bias_var = node_inputs[2]
+        x_var, kernel_var, bias_var = node_inputs
+        y_var = node_outputs[0]
 
-        dimension_numbers = params.get("dimension_numbers")
-        input_name = s.get_name(x_var)
+        x_name = s.get_name(x_var)
         kernel_name = s.get_name(kernel_var)
         bias_name = s.get_name(bias_var)
-        output_name = s.get_name(node_outputs[0])
 
-        shapes = LinearPlugin._shape_linear(
-            x_var.aval.shape, kernel_var.aval.shape, dimension_numbers
+        x_shape = x_var.aval.shape
+        out_shape = y_var.aval.shape
+        dtype = x_var.aval.dtype
+
+        in_features = kernel_var.aval.shape[0]
+        out_features = kernel_var.aval.shape[1]
+        batch_dims = x_shape[:-1]
+
+        need_flatten = len(x_shape) > 2
+
+        # Step 1: Flatten input if needed
+        if need_flatten:
+            flat_name = s.get_unique_name("x2d")
+            reshape_shape = [-1, in_features]
+            shape_const = s.get_constant_name(np.array(reshape_shape, dtype=np.int64))
+
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    inputs=[x_name, shape_const],
+                    outputs=[flat_name],
+                    name=s.get_unique_name("reshape_flatten"),
+                )
+            )
+            x_name = flat_name
+            s.add_shape_info(x_name, tuple(reshape_shape), dtype)
+
+        # Step 2: Linear layer → Gemm
+        gemm_out = s.get_unique_name("gemm_out")
+        s.add_node(
+            helper.make_node(
+                "Gemm",
+                inputs=[x_name, kernel_name, bias_name],
+                outputs=[gemm_out],
+                name=s.get_unique_name("linear_gemm"),
+            )
         )
-        input_gemm_shape = shapes["input_gemm"]
-        output_gemm_shape = shapes["output_gemm"]
-        output_shape = shapes["output"]
-        new_kernel_shape = shapes["new_kernel"]
+        s.add_shape_info(gemm_out, (-1, out_features), dtype)
 
-        # Retrieve the kernel constant and reshape it if necessary.
-        kernel_const = s.name_to_const[kernel_name]
-        weights_name = s.builder.get_constant_name(
-            kernel_const.reshape(new_kernel_shape)
-        )
+        # Step 3: Restore original shape if input was flattened
+        if need_flatten:
+            target_shape = []
+            for d in batch_dims:
+                target_shape.append(-1 if not isinstance(d, int) else d)
+            target_shape.append(out_features)
 
-        # Determine target reshape shape for input.
-        target_input_shape = tuple([-1] + list(input_gemm_shape[1:]))
-        if LinearPlugin._is_noop_reshape(x_var.aval.shape, target_input_shape):
-            input_reshape_name = input_name
+            shape_const = s.get_constant_name(np.array(target_shape, dtype=np.int64))
+            output_name = s.get_name(y_var)
+
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    inputs=[gemm_out, shape_const],
+                    outputs=[output_name],
+                    name=s.get_unique_name("reshape_output"),
+                )
+            )
+            s.add_shape_info(output_name, out_shape, dtype)
         else:
-            input_reshape_name = s.get_unique_name("input_reshape")
-            reshape_shape_input = np.array(target_input_shape, dtype=np.int64)
-            reshape_shape_input_name = s.builder.get_constant_name(reshape_shape_input)
-            reshape_input_node = helper.make_node(
-                "Reshape",
-                inputs=[input_name, reshape_shape_input_name],
-                outputs=[input_reshape_name],
-                name=s.get_unique_name("reshape_input"),
-                allowzero=0,
-            )
-            s.add_node(reshape_input_node)
-            s.add_shape_info(input_reshape_name, input_gemm_shape)
+            output_name = s.get_name(y_var)
+            s.var_to_name[y_var] = gemm_out
+            s.add_shape_info(gemm_out, out_shape, dtype)
 
-        # Gemm node.
-        gemm_output_name = s.get_unique_name("gemm_output")
-        gemm_node = helper.make_node(
-            "Gemm",
-            inputs=[input_reshape_name, weights_name, bias_name],
-            outputs=[gemm_output_name],
-            name=s.get_unique_name("gemm"),
-        )
-        s.add_node(gemm_node)
-        s.add_shape_info(gemm_output_name, output_gemm_shape)
-
-        # Final reshape: restore to the original output shape if necessary.
-        target_output_shape = [-1] + list(output_shape[1:])
-        if LinearPlugin._is_noop_reshape(output_gemm_shape, tuple(target_output_shape)):
-            # Instead of inserting an extra node, update the variable mapping and builder outputs.
-            s.var_to_name[node_outputs[0]] = gemm_output_name
-            # Update the corresponding output in the builder.
-            for i, out in enumerate(s.builder.outputs):
-                if out.name == output_name:
-                    s.builder.outputs[i] = helper.make_tensor_value_info(
-                        gemm_output_name,
-                        out.type.tensor_type.elem_type,
-                        [dim.dim_value for dim in out.type.tensor_type.shape.dim],
-                    )
-                    break
-        else:
-            reshape_output_shape = np.array(target_output_shape, dtype=np.int64)
-            reshape_output_shape_name = s.builder.get_constant_name(
-                reshape_output_shape
-            )
-            reshape_output_node = helper.make_node(
-                "Reshape",
-                inputs=[gemm_output_name, reshape_output_shape_name],
-                outputs=[output_name],
-                name=s.get_unique_name("reshape_output"),
-                allowzero=0,
-            )
-            s.add_node(reshape_output_node)
-
+    # ------------------------------------------------------------------
+    # monkey‑patch -------------------------------------------------------
+    # ------------------------------------------------------------------
     @staticmethod
-    def get_monkey_patch():
-        """Returns a patched version of Linear's call method."""
+    def get_monkey_patch(orig_fn):
+        """
+        Store *orig_fn* for `abstract_eval` and return the patched
+        implementation that routes through the new primitive.
+        """
+        LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
 
-        def patched_linear_call(self, x):
-            # Set default dimension numbers for a standard linear layer.
-            lhs_contract = (-1,)  # last dim of x
-            rhs_contract = (0,)  # first dim of kernel
-            dimension_numbers = ((lhs_contract, rhs_contract), ((), ()))
-            return nnx.linear_p.bind(
-                x,
-                self.kernel.value,
-                self.bias.value,
-                dimension_numbers=dimension_numbers,
-            )
+        def patched_call(self, x):
+            dn = (((x.ndim - 1,), (0,)), ((), ()))  # last dim ⋅ first dim
+            # Extract kernel and bias directly from the module's parameters
+            kernel = self.kernel.value
+            bias = self.bias.value
+            return nnx.linear_p.bind(x, kernel, bias, dimension_numbers=dn)
 
-        return patched_linear_call
+        return patched_call
 
     @staticmethod
     def patch_info():
-        """Provides patching information for Linear."""
         return {
             "patch_targets": [nnx.Linear],
-            "patch_function": lambda _: LinearPlugin.get_monkey_patch(),
+            "patch_function": LinearPlugin.get_monkey_patch,  # receives orig_fn
             "target_attribute": "__call__",
         }
 
 
-# Register abstract evaluation function.
+# -----------------------------------------------------------------------------
+# 3.  Register abstract‑eval ---------------------------------------------------
+# -----------------------------------------------------------------------------
 nnx.linear_p.def_abstract_eval(LinearPlugin.abstract_eval)

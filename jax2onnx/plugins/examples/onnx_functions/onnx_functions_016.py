@@ -49,7 +49,7 @@ register_example(
         {
             "testcase": "016_internal_function_with_input_param_with_default_value",
             "callable": SuperBlock(),
-            "input_shapes": [(5, 10, 256)],
+            "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
         },
     ],

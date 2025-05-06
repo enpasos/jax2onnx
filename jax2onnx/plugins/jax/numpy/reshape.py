@@ -1,10 +1,17 @@
+# file: jax2onnx/plugins/jax/numpy/reshape.py
+
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Any
 
 from jax import core
 from jax import numpy as jnp
+import jax
 from jax.extend.core import Primitive
-from onnx import helper
+
+# Use the internal name with an alias for convenience
+from jax._src.export.shape_poly import _DimExpr as DimExpr
+
+from onnx import helper, TensorProto
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -14,12 +21,14 @@ if TYPE_CHECKING:
 import numpy as np
 
 # Define the reshape primitive
-jnp.reshape_p = Primitive("jnp.reshape")
-jnp.reshape_p.multiple_results = False  # Correct initialization
+reshape_p = Primitive("reshape")
+reshape_p.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.reshape_p.name,
+    primitive_obj=reshape_p,
+    binding_factory=lambda: jnp.reshape,
+    jaxpr_primitive=reshape_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html",
     onnx=[
         {
@@ -61,132 +70,279 @@ jnp.reshape_p.multiple_results = False  # Correct initialization
             "callable": lambda a: jnp.reshape(a, (1,)),
             "input_shapes": [()],
         },
+        {
+            "testcase": "reshape_cnn",
+            "callable": lambda x: x.reshape(x.shape[0], -1),
+            "input_shapes": [("B", 64, 14, 14)],
+        },
     ],
 )
 class ReshapePlugin(PrimitiveLeafPlugin):
     """
-    Plugin for converting jax.numpy.reshape to ONNX.
+    Plugin for converting jax.numpy.reshape to ONNX following the eval_shape pattern.
     """
 
+    _ORIG_CALL: Callable[..., Any] | None = None
+
+    # ------------------------------------------------------------
+    # abstract_eval – delegate to original call via jax.eval_shape
+    # ------------------------------------------------------------
     @staticmethod
-    def _process_newshape(newshape: Sequence[int | str]) -> list[int | str]:
-        """Validates and processes the newshape argument for reshape."""
-        if isinstance(newshape, (int, str)):
-            newshape = [newshape]
-        else:
-            newshape = list(newshape)
+    def abstract_eval(a: core.ShapedArray, *, newshape: Sequence[int | DimExpr], **_):
+        """Use jax.eval_shape on the original jnp.reshape."""
+        if ReshapePlugin._ORIG_CALL is None:
+            raise RuntimeError("Original jnp.reshape not captured by ReshapePlugin.")
 
-        neg_one_count = sum(1 for dim in newshape if dim == -1)
-        if neg_one_count > 1:
-            raise ValueError("Only one dimension can be -1 (inferred).")
+        def _helper(arr):
+            # Need to handle the case where newshape might contain DimExpr directly
+            # during abstract eval. JAX's original reshape should handle this.
+            return ReshapePlugin._ORIG_CALL(arr, newshape)
 
-        return newshape
+        spec_a = jax.ShapeDtypeStruct(a.shape, a.dtype)
+        out_spec = jax.eval_shape(_helper, spec_a)
+        return core.ShapedArray(out_spec.shape, out_spec.dtype)
 
-    @staticmethod
-    def _get_dynamic_output_shape(
-        input_shape: tuple[int | str, ...], newshape: Sequence[int | str]
-    ) -> tuple[int | str, ...]:
-        """Computes the output shape for jnp.reshape while handling dynamic dimensions."""
-        newshape = ReshapePlugin._process_newshape(newshape)
-        input_shape_list = list(input_shape)
-
-        dummy_input_shape = [1 if isinstance(s, str) else s for s in input_shape_list]
-        dummy_newshape = [1 if isinstance(s, str) else s for s in newshape]
-
-        if -1 in dummy_newshape:
-            neg_one_index = dummy_newshape.index(-1)
-            known_dims_product = np.prod([dim for dim in dummy_newshape if dim != -1])
-            # Avoid ZeroDivisionError
-            if known_dims_product == 0 and np.prod(dummy_input_shape) != 0:
-                raise ValueError(
-                    f"Cannot reshape array of shape {input_shape} into shape {newshape}"
-                )
-            inferred_dim = (
-                int(np.prod(dummy_input_shape) / known_dims_product)
-                if known_dims_product != 0
-                else 0
-            )
-            dummy_newshape[neg_one_index] = inferred_dim
-
-        if np.prod(dummy_input_shape) != np.prod(dummy_newshape):
-            raise ValueError(
-                f"Cannot reshape array of shape {input_shape} into shape {newshape}"
-            )
-
-        output_shape = [
-            orig if isinstance(orig, str) else dummy
-            for orig, dummy in zip(newshape, dummy_newshape, strict=False)
-        ]
-        return tuple(output_shape)
-
-    @staticmethod
-    def abstract_eval(a, newshape):
-        """Abstract evaluation function for Reshape."""
-        newshape_processed = ReshapePlugin._process_newshape(newshape)
-        output_shape = ReshapePlugin._get_dynamic_output_shape(
-            a.shape, newshape_processed
-        )
-        return core.ShapedArray(tuple(output_shape), a.dtype)
-
+    # ------------------------------------------------------------
+    # ONNX Conversion Logic (to_onnx)
+    # ------------------------------------------------------------
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of Reshape to ONNX format."""
-        newshape = params["newshape"]
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_name(node_outputs[0])
+        """Handles conversion of the reshape primitive to ONNX format."""
+        input_var = node_inputs[0]
+        output_var = node_outputs[0]
 
-        input_shape = node_inputs[0].aval.shape
-        output_shape = ReshapePlugin._get_dynamic_output_shape(input_shape, newshape)
-        processed_newshape = ReshapePlugin._process_newshape(newshape)
-
-        shape_tensor_name = s.builder.get_constant_name(
-            np.array(
-                [dim if isinstance(dim, int) else -1 for dim in processed_newshape],
-                dtype=np.int64,
+        if "new_sizes" in params:
+            target_shape_param = params["new_sizes"]
+        elif "newshape" in params:
+            target_shape_param = params["newshape"]
+        else:
+            raise KeyError(
+                "Could not find 'new_sizes' or 'newshape' in reshape parameters."
             )
-        )
 
+        input_name = s.get_name(input_var)
+        output_name = s.get_name(output_var)
+        input_shape = input_var.aval.shape
+        output_aval = output_var.aval
+        output_shape = output_aval.shape  # Shape calculated by abstract_eval
+
+        # --- Construct the target shape tensor RELIABLY ---
+        shape_components = []
+        # Ensure target_shape_param is treated as a sequence
+        target_shape_seq = (
+            target_shape_param
+            if isinstance(target_shape_param, Sequence)
+            else [target_shape_param]
+        )
+        # Handle empty tuple explicitly for reshape to scalar
+        if (
+            not isinstance(target_shape_param, Sequence)
+            and target_shape_param is not None
+        ):
+            target_shape_seq = [target_shape_param]
+        elif target_shape_param == ():  # Check for empty tuple specifically
+            target_shape_seq = []
+        else:
+            # Cast to ensure type safety
+            target_shape_seq = (
+                list(target_shape_param) if target_shape_param is not None else []
+            )
+
+        symbolic_dim_map = getattr(
+            s.builder, "reverse_map", getattr(s, "reverse_map", {})
+        )
+        symbol_to_index = {
+            sym: idx for idx, sym in enumerate(input_shape) if isinstance(sym, DimExpr)
+        }
+
+        shape_of_input_name = None
+
+        # --- Use target_shape_seq for iteration ---
+        for dim in target_shape_seq:
+            if isinstance(dim, DimExpr):
+                axis_index = symbol_to_index.get(dim)
+                if axis_index is None:
+                    dim_str = symbolic_dim_map.get(dim, str(dim))
+                    str_symbol_to_index = {
+                        str(sym): idx for idx, sym in enumerate(input_shape)
+                    }
+                    axis_index = str_symbol_to_index.get(dim_str)
+                    if axis_index is None:
+                        raise ValueError(
+                            f"Cannot map DimExpr {dim} ('{dim_str}') to input axis index in {input_shape}"
+                        )
+
+                if shape_of_input_name is None:
+                    shape_of_input_name = s.get_unique_name(f"{input_name}_shape")
+                    s.add_node(
+                        helper.make_node(
+                            "Shape",
+                            inputs=[input_name],
+                            outputs=[shape_of_input_name],
+                            name=s.get_unique_name(f"shape_of_{input_name}"),
+                        )
+                    )
+                    s.add_shape_info(shape_of_input_name, (len(input_shape),), np.int64)
+
+                axis_const = s.get_constant_name(np.array(axis_index, dtype=np.int64))
+                gathered_dim_scalar_int64 = s.get_unique_name(
+                    f"{input_name}_dim{axis_index}_int64"
+                )
+                s.add_node(
+                    helper.make_node(
+                        "Gather",
+                        inputs=[shape_of_input_name, axis_const],
+                        outputs=[gathered_dim_scalar_int64],
+                        axis=0,
+                        name=s.get_unique_name(f"gather_dim_{axis_index}"),
+                    )
+                )
+                s.add_shape_info(gathered_dim_scalar_int64, (), np.int64)
+
+                # --- REMOVED INTERMEDIATE CASTS ---
+
+                # --- CORRECTED UNSQUEEZE ---
+                # Create constant tensor for 'axes' input
+                unsqueeze_axes_const = s.get_constant_name(
+                    np.array([0], dtype=np.int64)
+                )
+                unsqueezed_dim_name = s.get_unique_name(
+                    f"{gathered_dim_scalar_int64}_unsqueezed"
+                )
+                # Provide 'axes' as the second input, remove 'axes' attribute
+                s.add_node(
+                    helper.make_node(
+                        "Unsqueeze",
+                        inputs=[
+                            gathered_dim_scalar_int64,
+                            unsqueeze_axes_const,
+                        ],  # Data and Axes inputs
+                        outputs=[unsqueezed_dim_name],
+                        name=s.get_unique_name(
+                            f"unsqueeze_{gathered_dim_scalar_int64}"
+                        ),
+                        # No 'axes' attribute here for opset >= 13
+                    )
+                )
+                # --- END CORRECTED UNSQUEEZE ---
+                s.add_shape_info(unsqueezed_dim_name, (1,), np.int64)
+                shape_components.append(unsqueezed_dim_name)
+
+            elif isinstance(dim, (int, np.integer)):
+                const_name = s.get_constant_name(np.array([int(dim)], dtype=np.int64))
+                shape_components.append(const_name)
+            else:
+                # This case should ideally not be hit if target_shape_seq is correct
+                raise TypeError(
+                    f"Unsupported dimension type: {type(dim)} in {target_shape_seq}"
+                )
+
+        # Concatenate components
+        if not shape_components:  # Reshape to scalar case ()
+            shape_tensor_name = s.get_constant_name(np.array([], dtype=np.int64))
+        elif len(shape_components) == 1:
+            shape_tensor_name = shape_components[0]
+        else:
+            shape_tensor_name = s.get_unique_name(f"{input_name}_target_shape")
+            s.add_node(
+                helper.make_node(
+                    "Concat",
+                    inputs=shape_components,
+                    outputs=[shape_tensor_name],
+                    axis=0,
+                    name=s.get_unique_name("concat_target_shape"),
+                )
+            )
+            s.add_shape_info(
+                shape_tensor_name, (len(target_shape_seq),), np.int64
+            )  # Use length of original sequence
+
+        # --- Data Input/Output Type Handling (Keep previous logic) ---
+        input_dtype = input_var.aval.dtype
+        input_dtype_enum = s._ensure_onnx_dtype(input_dtype)
+        expected_output_dtype = output_aval.dtype
+        expected_output_dtype_enum = s._ensure_onnx_dtype(expected_output_dtype)
+        reshape_data_input_name = input_name
+        reshape_data_input_dtype_enum = input_dtype_enum
+        if input_dtype_enum == TensorProto.INT32:
+            casted_input_name = s.get_unique_name(f"{input_name}_casted_int64")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[input_name],
+                    outputs=[casted_input_name],
+                    to=int(TensorProto.INT64),
+                    name=s.get_unique_name("cast_reshape_data_to_int64"),
+                )
+            )
+            s.add_shape_info(casted_input_name, input_shape, np.int64)
+            reshape_data_input_name = casted_input_name
+            reshape_data_input_dtype_enum = TensorProto.INT64
+
+        # --- Emit ONNX Reshape node ---
+        temp_reshape_output_name = s.get_unique_name(f"{input_name}_reshaped")
         reshape_node = helper.make_node(
             "Reshape",
-            inputs=[input_name, shape_tensor_name],
-            outputs=[output_name],
-            name=s.get_unique_name("reshape"),
-            allowzero=0,  # Explicit allowzero=0
+            inputs=[reshape_data_input_name, shape_tensor_name],
+            outputs=[temp_reshape_output_name],
+            name=s.get_unique_name("reshape_0"),
+            allowzero=0,
         )
         s.add_node(reshape_node)
-
-        # Ensure shape contains only integers by replacing dynamic dimensions with -1
-        sanitized_output_shape = tuple(
-            dim if isinstance(dim, int) else -1 for dim in output_shape
-        )
-        s.builder.add_value_info(
-            output_name, shape=sanitized_output_shape, dtype=node_inputs[0].aval.dtype
+        s.add_shape_info(
+            temp_reshape_output_name, output_shape, reshape_data_input_dtype_enum
         )
 
+        # --- Cast Output back to JAX expected type if necessary ---
+        if reshape_data_input_dtype_enum != expected_output_dtype_enum:
+            cast_node = helper.make_node(
+                "Cast",
+                inputs=[temp_reshape_output_name],
+                outputs=[output_name],
+                to=int(expected_output_dtype_enum),
+                name=s.get_unique_name("cast_reshape_output_to_jax_expected"),
+            )
+            s.add_node(cast_node)
+            s.add_shape_info(output_name, output_shape, expected_output_dtype_enum)
+        else:
+            identity_node = helper.make_node(
+                "Identity",
+                inputs=[temp_reshape_output_name],
+                outputs=[output_name],
+                name=s.get_unique_name("identity_reshape_output"),
+            )
+            s.add_node(identity_node)
+            s.add_shape_info(output_name, output_shape, expected_output_dtype_enum)
+
+    # ------------------------------------------------------------
+    # monkey-patch – capture original & inject primitive binding
+    # ------------------------------------------------------------
     @staticmethod
-    def _reshape(a, newshape, order="C"):
-        """Defines the primitive binding for Reshape."""
+    def _reshape_binding(a, newshape, order="C"):
+        """Binds inputs to the reshape primitive."""
         if order != "C":
             raise NotImplementedError("Only C-style reshape is supported.")
-        return jnp.reshape_p.bind(a, newshape=newshape)
+        return reshape_p.bind(a, newshape=newshape)
 
     @staticmethod
-    def get_monkey_patch():
-        """Provides patching information for Reshape."""
+    def get_monkey_patch(orig_fn: Callable):
+        """Returns the patched function that captures the original and binds the primitive."""
+        ReshapePlugin._ORIG_CALL = orig_fn
 
         def patched_reshape(a, newshape, order="C"):
-            return ReshapePlugin._reshape(a, newshape, order)
+            return ReshapePlugin._reshape_binding(a, newshape, order)
 
         return patched_reshape
 
     @staticmethod
     def patch_info():
-        """Provides patching information for Reshape."""
+        """Provides patching information for jnp.reshape."""
         return {
             "patch_targets": [jnp],
-            "patch_function": lambda _: ReshapePlugin.get_monkey_patch(),
             "target_attribute": "reshape",
+            "patch_function": ReshapePlugin.get_monkey_patch,
         }
 
 
-# Register abstract evaluation function
-jnp.reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
+# --- Existing registration ---
+reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
+# --- End Existing registration ---

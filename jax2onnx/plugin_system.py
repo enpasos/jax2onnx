@@ -10,7 +10,6 @@ from collections.abc import Callable
 from typing import Any, Union
 
 import jax
-from jax import tree_util
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
@@ -118,44 +117,60 @@ class FunctionPlugin(PrimitivePlugin):
 
     def abstract_eval_with_kwargs(self, *args, **kwargs):
         """
-        Correctly performs abstract evaluation using the original function
-        and jax.eval_shape, handling ShapeDtypeStruct outputs.
+        Correctly performs abstract evaluation using the original function's signature
+        and preserves symbolic dimensions without trying to evaluate the function directly.
 
         Args:
             *args: Tuple of abstract values (e.g., ShapedArray) for positional inputs.
             **kwargs: Dictionary of keyword arguments (static parameters).
 
         Returns:
-            A ShapedArray or a pytree (tuple/list/dict) of ShapedArray instances.
+            A ShapedArray with the correct shape and dtype matching the output of the original function.
         """
         if self._orig_fn is None:
             raise ValueError(
                 f"Original function (_orig_fn) not set for abstract evaluation of primitive {self.name}"
             )
 
-        # if existing remove "instance_key" from kwargs
+        # If instance_key exists in kwargs, remove it
         if "instance_key" in kwargs:
             del kwargs["instance_key"]
 
         try:
-            # Get the abstract value(s) from eval_shape
-            # This might be a single ShapeDtypeStruct or a pytree of them
-            output_aval_struct = jax.eval_shape(self._orig_fn, *args, **kwargs)
+            if self._orig_fn is not None:
+                # Drop tracing helper kwarg that we added in the wrapper.
+                kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
 
-            # Use tree_map to convert every leaf (ShapeDtypeStruct or similar)
-            # in the output structure to a ShapedArray.
-            output_aval = tree_util.tree_map(
-                self._aval_to_shaped_array, output_aval_struct
-            )
+                # convert all args from ShapeArray to jax.ShapeDtypeStruct
+                specs = [
+                    (
+                        jax.ShapeDtypeStruct(arg.shape, arg.dtype)
+                        if isinstance(arg, ShapedArray)
+                        else arg
+                    )
+                    for arg in args
+                ]
 
-            logger.debug(
-                f"[DEBUG] abstract_eval for {self.name}: Converted output aval: {output_aval}"
-            )
-            return output_aval
+                out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
+
+                # we need to convert the output back to ShapedArray
+                if isinstance(out_aval, jax.ShapeDtypeStruct):
+                    # Convert the output to ShapedArray
+                    out_aval = self._aval_to_shaped_array(out_aval)
+                elif isinstance(out_aval, tuple):
+                    # If the output is a tuple, convert each element to ShapedArray
+                    out_aval = tuple(
+                        self._aval_to_shaped_array(aval) for aval in out_aval
+                    )
+                elif isinstance(out_aval, list):
+                    # If the output is a list, convert each element to ShapedArray
+                    out_aval = [self._aval_to_shaped_array(aval) for aval in out_aval]
+
+                return out_aval
 
         except Exception as e:
             logger.error(
-                f"[ERROR] jax.eval_shape or conversion failed during abstract evaluation for primitive {self.name} on function {self._orig_fn}: {e}"
+                f"[ERROR] Abstract evaluation failed for primitive {self.name} on function {self._orig_fn}: {e}"
             )
             raise e
 
@@ -221,7 +236,6 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _function_handler(self, plugin_converter, converter, eqn, params):
-
         orig_fn = self._orig_fn
 
         # if existing remove "instance_key" from params
@@ -231,7 +245,66 @@ class FunctionPlugin(PrimitivePlugin):
             instance = INSTANCE_MAP.get(key)
             orig_fn = instance
 
-        function_handler(self.name, converter, eqn, orig_fn, params)
+        from jax import numpy as jnp
+        import numpy as np
+        import copy
+
+        # --- Separate ONNX params and JAX params ---
+        # Avoid deepcopy on JAX Tracers: do a shallow copy and only deepcopy safe values
+        from jax.core import Tracer
+
+        def safe_copy_dict(d):
+            result = {}
+            for k, v in d.items():
+                # Don't deepcopy JAX Tracers or arrays
+                if isinstance(v, Tracer):
+                    result[k] = v
+                elif hasattr(v, "aval"):
+                    result[k] = v
+                else:
+                    try:
+                        result[k] = copy.deepcopy(v)
+                    except Exception:
+                        result[k] = v
+            return result
+
+        onnx_params = safe_copy_dict(params)
+        jax_params = safe_copy_dict(params)
+
+        # ── new: lift scalar kwargs to ONNX constants ─────────────────────
+        for k, v in list(params.items()):
+            # ── 1. Python scalar: lift to 0‑D initializer named *exactly* k ──
+            if isinstance(v, (bool, int, float, np.generic)):
+                const_name = k  # <── keep original name
+                # avoid double‑registration if several eqns share that kw‑arg
+                if const_name not in converter.builder.initializers:
+                    converter.builder.add_initializer_from_scalar(const_name, v)
+                onnx_params[k] = const_name
+                # jax_params[k] stays as the original scalar
+
+            # ── 2. traced scalar (shape == ()): choose a sane default value ──
+            elif isinstance(v, Tracer) and getattr(v.aval, "shape", None) == ():
+                aval_dtype = v.aval.dtype
+                if aval_dtype == jnp.bool_:
+                    default_value = True
+                elif np.issubdtype(aval_dtype, np.integer):
+                    default_value = 0
+                else:
+                    default_value = 0.0
+
+                const_name = k  # <── same trick as above
+                if const_name not in converter.builder.initializers:
+                    converter.builder.add_initializer_from_scalar(
+                        const_name, default_value
+                    )
+                onnx_params[k] = const_name
+                # jax_params[k] stays as the original traced value
+
+        # Call function_handler with ONNX params for graph, but pass jax_params for tracing
+        # Pass the original params as well for use in function_handler
+        function_handler(
+            self.name, converter, eqn, orig_fn, onnx_params, jax_params, params
+        )
 
 
 ########################################
