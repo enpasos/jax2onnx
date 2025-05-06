@@ -15,7 +15,7 @@ import jax.random
 import jax.numpy as jnp
 import numpy as np
 from jax.extend import core as extend_core
-from jax.extend.core import Literal
+from jax.extend.core import Literal, ClosedJaxpr
 from jax import core
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -229,6 +229,26 @@ class Jaxpr2OnnxConverter:
                 "Could not convert dtype %s to ONNX dtype, defaulting to FLOAT", dtype
             )
             return TensorProto.FLOAT
+
+    def _handle_pjit(self, eqn, params):
+        """Inline a `pjit` call inside the current graph."""
+
+        # ① fetch the closed jaxpr (API changed a few times)
+        closed = params.get("call_jaxpr") or params.get("jaxpr")
+        if isinstance(closed, ClosedJaxpr):
+            inner_jaxpr = closed.jaxpr
+            consts = closed.consts
+        else:  # already an open jaxpr
+            inner_jaxpr = closed
+            consts = params.get("consts", ())
+
+        # ② recursively convert the body
+        self._process_jaxpr(inner_jaxpr, consts)
+
+        # ③ wire inner outputs → outer outputs
+        for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
+            inner_name = self.get_name(inner_var)
+            self.set_var_name(outer_var, inner_name)
 
     def register_shape(self, name: str, shape: tuple[int, ...], dtype: Any) -> str:
         """Register shape and dtype information for a tensor, preserving symbolic dims."""
@@ -668,6 +688,11 @@ class Jaxpr2OnnxConverter:
         for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
             primitive = plugin.primitive
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
+
+        # built‑in call‑style primitive that we inline
+        self.primitive_handlers["pjit"] = lambda conv, eqn, params: conv._handle_pjit(
+            eqn, params
+        )
 
         if self.primitive_handlers:
             self.logger.debug(
