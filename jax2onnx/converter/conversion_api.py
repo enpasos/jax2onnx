@@ -104,7 +104,7 @@ def to_onnx(
     builder.filter_unused_initializers()
     model = builder.create_onnx_model(model_name)
     logger.info("Optimizing ONNX model...")
-    # model = improve_onnx_model(model)
+    model = improve_onnx_model(model)
     logger.info("ONNX model conversion complete.")
 
     logger.debug(onnx.helper.printable_graph(model.graph))
