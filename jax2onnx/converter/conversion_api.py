@@ -23,6 +23,52 @@ logger = logging.getLogger("jax2onnx.converter.conversion_api")
 # def prepare_example_args(...): ...
 
 
+# ------------------------------------------------------------------
+# Promote items passed via *input_params* to proper graph inputs
+# ------------------------------------------------------------------
+import numpy as np, onnx
+from onnx import helper, mapping
+
+
+def _elem_type_from_numpy(arr: np.ndarray) -> int:
+    return mapping.NP_TYPE_TO_TENSOR_TYPE[arr.dtype]
+
+
+def _promote_params_to_inputs(model: onnx.ModelProto, params: dict | None):
+    if not params:
+        return
+
+    for name, value in params.items():
+        # ① drop initializer (if any)
+        kept = [init for init in model.graph.initializer if init.name != name]
+        model.graph.ClearField("initializer")
+        model.graph.initializer.extend(kept)
+
+        # ② drop stale value_info (INT32 in our case)
+        kept = [vi for vi in model.graph.value_info if vi.name != name]
+        model.graph.ClearField("value_info")
+        model.graph.value_info.extend(kept)
+
+        # ③ add graph input once
+        if any(inp.name == name for inp in model.graph.input):
+            continue
+        dtype = _elem_type_from_numpy(np.asarray(value))
+        vi = helper.make_tensor_value_info(name, dtype, [])  # scalar
+        model.graph.input.append(vi)
+
+
+# -----------------------------------------------------------------------------
+# drop duplicate initialisers for parameters promoted to real graph inputs
+# -----------------------------------------------------------------------------
+def _strip_param_initializers(model, input_params):
+    if not input_params:
+        return
+    param_names = set(input_params)
+    keep = [init for init in model.graph.initializer if init.name not in param_names]
+    del model.graph.initializer[:]  # in‑place update
+    model.graph.initializer.extend(keep)
+
+
 def to_onnx(
     fn: Any,
     # Assume 'inputs' is passed as a list/sequence of shape tuples
@@ -103,6 +149,12 @@ def to_onnx(
     logger.info("Building ONNX model...")
     builder.filter_unused_initializers()
     model = builder.create_onnx_model(model_name)
+
+    # Replace with the new function for properly handling parameter inputs
+    _promote_params_to_inputs(
+        model, input_params
+    )  # ← new instead of _strip_param_initializers
+
     logger.info("Optimizing ONNX model...")
     model = improve_onnx_model(model)
     logger.info("ONNX model conversion complete.")
