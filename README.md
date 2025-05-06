@@ -98,10 +98,13 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.1**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
+- **0.5.2**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names
+- **0.5.1**: Add support for additional primitives: `lax.while_loop`, `lax.cond`, `lax.fori_loop`, `lax.scan`, `jnp.where`, `jnp.arange`, `jnp.linspace`.
 
 ### **Current Productive Version**
-- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
+- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export. 
+  Added support for `jnp.sign`, `jnp.abs`, `jnp.iota` primitives.  
+ 
 
 ### **Past Versions**
 - **0.4.4** *(PyPI)*: Added support for `lax.cos`, `lax.cosh`, `lax.sin`, `lax.sinh` and `lax.scatter` primitives.
