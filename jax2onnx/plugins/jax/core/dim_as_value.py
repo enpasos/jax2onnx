@@ -22,8 +22,25 @@ dim_as_value_p: Primitive = Primitive("dim_as_value")  # just the name is enough
 # ----------------------------------------------------------------------
 @register_primitive(
     jaxpr_primitive=dim_as_value_p.name,
-    jax_doc="returns the (possibly-symbolic) size of a dimension",
-    onnx=[{"component": "(Shape → Gather → Squeeze → Cast)", "doc": ""}],
+    jax_doc="https://github.com/jax-ml/jax/blob/main/jax/_src/export/shape_poly.py",
+    onnx=[
+        {
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+        },
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+        {
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
+        },
+    ],
     since="v0.5.0",
     context="primitives.core",
     component="dim_as_value",
