@@ -99,12 +99,12 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
 - **0.5.1**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names  
-- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
 
 ### **Current Productive Version**
-- **0.4.4** *(PyPI)*: Added support for `lax.cos`, `lax.cosh`, `lax.sin`, `lax.sinh` and `lax.scatter` primitives. 
+- **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
 
 ### **Past Versions**
+- **0.4.4** *(PyPI)*: Added support for `lax.cos`, `lax.cosh`, `lax.sin`, `lax.sinh` and `lax.scatter` primitives.
 - **0.4.3**: Fixed a bug in the validation of JAX callable outputs against their ONNX counterparts. This fix exposed previously hidden failing tests, which are now fixed.
 - **0.4.2**: Cleanup and fixes to the basic ONNX function release.
 - **0.4.1** *(ONNX functions)*: Introducing simple ONNX function support. Making use of ONNX functions is easy for the user: just a `@onnx_function` decorator making a callable an ONNX function.
