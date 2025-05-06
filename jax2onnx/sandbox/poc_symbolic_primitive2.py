@@ -5,7 +5,6 @@ symbolic dimensions created with jax.export.symbolic_shape.
 """
 
 from typing import Sequence
-import functools
 import logging
 
 import jax

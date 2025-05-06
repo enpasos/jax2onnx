@@ -1,6 +1,6 @@
 import jax
 from jax2onnx import to_onnx
-import numpy as np, onnxruntime as ort, jax.numpy as jnp
+import jax.numpy as jnp
 
 
 @jax.jit

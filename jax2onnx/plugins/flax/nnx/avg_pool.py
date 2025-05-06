@@ -1,5 +1,4 @@
 # file: jax2onnx/plugins/flax/nnx/avg_pool.py
-from collections.abc import Sequence  # Ensure Sequence is imported
 from typing import TYPE_CHECKING, Callable, Any
 
 from flax import nnx
@@ -13,7 +12,6 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-import numpy as np  # For padding calculation if SAME
 
 # Define the avg_pool primitive
 # Ensure the name matches what's used in patching/binding
@@ -187,7 +185,6 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         pool_out_name = s.get_unique_name("avg_pool_nchw_output")
 
         # --- Calculate ONNX Padding (Keep using auto_pad) ---
-        onnx_pads = None
         if padding.upper() == "SAME":
             onnx_auto_pad = "SAME_UPPER"
         elif padding.upper() == "VALID":

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Callable, Any, Optional
 from types import SimpleNamespace  # For dummy instance
 
 import jax
-import numpy as np
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive

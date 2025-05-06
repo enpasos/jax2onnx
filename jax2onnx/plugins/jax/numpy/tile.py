@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 import logging
 import numpy as np
 import jax
-import onnx
 from onnx import helper, TensorProto
 
 from jax import core
@@ -146,7 +145,6 @@ class TilePlugin(PrimitiveLeafPlugin):
 
         repeats_rank = 0
         repeats_li = []
-        is_repeats_dynamic_unknown = False
 
         # Determine repeats rank and content
         if isinstance(repeats_static_or_aval, (int, np.integer, DimExpr)):
@@ -175,7 +173,6 @@ class TilePlugin(PrimitiveLeafPlugin):
                 )
             repeats_rank = rep_aval.shape[0]
             repeats_li = [None] * repeats_rank  # Values are unknown
-            is_repeats_dynamic_unknown = True
         else:
             raise TypeError(
                 f"Unsupported repeats type for abstract eval: {type(repeats_static_or_aval)}"

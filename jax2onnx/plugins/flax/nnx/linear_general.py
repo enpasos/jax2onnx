@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Callable
 from types import SimpleNamespace
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax import core

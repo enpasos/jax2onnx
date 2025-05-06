@@ -1,5 +1,3 @@
-# file: jax2onnx/converter/jaxpr_converter.py
-
 """
 JAXPR to ONNX Converter Module
 
@@ -8,15 +6,13 @@ to ONNX format. It provides the main Jaxpr2OnnxConverter class which traverses t
 representation of a JAX function and converts it to equivalent ONNX operations.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 import logging
 import jax
 import jax.random
-import jax.numpy as jnp
 import numpy as np
 from jax.extend import core as extend_core
 from jax.extend.core import Literal, ClosedJaxpr
-from jax import core
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
@@ -27,12 +23,7 @@ from jax2onnx.plugin_system import (
     import_all_plugins,
 )
 from jax._src.export.shape_poly import _DimExpr
-
-# Keep _symbol_name, _canonical_symbol if used elsewhere, maybe remove from here if only trace_jaxpr used them
-from jax2onnx.converter.onnx_builder import _symbol_name, _canonical_symbol
-from jax2onnx.utils.debug import sdebug
-from jax import ShapeDtypeStruct  # Import ShapeDtypeStruct
-
+from jax import ShapeDtypeStruct
 
 logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
 
@@ -48,6 +39,9 @@ class Jaxpr2OnnxConverter:
     """
 
     # Map symbolic dimensions to their origin tensor names and axes
+
+    # mapping from ONNX tensor name → its symbolic shape (a tuple of ints or dim-names)
+    symbolic_shapes: dict[str, tuple[Union[int, str], ...]]
 
     def __init__(self, builder: OnnxBuilder):
         self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
@@ -103,7 +97,6 @@ class Jaxpr2OnnxConverter:
             wanted_dtype = self._ensure_onnx_dtype(value.dtype)
 
             # Cast to ensure dtype matches int32 exactly
-            cast_source = const_name
             cast_name = self.get_unique_name("lit_cast_to_i32")
             self.builder.add_node(
                 helper.make_node(
@@ -267,36 +260,18 @@ class Jaxpr2OnnxConverter:
 
         return name
 
-    def add_input(
-        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add an input variable to the ONNX graph and store its shape."""
+    def add_input(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
         name = self.get_var_name(var)
-        self.builder.add_input(name, shape, dtype)
-        sym_shape = tuple(self.dim_to_symbol(d) for d in var.aval.shape)
-        self.register_shape(name, shape, dtype)
-        self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
+        self.builder.add_input(
+            name, shape, dtype
+        )  # Pass potentially symbolic shape tuple
         return name
 
-    def add_output(
-        self, var: Any, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add an output variable to the ONNX graph and store its shape."""
+    def add_output(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
         name = self.get_var_name(var)
-        self.builder.add_output(name, shape, dtype)
-        self.register_shape(name, shape, dtype)
-        return name
-
-    def add_shape_info(
-        self, name: str, shape: tuple[int, ...], dtype: Any = np.float32
-    ) -> str:
-        """Add shape information for a variable in the ONNX graph."""
-
-        self.builder.add_value_info(name, shape, dtype)
-        sym_shape = tuple(self.dim_to_symbol(d) for d in shape)
-
-        self.register_shape(name, shape, dtype)
-        self.symbolic_shapes[name] = sym_shape  # Store symbolic shape
+        self.builder.add_output(
+            name, shape, dtype
+        )  # Pass potentially symbolic shape tuple
         return name
 
     def get_name(self, var: Any) -> str:
@@ -340,7 +315,6 @@ class Jaxpr2OnnxConverter:
             return str(d.symbol)
 
         # 4) fall back to old helper
-        from jax2onnx.converter.onnx_builder import _symbol_name
 
         _logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
         _logger.debug("  - FALLBACK to _symbol_name: %s ⚠️", d)
@@ -531,7 +505,7 @@ class Jaxpr2OnnxConverter:
         # 1) Special‐case: static‐only JAXPR (e.g. `lambda x: x.shape[0]` ⇒ literal)
         # --------------------------------------------------------------------
         if not jaxpr.eqns and len(jaxpr.invars) == 1 and len(jaxpr.outvars) == 1:
-            inp = jaxpr.invars[0]
+            jaxpr.invars[0]
             out = jaxpr.outvars[0]
             # Only proceed if the JAXPR actually returns a literal int
             from jax.extend.core import Literal
@@ -638,22 +612,6 @@ class Jaxpr2OnnxConverter:
             else:
                 if not any(o.name == name for o in self.builder.outputs):
                     self.builder.add_output(name, (), np.int32)
-
-    # --- Ensure add_input/add_output/add_shape_info pass symbolic tuples ---
-    # These might be simplified if the builder handles most logic now
-    def add_input(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
-        name = self.get_var_name(var)
-        self.builder.add_input(
-            name, shape, dtype
-        )  # Pass potentially symbolic shape tuple
-        return name
-
-    def add_output(self, var: Any, shape: tuple, dtype: Any = np.float32) -> str:
-        name = self.get_var_name(var)
-        self.builder.add_output(
-            name, shape, dtype
-        )  # Pass potentially symbolic shape tuple
-        return name
 
     def add_shape_info(self, name: str, shape: tuple, dtype: Any = np.float32) -> str:
         # Note: shape passed here might already be symbolic strings from _dim_to_symbol_safe

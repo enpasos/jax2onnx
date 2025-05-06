@@ -13,8 +13,6 @@ from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
 
-from functools import reduce
-import operator
 import logging
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.concatenate")
@@ -170,7 +168,7 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
     def _manual_shape(avals: Sequence[core.ShapedArray], *, axis: int):
         """Light‑weight concatenate shape rule that tolerates the -1 sentinel."""
         rank = len(avals[0].shape)
-        out = []
+        out: list[Any] = []  # Add type annotation to match expected list type
 
         for d in range(rank):
             if d == axis:
@@ -189,12 +187,12 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
                     out.append(int_total)
             else:
                 # all other axes must agree up to broadcasting of 1 / sentinel
-                sizes = {
+                size_set = {
                     s for s in (a.shape[d] for a in avals) if s not in (1, _SENTINEL)
                 }
-                if len(sizes) > 1:
-                    raise TypeError("non‑concat dims disagree: " + str(sizes))
-                out.append(next(iter(sizes)) if sizes else avals[0].shape[d])
+                if len(size_set) > 1:
+                    raise TypeError("non‑concat dims disagree: " + str(size_set))
+                out.append(next(iter(size_set)) if size_set else avals[0].shape[d])
         return tuple(out)
 
 

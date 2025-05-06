@@ -142,7 +142,10 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         elif target_shape_param == ():  # Check for empty tuple specifically
             target_shape_seq = []
         else:
-            target_shape_seq = target_shape_param
+            # Cast to ensure type safety
+            target_shape_seq = (
+                list(target_shape_param) if target_shape_param is not None else []
+            )
 
         symbolic_dim_map = getattr(
             s.builder, "reverse_map", getattr(s, "reverse_map", {})

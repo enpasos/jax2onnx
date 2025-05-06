@@ -56,7 +56,6 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         params: dict[str, Any],  # params["dim"]  is the _DimExpr
     ):
         import numpy as np
-        from onnx import helper, TensorProto
 
         out_var = node_outputs[0]
         out_name = s.get_name(out_var)
@@ -102,7 +101,9 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
 
         # determine the rank robustly
         if source_name in s.builder.value_info_metadata:
-            rank = len(s.builder.value_info_metadata[source_name]["shape"])
+            # Fix: Access the shape value correctly from the tuple
+            shape_tuple = s.builder.value_info_metadata[source_name]
+            rank = len(shape_tuple[0])  # Access first element (shape) of the tuple
         elif source_name in s.symbolic_shapes:
             rank = len(s.symbolic_shapes[source_name])
         else:

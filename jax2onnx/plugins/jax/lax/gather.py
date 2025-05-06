@@ -1,8 +1,6 @@
 # file: jax2onnx/plugins/jax/lax/gather.py
 
 from typing import TYPE_CHECKING
-from jax import core  # NEW
-from jax._src.export.shape_poly import _DimExpr as DimExpr  # NEW
 
 import jax
 import jax.numpy as jnp

@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING
 
 import numpy as np
-from flax import nnx
 from jax import numpy as jnp
 from jax import core, nn
 from jax.extend.core import Primitive

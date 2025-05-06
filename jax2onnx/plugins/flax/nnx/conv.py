@@ -282,7 +282,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 return args
 
             # Import lax function for conv_general_dilated
-            from jax import lax
 
             dummy = SimpleNamespace(
                 # parameters exposed as .value like real nnx.Param
@@ -493,8 +492,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
         primitive while auto-filling a zero-bias when `use_bias=False`.
         """
         ConvPlugin._ORIGINAL_CONV_CALL = orig_fn  # <── one-time capture
-
-        import jax.numpy as jnp
 
         def patched_conv_call(self, x):
             # If bias is None, substitute zeros of correct shape and dtype

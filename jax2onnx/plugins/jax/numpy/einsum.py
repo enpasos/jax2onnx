@@ -1,13 +1,19 @@
 # file: jax2onnx/plugins/jax/numpy/einsum.py
 
-from typing import Any, Callable, Sequence, TYPE_CHECKING, Dict
+from typing import (
+    Any,
+    Callable,
+    Sequence,
+    TYPE_CHECKING,
+    Dict,
+    Union,
+    Tuple,
+)  # Added Tuple
 import importlib
 
-import jax
 from jax import core, numpy as jnp
 from jax.interpreters import batching
 from jax.extend.core import Primitive
-from jax._src.util import safe_zip  # Use safe_zip
 
 from jax._src.export.shape_poly import _DimExpr as DimExpr
 
@@ -149,8 +155,10 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 "Implicit einsum output shape calculation not supported in manual helper."
             )
 
+        input_specs_str: str
+        output_spec_str: str
         input_specs_str, output_spec_str = equation.split("->")
-        input_specs = input_specs_str.split(",")
+        input_specs: list[str] = input_specs_str.split(",")
 
         if len(input_specs) != len(input_shapes):
             raise ValueError(
@@ -158,21 +166,19 @@ class EinsumPlugin(PrimitiveLeafPlugin):
             )
 
         dim_map: Dict[str, Any] = {}
-        batch_shape = []  # Stores the computed broadcasted batch shape
-        processed_input_specs = (
-            []
-        )  # Store specs after handling ellipsis for dimension mapping
-        first_batch_processed = False  # Track if we've initialized batch_shape
+        batch_shape: list[Any] = []  # Stores the computed broadcasted batch shape
+        processed_input_specs: list[str] = []  # Store specs after handling ellipsis
+        first_batch_processed: bool = False  # Track if we've initialized batch_shape
 
         # --- Phase 1: Determine broadcasted batch shape and map non-batch dimensions ---
         for i, (spec, shape) in enumerate(zip(input_specs, input_shapes)):
-            non_batch_spec = spec
-            current_operand_batch_shape = []
-            num_batch_dims = 0
+            non_batch_spec: str = spec
+            current_operand_batch_shape: list[Any] = []
+            num_batch_dims: int = 0
 
             if spec.startswith("..."):
                 non_batch_spec = spec[3:]
-                num_core_dims = len(non_batch_spec)
+                num_core_dims: int = len(non_batch_spec)
                 num_batch_dims = len(shape) - num_core_dims
 
                 if num_batch_dims < 0:
@@ -203,8 +209,8 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                         aligned_current = current_operand_batch_shape
 
                     # Broadcast dimensions element-wise
-                    new_broadcasted_batch_shape = []
-                    compatible = True
+                    new_broadcasted_batch_shape: list[Any] = []
+                    compatible: bool = True
                     for d_batch, d_current in zip(aligned_batch, aligned_current):
                         if d_batch == 1:
                             new_broadcasted_batch_shape.append(d_current)
@@ -230,7 +236,9 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                                 else:
                                     compatible = False
                                     break
-                            except:  # Catch comparison errors
+                            except (
+                                Exception
+                            ):  # Specify Exception instead of bare except
                                 compatible = False
                                 break
 
@@ -244,7 +252,9 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
             # Map core dimensions
             processed_input_specs.append(non_batch_spec)
-            core_shape = shape[num_batch_dims:]  # Dimensions not part of batch
+            core_shape: tuple[Any, ...] = shape[
+                num_batch_dims:
+            ]  # Dimensions not part of batch
 
             if len(non_batch_spec) != len(core_shape):
                 raise ValueError(
@@ -261,7 +271,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                         # Check symbolic equality robustly
                         try:
                             are_equal = existing_size == size
-                        except:
+                        except Exception:  # Specify Exception instead of bare except
                             are_equal = False  # Assume not equal if comparison fails
 
                         if not are_equal:
@@ -273,12 +283,12 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                     dim_map[label] = size
 
         # --- Phase 2: Construct output shape ---
-        output_core_spec = output_spec_str
+        output_core_spec: str = output_spec_str
         if output_spec_str.startswith("..."):
             output_core_spec = output_spec_str[3:]
 
         # Start output shape with the final broadcasted batch shape
-        output_shape_list = list(batch_shape)
+        output_shape_list: list[Any] = list(batch_shape)
 
         # Append core dimensions based on output spec
         for label in output_core_spec:
@@ -416,8 +426,9 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         # 3. choose
         if manual_ok:
             # if any concrete dimensions differ -> trust the ground truth
-            for m, t in zip(manual_shape, true_shape):
-                if isinstance(m, int) and isinstance(t, int) and m != t:
+            m_typed: Union[int, Any]
+            for m_typed, t in zip(manual_shape, true_shape):
+                if isinstance(m_typed, int) and isinstance(t, int) and m_typed != t:
                     return true_shape
             return manual_shape
         return true_shape
@@ -426,7 +437,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def _checked_shape(
         arg_avals: Sequence[core.AbstractValue], equation: str
-    ) -> tuple[Any, ...]:
+    ) -> Tuple[Any, ...]:  # Use Tuple from typing
         """
         Return a shape that is guaranteed to agree with JAX.
 
@@ -435,7 +446,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         * if any concrete dim differs, fall back to the JAX result.
         """
         # 1. manual – may raise
-        manual_shape: tuple[Any, ...] | None = None
+        manual_shape: Tuple[Any, ...] | None = None  # Use Tuple
         try:
             manual_shape = EinsumPlugin._get_dynamic_output_shape_manual(
                 [a.shape for a in arg_avals], equation
@@ -446,14 +457,26 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         # 2. ground truth from JAX
         orig_einsum = EinsumPlugin._ORIG_CALL or jnp.einsum
         dummies = [ShapeDtypeStruct(a.shape, a.dtype) for a in arg_avals]
-        true_shape = eval_shape(lambda *xs: orig_einsum(equation, *xs), *dummies).shape
+        true_shape: Tuple[Any, ...] = eval_shape(
+            lambda *xs: orig_einsum(equation, *xs), *dummies
+        ).shape  # Use Tuple
 
         # 3. decide
         if manual_shape is None:
             return true_shape
 
-        for m, t in zip(manual_shape, true_shape):
-            if isinstance(m, int) and isinstance(t, int) and m != t:
+        # Fix: Add type hints for loop variables
+        for m_dim, t_dim in zip(manual_shape, true_shape):
+            # The type hint on m_typed was present before, but mypy wants it on m_dim.
+            # However, type hinting loop variables directly is cleaner
+            m_dim_typed: Any = m_dim
+            t_dim_typed: Any = t_dim
+
+            if (
+                isinstance(m_dim_typed, int)
+                and isinstance(t_dim_typed, int)
+                and m_dim_typed != t_dim_typed
+            ):
                 return true_shape  # concrete mismatch – trust JAX
         return manual_shape  # manual is fine
 

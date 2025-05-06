@@ -10,7 +10,6 @@ from collections.abc import Callable
 from typing import Any, Union
 
 import jax
-from jax import tree_util
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
@@ -252,7 +251,6 @@ class FunctionPlugin(PrimitivePlugin):
 
         # --- Separate ONNX params and JAX params ---
         # Avoid deepcopy on JAX Tracers: do a shallow copy and only deepcopy safe values
-        import jax
         from jax.core import Tracer
 
         def safe_copy_dict(d):

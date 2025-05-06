@@ -1,9 +1,11 @@
 # In file: jax2onnx/converter/conversion_api.py
 
-# Keep existing imports
-from typing import Any, Dict, Sequence, Tuple, Union, List  # Add List
+# Add Tuple, Union to imports if not already present
+from typing import Any, Dict, Sequence, Union, List, Tuple  # Added Tuple, List
 import onnx
 import logging
+import numpy as np
+from onnx import helper, mapping
 from jax2onnx.converter.dynamic_utils import (
     _create_symbolic_input_avals,
 )  # Import the helper
@@ -11,10 +13,7 @@ from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
-import jax
-import jax.export as export  # Keep this import
 import jax.numpy as jnp
-from jax import ShapeDtypeStruct, core  # Keep core
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
@@ -26,15 +25,11 @@ logger = logging.getLogger("jax2onnx.converter.conversion_api")
 # ------------------------------------------------------------------
 # Promote items passed via *input_params* to proper graph inputs
 # ------------------------------------------------------------------
-import numpy as np, onnx
-from onnx import helper, mapping
-
-
 def _elem_type_from_numpy(arr: np.ndarray) -> int:
     return mapping.NP_TYPE_TO_TENSOR_TYPE[arr.dtype]
 
 
-def _promote_params_to_inputs(model: onnx.ModelProto, params: dict | None):
+def _promote_params_to_inputs(model: onnx.ModelProto, params: Dict[str, Any] | None):
     if not params:
         return
 
@@ -95,14 +90,14 @@ def to_onnx(
     # This assumes 'inputs' is a list of shapes and uses default_dtype.
     # Future enhancement: Allow user to pass [(shape, dtype), ...] directly.
     try:
-        input_specs: List[Tuple[Sequence[Union[int, str]], Any]] = []
+        input_specs: List[Tuple[Sequence[Union[int, str]], Any]] = (
+            []
+        )  # Use List and Tuple
         for shape_spec in inputs:
-            # Ensure shape_spec is a tuple/list before processing
-            if not isinstance(shape_spec, (tuple, list)):
-                # Handle scalar shapes like (B,) potentially passed as just "B"
-                shape_spec = (shape_spec,)
+
+            shape_tuple: Tuple[Union[int, str], ...] = tuple(shape_spec)
             # Pair the processed shape tuple with the default dtype
-            input_specs.append((tuple(shape_spec), default_dtype))
+            input_specs.append((shape_tuple, default_dtype))
     except Exception as e:
         logger.error(
             f"Failed to format input shapes/dtypes. Input: {inputs}. Error: {e}",
