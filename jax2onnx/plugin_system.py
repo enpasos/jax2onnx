@@ -138,13 +138,6 @@ class FunctionPlugin(PrimitivePlugin):
             del kwargs["instance_key"]
 
         try:
-            # --------------------------------------------------------------
-            # 1.  Let JAX infer the shape if it can.
-            #     `jax.eval_shape` works on *abstract values* (ShapedArray /
-            #     ShapeDtypeStruct) and is symbol‑safe, so most functions
-            #     (including `get_token`, `reshape`, user code, …) are
-            #     handled automatically.
-            # --------------------------------------------------------------
             if self._orig_fn is not None:
                 # Drop tracing helper kwarg that we added in the wrapper.
                 kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
@@ -176,86 +169,10 @@ class FunctionPlugin(PrimitivePlugin):
 
                 return out_aval
 
-                # eval_shape can also return pytrees; keep the old heuristics
-                # as a fallback when the result is not a single array.
-
-        except Exception as e:
-            print(f"Error in eval_shape: {e}")
-
-            # --------------------------------------------------------------
-            # 2.  Heuristics for common nn layers
-            # --------------------------------------------------------------
-
-            # 1. For class methods: inspect the function and handle based on class structure
-            if hasattr(self._orig_fn, "__self__"):
-                instance = self._orig_fn.__self__
-
-                # For LayerNorm and similar layers: output shape = input shape
-                if hasattr(instance, "__class__") and instance.__class__.__name__ in [
-                    "LayerNorm",
-                    "BatchNorm",
-                ]:
-                    # These preserve input shapes
-                    input_shape = args[0].shape
-                    input_dtype = args[0].dtype
-                    return ShapedArray(input_shape, input_dtype)
-
-                # For Linear and similar transformations: may change last dimension
-                elif hasattr(instance, "__class__") and instance.__class__.__name__ in [
-                    "Linear"
-                ]:
-                    # Get output features from instance
-                    if hasattr(instance, "out_features"):
-                        out_dim = instance.out_features
-                        input_shape = list(args[0].shape)
-                        input_shape[-1] = out_dim  # Replace last dimension
-                        return ShapedArray(tuple(input_shape), args[0].dtype)
-
-            # 2. Default fallback: preserve input shape if we can't determine specific transformation
-            # This is overly conservative but avoids errors
-            if args and hasattr(args[0], "shape") and hasattr(args[0], "dtype"):
-                logger.debug(
-                    f"[DEBUG] abstract_eval for {self.name}: Using input shape as fallback"
-                )
-                return args[0]
-
-            # 3. Last resort: if all else fails, try direct abstract shape evaluation with concrete dims
-            # (This code path is rarely taken with symbolic dimensions)
-            logger.debug(
-                f"[DEBUG] abstract_eval for {self.name}: Attempting to use concrete placeholders"
-            )
-            import jax.numpy as jnp
-            import numpy as np
-
-            # Replace symbolic dimensions with concrete values for shape inference
-            concrete_args = []
-            for arg in args:
-                if hasattr(arg, "shape") and hasattr(arg, "dtype"):
-                    # Replace any symbolic dimensions with fixed values (e.g. 2)
-                    concrete_shape = tuple(
-                        2 if not isinstance(d, int) else d for d in arg.shape
-                    )
-                    concrete_args.append(jnp.zeros(concrete_shape, dtype=arg.dtype))
-                else:
-                    concrete_args.append(arg)
-
-            output = jax.eval_shape(self._orig_fn, *concrete_args, **kwargs)
-
-            # If the output shape includes concrete values that replaced symbolic dimensions,
-            # we need to restore the symbolic dimensions in the output
-            if not isinstance(output, ShapedArray):
-                return output  # Return as is if not a ShapedArray
-
-            # Otherwise return a properly typed output
-            return output
-
         except Exception as e:
             logger.error(
                 f"[ERROR] Abstract evaluation failed for primitive {self.name} on function {self._orig_fn}: {e}"
             )
-            # Return a conservative estimate based on the first input
-            if args and hasattr(args[0], "shape") and hasattr(args[0], "dtype"):
-                return args[0]  # Preserve input shape as fallback
             raise e
 
     def primitive_impl(self, *args, **kwargs):
