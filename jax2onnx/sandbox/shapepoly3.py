@@ -3,7 +3,6 @@ Demo for working with JAX symbolic shapes in export and concat operations.
 Demonstrates concatenating two tensors with dynamic batch dimension.
 """
 
-import numpy as np
 import jax
 from jax import export
 from jax import numpy as jnp

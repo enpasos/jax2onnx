@@ -1,4 +1,5 @@
-import logging, os
+import logging
+import os
 
 # enable via:  JAX2ONNX_DEBUG_SYMBOLICS=1  (any truthy value)
 SYMBOLIC_DEBUG = bool(int(os.getenv("JAX2ONNX_DEBUG_SYMBOLICS", "0")))

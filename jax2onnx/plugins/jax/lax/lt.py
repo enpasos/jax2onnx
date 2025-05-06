@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
 import jax
-import numpy as np
 
 from onnx import helper
 

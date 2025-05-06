@@ -1,7 +1,6 @@
 # file: jax2onnx/examples/multi_head_attention.py
 
 from flax import nnx
-from jax import nn
 
 from jax2onnx.plugin_system import register_example
 

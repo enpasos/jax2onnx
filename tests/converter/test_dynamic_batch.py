@@ -1,8 +1,6 @@
-import pytest
 import numpy as np
 import onnxruntime as ort
 import jax
-import jax.numpy as jnp
 from jax2onnx import to_onnx
 
 

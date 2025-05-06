@@ -8,6 +8,7 @@ import inspect
 import logging
 import re
 from typing import TYPE_CHECKING
+import numpy as np  # Add missing numpy import
 
 import jax.numpy as jnp
 from jax.core import ShapedArray

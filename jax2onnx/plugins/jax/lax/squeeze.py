@@ -35,8 +35,6 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handle JAX squeeze primitive."""
-        from onnx import helper
-        from jax2onnx.converter.dynamic_utils import encode_dims
 
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_var_name(node_outputs[0])
@@ -76,8 +74,9 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
         # Build the ONNX Squeeze node
         if static_axes:
+            # Fix: Use builder.add_initializer instead of directly on converter
             axes_name = s.get_unique_name("squeeze_axes")
-            s.add_initializer(name=axes_name, vals=encode_dims(static_axes))
+            s.builder.add_initializer(name=axes_name, vals=encode_dims(static_axes))
             squeeze_inputs = [input_name, axes_name]
             output_shape = tuple(
                 dim for i, dim in enumerate(input_shape) if i not in static_axes

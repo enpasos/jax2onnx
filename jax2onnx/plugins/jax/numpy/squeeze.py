@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins/jax/numpy/squeeze.py
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import jax
 from jax import core
@@ -20,7 +20,6 @@ logger = logging.getLogger("jax2onnx.plugins.jax.numpy.squeeze")
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-import numpy as np
 
 # Define a new primitive for squeeze
 jnp.squeeze_p = Primitive("jnp.squeeze")
@@ -170,8 +169,6 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles ONNX conversion for jnp.squeeze."""
-        from onnx import helper
-        from jax2onnx.converter.dynamic_utils import encode_dims
 
         # Handle either 'axes' or 'axis' parameter name
         if "axes" in params:

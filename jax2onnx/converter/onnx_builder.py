@@ -1,6 +1,5 @@
-# file: jax2onnx/converter/onnx_builder.py
+from typing import Any, Dict, Union, Optional, List, Tuple, cast
 
-from typing import Any, Dict, Tuple, Sequence
 import logging
 
 import numpy as np
@@ -13,6 +12,8 @@ from onnx import (
     NodeProto,
     TensorProto,
     ValueInfoProto,
+    TypeProto,
+    TensorShapeProto,
     helper,
 )
 
@@ -23,6 +24,13 @@ logger = logging.getLogger("jax2onnx.converter.onnx_builder")
 
 CUSTOM_DOMAIN = "custom"
 CUSTOM_DOMAIN_VERSION = 1
+
+# Define Shape type for type checking
+Shape = Union[Tuple[Any, ...], List[Any], None]
+
+# Add a specific type for the value_info_metadata entries
+ValueInfoMetadataType = Tuple[Tuple[Any, ...], Any]
+ValueInfoMetadataWithOriginType = Tuple[Tuple[Any, ...], Any, Optional[str]]
 
 DIMVAR_STR2SYMBOL: dict[str, str] = {}  # populated by converter
 
@@ -39,8 +47,6 @@ def _as_tuple(x):
     """
     return tuple(x) if isinstance(x, (list, tuple)) else (x,)
 
-
-from onnx import TensorProto, helper, ValueInfoProto, TypeProto, TensorShapeProto
 
 # You can define this globally (in onnx_builder.py)
 ONNX_DTYPE_MAP = {
@@ -75,17 +81,6 @@ ONNX_DTYPE_MAP = {
 # ─── new util helpers ────────────────────────────────────────────────────────
 def _is_unknown_dim(d) -> bool:  # -1 / None / ""  → unknown
     return d in (-1, None, "")
-
-
-def _is_shape_more_specific(old: tuple, new: tuple) -> bool:
-    """
-    Return *True* iff `new` has the **same rank** and **fewer unknown
-    dimensions** than `old`.  This prevents a 1-D placeholder like
-    (-1,) from being overwritten by an unrelated 3-D shape.
-    """
-    if old == new or len(old) != len(new):
-        return False
-    return sum(_is_unknown_dim(d) for d in new) < sum(_is_unknown_dim(d) for d in old)
 
 
 def _is_shape_more_specific(old: tuple, new: tuple) -> bool:
@@ -143,6 +138,8 @@ def _canonical_symbol(builder, dim):
         name = builder.symbol_name_for_dim.get(id(dim))
         if name is not None:
             return name
+
+    # Fall
 
     # Fall back to _symbol_name for compatibility
     if hasattr(dim, "symbol") and dim.symbol:
@@ -234,21 +231,26 @@ class OnnxBuilder:
         self.display_name_map: dict[str, str] = {}
 
         # Metadata for value information.
-        self.value_info_metadata: dict[str, tuple[tuple[int, ...], Any]] = {}
+        # Update type annotations to match the more flexible type needs
+        self.value_info_metadata: dict[str, ValueInfoMetadataType] = {}
         self.value_info_metadata_with_origin: dict[
-            str, tuple[tuple[int, ...], Any, str | None]
+            str, ValueInfoMetadataWithOriginType
         ] = {}
         self.dtype_env: dict[str, onnx.TensorProto.DataType] = {}
         self.value_info_origin: dict[str, str] = {}  # Initialize value_info_origin
-        self.dimvar_to_name = {}  # Initialize mapping explicitly
-        self.dimvar_to_name_by_str = {}  # Add mapping by string representation
+        self.dimvar_to_name: Dict[Any, str] = {}  # Initialize mapping explicitly
+        self.dimvar_to_name_by_str: Dict[str, str] = (
+            {}
+        )  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
         self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
 
-    def make_value_info(self, name: str, shape: tuple, dtype: Any):
-        from onnx import TensorShapeProto, TypeProto, ValueInfoProto, TensorProto
+    def make_value_info(self, name: str, shape: Shape, dtype: Any):
+        # Ensure shape is always a tuple (handle None case)
+        shape_tuple = () if shape is None else _as_tuple(shape)
+
+        from onnx import ValueInfoProto, TensorProto
         import logging
-        import jax
 
         logger = logging.getLogger("jax2onnx.converter.onnx_builder")
 
@@ -263,11 +265,11 @@ class OnnxBuilder:
         )
 
         logger.debug(
-            f"🔍 make_value_info for '{name}' with shape={shape}, dtype={dtype}"
+            f"🔍 make_value_info for '{name}' with shape={shape_tuple}, dtype={dtype}"
         )
 
         tensor_shape = TensorShapeProto()
-        for i, dim in enumerate(shape):
+        for i, dim in enumerate(shape_tuple):
             dim_proto = TensorShapeProto.Dimension()
             if isinstance(dim, int):
                 dim_proto.dim_value = dim
@@ -289,10 +291,13 @@ class OnnxBuilder:
     def register_value_info_metadata(
         self,
         name: str,
-        shape: tuple[int, ...],
-        dtype: np.dtype | int,  # `int` covers TensorProto enums
-        origin: str | None = None,
+        shape: Shape,
+        dtype: Union[np.dtype, int],
+        origin: Optional[str] = None,
     ):
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
+
         """
         Register metadata for a value_info entry, including shape, dtype, and origin.
 
@@ -307,12 +312,12 @@ class OnnxBuilder:
         logger = logging.getLogger("jax2onnx.converter.onnx_builder")
 
         logger.debug(
-            f"🔍 [register_value_info_metadata] name={name}, shape={shape} (type={type(shape).__name__}), dtype={dtype}"
+            f"🔍 [register_value_info_metadata] name={name}, shape={shape_tuple} (type={type(shape_tuple).__name__}), dtype={dtype}"
         )
 
         # Log each dimension's type to help identify problematic dimensions
-        if shape:
-            for i, dim in enumerate(shape):
+        if shape_tuple:
+            for i, dim in enumerate(shape_tuple):
                 logger.debug(f"  - shape[{i}] = {dim} (type={type(dim).__name__})")
 
                 # Check if dim is in dimvar_to_name mapping
@@ -340,11 +345,16 @@ class OnnxBuilder:
                     f"  → Shape overridden from symbolic_shapes: {old_shape} → {shape}"
                 )
 
-        self.value_info_metadata[name] = (shape, dtype)
-        self.value_info_metadata_with_origin[name] = (shape, dtype, origin or "traced")
+        # Cast to the expected types to fix type errors
+        self.value_info_metadata[name] = cast(
+            ValueInfoMetadataType, (shape_tuple, dtype)
+        )
+        self.value_info_metadata_with_origin[name] = cast(
+            ValueInfoMetadataWithOriginType, (shape_tuple, dtype, origin or "traced")
+        )
 
     def add_initializer_from_scalar(self, name, value):
-        from onnx import numpy_helper, TensorProto
+        from onnx import TensorProto
         import numpy as np
 
         if isinstance(value, bool):
@@ -508,13 +518,14 @@ class OnnxBuilder:
         self,
         collection: list[ValueInfoProto],
         name: str,
-        shape: tuple[int, ...] | None,
+        shape: Shape,
         dtype: Any,
     ):
-        shape = _as_tuple(shape)
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
 
         # Use our centralized make_value_info function for consistency
-        tensor_def = self.make_value_info(name, shape, dtype)
+        tensor_def = self.make_value_info(name, shape_tuple, dtype)
         collection.append(tensor_def)
 
     def change_var_name(self, old_name, new_name) -> None:
@@ -534,13 +545,19 @@ class OnnxBuilder:
                 break
 
     def add_input(
-        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
+        self,
+        name: str,
+        shape: tuple[Any, ...] | None,
+        dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
 
     def add_output(
-        self, name: str, shape: tuple[int, ...] | None, dtype: Any = np.float32
+        self,
+        name: str,
+        shape: tuple[Any, ...] | None,
+        dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
         # if any(v.name == name for v in self.outputs):
         #     return  # Already added
@@ -550,18 +567,18 @@ class OnnxBuilder:
     def add_value_info(
         self,
         name: str,
-        shape: tuple[int, ...] | list[int | str],
-        dtype: np.dtype | int,
+        shape: Shape,
+        dtype: Union[np.dtype, int],
     ):
-        # Ensure shape is a tuple
-        shape = _as_tuple(shape)
+        # Ensure shape is always a tuple
+        shape_tuple = () if shape is None else _as_tuple(shape)
 
         # Use symbolic shape if registered (override shape as in register_value_info_metadata)
         sym = getattr(self, "converter", None)
         if sym and hasattr(sym, "symbolic_shapes"):
-            shape = sym.symbolic_shapes.get(name, shape)
+            shape_tuple = sym.symbolic_shapes.get(name, shape_tuple)
 
-        vi = self.make_value_info(name, shape, dtype)
+        vi = self.make_value_info(name, shape_tuple, dtype)
 
         # Enrich doc_string if we have origin info
         origin = self.value_info_origin.get(name)
@@ -576,7 +593,8 @@ class OnnxBuilder:
         else:
             onnx_dtype = vi.type.tensor_type.elem_type
 
-        self.register_value_info_metadata(name, shape, onnx_dtype)
+        # Pass the tuple version to register_value_info_metadata
+        self.register_value_info_metadata(name, shape_tuple, onnx_dtype)
 
     def create_node(
         self, op_type: str, inputs: list[str], outputs: list[str], **kwargs: Any

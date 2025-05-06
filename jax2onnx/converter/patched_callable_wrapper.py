@@ -1,8 +1,7 @@
 # file: jax2onnx/converter/patched_callable_wrapper.py
 
-from typing import Any, Callable
+from typing import Callable
 import logging
-import jax
 from jax import core
 from jax.extend.core import Primitive
 from jax._src.typing import Array

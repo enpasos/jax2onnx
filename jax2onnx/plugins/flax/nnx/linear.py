@@ -14,15 +14,14 @@ Fix for missing graph‑input error
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Callable
 import logging
 import numpy as np
 import jax
-import jax.numpy as jnp
 from jax import core, lax
 from flax import nnx
 from jax.extend.core import Primitive
-from onnx import helper, TensorProto
+from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -73,7 +72,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
     # ------------------------------------------------------------------
     # keep a reference to the pristine implementation
     # ------------------------------------------------------------------
-    _ORIGINAL_LINEAR_CALL: callable | None = None
+    _ORIGINAL_LINEAR_CALL: Callable | None = None
 
     # ------------------------------------------------------------------
     # helper ------------------------------------------------------------

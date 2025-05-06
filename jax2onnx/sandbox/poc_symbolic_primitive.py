@@ -5,7 +5,6 @@ from jax import core
 from jax.extend.core import Primitive
 from jax import export  # Use jax.export for symbolic shapes
 import logging
-import numpy as np
 from typing import Sequence
 
 # --- Logging Setup ---
@@ -167,7 +166,7 @@ def poc_concat_abstract_eval(*avals: core.AbstractValue, dimension: int):
     try:
         # This tuple should contain integers and JAX's hashable symbolic objects (DimVar/DimExpr)
         result_aval = core.ShapedArray(final_output_shape_tuple, output_dtype)
-        logger.debug(f"--- poc_concat_abstract_eval END (Success) ---")
+        logger.debug("--- poc_concat_abstract_eval END (Success) ---")
         return result_aval
     except TypeError as e:
         logger.error(
@@ -175,7 +174,7 @@ def poc_concat_abstract_eval(*avals: core.AbstractValue, dimension: int):
             exc_info=True,
         )
         logger.debug(
-            f"--- poc_concat_abstract_eval END (ShapedArray Creation Failed) ---"
+            "--- poc_concat_abstract_eval END (ShapedArray Creation Failed) ---"
         )
         raise
 

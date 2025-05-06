@@ -100,8 +100,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: List[str],
-        node_outputs: List[str],
+        node_inputs: List[core.Var],  # Change from List[str] to List[core.Var]
+        node_outputs: List[core.Var],  # Change from List[str] to List[core.Var]
         params,
     ) -> None:
         # ------------------------------------------------------------------
