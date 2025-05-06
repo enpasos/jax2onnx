@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 @register_primitive(
     jaxpr_primitive=jax.lax.device_put_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/jax.device_put.html",
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.device_put.html#jax.device_put",
     onnx=[
         {
             "component": "Identity",

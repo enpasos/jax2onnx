@@ -29,7 +29,7 @@ nnx.group_norm_p.multiple_results = False  # Set at initialization
     onnx=[
         {
             "component": "GroupNormalization",
-            "doc": "https://example.com/onnx_GroupNormalization_doc",  # Replace with an appropriate doc link if available.
+            "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
         },
     ],
     since="v0.3.0",
