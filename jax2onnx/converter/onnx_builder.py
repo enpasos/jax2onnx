@@ -357,9 +357,23 @@ class OnnxBuilder:
             dtype = TensorProto.FLOAT
             np_value = np.array(value, dtype=np.float32)
 
-        # tensor = numpy_helper.from_array(np_value, name=name)
-        # self.add_initializer(tensor)
-        self.add_initializer(name, np_value, dtype, [])
+        # Create the tensor with proper boolean handling
+        if np_value.dtype == np.bool_:
+            tensor = helper.make_tensor(
+                name=name,
+                data_type=TensorProto.BOOL,
+                dims=np_value.shape,
+                # Use bool_data instead of int32_data for boolean values
+                vals=np_value.astype(np.bool_).flatten().tolist(),
+            )
+            self.initializers.append(tensor)
+            self.register_value_info_metadata(
+                name, shape=tuple(np_value.shape), dtype=TensorProto.BOOL
+            )
+            return name
+        else:
+            # Regular handling for non-boolean types
+            return self.add_initializer(name, np_value, dtype, [])
 
     def to_function_proto(self, name):
         return onnx.helper.make_function(
