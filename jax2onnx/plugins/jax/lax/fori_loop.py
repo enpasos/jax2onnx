@@ -1,35 +1,36 @@
 from __future__ import annotations
 
-"""jax2onnx plugin: lax.fori_loop → ONNX Loop
+"""
+jax2onnx plugin: lax.fori_loop → ONNX Loop             (single‑tensor state)
 
-*Supported variant*
--------------------
-This first version handles the common case
-```
-  lax.fori_loop(0, N, body_fun, init_val)
-```
-with a **single** loop‑carried tensor.  Lower bounds other than 0, tuple
-state, or captured constants inside *body_fun* are left for future work and
-raise ``NotImplementedError``.
+Only the common pattern
+
+    lax.fori_loop(0, N, body_fun, init_val)
+
+is supported for now ( lower bound ≠ 0, tuple state, captured
+constants … are left for future work).
 """
 
-import logging
 from typing import TYPE_CHECKING, Any, Sequence, Callable
+import logging
 
 import jax
 import numpy as np
 from jax import core, lax
 from jax.extend.core import Primitive
-from onnx import helper
+from onnx import helper, TensorProto
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # for mypy / pylance
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.fori_loop")
 
+# --------------------------------------------------------------------- #
+#  Primitive definition
+# --------------------------------------------------------------------- #
 fori_loop_p = Primitive("fori_loop")
 fori_loop_p.multiple_results = True
 
@@ -46,15 +47,27 @@ fori_loop_p.multiple_results = True
     testcases=[
         {
             "testcase": "fori_loop_counter",
-            "callable": lambda: lax.fori_loop(
-                0,
-                5,
-                lambda i, v: v + 1,
-                0,
-            ),
+            "callable": lambda: lax.fori_loop(0, 5, lambda i, v: v + 1, 0),
             "input_shapes": [],
             "expected_output_shapes": [()],
-        }
+        },
+        {
+            "testcase": "fori_loop_zero",
+            "callable": lambda: lax.fori_loop(0, 0, lambda i, v: v + 1, 42),
+            "input_shapes": [],
+            "expected_output_shapes": [()],
+        },
+        {
+            "testcase": "fori_loop_vector",
+            "callable": lambda: lax.fori_loop(
+                0,
+                3,
+                lambda i, v: v.at[i].set(i),
+                jax.numpy.zeros((3,), dtype=jax.numpy.int32),
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(3,)],
+        },
     ],
 )
 class ForiLoopPlugin(PrimitiveLeafPlugin):
