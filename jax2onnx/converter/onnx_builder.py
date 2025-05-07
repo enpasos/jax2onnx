@@ -630,13 +630,21 @@ class OnnxBuilder:
                 remaining_missing.append(name)
         return remaining_missing
 
-    def _build_graph(self, name: str) -> GraphProto:
-        # 1. existing clean-ups
+    def create_graph(self, name: str, is_subgraph: bool = False) -> GraphProto:
+        """Creates a GraphProto, passing the is_subgraph flag."""
+        return self._build_graph(name, is_subgraph=is_subgraph)
+
+    def _build_graph(self, name: str, is_subgraph: bool = False) -> GraphProto:
+        """Builds the GraphProto, optionally skipping input filtering for subgraphs."""
+        logger.debug(f"Building graph '{name}', is_subgraph={is_subgraph}")
+        # 1. Filter unused initializers (safe for subgraphs too)
         self.filter_unused_initializers()
 
-        # 2. NEW ─ remove graph-inputs that collide with node-outputs /
-        #          initializers / are never consumed
-        self._filter_redundant_inputs()
+        # Conditionally skip filtering inputs for subgraphs
+        if not is_subgraph:
+            # 2. NEW ─ remove graph-inputs that collide with node-outputs /
+            #          initializers / are never consumed
+            self._filter_redundant_inputs()
 
         missing = self.find_missing_value_info()
 
@@ -650,26 +658,8 @@ class OnnxBuilder:
 
         if missing:
             raise RuntimeError(
-                f"Missing value_info for: {missing}\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
+                f"Missing value_info for: {missing} in graph '{name}'\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
             )
-
-        # ──────────────────────────────────────────────────────────────
-        # NEW: make sure graph *outputs* carry the refined (symbolic)
-        #      shapes that live in self.value_info_metadata
-        # ──────────────────────────────────────────────────────────────
-        # fixed_outputs: list[onnx.ValueInfoProto] = []
-        # from onnx import helper as _h
-        #
-        # for vi in self.outputs:
-        #     if vi.name in self.value_info_metadata:
-        #         shape, dtype = self.value_info_metadata[vi.name]
-        #         fixed_outputs.append(_h.make_tensor_value_info(vi.name, dtype, shape))
-        #     else:
-        #         # nothing special recorded → keep the original
-        #         fixed_outputs.append(vi)
-        #
-        # # replace in-place so the rest of the builder sees the update
-        # self.outputs[:] = fixed_outputs
 
         return helper.make_graph(
             nodes=self.nodes,
@@ -679,9 +669,6 @@ class OnnxBuilder:
             initializer=self.initializers,
             value_info=self.value_info,
         )
-
-    def create_graph(self, name: str) -> GraphProto:
-        return self._build_graph(name)
 
     def create_model(self, graph: GraphProto) -> ModelProto:
         return self._finalize_model(graph)
