@@ -37,6 +37,16 @@ while_loop_p.multiple_results = True
             "input_shapes": [],
             "expected_output_shapes": [()],
         },
+        {
+            "testcase": "while_loop_vector",
+            "callable": lambda: lax.while_loop(
+                lambda v: v[0] < 5,
+                lambda v: v + 1,
+                jax.numpy.array([0], dtype=jax.numpy.int32),
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(1,)],
+        },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
