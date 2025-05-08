@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-"""
-jax2onnx plugin: lax.cond → ONNX If   (single tensor operand / result)
-"""
-
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
@@ -11,13 +7,17 @@ import jax
 import numpy as np
 from jax import core, lax
 from jax.extend.core import Primitive
-from onnx import helper, TensorProto
+from onnx import helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+"""
+jax2onnx plugin: lax.cond → ONNX If   (single tensor operand / result)
+"""
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.cond")
 
@@ -29,7 +29,7 @@ cond_p.multiple_results = True
     jaxpr_primitive=cond_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.cond.html",
     onnx=[{"component": "If", "doc": "https://onnx.ai/onnx/operators/onnx__If.html"}],
-    since="upcoming",
+    since="0.5.1",
     context="primitives.lax",
     component="cond",
     testcases=[

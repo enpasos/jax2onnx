@@ -1,5 +1,3 @@
-import pytest
-import jax
 from .fori_loop import model_fn
 
 # test_fori_loop.py

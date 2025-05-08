@@ -1,9 +1,7 @@
 import unittest
 import jax
-from jax.core import ShapedArray
 from onnx import helper, TensorProto
 import numpy as np
-import logging
 
 import onnx
 

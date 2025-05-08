@@ -574,13 +574,14 @@ class OnnxBuilder:
         name: str,
         shape: tuple[Any, ...] | None,
         dtype: Any = np.float32,  # Fix type annotation
-    ) -> None:
+    ) -> str:  # Fix: Added return type annotation
         # Do not emit the same graph-output twice
         if any(vi.name == name for vi in self.outputs):
             return name
 
         self.dtype_env[name] = dtype
         self._add_tensor(self.outputs, name, shape, dtype)
+        return name  # Ensure the method returns the name consistently
 
     def add_value_info(
         self,
