@@ -575,8 +575,10 @@ class OnnxBuilder:
         shape: tuple[Any, ...] | None,
         dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
-        # if any(v.name == name for v in self.outputs):
-        #     return  # Already added
+        # Do not emit the same graph-output twice
+        if any(vi.name == name for vi in self.outputs):
+            return name
+
         self.dtype_env[name] = dtype
         self._add_tensor(self.outputs, name, shape, dtype)
 
