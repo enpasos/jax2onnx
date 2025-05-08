@@ -43,7 +43,6 @@ class TestConverterDoesNotPromoteIntermediates(unittest.TestCase):
             len(producer), 1, "converter must create an Identity producing C"
         )
 
-        builder.add_output(C, (), np.int32)
         graph = builder.create_graph("subgraph", is_subgraph=True)
 
         self.assertEqual([vi.name for vi in graph.input], [A])  # only the true input
