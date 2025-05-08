@@ -31,7 +31,7 @@ fori_loop_p.multiple_results = True
     onnx=[
         {"component": "Loop", "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html"}
     ],
-    since="upcoming",
+    since="0.5.1",
     context="primitives.lax",
     component="fori_loop",
     testcases=[
