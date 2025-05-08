@@ -27,7 +27,7 @@ scan_p.multiple_results = True
     onnx=[
         {"component": "Scan", "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html"}
     ],
-    since="0.5.1",
+    since="v0.5.1",
     context="primitives.lax",
     component="scan",
     testcases=[
