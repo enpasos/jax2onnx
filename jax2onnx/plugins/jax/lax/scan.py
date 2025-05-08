@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
-import jax
 import jax.numpy as jnp
 from jax import core, lax
 from jax.extend.core import Primitive

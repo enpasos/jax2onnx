@@ -1,8 +1,6 @@
 # file: jax2onnx/plugins/examples/nnx/fori_loop.py
 
 import jax
-import jax.numpy as jnp
-from jax2onnx import to_onnx
 from jax2onnx.plugin_system import register_example
 
 
