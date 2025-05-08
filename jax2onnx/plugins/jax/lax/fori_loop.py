@@ -1,20 +1,11 @@
+# jax2onnx/plugins/jax/lax/fori_loop.py
 from __future__ import annotations
 
-"""
-jax2onnx plugin: lax.fori_loop → ONNX Loop             (single‑tensor state)
-
-Only the common pattern
-
-    lax.fori_loop(0, N, body_fun, init_val)
-
-is supported for now ( lower bound ≠ 0, tuple state, captured
-constants … are left for future work).
-"""
-
-from typing import TYPE_CHECKING, Any, Sequence, Callable
 import logging
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jax import core, lax
 from jax.extend.core import Primitive
@@ -23,18 +14,17 @@ from onnx import helper, TensorProto
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # for mypy / pylance
+if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.fori_loop")
 
-# --------------------------------------------------------------------- #
-#  Primitive definition
-# --------------------------------------------------------------------- #
+# ─────────────────────────────── primitive stub ──────────────────────────────
 fori_loop_p = Primitive("fori_loop")
 fori_loop_p.multiple_results = True
 
 
+# ────────────────────────── registration & testcases ─────────────────────────
 @register_primitive(
     jaxpr_primitive=fori_loop_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.fori_loop.html",
@@ -68,111 +58,172 @@ fori_loop_p.multiple_results = True
             "input_shapes": [],
             "expected_output_shapes": [(3,)],
         },
+        # Added example from examples/nnx/fori_loop.py
+        {
+            "testcase": "fori_loop_example",
+            "callable": lambda: jax.lax.fori_loop(
+                0,
+                5,
+                lambda i, args: (args[0] + 0.1 * args[0] ** 2, args[1] + 1),
+                (jnp.array([1.0], dtype=jnp.float32), 0),
+            )[0],
+            "input_shapes": [],
+            "expected_output_shapes": [(1,)],
+        },
     ],
 )
 class ForiLoopPlugin(PrimitiveLeafPlugin):
+    """Lower `lax.fori_loop` (lower==0) with *k* loop‑carried tensors to ONNX."""
+
     _ORIG_FORI_LOOP: Callable | None = None
 
+    # JAX abstract evaluation – simply forward the state avals
     @staticmethod
     def abstract_eval(*in_avals: core.AbstractValue, body_jaxpr, trip_count, **__):
         return tuple(in_avals)
 
+    # ────────────────────────────── ONNX lowering ────────────────────────────
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
+        node_inputs: Sequence[core.Var],  # flat list of k tensors
+        node_outputs: Sequence[core.Var],  # same length k
         params: dict[str, Any],
     ):
         body_closed = params["body_jaxpr"]
-        n = params["trip_count"]  # assumed int
+        trip_count = params["trip_count"]
         lower = params.get("lower", 0)
         if lower != 0:
-            raise NotImplementedError("fori_loop with lower!=0 not yet supported")
+            raise NotImplementedError("fori_loop with lower!=0 not supported yet")
 
-        body_jaxpr = body_closed.jaxpr
-        body_consts = body_closed.consts
+        # --- outer‑graph bookkeeping -------------------------------------------------
+        in_names = [s.get_name(v) for v in node_inputs]
+        out_names = [s.get_name(v) for v in node_outputs]
 
-        state_in_vars = node_inputs
-        state_in_names = [s.get_name(v) for v in state_in_vars]
-        state_out_vars = node_outputs
-        state_out_names = [s.get_name(v) for v in state_out_vars]
+        # ---------------------------------------------------------------------------
+        # Build the Loop‑body sub‑graph
+        # ---------------------------------------------------------------------------
+        prefix = s.builder.name_generator.get("loop")  # unique per Loop instance
 
-        # Build body subgraph
         body_builder = OnnxBuilder(
-            name_generator=s.builder.name_generator,
+            name_generator=s.builder.name_generator,  # keep global generator
             opset=s.builder.opset,
-            model_name=s.builder.get_unique_name("fori_body"),
-            initializers=None,
-            converter=None,
+            model_name=s.builder.get_unique_name(f"{prefix}_body"),
         )
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         body_conv = s.__class__(body_builder)
 
-        iter_name = body_builder.name_generator.get("iter")
-        cond_in_name = body_builder.name_generator.get("cond_in")
-        state_in_name = body_builder.name_generator.get("state_in")
+        # ► inputs:   (iter, cond_in, s1_in … sk_in)
+        iter64 = body_builder.name_generator.get(f"{prefix}_iter64")
+        cond_in = body_builder.name_generator.get(f"{prefix}_cond_in")
+        body_builder.add_scalar_input(iter64, TensorProto.INT64)
+        body_builder.add_scalar_input(cond_in, TensorProto.BOOL)
 
-        body_builder.add_scalar_input(iter_name, helper.TensorProto.INT64)
-        body_builder.add_scalar_input(cond_in_name, helper.TensorProto.BOOL)
-        var0 = state_in_vars[0]
-        body_builder.add_input(state_in_name, var0.aval.shape, var0.aval.dtype)
+        # add the k state inputs
+        for idx, v in enumerate(node_inputs):
+            sym = body_builder.name_generator.get(f"{prefix}_state{idx}_in")
+            body_builder.add_input(sym, v.aval.shape, v.aval.dtype)
+            # Map to Jaxpr input (skip the first invar which is the loop‑index)
+            body_conv.var_to_name[body_closed.jaxpr.invars[idx + 1]] = sym
 
-        # Map JAXPR invars: (i, state)
-        body_conv.var_to_name[body_jaxpr.invars[0]] = iter_name
-        body_conv.var_to_name[body_jaxpr.invars[1]] = state_in_name
-        # Map any consts
-        for cvar, cval in zip(body_jaxpr.constvars, body_consts):
-            body_conv.var_to_name[cvar] = body_conv.get_constant_name(cval)
-
-        # Process body and then discard auto‑added outputs
-        body_conv._process_jaxpr(body_jaxpr, body_consts)
-        body_builder.outputs.clear()
-        state_out_name = body_conv.get_name(body_jaxpr.outvars[0])
-
-        # cond_out is just pass‑through of `cond_in`, but must use **different** tensor name
-        cond_out_name = body_builder.name_generator.get("cond_out")
-        body_builder.add_node(
-            helper.make_node("Identity", [cond_in_name], [cond_out_name])
+        # iterator cast if body expects int32
+        iter_target_dtype = (
+            TensorProto.INT32
+            if body_closed.jaxpr.invars[0].aval.dtype == np.int32
+            else TensorProto.INT64
         )
-        body_builder.add_output(cond_out_name, (), np.bool_)
-        body_builder.add_output(state_out_name, var0.aval.shape, var0.aval.dtype)
+        iter_sym = iter64
+        if iter_target_dtype == TensorProto.INT32:
+            iter32 = body_builder.name_generator.get(f"{prefix}_iter32")
+            body_builder.add_node(
+                helper.make_node(
+                    "Cast",
+                    [iter64],
+                    [iter32],
+                    to=TensorProto.INT32,
+                    name=body_builder.name_generator.get(f"{prefix}_cast_iter"),
+                )
+            )
+            iter_sym = iter32
+
+        # Map iterator symbol and constants
+        body_conv.var_to_name[body_closed.jaxpr.invars[0]] = iter_sym
+        for cv, cval in zip(body_closed.jaxpr.constvars, body_closed.consts):
+            body_conv.var_to_name[cv] = body_conv.get_constant_name(cval)
+
+        # ► convert the body jaxpr
+        body_conv._process_jaxpr(body_closed.jaxpr, body_closed.consts)
+
+        # ► outputs: (cond_out, s1_out … sk_out)
+        body_builder.outputs.clear()
+
+        cond_out = body_builder.name_generator.get(f"{prefix}_cond_out")
+        body_builder.add_node(
+            helper.make_node(
+                "Identity",
+                [cond_in],
+                [cond_out],
+                name=body_builder.name_generator.get(f"{prefix}_cond_passthrough"),
+            )
+        )
+        body_builder.add_output(cond_out, (), np.bool_)
+
+        for idx, v in enumerate(body_closed.jaxpr.outvars):
+            sym_out = body_conv.get_name(v)
+            aval = v.aval
+            body_builder.add_output(sym_out, aval.shape, aval.dtype)
 
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
 
-        # Top‑level constants
-        trip_count_name = s.get_constant_name(np.asarray(n, dtype=np.int64))
-        true_name = s.get_constant_name(np.asarray(True, dtype=np.bool_))
-
+        # ---------------------------------------------------------------------------
+        # Emit the outer Loop node
+        # ---------------------------------------------------------------------------
         loop_node = helper.make_node(
             "Loop",
-            inputs=[trip_count_name, true_name, *state_in_names],
-            outputs=state_out_names,
+            inputs=[
+                s.get_constant_name(np.asarray(trip_count, np.int64)),
+                s.get_constant_name(np.asarray(True, np.bool_)),
+                *in_names,
+            ],
+            outputs=out_names,
             body=body_graph,
             name=s.get_unique_name("fori_loop"),
         )
         s.add_node(loop_node)
-        for name, var in zip(state_out_names, state_out_vars):
-            s.add_shape_info(name, var.aval.shape, var.aval.dtype)
+        for sym, v in zip(out_names, node_outputs):
+            s.add_shape_info(sym, v.aval.shape, v.aval.dtype)
 
-    # ------------------------------------------------------------------
-    # Monkey‑patch machinery
-    # ------------------------------------------------------------------
+    # ─────────────────── monkey‑patch (bind primitive) ───────────────────────
     @staticmethod
     def _fori_loop_binding(lower, upper, body_fun, init_val):
+        """
+        Wrap `body_fun` so the jaxpr sees **one input per leaf** of the
+        PyTree `init_val`, yet `body_fun` itself continues to work with
+        the original structure.
+        """
         if lower != 0:
-            raise NotImplementedError(
-                "fori_loop plugin currently supports lower==0 only"
-            )
-        body_closed = jax.make_jaxpr(lambda i, v: body_fun(i, v))(0, init_val)
-        n = int(upper - lower)
-        flat_init, tree = jax.tree_util.tree_flatten(init_val)
-        results = fori_loop_p.bind(
-            *flat_init, body_jaxpr=body_closed, trip_count=n, lower=lower
+            raise NotImplementedError("fori_loop plugin supports lower==0 only")
+
+        leaves, treedef = jax.tree_util.tree_flatten(init_val)
+
+        # ── body wrapper:   (i, *leaves)  →  *new_leaves
+        def body_flat(i, *flat_state):
+            state = jax.tree_util.tree_unflatten(treedef, flat_state)
+            new_state = body_fun(i, state)
+            return jax.tree_util.tree_flatten(new_state)[0]
+
+        body_closed = jax.make_jaxpr(body_flat)(0, *leaves)
+        trip_count = int(upper - lower)
+
+        flat_res = fori_loop_p.bind(
+            *leaves,
+            body_jaxpr=body_closed,
+            trip_count=trip_count,
+            lower=0,
         )
-        return jax.tree_util.tree_unflatten(tree, results)
+        return jax.tree_util.tree_unflatten(treedef, flat_res)
 
     @staticmethod
     def get_monkey_patch(orig_fn):
@@ -193,4 +244,5 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         }
 
 
+# register abstract eval
 fori_loop_p.def_abstract_eval(ForiLoopPlugin.abstract_eval)

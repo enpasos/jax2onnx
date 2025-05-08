@@ -550,6 +550,22 @@ class OnnxBuilder:
         shape: tuple[Any, ...] | None,
         dtype: Any = np.float32,  # Fix type annotation
     ) -> None:
+        # ──────────────────────────────────────────────────────────────────
+        # Do **not** promote the tensor to a formal graph input when it is
+        # already created inside the graph (i.e. it appears in the output
+        # list of a node) – or when it is an input already.
+        # This prevents duplicate-name errors such as
+        #   "Duplicate definition of name (loop_0_iter32_0)".
+        # ──────────────────────────────────────────────────────────────────
+        if any(name in n.output for n in self.nodes):
+            # internal tensor – only record shape information if missing
+            self.add_value_info(name, shape, dtype)
+            return
+
+        if any(vi.name == name for vi in self.inputs):
+            # already a formal input – keep first declaration
+            return
+
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
 

@@ -79,6 +79,59 @@ class Jaxpr2OnnxConverter:
         """Add an ONNX node to the builder."""
         self.builder.add_node(node)
 
+    def _emit_result(self, jax_outvar, wanted_sym, src_sym):
+        """
+        Connect a JAX output variable to its ONNX representation.
+
+        If the caller asked for a specific output symbol name that's different
+        from the source symbol, insert an Identity node to create the alias.
+
+        Args:
+            jax_outvar: The JAX output variable
+            wanted_sym: The desired output symbol name
+            src_sym: The source symbol name currently producing the value
+        """
+        # If the caller asked for a different symbol, materialise an Identity
+        if wanted_sym != src_sym:
+            id_name = self.builder.name_generator.get("alias")
+            self.builder.add_node(
+                helper.make_node("Identity", [src_sym], [wanted_sym], name=id_name)
+            )
+            self.builder.add_value_info(
+                wanted_sym, jax_outvar.aval.shape, jax_outvar.aval.dtype
+            )
+            self.var_to_name[jax_outvar] = wanted_sym
+        else:
+            self.var_to_name[jax_outvar] = src_sym
+
+    def _import_var_as_input(
+        self,
+        var: extend_core.Var,
+        sym: str,
+    ):
+        """Make *sym* a formal graph input **iff** it is not
+             already created inside the builder**.
+
+        That is the case when *sym* is produced by a node that
+        was added to ``self.builder`` **before** this converter
+        started processing the JAXPR – for example the ``Cast``
+        that makes ``iter64 → iter32`` in a Loop body.  Turning
+        such an internal tensor into another graph input would
+        (a) pollute the interface and (b) create duplicate-name
+        errors at ONNX runtime.
+        """
+
+        # 1. Fast bail-out if another node already writes *sym*
+        if any(sym in n.output for n in self.builder.nodes):
+            # We only need shape-information (if not yet there)
+            aval = var.aval
+            self.builder.add_value_info(sym, aval.shape, aval.dtype)
+            return
+
+        # 2. Really add a new formal input
+        aval = var.aval
+        self.builder.add_input(sym, aval.shape, aval.dtype)
+
     def get_unique_name(self, prefix: str = "node") -> str:
         """Get a unique name for an ONNX node or variable."""
         return self.builder.get_unique_name(prefix)

@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/examples/nnx/fori_loop.py
+
 import jax
 import jax.numpy as jnp
 from jax2onnx import to_onnx
@@ -14,9 +16,9 @@ def model_fn(x):
         return (x, counter)
 
     args = (x, 0)
-    args = jax.lax.fori_loop(0, steps, body_func, args)
+    y, _ = jax.lax.fori_loop(0, steps, body_func, args)
 
-    return args
+    return y
 
 
 register_example(
@@ -29,7 +31,17 @@ register_example(
         {
             "testcase": "fori_loop_counter",
             "callable": lambda x: model_fn(x),
-            "input_shapes": [(2,)],
+            "input_shapes": [(1,)],
         },
     ],
 )
+
+
+# main function
+# def main():
+#     x = jnp.array([1.0, 2.0], dtype=jnp.float32)
+#     y = model_fn(x)
+
+
+# if __name__ == "__main__":
+#     main()
