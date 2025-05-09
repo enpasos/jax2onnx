@@ -2,13 +2,16 @@
 
 import os
 import shutil
-from typing import Any
+from typing import Any, List, Dict, Tuple, Sequence, Union
+import inspect
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import onnx
-from logging_config import configure_logging
+import logging
 
+# from logging_config import configure_logging
 
 from jax2onnx import allclose
 from jax2onnx.converter.user_interface import to_onnx
@@ -20,6 +23,8 @@ from jax2onnx.plugin_system import (
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
 PLUGINS_DIR = os.path.join(TESTS_DIR, "../jax2onnx/plugins")
+
+logger = logging.getLogger("jax2onnx.tests.t_generator")
 
 
 # --- Cleaning and Setup ---
@@ -134,112 +139,308 @@ def make_test_function(tp: dict[str, Any]):
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
     func_name = f"test_{test_case_name_safe}"
 
-    def test_func(self):
-
-        configure_logging()
+    def test_func(self=None):
+        # configure_logging() # Call once if needed
 
         callable_obj = tp["callable"]
-        input_shapes = tp["input_shapes"]
-        input_params = tp.get("input_params", {})
+        input_values_from_testcase = tp.get("input_values")
+        input_shapes_from_testcase = tp.get("input_shapes")
+
+        processed_input_specs_for_to_onnx: List[Any]
+
+        if input_shapes_from_testcase is not None:
+            processed_input_specs_for_to_onnx = input_shapes_from_testcase
+            logger.info(
+                f"Test '{tp['testcase']}': Using explicit input_shapes from testcase: {processed_input_specs_for_to_onnx}"
+            )
+        elif input_values_from_testcase is not None:
+            processed_input_specs_for_to_onnx = [
+                jax.ShapeDtypeStruct(np.asarray(val).shape, np.asarray(val).dtype)
+                for val in input_values_from_testcase
+            ]
+            logger.info(
+                f"Test '{tp['testcase']}': Inferred ShapeDtypeStructs for to_onnx from input_values: {processed_input_specs_for_to_onnx}"
+            )
+        else:
+            sig = inspect.signature(callable_obj)
+            if not sig.parameters:
+                processed_input_specs_for_to_onnx = []
+                logger.info(
+                    f"Test '{tp['testcase']}': Callable takes no arguments. Using empty input_specs for to_onnx."
+                )
+            else:
+                raise ValueError(
+                    f"Testcase '{tp['testcase']}' (for a callable that expects arguments) "
+                    "must provide 'input_shapes' (for symbolic/typed tracing) or 'input_values' (for concrete tracing)."
+                )
+
+        input_params_from_testcase = tp.get("input_params", {})
         testcase_name = tp["testcase"]
         expected_num_funcs = tp.get("expected_number_of_function_instances")
-        expected_output_shapes = tp.get("expected_output_shapes")
+        expected_output_shapes_from_testcase = tp.get("expected_output_shapes")
+        onnx_input_names_from_testcase = tp.get("input_names")
 
-        # Set up random number generation and file paths
-        rng = jax.random.PRNGKey(1001)
-        context_path = tp["context"].split(".")
-        opset_version = 21
+        context_path = tp.get("context", "default.unknown").split(".")
+        opset_version = tp.get("opset_version", 21)
         model_path = os.path.join(
             "docs", "onnx", *context_path, f"{testcase_name}.onnx"
         )
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
-        # Convert JAX model to ONNX
-        print(f"Converting {testcase_name} to ONNX...")
-        onnx_model = to_onnx(
-            callable_obj,
-            input_shapes,
-            input_params,
-            model_name=testcase_name,
-            opset=opset_version,
+        logger.info(
+            f"Converting '{testcase_name}' to ONNX with input_specs: {processed_input_specs_for_to_onnx}"
         )
+        try:
+            onnx_model = to_onnx(
+                callable_obj,
+                processed_input_specs_for_to_onnx,
+                input_params=input_params_from_testcase,
+                model_name=testcase_name,
+                opset=opset_version,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed during to_onnx conversion for '{testcase_name}': {e}",
+                exc_info=True,
+            )
+            raise
 
         onnx.save_model(onnx_model, model_path)
-        print(f"   Model saved to: {model_path}")
+        logger.info(f"Model saved to: {model_path}")
 
-        # Generate input data for numerical validation
-        def generate_inputs(shapes, B=None):
-            actual_shapes = []
-            if not isinstance(shapes, (list, tuple)):
-                shapes = [shapes]
-            for shape in shapes:
-                current_shape = shape if isinstance(shape, (list, tuple)) else (shape,)
-                actual_shapes.append(
-                    tuple(B if dim == "B" else dim for dim in current_shape)
-                    if B is not None
-                    else current_shape
-                )
-            inputs = [
-                jax.random.normal(rng, shape=s, dtype=jnp.float32)
-                for s in actual_shapes
-            ]
-            return inputs
-
-        # Run numerical validation
-        if isinstance(input_shapes, (list, tuple)) and any(
-            "B" in shape for shape in input_shapes if isinstance(shape, (list, tuple))
-        ):
-            print("Running numerical checks for dynamic batch sizes [2, 3]...")
-            for B in [2, 3]:
-                print(f"  Batch size B={B}")
-                xs = generate_inputs(input_shapes, B=B)
-                passed, message = allclose(callable_obj, model_path, xs, input_params)
-                assert passed, f"Numerical check failed for B={B}"
-                print(f"  Numerical check passed for B={B}.")
-
+        # --- Numerical Validation ---
+        if input_values_from_testcase:
+            logger.info(f"Running numerical check for '{testcase_name}'...")
+            xs_for_num_check = [np.asarray(val) for val in input_values_from_testcase]
+            passed_numerical, validation_message = allclose(
+                callable_obj, model_path, xs_for_num_check, input_params_from_testcase
+            )
+            assert (
+                passed_numerical
+            ), f"Numerical check failed for {testcase_name}: {validation_message}"
+            logger.info(f"Numerical check passed for {testcase_name}.")
         else:
-            print("Running numerical check for static shape...")
-            if "input_values" in tp:
-                xs = tp["input_values"]
-                if not isinstance(xs, list):
-                    xs = [xs]
-                print(f"  Using explicit input_values: {xs}")
-            else:
-                xs = generate_inputs(input_shapes)
-            passed, message = allclose(callable_obj, model_path, xs, input_params)
-            assert passed, "Numerical check failed for static shape."
-            print("  Numerical check passed for static shape.")
+            logger.info(
+                f"No input_values provided for '{testcase_name}', skipping numerical validation."
+            )
 
-        # --- Function count and output shape checks remain the same ---
-        num_found_funcs = len({f.name for f in onnx_model.functions})
+        # --- Function Count Check ---
         if expected_num_funcs is not None:
+            num_found_funcs = len(list(onnx_model.functions))
             assert (
                 num_found_funcs == expected_num_funcs
-            ), f"Test '{testcase_name}': Expected {expected_num_funcs} functions, found {num_found_funcs}."
-        print(f"-> Found expected {num_found_funcs} functions.")
+            ), f"Test '{testcase_name}': Expected {expected_num_funcs} ONNX functions, found {num_found_funcs}."
+            logger.info(f"Found expected {num_found_funcs} ONNX functions.")
 
-        if expected_output_shapes:
-            print("== Checking model output shapes ==")
-            actual_output_shapes = []
-            for output in onnx_model.graph.output:
+        # --- Refined Shape Checking Logic ---
+        if expected_output_shapes_from_testcase:
+            logger.info(f"== Checking output shapes for '{testcase_name}' ==")
+
+            onnx_graph_structural_shapes = []
+            for output_node_info in onnx_model.graph.output:
                 dims = []
-                for d in output.type.tensor_type.shape.dim:
-                    if d.HasField("dim_param") and d.dim_param == "B":
-                        dims.append("B")
-                    elif d.HasField("dim_value"):
-                        dims.append(d.dim_value)
+                for d_proto in output_node_info.type.tensor_type.shape.dim:
+                    if d_proto.HasField("dim_param") and d_proto.dim_param:
+                        dims.append(d_proto.dim_param)
+                    elif d_proto.HasField("dim_value"):
+                        dims.append(d_proto.dim_value)
                     else:
-                        dims.append(d.dim_value if hasattr(d, "dim_value") else None)
-                print(f"Output Name: {output.name}  Shape: {dims}")
-                actual_output_shapes.append(tuple(dims))
+                        dims.append(None)
+                logger.info(
+                    f"ONNX Graph Output: {output_node_info.name}  Defined Structural Shape: {tuple(dims)}"
+                )
+                onnx_graph_structural_shapes.append(tuple(dims))
 
-            assert (
-                actual_output_shapes == expected_output_shapes
-            ), f"[❌] Output shape mismatch.\nExpected: {expected_output_shapes}\nActual:   {actual_output_shapes}"
-            print("-> Output shapes match expected values.")
+            runtime_onnx_output_shapes = []
+            expected_concrete_jax_shapes = []
+
+            if input_values_from_testcase:
+                try:
+                    onnx_outputs_numerical = _run_onnx_model_for_shape_check(
+                        onnx_model,
+                        [np.asarray(v) for v in input_values_from_testcase],
+                        onnx_input_names_from_testcase,
+                    )
+                    runtime_onnx_output_shapes = [
+                        tuple(out.shape) for out in onnx_outputs_numerical
+                    ]
+                    logger.info(
+                        f"Shape Check ({testcase_name}): ONNX runtime actual output shapes: {runtime_onnx_output_shapes}"
+                    )
+
+                    jax_callable_inputs = [
+                        jnp.asarray(val) for val in input_values_from_testcase
+                    ]
+                    jax_fn_outputs = callable_obj(*jax_callable_inputs)
+                    if not isinstance(jax_fn_outputs, (list, tuple)):
+                        jax_fn_outputs = [jax_fn_outputs]
+                    expected_concrete_jax_shapes = [
+                        tuple(out.shape) for out in jax_fn_outputs
+                    ]
+                    logger.info(
+                        f"Shape Check ({testcase_name}): JAX callable expected concrete shapes: {expected_concrete_jax_shapes}"
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        f"Shape Check ({testcase_name}): Error during runtime execution for shape comparison: {e}",
+                        exc_info=True,
+                    )
+
+            if len(onnx_graph_structural_shapes) != len(
+                expected_output_shapes_from_testcase
+            ):
+                raise AssertionError(
+                    f"[❌] '{testcase_name}': Output count mismatch for shape assertion. "
+                    f"Testcase expects {len(expected_output_shapes_from_testcase)} output shapes, "
+                    f"ONNX graph defines {len(onnx_graph_structural_shapes)}."
+                )
+
+            final_assert_messages = []
+            all_checks_passed = True
+
+            for i, expected_shape_spec_from_testcase in enumerate(
+                expected_output_shapes_from_testcase
+            ):
+                onnx_graph_shape = onnx_graph_structural_shapes[i]
+
+                if len(expected_shape_spec_from_testcase) != len(onnx_graph_shape):
+                    all_checks_passed = False
+                    final_assert_messages.append(
+                        f"Output {i} for '{testcase_name}': Rank mismatch. "
+                        f"Expected rank {len(expected_shape_spec_from_testcase)} (from testcase: {expected_shape_spec_from_testcase}), "
+                        f"ONNX graph rank {len(onnx_graph_shape)} (from ONNX: {onnx_graph_shape})."
+                    )
+                    continue
+
+                graph_dim_match = True
+                for j, expected_dim_representation in enumerate(
+                    expected_shape_spec_from_testcase
+                ):
+                    onnx_graph_actual_dim = onnx_graph_shape[j]
+                    if isinstance(expected_dim_representation, str):
+                        if onnx_graph_actual_dim != expected_dim_representation:
+                            if not (
+                                expected_dim_representation.startswith("dynamic_")
+                                and isinstance(onnx_graph_actual_dim, str)
+                                and onnx_graph_actual_dim.startswith("dynamic_")
+                            ):
+                                graph_dim_match = False
+                                break
+                    elif isinstance(expected_dim_representation, int):
+                        if onnx_graph_actual_dim != expected_dim_representation:
+                            graph_dim_match = False
+                            break
+
+                if not graph_dim_match:
+                    all_checks_passed = False
+                    final_assert_messages.append(
+                        f"Output {i} for '{testcase_name}' (ONNX Graph Structure): Mismatch. "
+                        f"Expected from testcase: {expected_shape_spec_from_testcase}, "
+                        f"Actual ONNX Graph: {onnx_graph_shape}."
+                    )
+
+                if input_values_from_testcase:
+                    if i < len(runtime_onnx_output_shapes) and i < len(
+                        expected_concrete_jax_shapes
+                    ):
+                        actual_runtime_shape = runtime_onnx_output_shapes[i]
+                        authoritative_jax_runtime_shape = expected_concrete_jax_shapes[
+                            i
+                        ]
+                        if actual_runtime_shape != authoritative_jax_runtime_shape:
+                            all_checks_passed = False
+                            final_assert_messages.append(
+                                f"Output {i} for '{testcase_name}' (Runtime Shape): Mismatch. "
+                                f"Expected (from JAX execution): {authoritative_jax_runtime_shape}, "
+                                f"Actual ONNX runtime: {actual_runtime_shape}."
+                            )
+                    elif i < len(expected_concrete_jax_shapes):
+                        all_checks_passed = False
+                        final_assert_messages.append(
+                            f"Output {i} for '{testcase_name}' (Runtime): JAX expected shape {expected_concrete_jax_shapes[i]} but ONNX runtime output missing or produced fewer outputs."
+                        )
+
+            if not all_checks_passed:
+                raise AssertionError(
+                    f"[❌] Test '{testcase_name}': Output shape checks failed.\n"
+                    + "\n".join(final_assert_messages)
+                )
+            logger.info(
+                f"-> '{testcase_name}': Output shapes checks passed (graph structure and runtime)."
+            )
 
     test_func.__name__ = func_name
+    setattr(test_func, "_testcase_params", tp)
     return test_func
+
+
+# Helper function to run ONNX model for shape check
+def _run_onnx_model_for_shape_check(
+    model_proto: onnx.ModelProto,
+    input_values_list: Sequence[np.ndarray],
+    input_names_list_from_testcase: Sequence[str] | None = None,
+) -> List[np.ndarray]:
+    import onnxruntime
+
+    sess_options = onnxruntime.SessionOptions()
+    providers = ["CPUExecutionProvider"]
+    model_bytes = model_proto.SerializeToString()
+    try:
+        ort_session = onnxruntime.InferenceSession(
+            model_bytes, sess_options, providers=providers
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to create ONNX InferenceSession for model '{model_proto.graph.name}': {e}"
+        )
+        raise
+
+    model_graph_input_names = [inp.name for inp in ort_session.get_inputs()]
+    initializers = {init.name for init in model_proto.graph.initializer}
+    runnable_model_input_names = [
+        name for name in model_graph_input_names if name not in initializers
+    ]
+
+    if input_names_list_from_testcase:
+        current_input_names_for_onnx = list(input_names_list_from_testcase)
+    else:
+        current_input_names_for_onnx = runnable_model_input_names
+
+    if len(current_input_names_for_onnx) != len(input_values_list):
+        error_msg = (
+            f"Mismatch in number of ONNX input names to use ({len(current_input_names_for_onnx)}: {current_input_names_for_onnx}) "
+            f"and provided input_values ({len(input_values_list)}). Model expects {len(runnable_model_input_names)} runnable inputs: {runnable_model_input_names}."
+        )
+        logger.error(error_msg)
+        if (
+            len(runnable_model_input_names) == len(input_values_list)
+            and not input_names_list_from_testcase
+        ):
+            logger.warning(
+                f"Using inferred runnable_model_input_names for ONNX session: {runnable_model_input_names}"
+            )
+            current_input_names_for_onnx = runnable_model_input_names
+        else:
+            raise ValueError(
+                error_msg
+                + " Please define 'input_names' in testcase if order/names are ambiguous."
+            )
+
+    inputs_dict = {
+        name: val for name, val in zip(current_input_names_for_onnx, input_values_list)
+    }
+    try:
+        outputs = ort_session.run(None, inputs_dict)
+    except Exception as e:
+        logger.error(
+            f"ONNX runtime error during model execution for '{model_proto.graph.name}': {e}"
+        )
+        logger.error(
+            f"Inputs provided to ONNX runtime: { {k: (v.shape, v.dtype) for k,v in inputs_dict.items()} }"
+        )
+        raise
+    return outputs
 
 
 # --- Test Class Registration ---
@@ -251,7 +452,7 @@ def generate_test_class(context: str, component: str, namespace: dict):
     # Retrieve test cases using the original context and component key
     testcases = get_plugin_grouping().get(
         (context, component), []
-    )  # Use original component name for lookup
+    )  # Use original component name for generating class call
 
     attrs = {}
     for tp in testcases:

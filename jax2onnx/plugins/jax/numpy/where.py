@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 import jax
 import jax.numpy as jnp
 from jax import core, lax
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Var
 from onnx import helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.where")
 
 # Define the primitive for jnp.where
-jnp.where_p = Primitive("where")
+jnp.where_p = Primitive("jnp.where")
 jnp.where_p.multiple_results = False
 
 
@@ -87,8 +87,8 @@ class WherePlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
+        node_inputs: Sequence[Var],
+        node_outputs: Sequence[Var],
         params: dict[str, Any],
     ) -> None:
         # Map inputs
