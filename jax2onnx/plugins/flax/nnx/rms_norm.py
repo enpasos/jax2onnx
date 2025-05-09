@@ -9,7 +9,7 @@ import jax
 from types import SimpleNamespace
 from flax import nnx
 from jax import core
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Var
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -100,8 +100,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: List[core.Var],  # Change from List[str] to List[core.Var]
-        node_outputs: List[core.Var],  # Change from List[str] to List[core.Var]
+        node_inputs: List[Var],  # Change from List[str] to List[core.Var]
+        node_outputs: List[Var],  # Change from List[str] to List[core.Var]
         params,
     ) -> None:
         # ------------------------------------------------------------------
