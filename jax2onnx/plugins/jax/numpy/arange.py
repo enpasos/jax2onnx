@@ -5,7 +5,6 @@ import logging
 from typing import TYPE_CHECKING, Any, Sequence, Callable
 
 import numpy as np
-import jax
 import jax.numpy as jnp
 from jax import core
 from jax.extend.core import Primitive, Literal, Var  # type: ignore
