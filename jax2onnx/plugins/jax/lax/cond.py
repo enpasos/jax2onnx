@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import jax
 import numpy as np
-from jax import core, lax
+from jax import lax
 from jax.extend.core import Primitive, Var
 from onnx import helper
 

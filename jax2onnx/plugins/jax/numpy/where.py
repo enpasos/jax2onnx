@@ -3,13 +3,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
-import jax
 import jax.numpy as jnp
 from jax import core, lax
 from jax.extend.core import Primitive, Var
 from onnx import helper
 
-from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
