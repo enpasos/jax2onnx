@@ -98,8 +98,8 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
-- **0.5.4**: Some more ONNX function support ... function reuse, make graph optimizer work within functions, allow user friendly var names
-- **0.5.3**: Add `flax.linen` support
+- **Under Investigation**: Support for `flax.linen` models in `jax2onnx`.
+- **Version 0.5.3**: Enhanced ONNX function support, including function reuse, optimized graph processing within functions, and improved user-friendly variable naming.
 
 ### **Current Productive Version**
 
