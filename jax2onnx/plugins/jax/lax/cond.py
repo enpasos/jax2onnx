@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import jax
 import numpy as np
-from jax import core, lax
-from jax.extend.core import Primitive
+from jax import lax
+from jax.extend.core import Primitive, Var
 from onnx import helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -60,8 +60,8 @@ class CondPlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],  # [pred, operand]
-        node_outputs: Sequence[core.Var],
+        node_inputs: Sequence[Var],  # [pred, operand]
+        node_outputs: Sequence[Var],
         params: dict[str, Any],
     ):
         pred_var, op_var = node_inputs

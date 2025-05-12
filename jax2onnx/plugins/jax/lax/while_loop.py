@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Sequence, Callable
 import jax
 import numpy as np
 from jax import core, lax
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Var
 from onnx import helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -59,8 +59,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
+        node_inputs: Sequence[Var],
+        node_outputs: Sequence[Var],
         params: dict[str, Any],
     ):
         logger.debug(f"Attempting conversion for {while_loop_p.name}")
