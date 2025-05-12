@@ -92,7 +92,7 @@ jnp.linspace_p.def_abstract_eval(_abstract_eval_linspace_static)
     ],
     since="v0.5.2",
     context="primitives.jnp",
-    component="linspace_static",
+    component="linspace",
     testcases=[
         {
             "testcase": "linspace_static_basic",
