@@ -26,7 +26,7 @@ jnp.where_p.multiple_results = False
     onnx=[
         {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
     ],
-    since="0,5,2",
+    since="v0.5.2",
     context="primitives.jnp",
     component="where",
     testcases=[
