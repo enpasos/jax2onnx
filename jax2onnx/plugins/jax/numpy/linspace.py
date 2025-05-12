@@ -17,12 +17,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.linspace")
 
-# Define the custom primitive for jnp.linspace
-if not hasattr(jnp, "linspace_p_jax2onnx_static"):
-    jnp.linspace_p_jax2onnx_static = Primitive("jnp.linspace_jax2onnx_static")
-    jnp.linspace_p_jax2onnx_static.multiple_results = False
-else:
-    jnp.linspace_p_jax2onnx_static = getattr(jnp, "linspace_p_jax2onnx_static")
+
+jnp.linspace_p = Primitive("jnp.linspace")
+jnp.linspace_p.multiple_results = False
 
 
 def _abstract_eval_linspace_static(
@@ -81,14 +78,17 @@ def _abstract_eval_linspace_static(
     return core.ShapedArray((static_num,), output_dtype_np, weak_type=False)
 
 
-jnp.linspace_p_jax2onnx_static.def_abstract_eval(_abstract_eval_linspace_static)
+jnp.linspace_p.def_abstract_eval(_abstract_eval_linspace_static)
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.linspace_p_jax2onnx_static.name,
+    jaxpr_primitive=jnp.linspace_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.linspace.html (Static Version for jax2onnx)",
     onnx=[
-        {"component": "Constant", "doc": "n.a."},
+        {
+            "component": "Constant",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+        },
     ],
     since="v0.5.2",
     context="primitives.jnp",
@@ -129,14 +129,14 @@ jnp.linspace_p_jax2onnx_static.def_abstract_eval(_abstract_eval_linspace_static)
         },
     ],
 )
-class LinspaceStaticPlugin(PrimitiveLeafPlugin):
+class LinspacePlugin(PrimitiveLeafPlugin):
     _ORIGINAL_LINSPACE: Callable[..., Any] | None = None
 
     @staticmethod
     def abstract_eval(  # For plugin system, matches primitive's abstract_eval params
         *, static_start, static_stop, static_num, endpoint, dtype, axis
     ):
-        return jnp.linspace_p_jax2onnx_static.abstract_eval(
+        return jnp.linspace_p.abstract_eval(
             static_start=static_start,
             static_stop=static_stop,
             static_num=static_num,
@@ -147,7 +147,7 @@ class LinspaceStaticPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def get_monkey_patch(orig_fn: Callable[..., Any]):
-        LinspaceStaticPlugin._ORIGINAL_LINSPACE = orig_fn
+        LinspacePlugin._ORIGINAL_LINSPACE = orig_fn
 
         def patched_linspace_static_impl(
             start, stop, num=50, *, endpoint=True, dtype=None, axis=0
@@ -160,8 +160,8 @@ class LinspaceStaticPlugin(PrimitiveLeafPlugin):
                     f"LinspaceStaticPlugin received axis={axis}, but only supports axis=0. "
                     "Falling back to original JAX linspace if available."
                 )
-                if LinspaceStaticPlugin._ORIGINAL_LINSPACE:
-                    return LinspaceStaticPlugin._ORIGINAL_LINSPACE(
+                if LinspacePlugin._ORIGINAL_LINSPACE:
+                    return LinspacePlugin._ORIGINAL_LINSPACE(
                         start, stop, num=num, endpoint=endpoint, dtype=dtype, axis=axis
                     )
                 # If no fallback, error will be raised by abstract_eval during tracing.
@@ -179,7 +179,7 @@ class LinspaceStaticPlugin(PrimitiveLeafPlugin):
             if is_static_start and is_static_stop and is_static_num:
                 # All key inputs are Python constants.
                 # Bind them as static keyword parameters to the primitive.
-                return jnp.linspace_p_jax2onnx_static.bind(
+                return jnp.linspace_p.bind(
                     static_start=start,
                     static_stop=stop,
                     static_num=num,
@@ -193,8 +193,8 @@ class LinspaceStaticPlugin(PrimitiveLeafPlugin):
                     f"Received types: start={type(start)}, stop={type(stop)}, num={type(num)}. "
                     "Falling back to original JAX linspace if available."
                 )
-                if LinspaceStaticPlugin._ORIGINAL_LINSPACE:
-                    return LinspaceStaticPlugin._ORIGINAL_LINSPACE(
+                if LinspacePlugin._ORIGINAL_LINSPACE:
+                    return LinspacePlugin._ORIGINAL_LINSPACE(
                         start, stop, num=num, endpoint=endpoint, dtype=dtype, axis=axis
                     )
                 raise ValueError(
@@ -209,7 +209,7 @@ class LinspaceStaticPlugin(PrimitiveLeafPlugin):
         return {
             "patch_targets": [jnp],
             "target_attribute": "linspace",
-            "patch_function": LinspaceStaticPlugin.get_monkey_patch,
+            "patch_function": LinspacePlugin.get_monkey_patch,
         }
 
     def to_onnx(
