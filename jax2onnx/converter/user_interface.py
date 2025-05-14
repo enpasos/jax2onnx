@@ -1,18 +1,22 @@
 # file: jax2onnx/converter/user_interface.py
 
 from typing import Any, Callable, Dict, List, Tuple, Union
-
-import onnx
+import argparse
 import logging
 
-
+import onnx
+from jax import config
 from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 
-from jax import config
-
 config.update("jax_dynamic_shapes", True)
+
+# NEW -----------------------------------------------------------------
+_FLOAT64_HELP = (
+    "Export the entire ONNX graph in double precision (tensor(double)). "
+    "If omitted, tensors are exported in single precision (tensor(float))."
+)
 
 
 def to_onnx(
@@ -21,6 +25,8 @@ def to_onnx(
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
+    *,
+    enable_float64: bool = False,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function or model into an ONNX model.
@@ -36,6 +42,7 @@ def to_onnx(
                      'deterministic' flags.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
+        enable_float64: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
 
     Returns:
         An ONNX ModelProto object representing the converted model.
@@ -54,7 +61,7 @@ def to_onnx(
     logging.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}"
+        f"input_params={input_params}, enable_float64={enable_float64}"
     )
     # Check if inputs are shapes or actual values
 
@@ -75,7 +82,82 @@ def to_onnx(
         input_params=input_params,
         model_name=model_name,
         opset=opset,
+        enable_float64=enable_float64,
     )
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="jax2onnx",
+        description="Convert a JAX function to an ONNX model.",
+    )
+    p.add_argument("module", help="Python module containing the JAX function")
+    p.add_argument("fn", help="Name of the JAX function inside the module")
+    p.add_argument("--out", help="Output .onnx file", default="model.onnx")
+    p.add_argument("--opset", type=int, default=21, help="ONNX opset version")
+    # … other existing args …
+
+    # ──────────────── NEW FLAG ────────────────
+    p.add_argument(
+        "--float64",
+        dest="enable_float64",
+        action="store_true",
+        default=False,
+        help=_FLOAT64_HELP,
+    )
+    # ──────────────────────────────────────────
+
+    return p
+
+
+def run_command_line():
+    args = build_arg_parser().parse_args()
+
+    # Import the module and get the function
+    import importlib
+    import sys
+
+    sys.path.append(".")
+    try:
+        module = importlib.import_module(args.module)
+        function = getattr(module, args.fn)
+    except (ImportError, AttributeError) as e:
+        logging.error(f"Error loading function: {e}")
+        sys.exit(1)
+
+    # Parse input shapes or use reasonable defaults
+    input_specs = []  # Default to empty list if not specified
+    if hasattr(args, "input_shapes") and args.input_shapes:
+        try:
+            # Parse input shapes from command line
+            # This is a placeholder - actual implementation would depend on how shapes are specified
+            input_specs = eval(args.input_shapes)
+        except Exception as e:
+            logging.error(f"Error parsing input shapes: {e}")
+            sys.exit(1)
+
+    to_onnx(
+        function,  # Now properly defined
+        inputs=input_specs,  # Now properly defined
+        model_name=args.fn,
+        opset=args.opset,
+        enable_float64=args.enable_float64,
+        # … pass through any other args …
+    )
+
+    # ...existing code...
+
+
+def convert(*, enable_float64: bool = False, **kwargs):
+    """
+    Python API thin-wrapper around :pyfunc:`jax2onnx.to_onnx`.
+
+    Parameters
+    ----------
+    enable_float64 : bool, optional
+        If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
+    """
+    return to_onnx(enable_float64=enable_float64, **kwargs)
 
 
 def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:

@@ -13,6 +13,7 @@ from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
+from jax import config as jax_config  # NEW
 import jax.numpy as jnp
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
@@ -53,7 +54,7 @@ def _promote_params_to_inputs(model: onnx.ModelProto, params: Dict[str, Any] | N
 
 
 # -----------------------------------------------------------------------------
-# drop duplicate initialisers for parameters promoted to real graph inputs
+# drop duplicate initializers for parameters promoted to real graph inputs
 # -----------------------------------------------------------------------------
 def _strip_param_initializers(model, input_params):
     if not input_params:
@@ -71,33 +72,79 @@ def to_onnx(
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
-    default_dtype: Any = jnp.float32,  # Default dtype if not specified otherwise
+    *,
+    enable_float64: bool = False,  # NEW ----------
+    default_dtype: Any | None = None,
     # ... other parameters ...
 ) -> onnx.ModelProto:
     """
     Converts a JAX function into an ONNX model.
     Handles symbolic dimensions specified as strings in input shapes.
+
+    Parameters:
+    -----------
+    fn : Any
+        The JAX function to convert to ONNX.
+    inputs : Sequence[Sequence[Union[int, str]]]
+        Shapes of the input tensors. String values represent symbolic dimensions.
+    input_params : Dict[str, Any] | None, optional
+        Additional parameters to be passed to the function, by default None
+    model_name : str, optional
+        Name of the ONNX model, by default "jax_model"
+    opset : int, optional
+        ONNX opset version to target, by default 21
+    enable_float64 : bool, optional
+        If **True**, the converter keeps every tensor in double
+        precision (`tensor(double)`).  If **False** (default) the
+        graph is down-cast to single precision.
+    default_dtype : Any | None, optional
+        Default data type for inputs if not specified, by default None
+
+    Returns:
+    --------
+    onnx.ModelProto
+        The converted ONNX model
     """
     logger.info(f"Starting JAX to ONNX conversion for '{model_name}'")
     logger.debug(f"Received raw inputs (shapes): {inputs}")
     logger.debug(
         f"Received input_params: {input_params.keys() if input_params else 'None'}"
     )
-    logger.debug(f"Using default dtype: {default_dtype}")
+
+    # ------------------------------------------------------------------
+    # 1) Decide the working dtype, 2) flip JAX's global x64 switch
+    #    before we trace the function.  Needs to happen **before**
+    #    any array creation inside this call.
+    # ------------------------------------------------------------------
+    if enable_float64:
+        jax_config.update("jax_enable_x64", True)
+        # If enable_float64 is True, working_dtype MUST be float64,
+        # unless default_dtype is explicitly something else (which might be an edge case to clarify or restrict)
+        working_dtype = jnp.float64  # Prioritize float64 if enable_float64 is true
+        if default_dtype is not None and default_dtype != jnp.float64:
+            logger.warning(
+                f"enable_float64 is True, but default_dtype is {default_dtype}. Using jnp.float64."
+            )
+    else:
+        jax_config.update("jax_enable_x64", False)
+        working_dtype = jnp.float32 if default_dtype is None else default_dtype
+
+    logger.debug(
+        f"🔧 enable_float64 = {enable_float64} → working dtype = {working_dtype}"
+    )
 
     # --- Step 0: Format input_specs ---
-    # Create the list of (shape, dtype) tuples needed by the helper
-    # This assumes 'inputs' is a list of shapes and uses default_dtype.
-    # Future enhancement: Allow user to pass [(shape, dtype), ...] directly.
+    # This part correctly uses working_dtype for inputs without explicit dtype.
     try:
         input_specs: List[Tuple[Sequence[Union[int, str]], Any]] = (
             []
         )  # Use List and Tuple
         for shape_spec in inputs:
-
             shape_tuple: Tuple[Union[int, str], ...] = tuple(shape_spec)
-            # Pair the processed shape tuple with the default dtype
-            input_specs.append((shape_tuple, default_dtype))
+            # Pair the processed shape tuple with the working dtype
+            input_specs.append(
+                (shape_tuple, working_dtype)
+            )  # Correctly uses working_dtype
     except Exception as e:
         logger.error(
             f"Failed to format input shapes/dtypes. Input: {inputs}. Error: {e}",
@@ -116,13 +163,14 @@ def to_onnx(
     # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
 
-    # Initialize OnnxBuilder *without* the map argument
+    # Initialize OnnxBuilder with the enable_float64 flag
     builder = OnnxBuilder(
         unique_name_generator,
         opset=opset,
-        converter=None,
-        # Removed var_to_symbol_name_map from here
+        converter=None,  # Will be set later
+        enable_float64=enable_float64,  # Pass the flag
     )
+
     # Set the map as an attribute *after* initialization
     builder.var_to_symbol_map = var_to_symbol_map
     logger.debug(f"Set builder.var_to_symbol_map: {builder.var_to_symbol_map}")

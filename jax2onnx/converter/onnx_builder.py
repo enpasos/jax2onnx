@@ -213,6 +213,7 @@ class OnnxBuilder:
         model_name: str = "",
         initializers: list[Any] | None = None,
         converter: Any = None,  # <-- Add converter argument
+        enable_float64: bool = False,  # Add this
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
@@ -229,6 +230,10 @@ class OnnxBuilder:
         self.functions: dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.display_name_map: dict[str, str] = {}
+        self.enable_float64 = enable_float64  # Store the flag
+        self.working_dtype_onnx = (
+            onnx.TensorProto.DOUBLE if enable_float64 else onnx.TensorProto.FLOAT
+        )
 
         # Metadata for value information.
         # Update type annotations to match the more flexible type needs
@@ -429,37 +434,49 @@ class OnnxBuilder:
         return sorted(name for name in node_names if name not in known_names)
 
     def get_constant_name(self, val):
-        if isinstance(val, Literal):
+        # If val is a JAX Literal, unwrap it to its Python value
+        if isinstance(val, Literal):  # Use the correctly imported Literal
             val = val.val
 
-        # Explicit dtype logic for Python scalars
-        from onnx import TensorProto
-
+        # Determine the ONNX TensorProto type and prepare np_val
         if isinstance(val, (bool, int, float)):
-            dtype_enum = (
-                TensorProto.BOOL
-                if isinstance(val, bool)
-                else TensorProto.INT32 if isinstance(val, int) else TensorProto.FLOAT
-            )
-            np_val = np.array(
-                val,
-                dtype={
-                    TensorProto.BOOL: np.bool_,
-                    TensorProto.INT32: np.int32,
-                    TensorProto.FLOAT: np.float32,
-                }[dtype_enum],
-            )
+            # For Python scalars
+            if isinstance(val, bool):
+                np_val = np.array(val, dtype=np.bool_)
+                # onnx_dtype = TensorProto.BOOL # Inferred by helper.make_tensor from np_val.dtype
+            elif isinstance(val, int):
+                # Corrected: Default Python int to INT32 for ONNX constants
+                # This makes it more compatible with ops like Range that might expect int32
+                # if their output is int32.
+                np_val = np.array(val, dtype=np.int32)
+                # onnx_dtype = TensorProto.INT32
+            else:  # float
+                if self.enable_float64:
+                    np_val = np.array(val, dtype=np.float64)
+                    # onnx_dtype = TensorProto.DOUBLE
+                else:
+                    np_val = np.array(val, dtype=np.float32)
+                    # onnx_dtype = TensorProto.FLOAT
         else:
-            np_val = np.array(val)
-            if np_val.dtype == np.float64:
-                np_val = np_val.astype(np.float32)
-            try:
-                dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
-            except TypeError:
-                logging.warning(
-                    f"Could not convert value {val} to numpy array. Skipping initializer."
-                )
-                return self.get_unique_name("invalid_const")
+            # For NumPy arrays, JAX arrays, or other array-like objects
+            if not isinstance(val, np.ndarray):
+                np_val = np.asarray(val)  # Convert JAX arrays etc. to NumPy arrays
+            else:
+                np_val = val  # It's already a NumPy array
+
+            # Adjust float precision based on enable_float64
+            if np.issubdtype(np_val.dtype, np.floating):
+                if self.enable_float64:
+                    if np_val.dtype != np.float64:
+                        np_val = np_val.astype(np.float64)
+                else:  # not enable_float64
+                    if np_val.dtype != np.float32:
+                        # Ensure float32 if it's any other float type (e.g. float64, float16)
+                        np_val = np_val.astype(np.float32)
+            # For integer or boolean np.ndarray, their existing dtype (e.g., int32, int64, bool) is preserved.
+
+        # Get the ONNX dtype enum from numpy dtype
+        dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
 
         name = self.get_unique_instance_name("const")
         tensor = helper.make_tensor(
@@ -469,14 +486,11 @@ class OnnxBuilder:
             vals=np_val.flatten().tolist(),
         )
         self.initializers.append(tensor)
-
-        # 🚨 CRITICAL STEP: Register metadata immediately here
         self.register_value_info_metadata(
             name,
             shape=tuple(np_val.shape),
-            dtype=dtype_enum,  # dtype is ONNX enum here!
+            dtype=dtype_enum,
         )
-
         return name
 
     def reset(self) -> None:
