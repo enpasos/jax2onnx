@@ -212,9 +212,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
         padding: str,
     ) -> tuple[int, ...]:
         if isinstance(strides, int):
-            strides_tuple = (strides, strides)
+            strides_tuple: tuple[int, int] = (strides, strides)
         else:
-            strides_tuple = tuple(strides)
+            # Explicitly create a new tuple with exactly two elements
+            strides_list = list(strides)
+            strides_tuple = (strides_list[0], strides_list[1])
         N, H, W, _ = x_shape
         filter_height, filter_width, _, out_channels = kernel_shape
         if padding.upper() == "VALID":
@@ -241,13 +243,22 @@ class ConvPlugin(PrimitiveLeafPlugin):
         if ConvPlugin._ORIGINAL_CONV_CALL is None:
             raise RuntimeError("Original nnx.Conv.__call__ not captured.")
 
-        # Guarantee `Tuple[int, int]`  ⇢  silence "tuple[int, …]" complaints
-        strides_tuple: tuple[int, int] = (
-            (strides, strides) if isinstance(strides, int) else tuple(strides)  # type: ignore[arg-type]
-        )
-        dilations_tuple: tuple[int, int] = (
-            (dilations, dilations) if isinstance(dilations, int) else tuple(dilations)  # type: ignore[arg-type]
-        )
+        # Guarantee `Tuple[int, int]` ⇢ silence "tuple[int, …]" complaints
+        strides_tuple: tuple[int, int]
+        if isinstance(strides, int):
+            strides_tuple = (strides, strides)
+        else:
+            # Extract exactly two elements to ensure tuple[int, int]
+            strides_list = list(strides)
+            strides_tuple = (strides_list[0], strides_list[1])
+
+        dilations_tuple: tuple[int, int]
+        if isinstance(dilations, int):
+            dilations_tuple = (dilations, dilations)
+        else:
+            # Extract exactly two elements to ensure tuple[int, int]
+            dilations_list = list(dilations)
+            dilations_tuple = (dilations_list[0], dilations_list[1])
 
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
@@ -549,6 +560,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
         dilations: Union[int, Tuple[int, ...]],
         dimension_numbers: Any,
     ):
+        # Fix these type errors by explicitly constructing a new tuple with the precise type
+        strides_arg: Tuple[int, ...] = (
+            (strides, strides) if isinstance(strides, int) else tuple(strides)
+        )
+        dilations_arg: Tuple[int, ...] = (
+            (dilations, dilations) if isinstance(dilations, int) else tuple(dilations)
+        )
+
         # This binds to the nnx.conv_p primitive.
         # The dtypes of x, kernel, bias must match here.
         return nnx.conv_p.bind(  # type: ignore
@@ -556,9 +575,9 @@ class ConvPlugin(PrimitiveLeafPlugin):
             kernel,
             bias,
             use_bias=use_bias,
-            strides=strides,
+            strides=strides_arg,  # Pass the correctly typed tuple
             padding=padding,  # Pass JAX padding directly
-            dilations=dilations,
+            dilations=dilations_arg,  # Pass the correctly typed tuple
             dimension_numbers=dimension_numbers,
         )
 
