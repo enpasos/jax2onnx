@@ -16,7 +16,7 @@ from jax.extend.core import Literal, ClosedJaxpr
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
-from jax2onnx.utils.debug import RecordedPrimitiveCallLog  # Import the type for logging
+from jax2onnx.utils.debug import RecordedPrimitiveCallLog  # Ensure correct import
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
@@ -743,6 +743,107 @@ class Jaxpr2OnnxConverter:
                 "Registered %d primitive handlers", len(self.primitive_handlers)
             )
 
+    def log_primitive_call(
+        self,
+        eqn: extend_core.JaxprEqn,  # Updated to use jax.extend.core.JaxprEqn
+        plugin_hint: str | None,
+        current_fn_context_name: str | None = None,
+    ):
+        if not self.record_primitive_calls_file:
+            return
+
+        prim_name = str(eqn.primitive.name)
+
+        # Cleaned params and their string representation (assuming this logic exists)
+        params_cleaned = {
+            k: v for k, v in eqn.params.items() if k != "sharding"
+        }  # Example cleaning
+        params_repr_str_list = []
+        if params_cleaned:
+            for k, v_param in params_cleaned.items():
+                params_repr_str_list.append(
+                    f"  - {k}: {self._format_param_for_log(v_param)}"
+                )
+        params_repr = (
+            "\n".join(params_repr_str_list) if params_repr_str_list else "  (none)"
+        )
+
+        inputs_aval_log = []
+        inputs_jax_vars_log = []
+        inputs_onnx_names_log = []
+        for var in eqn.invars:
+            inputs_jax_vars_log.append(str(var))
+            if isinstance(var, jax.core.Literal):
+                # Represent shape and dtype for literals, ONNX name is more complex (could be constant node)
+                inputs_aval_log.append(
+                    (
+                        tuple(var.aval.shape),
+                        str(var.aval.dtype),
+                        f"Literal<val={var.val}>",
+                    )
+                )
+                # For literals, an ONNX name might be the name of a Constant node if created,
+                # or just indicate it's a literal value.
+                # If the builder has a way to get/make names for literals that become constants:
+                try:
+                    # This assumes get_name can handle literals by finding/creating a constant node name
+                    inputs_onnx_names_log.append(self.get_name(var))
+                except Exception:
+                    inputs_onnx_names_log.append("<Literal Value>")
+            else:
+                inputs_aval_log.append(
+                    (tuple(var.aval.shape), str(var.aval.dtype), type(var).__name__)
+                )
+                try:
+                    inputs_onnx_names_log.append(self.get_name(var))
+                except Exception:
+                    inputs_onnx_names_log.append("<ONNX name not found/assigned>")
+
+        outputs_aval_log = []
+        outputs_jax_vars_log = []
+        outputs_onnx_names_log = []
+        for var in eqn.outvars:
+            outputs_jax_vars_log.append(str(var))
+            outputs_aval_log.append(
+                (tuple(var.aval.shape), str(var.aval.dtype), type(var).__name__)
+            )
+            try:
+                # self.get_var_name is generally used to get/create a name for any var,
+                # including outputs that are about to be generated.
+                outputs_onnx_names_log.append(self.get_var_name(var))
+            except Exception:
+                outputs_onnx_names_log.append("<ONNX name TBD>")
+
+        self.primitive_call_counter += (
+            1  # Increment before creating log, if ID is 1-based from call
+        )
+        log_entry = RecordedPrimitiveCallLog(
+            sequence_id=self.primitive_call_counter,
+            primitive_name=prim_name,
+            plugin_file_hint=plugin_hint,
+            params=params_cleaned,
+            params_repr=params_repr,
+            inputs_aval=inputs_aval_log,
+            outputs_aval=outputs_aval_log,
+            conversion_context_fn_name=current_fn_context_name
+            or self.function_context_for_recording,
+            # New fields
+            inputs_jax_vars=inputs_jax_vars_log,
+            inputs_onnx_names=inputs_onnx_names_log,
+            outputs_jax_vars=outputs_jax_vars_log,
+            outputs_onnx_names=outputs_onnx_names_log,
+        )
+        self.recorded_calls_log.append(log_entry)
+
+    def _format_param_for_log(self, param_val: Any) -> str:
+        # Helper to format params nicely, especially large arrays or complex objects
+        if isinstance(param_val, (np.ndarray, jax.Array)):
+            if param_val.size > 10:  # Example threshold
+                return f"Array<shape={param_val.shape}, dtype={param_val.dtype}> (values hidden)"
+            return str(param_val)  # Or a more concise repr
+        # Add more types as needed (e.g., jax.ShapedArray if params can be that)
+        return repr(param_val)
+
     def _process_eqn(self, eqn: Any) -> None:
         """Process a single JAXPR equation by dispatching to the appropriate plugin handler."""
 
@@ -760,76 +861,15 @@ class Jaxpr2OnnxConverter:
         # -- record this primitive call if enabled -------------------------------------
         # ------------------------------------------------------------------------------
         if self.record_primitive_calls_file:
-            # increment sequence count
-            self.primitive_call_counter += 1
-
-            prim_name = primitive.name
-            # best-effort plugin hint
+            # Get plugin hint
             plugin_hint = self._get_plugin_file_hint(primitive)
 
-            # capture raw params and string reprs
-            params = dict(eqn.params)
-            params_repr = {k: repr(v) for k, v in eqn.params.items()}
-
-            # inputs avals
-            inputs_aval = []
-            for idx, var in enumerate(eqn.invars):
-                if hasattr(var, "aval") and hasattr(var.aval, "shape"):
-                    from jax2onnx.utils.debug import PrimitiveAvalLog
-
-                    inputs_aval.append(
-                        PrimitiveAvalLog(
-                            index=idx,
-                            shape=var.aval.shape,
-                            dtype_str=str(var.aval.dtype),
-                        )
-                    )
-                else:
-                    # Handle literals or vars without aval
-                    inputs_aval.append(
-                        PrimitiveAvalLog(
-                            index=idx,
-                            shape=(),
-                            dtype_str="unknown",
-                        )
-                    )
-
-            # outputs avals
-            outputs_aval = []
-            for idx, var in enumerate(eqn.outvars):
-                if hasattr(var, "aval") and hasattr(var.aval, "shape"):
-                    from jax2onnx.utils.debug import PrimitiveAvalLog
-
-                    outputs_aval.append(
-                        PrimitiveAvalLog(
-                            index=idx,
-                            shape=var.aval.shape,
-                            dtype_str=str(var.aval.dtype),
-                        )
-                    )
-                else:
-                    outputs_aval.append(
-                        PrimitiveAvalLog(
-                            index=idx,
-                            shape=(),
-                            dtype_str="unknown",
-                        )
-                    )
-
-            # build the log entry
-            from jax2onnx.utils.debug import RecordedPrimitiveCallLog
-
-            log_entry = RecordedPrimitiveCallLog(
-                sequence_id=self.primitive_call_counter,
-                primitive_name=prim_name,
-                plugin_file_hint=plugin_hint,
-                params=params,
-                params_repr=params_repr,
-                inputs_aval=inputs_aval,
-                outputs_aval=outputs_aval,
-                conversion_context_fn_name=self.function_context_for_recording,
+            # Use new logging method
+            self.log_primitive_call(
+                eqn=eqn,
+                plugin_hint=plugin_hint,
+                current_fn_context_name=self.function_context_for_recording,
             )
-            self.recorded_calls_log.append(log_entry)
 
             # If we've reached a threshold or it's a less common primitive,
             # write the log to file

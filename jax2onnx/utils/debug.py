@@ -1,212 +1,117 @@
 """
-Debugging utilities for jax2onnx.
+Debug utilities for jax2onnx.
 
-This module contains utilities for debugging JAX to ONNX conversion,
-including recording primitive calls and other diagnostic tools.
+This module contains utilities for debugging JAX to ONNX conversion.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Dict, Any, Optional, Union, Tuple
 import json
 import os
-from dataclasses import dataclass, field
-import numpy as np
-import datetime
+import logging
+from dataclasses import dataclass, asdict, field
 
-
-@dataclass
-class PrimitiveAvalLog:
-    """Log record for a primitive input or output abstract value."""
-
-    index: int
-    shape: Tuple[int, ...]
-    dtype_str: str
+logger = logging.getLogger("jax2onnx.utils.debug")
 
 
 @dataclass
 class RecordedPrimitiveCallLog:
-    """Log record for a primitive call during JAX to ONNX conversion."""
+    """
+    Data class for recording information about JAX primitive calls during conversion.
+    """
 
-    # Basic identification information (new format)
     sequence_id: int
     primitive_name: str
     plugin_file_hint: Optional[str] = None
-    conversion_context_fn_name: Optional[str] = None
-
-    # Input/output information (new format)
-    inputs_aval: List[PrimitiveAvalLog] = field(default_factory=list)
-    outputs_aval: List[PrimitiveAvalLog] = field(default_factory=list)
-
-    # Parameters of the primitive
     params: Dict[str, Any] = field(default_factory=dict)
-    params_repr: Dict[str, str] = field(default_factory=dict)
+    params_repr: str = ""
+    inputs_aval: List[Tuple[Tuple[Union[int, Any], ...], str, str]] = field(
+        default_factory=list
+    )
+    outputs_aval: List[Tuple[Tuple[Union[int, Any], ...], str, str]] = field(
+        default_factory=list
+    )
+    conversion_context_fn_name: Optional[str] = None
+    # New fields for detailed logging
+    inputs_jax_vars: List[str] = field(default_factory=list)
+    inputs_onnx_names: List[str] = field(default_factory=list)
+    outputs_jax_vars: List[str] = field(default_factory=list)
+    outputs_onnx_names: List[str] = field(default_factory=list)
 
-    # Legacy fields for backward compatibility
-    call_count: int = 0
-    function_context: str = ""
-    input_shapes: List[Tuple[int, ...]] = field(default_factory=list)
-    output_shapes: List[Tuple[int, ...]] = field(default_factory=list)
-    input_dtypes: List[str] = field(default_factory=list)
-    output_dtypes: List[str] = field(default_factory=list)
-    input_samples: Optional[List[Any]] = None
-    output_samples: Optional[List[Any]] = None
+    def __str__(self):
+        # Consider updating __str__ if you want these new fields in simple printouts
+        # For detailed logging to a file, direct field access is fine.
+        # This is a placeholder; actual string formatting depends on desired output.
+        input_details = "\n".join(
+            f"  - In {i}: aval={self.inputs_aval[i] if self.inputs_aval and i < len(self.inputs_aval) else 'N/A'}, "
+            f"jax_var='{self.inputs_jax_vars[i] if self.inputs_jax_vars and i < len(self.inputs_jax_vars) else 'N/A'}', "
+            f"onnx_name='{self.inputs_onnx_names[i] if self.inputs_onnx_names and i < len(self.inputs_onnx_names) else 'N/A'}'"
+            for i in range(len(self.inputs_aval or []))
+        )
+        output_details = "\n".join(
+            f"  - Out {o}: aval={self.outputs_aval[o] if self.outputs_aval and o < len(self.outputs_aval) else 'N/A'}, "
+            f"jax_var='{self.outputs_jax_vars[o] if self.outputs_jax_vars and o < len(self.outputs_jax_vars) else 'N/A'}', "
+            f"onnx_name='{self.outputs_onnx_names[o] if self.outputs_onnx_names and o < len(self.outputs_onnx_names) else 'N/A'}'"
+            for o in range(len(self.outputs_aval or []))
+        )
 
-    def __post_init__(self):
-        # For backward compatibility, fill in old fields from new ones if needed
-        if not self.call_count and self.sequence_id:
-            self.call_count = self.sequence_id
-
-        if not self.function_context and self.conversion_context_fn_name:
-            self.function_context = self.conversion_context_fn_name
-
-        if not self.input_shapes and self.inputs_aval:
-            self.input_shapes = [aval.shape for aval in self.inputs_aval]
-            self.input_dtypes = [aval.dtype_str for aval in self.inputs_aval]
-
-        if not self.output_shapes and self.outputs_aval:
-            self.output_shapes = [aval.shape for aval in self.outputs_aval]
-            self.output_dtypes = [aval.dtype_str for aval in self.outputs_aval]
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the log record to a dictionary for JSON serialization."""
-        self.__post_init__()  # Ensure all fields are populated
-
-        result = {
-            "sequence_id": self.sequence_id,
-            "primitive_name": self.primitive_name,
-            "plugin_file_hint": self.plugin_file_hint,
-            "conversion_context_fn_name": self.conversion_context_fn_name,
-            "inputs_aval": [
-                {
-                    "index": aval.index,
-                    "shape": list(aval.shape),
-                    "dtype": aval.dtype_str,
-                }
-                for aval in self.inputs_aval
-            ],
-            "outputs_aval": [
-                {
-                    "index": aval.index,
-                    "shape": list(aval.shape),
-                    "dtype": aval.dtype_str,
-                }
-                for aval in self.outputs_aval
-            ],
-            "params": {
-                k: (v if isinstance(v, (int, float, str, bool, list, dict)) else str(v))
-                for k, v in self.params.items()
-            },
-            "params_repr": self.params_repr,
-            # Legacy fields
-            "call_count": self.call_count,
-            "function_context": self.function_context,
-            "input_shapes": [list(shape) for shape in self.input_shapes],
-            "output_shapes": [list(shape) for shape in self.output_shapes],
-            "input_dtypes": self.input_dtypes,
-            "output_dtypes": self.output_dtypes,
-        }
-
-        # Handle input/output samples if present
-        if self.input_samples is not None:
-            result["input_samples"] = [
-                value.tolist() if isinstance(value, np.ndarray) else str(value)
-                for value in self.input_samples
-            ]
-
-        if self.output_samples is not None:
-            result["output_samples"] = [
-                value.tolist() if isinstance(value, np.ndarray) else str(value)
-                for value in self.output_samples
-            ]
-
-        return result
-
-
-def write_primitive_call_log(
-    recorded_calls: List[RecordedPrimitiveCallLog],
-    output_filepath: str,
-    function_context: Optional[str] = None,
-) -> None:
-    """Write a human-readable log of recorded primitive calls to a file."""
-    header_lines = []
-    header_lines.append("Primitive Call Log")
-    header_lines.append(f"Timestamp: {datetime.datetime.now().isoformat()}")
-    if function_context:
-        header_lines.append(f"Context Function: {function_context}")
-    header_lines.append("=" * 60)
-
-    with open(output_filepath, "w") as f:
-        # Write header
-        for line in header_lines:
-            f.write(line + "\n")
-        f.write("\n")
-
-        # Write each recorded call
-        for record in recorded_calls:
-            # Convert to dict to handle both dict and dataclass inputs
-            if not isinstance(record, dict):
-                record_dict = record.to_dict()
-            else:
-                record_dict = record
-
-            f.write("-" * 60 + "\n")
-            f.write(f"Call ID: {record_dict['sequence_id']}\n")
-            f.write(f"Primitive: {record_dict['primitive_name']}\n")
-            f.write(f"Plugin Hint: {record_dict.get('plugin_file_hint') or 'N/A'}\n")
-            f.write(
-                f"Context Function: {record_dict.get('conversion_context_fn_name') or 'N/A'}\n\n"
-            )
-
-            # Params
-            f.write("Parameters:\n")
-            if record_dict.get("params_repr"):
-                for k, v_repr in record_dict["params_repr"].items():
-                    f.write(f"  - {k}: {v_repr}\n")
-            else:
-                f.write("  (none)\n")
-            f.write("\n")
-
-            # Inputs
-            f.write("Inputs Aval (Shape, DType):\n")
-            for aval in record_dict.get("inputs_aval", []):
-                f.write(
-                    f"  - In {aval['index']}: shape={aval['shape']}, dtype={aval['dtype']}\n"
-                )
-            f.write("\n")
-
-            # Outputs
-            f.write("Outputs Aval (Shape, DType):\n")
-            for aval in record_dict.get("outputs_aval", []):
-                f.write(
-                    f"  - Out {aval['index']}: shape={aval['shape']}, dtype={aval['dtype']}\n"
-                )
-            f.write("\n")
-
-        # Footer
-        f.write("=" * 60 + "\n")
+        return (
+            f"------------------------------------------------------------\n"
+            f"Call ID: {self.sequence_id}\n"
+            f"Primitive: {self.primitive_name}\n"
+            f"Plugin Hint: {self.plugin_file_hint or 'N/A'}\n"
+            f"Context Function: {self.conversion_context_fn_name or 'N/A'}\n"
+            f"Parameters:\n{self.params_repr or '  (none)'}\n"
+            f"Inputs:\n{input_details if input_details else '  (none)'}\n"
+            f"Outputs:\n{output_details if output_details else '  (none)'}\n"
+        )
 
 
 def save_primitive_calls_log(
-    log_records: List[RecordedPrimitiveCallLog], file_path: str
+    log_entries: List[RecordedPrimitiveCallLog], output_file: str
 ) -> None:
     """
-    Save the primitive calls log to a JSON file.
+    Save recorded primitive call logs to a JSON file.
 
     Args:
-        log_records: List of RecordedPrimitiveCallLog objects to save
-        file_path: Path to save the log file
+        log_entries: List of RecordedPrimitiveCallLog objects
+        output_file: Path to the output file
     """
-    os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+    logger.info(f"Saving {len(log_entries)} primitive call records to {output_file}")
 
-    # Convert all records to dictionaries
-    records_as_dicts = [record.to_dict() for record in log_records]
+    # Convert dataclass objects to dictionaries
+    serializable_entries = []
+    for entry in log_entries:
+        try:
+            # Convert dataclass to dict
+            entry_dict = asdict(entry)
 
-    with open(file_path, "w") as f:
-        json.dump(records_as_dicts, f, indent=2)
+            # Make shapes JSON-serializable by converting tuples to lists
+            def make_serializable(obj):
+                if isinstance(obj, tuple):
+                    return list(make_serializable(item) for item in obj)
+                elif isinstance(obj, list):
+                    return [make_serializable(item) for item in obj]
+                elif isinstance(obj, dict):
+                    return {k: make_serializable(v) for k, v in obj.items()}
+                # Handle any other non-serializable types
+                return str(obj)
 
-    write_primitive_call_log(
-        log_records,
-        file_path,
-        function_context=(
-            log_records[0].conversion_context_fn_name if log_records else None
-        ),
-    )
+            entry_dict = make_serializable(entry_dict)
+            serializable_entries.append(entry_dict)
+        except Exception as e:
+            logger.error(
+                f"Error serializing primitive call log entry: {e}", exc_info=True
+            )
+
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+
+    # Write to file
+    try:
+        with open(output_file, "w") as f:
+            json.dump(serializable_entries, f, indent=2)
+        logger.info(f"Successfully saved primitive call log to {output_file}")
+    except Exception as e:
+        logger.error(
+            f"Error writing primitive calls log to {output_file}: {e}", exc_info=True
+        )
