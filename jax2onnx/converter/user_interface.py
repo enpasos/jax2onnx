@@ -1,6 +1,6 @@
 # file: jax2onnx/converter/user_interface.py
 
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import argparse
 import logging
 
@@ -22,11 +22,13 @@ _FLOAT64_HELP = (
 def to_onnx(
     fn: Callable,
     inputs: List[Any],
-    input_params: Dict[str, Any] | None = None,
+    input_params: Optional[Dict[str, Any]] = None,  # Made Optional more explicit
     model_name: str = "jax_model",
     opset: int = 21,
-    *,
+    *,  # All arguments after this must be keyword-only
     enable_float64: bool = False,
+    # *** ADD THE NEW KEYWORD-ONLY ARGUMENT HERE ***
+    record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function or model into an ONNX model.
@@ -43,6 +45,10 @@ def to_onnx(
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
         enable_float64: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
+        record_primitive_calls_file: Optional path to a file. If provided,
+            details of each JAX primitive encountered during conversion will be
+            recorded to this file. This log can be used by developers to manually
+            create new test cases. Defaults to None (disabled).
 
     Returns:
         An ONNX ModelProto object representing the converted model.
@@ -61,10 +67,11 @@ def to_onnx(
     logging.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}, enable_float64={enable_float64}"
+        f"input_params={input_params}, enable_float64={enable_float64}, "
+        f"record_primitive_calls_file={record_primitive_calls_file}"
     )
-    # Check if inputs are shapes or actual values
 
+    # Check if inputs are shapes or actual values
     def is_shape(x):
         return isinstance(x, (tuple, list)) and all(
             isinstance(dim, (int, str)) for dim in x
@@ -83,6 +90,7 @@ def to_onnx(
         model_name=model_name,
         opset=opset,
         enable_float64=enable_float64,
+        record_primitive_calls_file=record_primitive_calls_file,
     )
 
 
@@ -106,6 +114,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=_FLOAT64_HELP,
     )
     # ──────────────────────────────────────────
+
+    # Add new argument for primitive call recording
+    p.add_argument(
+        "--record-primitives",
+        dest="record_primitive_calls_file",
+        help="File path to record JAX primitive calls during conversion",
+        default=None,
+    )
 
     return p
 
@@ -137,18 +153,23 @@ def run_command_line():
             sys.exit(1)
 
     to_onnx(
-        function,  # Now properly defined
-        inputs=input_specs,  # Now properly defined
+        function,
+        inputs=input_specs,
         model_name=args.fn,
         opset=args.opset,
         enable_float64=args.enable_float64,
-        # … pass through any other args …
+        record_primitive_calls_file=args.record_primitive_calls_file,
     )
 
     # ...existing code...
 
 
-def convert(*, enable_float64: bool = False, **kwargs):
+def convert(
+    *,
+    enable_float64: bool = False,
+    record_primitive_calls_file: Optional[str] = None,
+    **kwargs,
+):
     """
     Python API thin-wrapper around :pyfunc:`jax2onnx.to_onnx`.
 
@@ -156,8 +177,14 @@ def convert(*, enable_float64: bool = False, **kwargs):
     ----------
     enable_float64 : bool, optional
         If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
+    record_primitive_calls_file : str, optional
+        Path to a file to record JAX primitive calls during conversion. Defaults to None.
     """
-    return to_onnx(enable_float64=enable_float64, **kwargs)
+    return to_onnx(
+        enable_float64=enable_float64,
+        record_primitive_calls_file=record_primitive_calls_file,
+        **kwargs,
+    )
 
 
 def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
@@ -195,7 +222,7 @@ def allclose(
     fn: Callable,
     onnx_model_path: str,
     inputs: List[Any],
-    input_params: Dict[str, Any] | None = None,
+    input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
 ) -> Tuple[bool, str]:
