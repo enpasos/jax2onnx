@@ -1,3 +1,6 @@
+# file: jax2onnx/plugins/jax/numpy/where.py
+
+
 from __future__ import annotations
 
 import logging
@@ -6,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 import jax.numpy as jnp
 from jax import core, lax
 from jax.extend.core import Primitive, Var
+import numpy as np
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -18,6 +22,15 @@ logger = logging.getLogger("jax2onnx.plugins.jax.numpy.where")
 # Define the primitive for jnp.where
 jnp.where_p = Primitive("jnp.where")
 jnp.where_p.multiple_results = False
+
+
+# Example definition (ensure it's globally accessible for the test generator):
+def create_problematic_where_sequence(cond_input, data_input):
+    scalar_true_val = jnp.array(1.0, dtype=data_input.dtype)
+    scalar_false_val = jnp.array(0.0, dtype=data_input.dtype)
+    where_output = jnp.where(cond_input, scalar_true_val, scalar_false_val)
+    processed_data = data_input * where_output
+    return processed_data
 
 
 @register_primitive(
@@ -46,6 +59,29 @@ jnp.where_p.multiple_results = False
             "testcase": "where_multidim_condition_scalar_branches_broadcast",
             "callable": lambda c, t, f: jnp.where(c, t, f),
             "input_shapes": [(201, 1, 1), (), ()],
+        },
+        {
+            "testcase": "where_multidim_condition_scalar_branches_broadcast",
+            "callable": lambda c, t, f: jnp.where(c, t, f),
+            "input_shapes": [(201, 1, 1), (), ()],
+        },
+        {
+            "testcase": "where_leads_to_runtime_reshape_error",
+            "callable": create_problematic_where_sequence,
+            # input_shapes are still good for clarity and if input_values are complex to write out
+            # "input_shapes": [
+            #     (201, 1, 1),    # For cond_input
+            #     (201, 1, 201)   # For data_input
+            # ],
+            "input_values": [
+                # cond_input: bool, shape (201, 1, 1)
+                np.random.choice([True, False], size=(201, 1, 1)),
+                # data_input: float, shape (201, 1, 201).
+                # This will be used as float32 for the default test,
+                # and t_generator will cast it to float64 for the "_f64" variant.
+                np.random.rand(201, 1, 201).astype(np.float32),
+            ],
+            "expected_output_shapes": [(201, 1, 201)],  # Expected JAX output shape
         },
     ],
 )
@@ -98,41 +134,16 @@ class WherePlugin(PrimitiveLeafPlugin):
             try:
                 # This is a simplified shape inference. JAX's own is more robust.
                 promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
-                # Broadcasting logic:
-                # Attempt to find a common shape. This is non-trivial.
-                # For simplicity, if shapes match, use that. If they broadcast, JAX handles it.
-                # ONNX 'Where' op also handles broadcasting.
-                # We primarily need to ensure the output dtype is correct.
-                # JAX's jax.eval_shape(jnp.where, cond_sds, x_sds, y_sds) is the most reliable
-                # way to get the output shape if we had ShapeDtypeStructs.
-                # For now, let's assume the output shape can be naively taken from x_av if it's compatible.
-                # This part needs to be robust for general broadcasting.
-                # A common approach is to use the abstract eval of the underlying lax primitive if possible.
 
-                # Simplistic: output shape is like x_av (assuming broadcasting works out)
-                # This is NOT a general solution for shape inference.
-                # output_shape = np.broadcast_shapes(cond_av.shape, x_av.shape, y_av.shape) # This might fail
-                # JAX's select_n_p abstract_eval is the correct way.
-                # If the above `lax.select_n_p.abstract_eval` failed, this fallback needs care.
-                # For now, let's assume it would have a shape related to x_av or y_av.
-                # The most important thing is the dtype.
-                # Let's rely on the fact that this path is a fallback for an error in a more correct eval.
-                if x_av.shape == y_av.shape:  # Very simple case
-                    output_shape = x_av.shape
-                else:  # Needs proper broadcasting logic, or make sure lax.select_n_p.abstract_eval works
-                    # For now, use x_av.shape as a placeholder if select_n_p failed
-                    # This might not be correct for all broadcasting scenarios.
-                    # The ONNX Where op will handle broadcasting at runtime.
-                    # The converter will add shape info based on this abstract eval.
-                    output_shape = np.broadcast_shapes(
-                        x_av.shape, y_av.shape
-                    )  # More correct broadcast
-                    # And then broadcast with condition
-                    output_shape = np.broadcast_shapes(cond_av.shape, output_shape)
+                # First, broadcast the shapes of the true/false branches
+                shape_xy = np.broadcast_shapes(x_av.shape, y_av.shape)
+
+                # Then, broadcast the result with the condition's shape
+                output_shape = np.broadcast_shapes(cond_av.shape, shape_xy)
 
                 out_aval = core.ShapedArray(output_shape, promoted_dtype)
                 logger.warning(
-                    f"Used fallback shape/dtype inference for where: {out_aval}"
+                    f"Used fallback shape/dtype inference for where (corrected): {out_aval}"
                 )
 
             except Exception as fallback_e:

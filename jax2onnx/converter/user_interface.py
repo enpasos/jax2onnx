@@ -5,7 +5,7 @@ import argparse
 import logging
 
 import onnx
-from jax import config
+from jax import config, core
 from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugin_system import onnx_function as onnx_function_impl
@@ -27,7 +27,6 @@ def to_onnx(
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
     enable_float64: bool = False,
-    # *** ADD THE NEW KEYWORD-ONLY ARGUMENT HERE ***
     record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
@@ -71,21 +70,51 @@ def to_onnx(
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
 
-    # Check if inputs are shapes or actual values
-    def is_shape(x):
-        return isinstance(x, (tuple, list)) and all(
-            isinstance(dim, (int, str)) for dim in x
-        )
+    # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
+    processed_inputs_for_impl: list
 
-    # If all inputs are shapes, use as shapes; otherwise, treat as values and infer shapes
-    if all(is_shape(x) for x in inputs):
-        input_shapes = inputs
+    if not inputs:  # Handle empty inputs list
+        processed_inputs_for_impl = []
     else:
-        input_shapes = [x.shape for x in inputs]
+        # Check if all elements are already ShapeDtypeStructs (or compatible ShapedArray)
+        if all(isinstance(x, core.ShapedArray) for x in inputs):
+            # Case 1: Inputs are already ShapeDtypeStructs (e.g., from t_generator with input_values)
+            # Preserve them as they contain both shape and dtype.
+            processed_inputs_for_impl = list(inputs)
+        else:
+            # Case 2: Inputs might be shape tuples or actual JAX/NumPy arrays.
+
+            # Define helper to check for shape tuples
+            def is_shape_tuple(item):
+                return isinstance(item, (tuple, list)) and all(
+                    isinstance(dim, (int, str)) for dim in item
+                )
+
+            if all(is_shape_tuple(x) for x in inputs):
+                # All inputs are shape tuples.
+                # to_onnx_impl will create ShapedArrays using a default dtype.
+                processed_inputs_for_impl = list(inputs)
+            else:
+                # Assume inputs are actual JAX arrays or NumPy arrays.
+                # Convert them to ShapeDtypeStructs.
+                try:
+                    import jax  # Ensure jax is imported for jax.ShapeDtypeStruct
+
+                    processed_inputs_for_impl = [
+                        jax.ShapeDtypeStruct(x.shape, x.dtype) for x in inputs
+                    ]
+                except AttributeError as e:
+                    # This might happen if the list is mixed and some items don't have .shape/.dtype
+                    # or if an item is not a ShapeDtypeStruct, not a shape tuple, and not an array.
+                    raise ValueError(
+                        "Invalid 'inputs' argument. Expected a list of JAX/NumPy arrays, "
+                        "jax.ShapeDtypeStruct objects, or shape tuples. "
+                        f"Got an element of type {type(inputs[0]) if inputs else 'Unknown'} in the list. Error: {e}"
+                    )
 
     return to_onnx_impl(
         fn=fn,
-        inputs=input_shapes,
+        inputs=processed_inputs_for_impl,
         input_params=input_params,
         model_name=model_name,
         opset=opset,

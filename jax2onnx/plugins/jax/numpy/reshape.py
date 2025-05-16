@@ -75,6 +75,29 @@ reshape_p.multiple_results = False
             "callable": lambda x: x.reshape(x.shape[0], -1),
             "input_shapes": [("B", 64, 14, 14)],
         },
+        {
+            "testcase": "reshape_valid_flatten_trailing",
+            # Reshape (N, M, K) to (N, M*K)
+            # Corrected callable for reshape_valid_flatten_trailing
+            "callable": lambda x: jnp.reshape(
+                x, (x.shape[0], x.shape[1] * x.shape[2])  # Pass new shape as a tuple
+            ),
+            "input_shapes": [(201, 1, 5)],
+        },
+        {
+            "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
+            # This tests if jax2onnx correctly handles new_sizes derived from symbolic computations,
+            # relevant to the user's directive on `dim_as_value.to_onnx`.
+            "callable": lambda x: jnp.reshape(
+                x,
+                (
+                    x.shape[0],  # Use x.shape[0] for the symbolic dimension 'N'
+                    x.shape[1]
+                    * x.shape[2],  # Use x.shape[1] for 'M', x.shape[2] for 'K'
+                ),
+            ),
+            "input_shapes": [("N", 3, 5)],  # N, M, K
+        },
     ],
 )
 class ReshapePlugin(PrimitiveLeafPlugin):

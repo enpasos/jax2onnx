@@ -219,14 +219,13 @@ def to_onnx(
 
     # if primitive-call recording was enabled, flush the log to disk
     if record_primitive_calls_file and hasattr(converter, "recorded_calls_log"):
-        from jax2onnx.utils.debug import write_primitive_call_log
+        from jax2onnx.utils.debug import save_primitive_calls_log
 
-        function_context = getattr(fn, "__name__", model_name)
+        getattr(fn, "__name__", model_name)
         # honor exactly the path the user passed in
-        write_primitive_call_log(
+        save_primitive_calls_log(
             converter.recorded_calls_log,
             record_primitive_calls_file,
-            function_context,
         )
 
     return model
