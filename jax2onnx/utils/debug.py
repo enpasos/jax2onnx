@@ -203,11 +203,9 @@ def save_primitive_calls_log(
     with open(file_path, "w") as f:
         json.dump(records_as_dicts, f, indent=2)
 
-    # Also write a human-readable version
-    human_readable_path = file_path + ".txt"
     write_primitive_call_log(
         log_records,
-        human_readable_path,
+        file_path,
         function_context=(
             log_records[0].conversion_context_fn_name if log_records else None
         ),
