@@ -6,7 +6,7 @@ to ONNX format. It provides the main Jaxpr2OnnxConverter class which traverses t
 representation of a JAX function and converts it to equivalent ONNX operations.
 """
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 import logging
 import jax
 import jax.random
@@ -16,6 +16,7 @@ from jax.extend.core import Literal, ClosedJaxpr
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
+from jax2onnx.utils.debug import RecordedPrimitiveCallLog  # Import the type for logging
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
@@ -43,9 +44,21 @@ class Jaxpr2OnnxConverter:
     # mapping from ONNX tensor name → its symbolic shape (a tuple of ints or dim-names)
     symbolic_shapes: dict[str, tuple[Union[int, str], ...]]
 
-    def __init__(self, builder: OnnxBuilder):
+    def __init__(
+        self,
+        builder: OnnxBuilder,
+        record_primitive_calls_file: Optional[str] = None,
+        function_context_for_recording: Optional[str] = None,
+    ):
         self.logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
         self.builder = builder
+        self.record_primitive_calls_file = record_primitive_calls_file
+        self.function_context_for_recording = function_context_for_recording
+
+        if self.record_primitive_calls_file:
+            self.recorded_calls_log: List[RecordedPrimitiveCallLog] = []
+            self.primitive_call_counter: int = 0
+
         setattr(self.builder, "converter", self)
         self.params: Dict[str, Any] = {}
         self.call_params: Dict[str, Any] = {}
@@ -553,6 +566,26 @@ class Jaxpr2OnnxConverter:
         self._process_jaxpr(self.jaxpr, closed.consts)
         self.logger.info("Jaxpr processing complete.")
 
+        # Write the full primitive calls log if recording was enabled
+        if (
+            self.record_primitive_calls_file
+            and hasattr(self, "recorded_calls_log")
+            and self.recorded_calls_log
+        ):
+            try:
+                self.logger.info(
+                    f"Writing {len(self.recorded_calls_log)} primitive call records to {self.record_primitive_calls_file}"
+                )
+                from jax2onnx.utils.debug import save_primitive_calls_log
+
+                save_primitive_calls_log(
+                    self.recorded_calls_log, self.record_primitive_calls_file
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to save primitive calls log: {e}", exc_info=True
+                )
+
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
         # --------------------------------------------------------------------
         # 1) Special‐case: static‐only JAXPR (e.g. `lambda x: x.shape[0]` ⇒ literal)
@@ -723,6 +756,98 @@ class Jaxpr2OnnxConverter:
         primitive = eqn.primitive
         name = primitive.name
 
+        # ------------------------------------------------------------------------------
+        # -- record this primitive call if enabled -------------------------------------
+        # ------------------------------------------------------------------------------
+        if self.record_primitive_calls_file:
+            # increment sequence count
+            self.primitive_call_counter += 1
+
+            prim_name = primitive.name
+            # best-effort plugin hint
+            plugin_hint = self._get_plugin_file_hint(primitive)
+
+            # capture raw params and string reprs
+            params = dict(eqn.params)
+            params_repr = {k: repr(v) for k, v in eqn.params.items()}
+
+            # inputs avals
+            inputs_aval = []
+            for idx, var in enumerate(eqn.invars):
+                if hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                    from jax2onnx.utils.debug import PrimitiveAvalLog
+
+                    inputs_aval.append(
+                        PrimitiveAvalLog(
+                            index=idx,
+                            shape=var.aval.shape,
+                            dtype_str=str(var.aval.dtype),
+                        )
+                    )
+                else:
+                    # Handle literals or vars without aval
+                    inputs_aval.append(
+                        PrimitiveAvalLog(
+                            index=idx,
+                            shape=(),
+                            dtype_str="unknown",
+                        )
+                    )
+
+            # outputs avals
+            outputs_aval = []
+            for idx, var in enumerate(eqn.outvars):
+                if hasattr(var, "aval") and hasattr(var.aval, "shape"):
+                    from jax2onnx.utils.debug import PrimitiveAvalLog
+
+                    outputs_aval.append(
+                        PrimitiveAvalLog(
+                            index=idx,
+                            shape=var.aval.shape,
+                            dtype_str=str(var.aval.dtype),
+                        )
+                    )
+                else:
+                    outputs_aval.append(
+                        PrimitiveAvalLog(
+                            index=idx,
+                            shape=(),
+                            dtype_str="unknown",
+                        )
+                    )
+
+            # build the log entry
+            from jax2onnx.utils.debug import RecordedPrimitiveCallLog
+
+            log_entry = RecordedPrimitiveCallLog(
+                sequence_id=self.primitive_call_counter,
+                primitive_name=prim_name,
+                plugin_file_hint=plugin_hint,
+                params=params,
+                params_repr=params_repr,
+                inputs_aval=inputs_aval,
+                outputs_aval=outputs_aval,
+                conversion_context_fn_name=self.function_context_for_recording,
+            )
+            self.recorded_calls_log.append(log_entry)
+
+            # If we've reached a threshold or it's a less common primitive,
+            # write the log to file
+            if self.primitive_call_counter % 100 == 0 or name not in {
+                "add",
+                "mul",
+                "reshape",
+            }:
+                try:
+                    from jax2onnx.utils.debug import save_primitive_calls_log
+
+                    save_primitive_calls_log(
+                        self.recorded_calls_log, self.record_primitive_calls_file
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to save primitive calls log: {e}")
+        # -- end recording hook -------------------------------------------------------
+
         # Check if it's handled by function plugins first (if applicable)
         is_function_handler = (
             name in ONNX_FUNCTION_PLUGIN_REGISTRY
@@ -768,3 +893,24 @@ class Jaxpr2OnnxConverter:
                 else:
                     # Handle literals or vars without shape info if necessary
                     pass
+
+    def _get_plugin_file_hint(self, primitive) -> Optional[str]:
+        """Get a hint about which plugin file might handle this primitive."""
+        name = primitive.name
+
+        # Check if it's in our plugin registry
+        if name in PLUGIN_REGISTRY:
+            plugin = PLUGIN_REGISTRY[name]
+            return f"{plugin.__class__.__module__}.{plugin.__class__.__name__}"
+
+        # Check function plugins
+        if name in ONNX_FUNCTION_PLUGIN_REGISTRY:
+            plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[name]
+            return f"{plugin.__class__.__module__}.{plugin.__class__.__name__}"
+
+        # Special case for pjit
+        if name == "pjit":
+            return "jax2onnx.converter.jaxpr_converter.Jaxpr2OnnxConverter._handle_pjit"
+
+        # No hint found
+        return None

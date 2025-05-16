@@ -1,7 +1,13 @@
 # In file: jax2onnx/converter/conversion_api.py
 
 # Add Tuple, Union to imports if not already present
-from typing import Any, Dict, Sequence, Union, List, Tuple  # Added Tuple, List
+from typing import (
+    Any,
+    Dict,
+    Optional,
+    Sequence,
+    Union,
+)  # Added Tuple, List
 import onnx
 import logging
 import numpy as np
@@ -73,8 +79,9 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,
-    enable_float64: bool = False,  # NEW ----------
+    enable_float64: bool = False,
     default_dtype: Any | None = None,
+    record_primitive_calls_file: Optional[str] = None,
     # ... other parameters ...
 ) -> onnx.ModelProto:
     """
@@ -134,31 +141,31 @@ def to_onnx(
     )
 
     # --- Step 0: Format input_specs ---
-    # This part correctly uses working_dtype for inputs without explicit dtype.
-    try:
-        input_specs: List[Tuple[Sequence[Union[int, str]], Any]] = (
-            []
-        )  # Use List and Tuple
-        for shape_spec in inputs:
-            shape_tuple: Tuple[Union[int, str], ...] = tuple(shape_spec)
-            # Pair the processed shape tuple with the working dtype
-            input_specs.append(
-                (shape_tuple, working_dtype)
-            )  # Correctly uses working_dtype
-    except Exception as e:
-        logger.error(
-            f"Failed to format input shapes/dtypes. Input: {inputs}. Error: {e}",
-            exc_info=True,
-        )
-        raise TypeError(
-            "Input shapes must be sequences (tuples/lists) of int or str."
-        ) from e
+    # build symbolic input avals — accept shapes, Array-like, or ShapeDtypeStruct
+    from jax import ShapeDtypeStruct
 
-    logger.debug(f"Formatted input_specs: {input_specs}")
+    normalized_specs = []
+    for spec in inputs:
+        if isinstance(spec, ShapeDtypeStruct):
+            # already has shape & dtype
+            normalized_specs.append((spec.shape, spec.dtype))
+        elif hasattr(spec, "shape") and hasattr(spec, "dtype"):
+            # real JAX/NumPy array
+            normalized_specs.append((tuple(spec.shape), spec.dtype))
+        elif isinstance(spec, (tuple, list)):
+            # plain shape tuple/list → assume working_dtype
+            normalized_specs.append((tuple(spec), working_dtype))
+        else:
+            raise TypeError(
+                f"Unsupported inputs element: {type(spec)}. "
+                "Must be shape tuple, Array, or ShapeDtypeStruct."
+            )
+
+    logger.debug(f"Normalized input_specs: {normalized_specs}")
 
     # --- Step 1: Prepare Abstract Inputs with Symbolic Dimensions ---
     # (Assumes this part is now correct)
-    symbolic_avals, var_to_symbol_map = _create_symbolic_input_avals(input_specs)
+    symbolic_avals, var_to_symbol_map = _create_symbolic_input_avals(normalized_specs)
 
     # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
@@ -176,7 +183,13 @@ def to_onnx(
     logger.debug(f"Set builder.var_to_symbol_map: {builder.var_to_symbol_map}")
 
     # Initialize Converter and link back (no change here)
-    converter = Jaxpr2OnnxConverter(builder)
+    converter = Jaxpr2OnnxConverter(
+        builder,
+        record_primitive_calls_file=record_primitive_calls_file,
+        function_context_for_recording=getattr(
+            fn, "__name__", model_name
+        ),  # carry top-level fn name or use model_name as fallback
+    )
     builder.converter = converter
 
     converter.call_params = input_params or {}
@@ -203,6 +216,18 @@ def to_onnx(
     logger.info("ONNX model conversion complete.")
 
     logger.debug(onnx.helper.printable_graph(model.graph))
+
+    # if primitive-call recording was enabled, flush the log to disk
+    if record_primitive_calls_file and hasattr(converter, "recorded_calls_log"):
+        from jax2onnx.utils.debug import write_primitive_call_log
+
+        function_context = getattr(fn, "__name__", model_name)
+        # honor exactly the path the user passed in
+        write_primitive_call_log(
+            converter.recorded_calls_log,
+            record_primitive_calls_file,
+            function_context,
+        )
 
     return model
 
