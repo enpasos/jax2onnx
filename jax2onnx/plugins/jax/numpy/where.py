@@ -42,6 +42,11 @@ jnp.where_p.multiple_results = False
             "input_shapes": [(4,), (4, 5), (4, 5)],
             "expected_output_shapes": [(4, 5)],
         },
+        {
+            "testcase": "where_multidim_condition_scalar_branches_broadcast",
+            "callable": lambda c, t, f: jnp.where(c, t, f),
+            "input_shapes": [(201, 1, 1), (), ()],
+        },
     ],
 )
 class WherePlugin(PrimitiveLeafPlugin):
