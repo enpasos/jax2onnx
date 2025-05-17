@@ -73,6 +73,7 @@ def create_problematic_where_sequence(cond_input, data_input):
                 np.random.rand(201, 1, 201).astype(np.float32),
             ],
             "expected_output_shapes": [(201, 1, 201)],
+            "expected_output_dtypes": [np.float32],
         },
         {
             "testcase": "where_B",
