@@ -1,4 +1,4 @@
-# In file: jax2onnx/converter/conversion_api.py
+# file: jax2onnx/converter/conversion_api.py
 
 # Add Tuple, Union to imports if not already present
 from typing import (
@@ -213,8 +213,27 @@ def to_onnx(
 
     logger.info("Optimizing ONNX model...")
     model = improve_onnx_model(model)
-    logger.info("ONNX model conversion complete.")
 
+    # Ensure compatibility with the ONNX Runtime version being used for testing.
+    # If the 'onnx' library (used for model creation) defaults to an IR version
+    # higher than what the testing 'onnxruntime' supports (e.g., IRv11 vs max IRv10),
+    # explicitly set the model's IR version to a compatible one.
+    # For onnxruntime 1.18.0, the max supported IR version is 10.
+    # Opset 21 (often used by jax2onnx) should correspond to IR version 10
+    # according to ONNX specifications (see onnx.helper.VERSION_TABLE).
+    # However, the `onnx` library might default to a newer IR version based on its own release.
+
+    # Target IR version for compatibility with onnxruntime that supports up to IR version 10
+    target_ir_version = 10
+    if model.ir_version > target_ir_version:
+        logger.info(
+            f"Current model IR version is {model.ir_version}. "
+            f"Setting IR version to {target_ir_version} for compatibility "
+            f"with an ONNX Runtime that supports up to IR version {target_ir_version}."
+        )
+        model.ir_version = target_ir_version
+
+    logger.info("ONNX model conversion complete.")
     logger.debug(onnx.helper.printable_graph(model.graph))
 
     # if primitive-call recording was enabled, flush the log to disk
