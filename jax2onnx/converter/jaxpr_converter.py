@@ -773,7 +773,7 @@ class Jaxpr2OnnxConverter:
         inputs_onnx_names_log = []
         for var in eqn.invars:
             inputs_jax_vars_log.append(str(var))
-            if isinstance(var, jax.core.Literal):
+            if isinstance(var, Literal):
                 # Represent shape and dtype for literals, ONNX name is more complex (could be constant node)
                 inputs_aval_log.append(
                     (

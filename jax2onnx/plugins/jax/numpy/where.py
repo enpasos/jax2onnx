@@ -66,22 +66,23 @@ def create_problematic_where_sequence(cond_input, data_input):
             "input_shapes": [(201, 1, 1), (), ()],
         },
         {
-            "testcase": "where_leads_to_runtime_reshape_error",
+            "testcase": "where_A",
             "callable": create_problematic_where_sequence,
-            # input_shapes are still good for clarity and if input_values are complex to write out
-            # "input_shapes": [
-            #     (201, 1, 1),    # For cond_input
-            #     (201, 1, 201)   # For data_input
-            # ],
             "input_values": [
-                # cond_input: bool, shape (201, 1, 1)
                 np.random.choice([True, False], size=(201, 1, 1)),
-                # data_input: float, shape (201, 1, 201).
-                # This will be used as float32 for the default test,
-                # and t_generator will cast it to float64 for the "_f64" variant.
                 np.random.rand(201, 1, 201).astype(np.float32),
             ],
-            "expected_output_shapes": [(201, 1, 201)],  # Expected JAX output shape
+            "expected_output_shapes": [(201, 1, 201)],
+        },
+        {
+            "testcase": "where_B",
+            "callable": create_problematic_where_sequence,
+            "input_values": [
+                np.random.choice([True, False], size=(201, 1, 1)),
+                np.random.rand(201, 1, 201).astype(np.int32),
+            ],
+            "expected_output_shapes": [(201, 1, 201)],
+            "expected_output_dtypes": [np.int32],
         },
     ],
 )
