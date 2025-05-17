@@ -180,6 +180,20 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                     logger.warning(
                         f"Could not cast input_values to float64 for testcase {p_f64['testcase']}: {e}"
                     )
+            # If expected_output_dtypes are provided, try to cast them to float64 for the f64 test
+            if (
+                "expected_output_dtypes" in p_f64
+                and p_f64["expected_output_dtypes"] is not None
+            ):
+                try:
+                    p_f64["expected_output_dtypes"] = [
+                        (np.float64 if np.issubdtype(dtype, np.floating) else dtype)
+                        for dtype in p_f64["expected_output_dtypes"]
+                    ]
+                except Exception as e:
+                    logger.warning(
+                        f"Could not cast expected_output_dtypes to float64 for testcase {p_f64['testcase']}: {e}"
+                    )
             final_params_list.append(p_f64)
 
     return final_params_list
@@ -226,6 +240,9 @@ def make_test_function(tp: dict[str, Any]):
         # input_shapes_from_testcase is List[Tuple[Union[str, int], ...]]
         # e.g. [("B", 28, 28, 3)] or [(2, 28, 28, 1)]
         input_shapes_from_testcase = tp.get("input_shapes")
+        expected_output_dtypes_from_testcase = tp.get(
+            "expected_output_dtypes"
+        )  # Moved this line up
 
         # Get the float64 setting for this specific test variant
         current_enable_float64 = tp.get("_enable_float64_test_setting", False)
@@ -486,6 +503,50 @@ def make_test_function(tp: dict[str, Any]):
             logger.info(
                 f"Skipping ONNX output dtype validation for '{testcase_name}' as no input_values were provided."
             )
+
+        # --- Expected Output Dtypes Validation ---
+        if expected_output_dtypes_from_testcase:
+            logger.info(
+                f"== Validating expected output dtypes for '{testcase_name}' =="
+            )
+            if len(onnx_model.graph.output) != len(
+                expected_output_dtypes_from_testcase
+            ):
+                raise AssertionError(
+                    f"Test '{testcase_name}': Output count mismatch for dtype validation. "
+                    f"Expected {len(expected_output_dtypes_from_testcase)} output dtypes, "
+                    f"ONNX model has {len(onnx_model.graph.output)} outputs."
+                )
+
+            for i, expected_dtype_np in enumerate(expected_output_dtypes_from_testcase):
+                onnx_output_vi = onnx_model.graph.output[i]
+                actual_onnx_dtype_enum = onnx_output_vi.type.tensor_type.elem_type
+
+                # Convert expected numpy dtype to ONNX enum for comparison
+                # Ensure expected_dtype_np is a numpy.dtype object
+                if not isinstance(expected_dtype_np, np.dtype):
+                    try:
+                        expected_dtype_np = np.dtype(expected_dtype_np)
+                    except TypeError:
+                        raise TypeError(
+                            f"Test '{testcase_name}', output {i}: Expected dtype {expected_dtype_np} is not a valid numpy dtype."
+                        )
+
+                expected_onnx_dtype_enum = onnx.mapping.NP_TYPE_TO_TENSOR_TYPE.get(
+                    expected_dtype_np
+                )
+
+                if expected_onnx_dtype_enum is None:
+                    raise ValueError(
+                        f"Test '{testcase_name}', output {i}: Could not map expected numpy dtype {expected_dtype_np} to ONNX dtype."
+                    )
+
+                assert actual_onnx_dtype_enum == expected_onnx_dtype_enum, (
+                    f"Test '{testcase_name}', output '{onnx_output_vi.name}' (index {i}): "
+                    f"Expected ONNX output dtype {onnx.TensorProto.DataType.Name(expected_onnx_dtype_enum)} (from expected_output_dtypes), "
+                    f"but got ONNX dtype {onnx.TensorProto.DataType.Name(actual_onnx_dtype_enum)}."
+                )
+            logger.info(f"Expected output dtypes validated for '{testcase_name}'.")
 
         # --- Refined Shape Checking Logic ---
         if expected_output_shapes_from_testcase:
