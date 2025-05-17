@@ -93,6 +93,16 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         logger.debug(f"Skipping entry, no callable: {entry.get('testcase', 'Unknown')}")
         return []
 
+    # ---- Sanity check for the new optional field ---------------------------------
+    entry_input_dtypes = entry.get("input_dtypes")
+    if entry_input_dtypes is not None and len(entry_input_dtypes) != len(
+        entry.get("input_shapes", [])
+    ):
+        raise ValueError(
+            f"[metadata] In testcase '{entry.get('testcase')}' the "
+            "`input_dtypes` list must have the same length as `input_shapes`."
+        )
+
     # Part 1: Handle dynamic vs. concrete shapes
     # entry_input_shapes is typically List[Tuple[Union[str, int], ...]]
     # e.g., entry_input_shapes = [("B", 28, 28, 3)]
@@ -194,6 +204,19 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                     logger.warning(
                         f"Could not cast expected_output_dtypes to float64 for testcase {p_f64['testcase']}: {e}"
                     )
+
+            # --- NEW: cast input_dtypes to float64 where applicable ---------------
+            if "input_dtypes" in p_f64 and p_f64["input_dtypes"] is not None:
+                try:
+                    p_f64["input_dtypes"] = [
+                        (np.float64 if np.issubdtype(dt, np.floating) else dt)
+                        for dt in p_f64["input_dtypes"]
+                    ]
+                except Exception as e:  # pragma: no cover
+                    logger.warning(
+                        f"Could not cast input_dtypes to float64 for "
+                        f"testcase {p_f64['testcase']}: {e}"
+                    )
             final_params_list.append(p_f64)
 
     return final_params_list
@@ -240,6 +263,7 @@ def make_test_function(tp: dict[str, Any]):
         # input_shapes_from_testcase is List[Tuple[Union[str, int], ...]]
         # e.g. [("B", 28, 28, 3)] or [(2, 28, 28, 1)]
         input_shapes_from_testcase = tp.get("input_shapes")
+        input_dtypes_from_testcase = tp.get("input_dtypes")
         expected_output_dtypes_from_testcase = tp.get(
             "expected_output_dtypes"
         )  # Moved this line up
@@ -247,34 +271,53 @@ def make_test_function(tp: dict[str, Any]):
         # Get the float64 setting for this specific test variant
         current_enable_float64 = tp.get("_enable_float64_test_setting", False)
         # Determine default JAX dtype based on the flag for tracing if shapes are given without dtypes
-        default_jax_dtype_for_tracing = (
-            jnp.float64 if current_enable_float64 else jnp.float32
-        )
 
         # processed_input_specs_for_to_onnx will be List[Union[ShapeDtypeStruct, Tuple[Shape, Dtype]]]
         # to_onnx expects List[Tuple[Shape, Dtype]] or List[ShapeDtypeStruct]
         processed_input_specs_for_to_onnx: List[Any]
 
         if input_shapes_from_testcase is not None:
-            # input_shapes_from_testcase is List[Tuple[Dim,...]]
-            # We need to pair them with a dtype for to_onnx's `inputs` argument.
-            # The dtype should be default_jax_dtype_for_tracing.
+            # -------- Shapes given ------------------------------------------------
             processed_input_specs_for_to_onnx = []
-            for shape_spec in input_shapes_from_testcase:
-                # Ensure shape_spec is a tuple
-                current_shape_tuple = (
-                    tuple(shape_spec)
-                    if isinstance(shape_spec, (list, tuple))
-                    else (shape_spec,)
+            if input_dtypes_from_testcase:
+                # ---- NEW: honour the dtype list ----------------------------------
+                if len(input_dtypes_from_testcase) != len(input_shapes_from_testcase):
+                    raise ValueError(
+                        f"Testcase '{tp['testcase']}' – "
+                        "`input_dtypes` length must match `input_shapes`."
+                    )
+                for shape_spec, dt in zip(
+                    input_shapes_from_testcase, input_dtypes_from_testcase
+                ):
+                    current_shape_tuple = (
+                        tuple(shape_spec)
+                        if isinstance(shape_spec, (list, tuple))
+                        else (shape_spec,)
+                    )
+                    if current_enable_float64 and np.issubdtype(dt, np.floating):
+                        dt = jnp.float64
+                    processed_input_specs_for_to_onnx.append(
+                        jax.ShapeDtypeStruct(current_shape_tuple, dt)
+                    )
+                logger.info(
+                    f"Test '{tp['testcase']}': Using ShapeDtypeStructs from "
+                    "`input_shapes` + `input_dtypes`: "
+                    f"{processed_input_specs_for_to_onnx}."
                 )
-                processed_input_specs_for_to_onnx.append(
-                    current_shape_tuple
-                )  # This will be passed to to_onnx, which expects shapes
-
-            logger.info(
-                f"Test '{tp['testcase']}': Using explicit input_shapes from testcase: {processed_input_specs_for_to_onnx}. "
-                f"enable_float64={current_enable_float64}, implies default JAX dtype for tracing: {default_jax_dtype_for_tracing}"
-            )
+            else:
+                # ---- legacy path: only shapes, no dtypes -------------------------
+                for shape_spec in input_shapes_from_testcase:
+                    current_shape_tuple = (
+                        tuple(shape_spec)
+                        if isinstance(shape_spec, (list, tuple))
+                        else (shape_spec,)
+                    )
+                    processed_input_specs_for_to_onnx.append(current_shape_tuple)
+                logger.info(
+                    f"Test '{tp['testcase']}': Using explicit input_shapes from "
+                    "testcase (no dtype list supplied): "
+                    f"{processed_input_specs_for_to_onnx}."
+                )
         elif input_values_from_testcase is not None:
             shapes_from_values = []  # This list will hold ShapeDtypeStructs
             for val in input_values_from_testcase:
@@ -385,9 +428,50 @@ def make_test_function(tp: dict[str, Any]):
                 passed_numerical
             ), f"Numerical check failed for {testcase_name} (enable_float64={current_enable_float64}): {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
+        elif input_shapes_from_testcase and input_dtypes_from_testcase:
+            # -------- NEW: synthesise inputs for numerical check -----------------
+            def _rand(shape, dtype):
+                if np.issubdtype(dtype, np.floating):
+                    return np.random.randn(*shape).astype(
+                        jnp.float64
+                        if (
+                            current_enable_float64 and np.issubdtype(dtype, np.floating)
+                        )
+                        else dtype
+                    )
+                elif np.issubdtype(dtype, np.integer):
+                    return np.zeros(shape, dtype=dtype)  # keeps indices in range
+                elif dtype == np.bool_:
+                    return np.random.rand(*shape) > 0.5
+                else:
+                    return np.random.randn(*shape).astype(dtype)
+
+            xs_for_num_check = [
+                _rand(tuple(shp), dt)
+                for shp, dt in zip(
+                    input_shapes_from_testcase, input_dtypes_from_testcase
+                )
+            ]
+
+            rtol = 1e-7 if current_enable_float64 else 1e-5
+            atol = 1e-7 if current_enable_float64 else 1e-5
+
+            passed_numerical, validation_message = allclose(
+                callable_obj,
+                model_path,
+                xs_for_num_check,
+                input_params_from_testcase,
+                rtol=rtol,
+                atol=atol,
+            )
+            assert (
+                passed_numerical
+            ), f"Numerical check failed for {testcase_name} (enable_float64={current_enable_float64}): {validation_message}"
+            logger.info(f"Numerical check passed for {testcase_name}.")
         else:
             logger.info(
-                f"No input_values provided for '{testcase_name}', skipping numerical validation."
+                f"No concrete inputs available for '{testcase_name}', "
+                "skipping numerical validation."
             )
 
         # --- Function Count Check ---
