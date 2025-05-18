@@ -29,7 +29,7 @@ scatter_add_p = lax.scatter_add_p
             "attributes": ["reduction='add'"],
         }
     ],
-    since="0.5.0",
+    since="v0.5.3",
     context="primitives.lax",
     component="scatter_add",
     testcases=[
