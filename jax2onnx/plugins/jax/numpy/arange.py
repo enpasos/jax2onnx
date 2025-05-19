@@ -62,7 +62,7 @@ else:
 
 
 def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = None):
-    logger.debug(f"--- ARANGE abstract_eval_arange_dynamic (direct log) ---")
+    logger.debug("--- ARANGE abstract_eval_arange_dynamic (direct log) ---")
     logger.debug(f"Called with jax_enable_x64: {jax_config.jax_enable_x64}")
     logger.debug(f"Explicit dtype parameter: {dtype}")
     logger.debug(f"Number of in_avals: {len(in_avals)}")
@@ -74,7 +74,7 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
         )
     logger.debug(f"Checking against Literal type: {Literal} (from jax.extend.core)")
 
-    logger.debug(f"--- ARANGE abstract_eval_arange_dynamic ---")
+    logger.debug("--- ARANGE abstract_eval_arange_dynamic ---")
     logger.debug(f"Called with jax_enable_x64: {jax_config.jax_enable_x64}")
     logger.debug(f"Explicit dtype parameter: {dtype}")
     logger.debug(f"Number of in_avals: {len(in_avals)}")

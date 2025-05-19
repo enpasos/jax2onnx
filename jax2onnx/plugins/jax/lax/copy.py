@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Sequence
 
 from jax import lax, core
 import numpy as np
-from onnx import helper  # onnx.helper is used by builder.create_node internally
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
