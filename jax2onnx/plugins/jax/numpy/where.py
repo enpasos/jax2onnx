@@ -85,6 +85,25 @@ def create_problematic_where_sequence(cond_input, data_input):
             "expected_output_shapes": [(201, 1, 201)],
             "expected_output_dtypes": [np.int32],
         },
+        {
+            "testcase": "where_jax_int_literals_broadcast_f64_mode",  # Base name
+            "callable": lambda c, x_scalar_py, y_scalar_py: jnp.where(
+                c,
+                jnp.array(x_scalar_py, dtype=jnp.int64),
+                jnp.array(y_scalar_py, dtype=jnp.int64),
+            ),
+            "input_values": [
+                np.array([[True], [False], [True]], dtype=np.bool_),
+                1,  # Python int for x
+                0,  # Python int for y
+            ],
+            "expected_output_shapes": [(3, 1)],
+            "expected_output_dtypes": [np.int64],
+            "run_only_f64_variant": True,  # <<< ADD THIS FLAG
+            # This test, now named 'test_where_jax_int_literals_broadcast_f64_mode',
+            # will run *only* with enable_float64=True.
+            # We expect it to FAIL at ONNX model load time.
+        },
     ],
 )
 class WherePlugin(PrimitiveLeafPlugin):

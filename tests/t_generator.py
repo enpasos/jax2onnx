@@ -163,21 +163,81 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     # Part 2: For each base parameter set from Part 1, create float32 and float64 variants
     final_params_list: List[Dict[str, Any]] = []
     for base_param_set in intermediate_params_list:
-        # Default (float32)
-        p_f32 = base_param_set.copy()
-        p_f32["_enable_float64_test_setting"] = False
-        # Testcase name for f32 is usually the base name (e.g., "test_conv_basic" or "test_conv_basic_dynamic")
-        final_params_list.append(p_f32)
+        run_only_f64_variant = base_param_set.get("run_only_f64_variant", False)
+        disable_float64_test_from_meta = base_param_set.get(
+            "disable_float64_test", False
+        )  # Existing flag
 
-        # Float64 variant, only if not explicitly disabled by test metadata
-        if not base_param_set.get("disable_float64_test", False):
-            p_f64 = base_param_set.copy()
-            p_f64["testcase"] += "_f64"  # Add suffix for the float64 test case name
-            p_f64["_enable_float64_test_setting"] = True
+        # Determine if the test case involves any floating point dtypes in its inputs or expected outputs
+        # Simplified check based on presence of float in input_dtypes or expected_output_dtypes
+        is_float_test = False
+        if base_param_set.get("input_dtypes"):
+            if any(
+                np.issubdtype(dt, np.floating)
+                for dt in base_param_set.get("input_dtypes")
+            ):
+                is_float_test = True
+        if not is_float_test and base_param_set.get("expected_output_dtypes"):
+            if any(
+                np.issubdtype(dt, np.floating)
+                for dt in base_param_set.get("expected_output_dtypes")
+            ):
+                is_float_test = True
 
-            # If input_values are provided, try to cast them to float64 for the f64 test
-            if "input_values" in p_f64 and p_f64["input_values"] is not None:
-                try:
+        if run_only_f64_variant:
+            # Only generate the float64 enabled variant, using the original testcase name
+            p_f64_only = base_param_set.copy()
+            p_f64_only["_enable_float64_test_setting"] = True
+            # testcase name remains p_f64_only["testcase"] (no suffix)
+
+            # Apply float64 casting to values/dtypes for this variant if it's a float test
+            if (
+                is_float_test or True
+            ):  # Apply always if only_f64 is true to ensure dtypes are set for float64 mode
+                if (
+                    "input_values" in p_f64_only
+                    and p_f64_only["input_values"] is not None
+                ):
+                    p_f64_only["input_values"] = [
+                        (
+                            np.array(val, dtype=np.float64)
+                            if np.issubdtype(np.array(val).dtype, np.floating)
+                            else np.array(val)
+                        )
+                        for val in p_f64_only["input_values"]
+                    ]
+                if (
+                    "expected_output_dtypes" in p_f64_only
+                    and p_f64_only["expected_output_dtypes"] is not None
+                ):
+                    p_f64_only["expected_output_dtypes"] = [
+                        (np.float64 if np.issubdtype(dtype, np.floating) else dtype)
+                        for dtype in p_f64_only["expected_output_dtypes"]
+                    ]
+                if (
+                    "input_dtypes" in p_f64_only
+                    and p_f64_only["input_dtypes"] is not None
+                ):
+                    p_f64_only["input_dtypes"] = [
+                        (np.float64 if np.issubdtype(dt, np.floating) else dt)
+                        for dt in p_f64_only["input_dtypes"]
+                    ]
+            final_params_list.append(p_f64_only)
+        else:
+            # Default behavior: generate f32 variant (base name)
+            p_f32 = base_param_set.copy()
+            p_f32["_enable_float64_test_setting"] = False
+            # testcase name remains base_param_set["testcase"]
+            final_params_list.append(p_f32)
+
+            # And f64 variant if applicable (and not disabled)
+            if not disable_float64_test_from_meta:  # Check existing flag
+                # Check if this test involves floats, only add _f64 variant if it does.
+                p_f64 = base_param_set.copy()
+                p_f64["testcase"] += "_f64"  # Add suffix
+                p_f64["_enable_float64_test_setting"] = True
+
+                if "input_values" in p_f64 and p_f64["input_values"] is not None:
                     p_f64["input_values"] = [
                         (
                             np.array(val, dtype=np.float64)
@@ -186,38 +246,20 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                         )
                         for val in p_f64["input_values"]
                     ]
-                except Exception as e:
-                    logger.warning(
-                        f"Could not cast input_values to float64 for testcase {p_f64['testcase']}: {e}"
-                    )
-            # If expected_output_dtypes are provided, try to cast them to float64 for the f64 test
-            if (
-                "expected_output_dtypes" in p_f64
-                and p_f64["expected_output_dtypes"] is not None
-            ):
-                try:
+                if (
+                    "expected_output_dtypes" in p_f64
+                    and p_f64["expected_output_dtypes"] is not None
+                ):
                     p_f64["expected_output_dtypes"] = [
                         (np.float64 if np.issubdtype(dtype, np.floating) else dtype)
                         for dtype in p_f64["expected_output_dtypes"]
                     ]
-                except Exception as e:
-                    logger.warning(
-                        f"Could not cast expected_output_dtypes to float64 for testcase {p_f64['testcase']}: {e}"
-                    )
-
-            # --- NEW: cast input_dtypes to float64 where applicable ---------------
-            if "input_dtypes" in p_f64 and p_f64["input_dtypes"] is not None:
-                try:
+                if "input_dtypes" in p_f64 and p_f64["input_dtypes"] is not None:
                     p_f64["input_dtypes"] = [
                         (np.float64 if np.issubdtype(dt, np.floating) else dt)
                         for dt in p_f64["input_dtypes"]
                     ]
-                except Exception as e:  # pragma: no cover
-                    logger.warning(
-                        f"Could not cast input_dtypes to float64 for "
-                        f"testcase {p_f64['testcase']}: {e}"
-                    )
-            final_params_list.append(p_f64)
+                final_params_list.append(p_f64)
 
     return final_params_list
 
@@ -1040,6 +1082,10 @@ if __name__ == "__main__":
     # Ensure JAX/ONNX and other dependencies are available in the environment.
     # It's good practice to also import and configure logging here if not done by an imported module.
     # For example:
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+    logger.info("Running t_generator.py script...")
+    generate_all_tests()
     # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
     logger.info("Running t_generator.py script...")
