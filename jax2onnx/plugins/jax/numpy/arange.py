@@ -12,7 +12,7 @@ from jax import core
 from jax import config as jax_config
 
 # Correctly import Literal from jax.extend.core
-from jax.extend.core import Primitive, Literal as JaxExtendLiteral, Var  # type: ignore
+from jax.extend.core import Primitive  # type: ignore
 
 from onnx import helper
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -84,8 +84,8 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
         is_float_inferred = False
         for aval_for_dtype in in_avals:
             val_to_check_for_dtype = None
-            # Use JaxExtendLiteral (imported as Literal)
-            if isinstance(aval_for_dtype, JaxExtendLiteral):
+
+            if isinstance(aval_for_dtype, Primitive):
                 val_to_check_for_dtype = aval_for_dtype.val
             elif hasattr(aval_for_dtype, "dtype"):
                 if jnp.issubdtype(aval_for_dtype.dtype, np.floating):
@@ -108,8 +108,8 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
         )
 
     try:
-        # Use JaxExtendLiteral (imported as Literal)
-        if not all(isinstance(aval, JaxExtendLiteral) for aval in in_avals):
+
+        if not all(isinstance(aval, Primitive) for aval in in_avals):
             logger.debug(
                 "Arange abstract_eval: Not all inputs are Literals "
                 f"(types: {[type(av) for av in in_avals]}). Defaulting to dynamic shape."
@@ -379,8 +379,8 @@ class ArangePlugin(PrimitiveLeafPlugin):
             var: core.Var | None, default_py_value: Any | None
         ) -> str:
             if var is not None:
-                # Use JaxExtendLiteral (imported as Literal)
-                if isinstance(var.aval, JaxExtendLiteral):
+
+                if isinstance(var.aval, Primitive):
                     # Create constant with the target dtype_np
                     typed_const_val = np.array(var.aval.val, dtype=dtype_np)
                     return s.get_constant_name(typed_const_val)
