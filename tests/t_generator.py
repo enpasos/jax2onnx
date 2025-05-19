@@ -10,8 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import logging
-
-# from logging_config import configure_logging # Assuming this is handled elsewhere or not strictly needed for this fix
+from logging_config import (
+    configure_logging,
+)  # Assuming this is handled elsewhere or not strictly needed for this fix
 
 from jax2onnx import allclose
 from jax2onnx.converter.user_interface import to_onnx
@@ -298,7 +299,7 @@ def make_test_function(tp: dict[str, Any]):
     func_name = f"test_{test_case_name_safe}"
 
     def test_func(self=None):  # Pytest will inject 'self' if it's a method of a class
-        # configure_logging() # Call once if needed, or ensure logger is configured globally
+        configure_logging()  # Call once if needed, or ensure logger is configured globally
 
         callable_obj = tp["callable"]
         input_values_from_testcase = tp.get("input_values")
@@ -677,9 +678,6 @@ def make_test_function(tp: dict[str, Any]):
         # --- Refined Shape Checking Logic ---
         if expected_output_shapes_from_testcase:
             logger.info(f"== Checking output shapes for '{testcase_name}' ==")
-            # ... (existing shape checking logic, should be fine) ...
-            # The existing shape checking logic seems robust and independent of dtype.
-            # It compares ONNX graph structural shapes and runtime shapes against testcase expectations.
 
             onnx_graph_structural_shapes = []
             for output_node_info in onnx_model.graph.output:
@@ -699,6 +697,35 @@ def make_test_function(tp: dict[str, Any]):
             runtime_onnx_output_shapes = []
             expected_concrete_jax_shapes = []
 
+            # Determine the effective expected output shapes for the ONNX graph structure
+            effective_expected_output_shapes = list(
+                expected_output_shapes_from_testcase
+            )  # Default to original
+
+            if (
+                current_enable_float64
+            ):  # current_enable_float64 is tp.get("_enable_float64_test_setting", False)
+                x64_specific_expected_shapes = tp.get("x64_expected_output_shapes")
+                if x64_specific_expected_shapes is not None:
+                    logger.info(
+                        f"Test '{testcase_name}': Using x64_expected_output_shapes: {x64_specific_expected_shapes} "
+                        f"due to current_enable_float64={current_enable_float64}."
+                    )
+                    effective_expected_output_shapes = list(
+                        x64_specific_expected_shapes
+                    )
+                elif tp.get(
+                    "shape_dynamic_on_x64"
+                ):  # Legacy or alternative flag, if you used it previously
+                    logger.warning(
+                        f"Test '{testcase_name}': Legacy flag 'shape_dynamic_on_x64' found. "
+                        f"Adjusting expectation to dynamic for x64."
+                    )
+                    if effective_expected_output_shapes:  # Ensure not empty
+                        effective_expected_output_shapes[0] = (
+                            "JAX2ONNX_DYNAMIC_DIM_SENTINEL",
+                        )
+
             if input_values_from_testcase:
                 try:
                     # Use the same potentially float64 inputs for ONNX runtime
@@ -717,51 +744,49 @@ def make_test_function(tp: dict[str, Any]):
                         f"Shape Check ({testcase_name}): ONNX runtime actual output shapes: {runtime_onnx_output_shapes}"
                     )
 
-                    # JAX callable inputs should also match the float64 setting for this run
-                    # jax_callable_inputs are already prepared as jax_eval_inputs_sds (ShapeDtypeStructs)
-                    # For actual JAX execution, we need jnp arrays
-                    jax_concrete_inputs = []
-                    for (
-                        sds
-                    ) in jax_eval_inputs_sds:  # These were prepared for eval_shape
-                        # Create dummy JAX arrays with the correct shape and dtype for this test variant
-                        # This is only for getting JAX output shapes; numerical check uses input_values directly.
-                        jax_concrete_inputs.append(
-                            jnp.zeros(sds.shape, dtype=sds.dtype)
-                        )
-
-                    # Re-evaluate JAX function with concrete shapes and dtypes for this test variant
-                    # Use the same eval_target_jax_func as in dtype checking
-
-                    jax_concrete_inputs = []
-                    if input_values_from_testcase:  # Should be true for this test
-                        for idx, val_spec in enumerate(input_values_from_testcase):
-                            # Use the dtype from jax_eval_inputs_sds which respects current_enable_float64
-                            target_dtype = jax_eval_inputs_sds[idx].dtype
-                            jax_concrete_inputs.append(
-                                jnp.asarray(
-                                    val_spec, dtype=target_dtype
-                                )  # Use actual value
+                    # --- Code to get JAX-side concrete shapes for comparison ---
+                    jax_concrete_inputs_for_exec = []
+                    if (
+                        input_values_from_testcase
+                    ):  # If the testcase provides concrete input values
+                        # Ensure these values are JAX arrays with dtypes reflecting current_enable_float64
+                        # jax_eval_inputs_sds was prepared earlier with correct dtypes for this.
+                        if len(input_values_from_testcase) != len(jax_eval_inputs_sds):
+                            raise ValueError(  # Should not happen if jax_eval_inputs_sds derived correctly
+                                f"Internal inconsistency: input_values_from_testcase length ({len(input_values_from_testcase)}) "
+                                f"does not match jax_eval_inputs_sds length ({len(jax_eval_inputs_sds)}) for {testcase_name}."
                             )
-                    else:  # Fallback, or for tests with no input_values (like static arange)
-                        for (
-                            sds
-                        ) in (
-                            jax_eval_inputs_sds
-                        ):  # jax_eval_inputs_sds would be empty for static arange
-                            jax_concrete_inputs.append(
+                        for idx, val_spec in enumerate(input_values_from_testcase):
+                            # Use the dtype from jax_eval_inputs_sds, as it correctly considers current_enable_float64
+                            sds_for_dtype = jax_eval_inputs_sds[idx]
+                            jax_concrete_inputs_for_exec.append(
+                                jnp.asarray(val_spec, dtype=sds_for_dtype.dtype)
+                            )
+                    # If input_values_from_testcase is empty, but jax_eval_inputs_sds is not (e.g. from input_shapes):
+                    elif (
+                        jax_eval_inputs_sds
+                    ):  # This case is for tests specified by shapes, not static arange with no args
+                        for sds in jax_eval_inputs_sds:
+                            # For shape-based tracing to get JAX output shapes, zeros are fine.
+                            jax_concrete_inputs_for_exec.append(
                                 jnp.zeros(sds.shape, dtype=sds.dtype)
                             )
+                    # If both are empty (e.g. for static arange like `lambda: jnp.arange(5)`),
+                    # jax_concrete_inputs_for_exec remains empty, which is correct.
 
-                    # If callable_obj takes no arguments but input_values_from_testcase was empty (e.g. static test)
-                    # jax_concrete_inputs should be empty.
-                    # The original eval_target_jax_func(*jax_concrete_inputs) should handle this.
-                    # For static tests (like lambda: jnp.arange(5)), jax_eval_inputs_sds and input_values_from_testcase are empty.
-                    # So jax_concrete_inputs will also be empty, which is correct for calling such a lambda.
-
-                    jax_fn_outputs_for_shape = eval_target_jax_func(
-                        *jax_concrete_inputs
-                    )
+                    # Temporarily enable x64 for this JAX execution if current_enable_float64 is set for the test variant
+                    if current_enable_float64:
+                        with jax.config.update("jax_enable_x64", True):
+                            jax_fn_outputs_for_shape = eval_target_jax_func(
+                                *jax_concrete_inputs_for_exec
+                            )
+                    else:
+                        # Ensure x64 is disabled if not set for the test variant
+                        # (assuming default might be True or to avoid interference from previous tests)
+                        with jax.config.update("jax_enable_x64", False):
+                            jax_fn_outputs_for_shape = eval_target_jax_func(
+                                *jax_concrete_inputs_for_exec
+                            )
 
                     if not isinstance(jax_fn_outputs_for_shape, (list, tuple)):
                         jax_fn_outputs_for_shape = [jax_fn_outputs_for_shape]
@@ -778,49 +803,80 @@ def make_test_function(tp: dict[str, Any]):
                         exc_info=True,
                     )
 
-            # ... (rest of the shape assertion logic from the original file) ...
+            # Now use 'effective_expected_output_shapes' in the structural shape assertion block
             if len(onnx_graph_structural_shapes) != len(
-                expected_output_shapes_from_testcase
+                effective_expected_output_shapes
             ):
                 raise AssertionError(
                     f"[❌] '{testcase_name}': Output count mismatch for shape assertion. "
-                    f"Testcase expects {len(expected_output_shapes_from_testcase)} output shapes, "
+                    f"Testcase expects {len(effective_expected_output_shapes)} output shapes, "
                     f"ONNX graph defines {len(onnx_graph_structural_shapes)}."
                 )
 
             final_assert_messages = []
             all_checks_passed = True
 
-            for i, expected_shape_spec_from_testcase in enumerate(
-                expected_output_shapes_from_testcase
+            for i, expected_shape_spec_adjusted in enumerate(
+                effective_expected_output_shapes
             ):
                 onnx_graph_shape = onnx_graph_structural_shapes[i]
 
                 # Compare rank
-                if len(expected_shape_spec_from_testcase) != len(onnx_graph_shape):
+                if len(expected_shape_spec_adjusted) != len(onnx_graph_shape):
                     all_checks_passed = False
+                    # Use expected_shape_spec_from_testcase for original intent in log if different
+                    original_expected_spec = (
+                        expected_output_shapes_from_testcase[i]
+                        if i < len(expected_output_shapes_from_testcase)
+                        else "N/A"
+                    )
                     final_assert_messages.append(
                         f"Output {i} for '{testcase_name}': Rank mismatch. "
-                        f"Expected rank {len(expected_shape_spec_from_testcase)} (from testcase: {expected_shape_spec_from_testcase}), "
+                        f"Adjusted expectation for rank: {len(expected_shape_spec_adjusted)} (from {expected_shape_spec_adjusted}), "
+                        f"Original testcase expectation: {original_expected_spec}. "
                         f"ONNX graph rank {len(onnx_graph_shape)} (from ONNX: {onnx_graph_shape})."
                     )
-                    continue  # Skip further checks for this output if rank mismatches
+                    continue
 
                 # Compare dimensions (symbolic or concrete)
                 graph_dim_match = True
                 for j, expected_dim_representation in enumerate(
-                    expected_shape_spec_from_testcase
+                    expected_shape_spec_adjusted
                 ):
                     onnx_graph_actual_dim = onnx_graph_shape[j]
-                    if isinstance(
+                    # If expected_dim_representation is our sentinel, we need to match it correctly
+                    if expected_dim_representation == "JAX2ONNX_DYNAMIC_DIM_SENTINEL":
+                        # The onnx_graph_actual_dim might be the string representation of the sentinel,
+                        # or a symbolic name if resolution failed.
+                        # The key is that it's not a concrete integer.
+                        if not isinstance(
+                            onnx_graph_actual_dim, (str, type(None))
+                        ):  # Allow None for fully dynamic/unknown
+                            # If it's an int, it's a mismatch if we expected the sentinel
+                            if isinstance(onnx_graph_actual_dim, int):
+                                graph_dim_match = False
+                                break
+                        # If onnx_graph_actual_dim IS the sentinel string, it's a match.
+                        # Or if it's a 'dynamic_...' string, it's also considered a match for a dynamic dim.
+                        elif isinstance(onnx_graph_actual_dim, str) and (
+                            onnx_graph_actual_dim == "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
+                            or onnx_graph_actual_dim.startswith("dynamic_")
+                        ):
+                            pass  # Match
+                        elif (
+                            onnx_graph_actual_dim is None
+                        ):  # Match if ONNX has no dim info
+                            pass
+                        else:  # Mismatch if it's some other string or unexpected type
+                            graph_dim_match = False
+                            break
+                    elif isinstance(
                         expected_dim_representation, str
                     ):  # Symbolic dim in testcase
-                        # If testcase expects symbolic, ONNX graph should also have symbolic (dim_param)
-                        # or a matching concrete value if the symbolic dim was resolved during test setup
                         if onnx_graph_actual_dim != expected_dim_representation:
-                            # Allow for "dynamic_XYZ" to match if testcase specified "B" and it became dynamic
                             if not (
-                                expected_dim_representation == "B"
+                                expected_dim_representation
+                                == "B"  # Example, adapt if other symbols used
                                 and isinstance(onnx_graph_actual_dim, str)
                                 and onnx_graph_actual_dim.startswith("dynamic_")
                             ):
@@ -836,9 +892,15 @@ def make_test_function(tp: dict[str, Any]):
 
                 if not graph_dim_match:
                     all_checks_passed = False
+                    original_expected_spec = (
+                        expected_output_shapes_from_testcase[i]
+                        if i < len(expected_output_shapes_from_testcase)
+                        else "N/A"
+                    )
                     final_assert_messages.append(
                         f"Output {i} for '{testcase_name}' (ONNX Graph Structure): Mismatch. "
-                        f"Expected from testcase: {expected_shape_spec_from_testcase}, "
+                        f"Adjusted expectation: {expected_shape_spec_adjusted}, "
+                        f"Original testcase expectation: {original_expected_spec}. "
                         f"Actual ONNX Graph: {onnx_graph_shape}."
                     )
 
@@ -1082,10 +1144,6 @@ if __name__ == "__main__":
     # Ensure JAX/ONNX and other dependencies are available in the environment.
     # It's good practice to also import and configure logging here if not done by an imported module.
     # For example:
-    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-    logger.info("Running t_generator.py script...")
-    generate_all_tests()
     # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
     logger.info("Running t_generator.py script...")
