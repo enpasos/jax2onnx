@@ -96,8 +96,11 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
 
     # ---- Sanity check for the new optional field ---------------------------------
     entry_input_dtypes = entry.get("input_dtypes")
-    if entry_input_dtypes is not None and len(entry_input_dtypes) != len(
-        entry.get("input_shapes", [])
+    entry_input_shapes = entry.get("input_shapes", [])
+    if (
+        entry_input_dtypes is not None
+        and entry_input_shapes is not None
+        and len(entry_input_dtypes) != len(entry_input_shapes)
     ):
         raise ValueError(
             f"[metadata] In testcase '{entry.get('testcase')}' the "
@@ -172,18 +175,20 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         # Determine if the test case involves any floating point dtypes in its inputs or expected outputs
         # Simplified check based on presence of float in input_dtypes or expected_output_dtypes
         is_float_test = False
-        if base_param_set.get("input_dtypes"):
-            if any(
-                np.issubdtype(dt, np.floating)
-                for dt in base_param_set.get("input_dtypes")
-            ):
+
+        bpset_input_dtypes = base_param_set.get("input_dtypes")
+        if bpset_input_dtypes is not None:
+            if any(np.issubdtype(dt, np.floating) for dt in bpset_input_dtypes):
                 is_float_test = True
-        if not is_float_test and base_param_set.get("expected_output_dtypes"):
-            if any(
-                np.issubdtype(dt, np.floating)
-                for dt in base_param_set.get("expected_output_dtypes")
-            ):
-                is_float_test = True
+
+        if not is_float_test:
+            bpset_expected_output_dtypes = base_param_set.get("expected_output_dtypes")
+            if bpset_expected_output_dtypes is not None:
+                if any(
+                    np.issubdtype(dt, np.floating)
+                    for dt in bpset_expected_output_dtypes
+                ):
+                    is_float_test = True
 
         if run_only_f64_variant:
             # Only generate the float64 enabled variant, using the original testcase name
@@ -295,6 +300,7 @@ def get_plugin_grouping(reset=False) -> dict[tuple[str, str], list[dict[str, Any
 
 
 def make_test_function(tp: dict[str, Any]):
+    """Create a test function from test parameters."""  # Add function annotation to satisfy type checker
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
     func_name = f"test_{test_case_name_safe}"
 
