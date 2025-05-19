@@ -444,12 +444,31 @@ class OnnxBuilder:
             if isinstance(val, bool):
                 np_val = np.array(val, dtype=np.bool_)
                 # onnx_dtype = TensorProto.BOOL # Inferred by helper.make_tensor from np_val.dtype
-            elif isinstance(val, int):
-                # Corrected: Default Python int to INT32 for ONNX constants
-                # This makes it more compatible with ops like Range that might expect int32
-                # if their output is int32.
-                np_val = np.array(val, dtype=np.int32)
-                # onnx_dtype = TensorProto.INT32
+            elif isinstance(val, int):  # Handles Python int
+                if self.enable_float64:
+                    # When float64 mode is enabled, and if the original JAX literal was int64,
+                    # or generally to prefer wider types, create an INT64 ONNX constant.
+                    logger.debug(
+                        f"Builder: Converting Python int literal '{val}' to INT64 due to enable_float64=True."
+                    )
+                    np_val = np.array(val, dtype=np.int64)
+                else:
+                    # In float32 mode (enable_float64=False), default to int32 if the value fits,
+                    # otherwise use int64 (current behavior for f32 seems to be just int32).
+                    # This maintains potential compatibility with ops expecting int32 for smaller integers.
+                    if np.iinfo(np.int32).min <= val <= np.iinfo(np.int32).max:
+                        logger.debug(
+                            f"Builder: Converting Python int literal '{val}' to INT32 (fits, enable_float64=False)."
+                        )
+                        np_val = np.array(val, dtype=np.int32)
+                    else:
+                        logger.debug(
+                            f"Builder: Converting Python int literal '{val}' to INT64 (does not fit in INT32, enable_float64=False)."
+                        )
+                        np_val = np.array(
+                            val, dtype=np.int64
+                        )  # Value too large for int32
+                # dtype_enum will be correctly inferred from np_val.dtype by helper.make_tensor later
             else:  # float
                 if self.enable_float64:
                     np_val = np.array(val, dtype=np.float64)

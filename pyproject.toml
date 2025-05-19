@@ -83,8 +83,5 @@ enable_x64 = true
 [tool.jax2onnx.logging]
 default_level = "WARNING"
 format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
-[tool.jax2onnx.logging.levels]
-"jax2onnx" = "INFO"
-"jax2onnx.plugins.jax.lax.scan" = "DEBUG"
-"jax2onnx.converter.jaxpr_converter" = "DEBUG"
+"jax2onnx" = "DEBUG"
+"jax2onnx.plugins.jax.numpy.arange" = "DEBUG" 
