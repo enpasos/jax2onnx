@@ -99,14 +99,15 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 ### **Planned Versions**
 - **Ongoing**: Expanding JAX component coverage.
 - **Under Investigation**: Support for `flax.linen` models in `jax2onnx`.
-- **Version 0.5.4**: Enhanced ONNX function support, including function reuse, optimized graph processing within functions, and improved user-friendly variable naming.
-- **Version 0.5.3**: Bug fixes
+- **Version 0.7.x**: Enhanced ONNX function support, including function reuse, optimized graph processing within functions, and improved user-friendly variable naming.
+- **0.6.1**: Fix further issues with `jaxfluids`.
 
 ### **Current Productive Version**
 
-- **0.5.2** *(PyPI)*: Add support for additional primitives: `jnp.where`, `jnp.arange`, `jnp.linspace`.
+- **0.6.0** *(PyPI)*: Add support jaxfluids: double-precision, enhanced `lax.scatter`.
 
 ### **Past Versions**
+- **0.5.2**: Add support for additional primitives: `jnp.where`, `jnp.arange`, `jnp.linspace`.
 - **0.5.1**: Add support for subgraph using primitives: `lax.while_loop`, `lax.cond`, `lax.fori_loop`, `lax.scan`, `lax.cond`.
 - **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
   Added support for `jnp.sign`, `jnp.abs`, `jnp.iota` primitives.
