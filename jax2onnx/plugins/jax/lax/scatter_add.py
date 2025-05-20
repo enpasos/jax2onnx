@@ -4,8 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Sequence, Any
 import numpy as np
 from jax import lax, core
-from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper, TensorProto
+from jax.lax import ScatterDimensionNumbers, GatherScatterMode  # Keep for params
+from onnx import helper  # TensorProto might not be directly needed here anymore
+
+# Import the new utility function
+from .scatter_utils import _prepare_scatter_inputs_for_onnx
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -32,10 +35,10 @@ scatter_add_p = lax.scatter_add_p
             "attributes": ["reduction='add'"],
         }
     ],
-    since="v0.5.3",
+    since="v0.5.3",  # Consider if version should be updated due to significant internal change
     context="primitives.lax",
     component="scatter_add",
-    testcases=[
+    testcases=[  # Existing testcases are kept
         {
             "testcase": "scatter_add_simple_1d",
             "callable": lambda operand, indices, updates: lax.scatter_add(
@@ -90,73 +93,75 @@ scatter_add_p = lax.scatter_add_p
                 np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32),
             ],
         },
-        # {
-        #     "testcase": "scatter_add_windowed_from_original_failure_analogue",
-        #     "callable": lambda operand, indices, updates: lax.scatter_add(
-        #         operand,
-        #         indices,
-        #         updates,
-        #         ScatterDimensionNumbers(
-        #             update_window_dims=(0, 1, 2),
-        #             inserted_window_dims=(),
-        #             scatter_dims_to_operand_dims=(0,),
-        #             operand_batching_dims=(1,),
-        #             scatter_indices_batching_dims=(0,) # Corrected: Fixes count error, will hit shape error
-        #         ),
-        #     ),
-        #     "input_values": [
-        #         jnp.zeros((5, 201, 1, 1), dtype=jnp.float32),
-        #         jnp.array([[0], [4]], dtype=jnp.int32),
-        #         jnp.arange(2 * 201, dtype=jnp.float32).reshape(2, 201, 1, 1),
-        #     ],
-        #     "input_shapes": [(5, 201, 1, 1), (2, 1), (2, 201, 1, 1)],
-        #     "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-        # },
-        # {
-        #     "testcase": "scatter_add_windowed_simple",
-        #     "callable": lambda operand, indices, updates: jax.lax.scatter_add(
-        #         operand,
-        #         indices,
-        #         updates,
-        #         jax.lax.ScatterDimensionNumbers(
-        #             update_window_dims=(0,1),
-        #             inserted_window_dims=(),
-        #             scatter_dims_to_operand_dims=(0,),
-        #             operand_batching_dims=(2,), # Corrected: operand.shape[2] (2)
-        #             scatter_indices_batching_dims=(0,) # Corrected: indices.shape[0] (2). Shapes match.
-        #         ),
-        #     ),
-        #     "input_values": [
-        #         jnp.zeros((5, 3, 2), dtype=jnp.float32),
-        #         jnp.array([[0], [2]], dtype=jnp.int32),
-        #         jnp.ones((2, 3, 2), dtype=jnp.float32),
-        #     ],
-        #     "input_shapes": [(5, 3, 2), (2, 1), (2, 3, 2)],
-        #     "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-        # },
-        # {
-        #     "testcase": "scatter_add_windowed_inserted_dims_complex",
-        #     "callable": lambda operand, indices, updates: jax.lax.scatter_add(
-        #         operand,
-        #         indices,
-        #         updates,
-        #         jax.lax.ScatterDimensionNumbers(
-        #             update_window_dims=(0,1),      # len 2
-        #             inserted_window_dims=(1,),     # len 1
-        #             scatter_dims_to_operand_dims=(0,),
-        #             operand_batching_dims=(2,),      # len 1. Sum for rank = 2+1+1=4. OK.
-        #             scatter_indices_batching_dims=(0,) # len 1. Batch counts OK.
-        #                                                # Next JAX error: Batch shapes op.shape[2](3) vs idx.shape[0](2)
-        #         ),
-        #     ),
-        #     "input_values": [
-        #         jnp.zeros((5, 10, 3, 2), dtype=jnp.float32),
-        #         jnp.array([[0], [2]], dtype=jnp.int32),
-        #         jnp.ones((2, 3, 2), dtype=jnp.float32),
-        #     ],
-        #     "input_shapes": [ (5, 10, 3, 2), (2, 1), (2, 3, 2)],
-        #     "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-        # },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report",
+            "callable": lambda operand, indices, updates: lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.zeros((5, 208, 1, 1), dtype=np.float64),
+                np.array([4], dtype=np.int32),
+                np.ones((5, 200, 1, 1), dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(5, 208, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report2",
+            "callable": lambda operand, indices, updates: lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.zeros((3, 150, 1, 1), dtype=np.float64),
+                np.array([7], dtype=np.int32),
+                np.ones((3, 140, 1, 1), dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(3, 150, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report3",
+            "callable": lambda operand, indices, updates: lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.zeros((8, 50, 1, 1), dtype=np.float64),
+                np.array([2], dtype=np.int32),
+                np.ones((8, 45, 1, 1), dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(8, 50, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):
@@ -165,14 +170,15 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         operand: core.ShapedArray,
         indices: core.ShapedArray,
         updates: core.ShapedArray,
-        update_jaxpr,
-        update_consts,
+        update_jaxpr,  # Not directly used by scatter_add itself after preparation
+        update_consts,  # Not directly used
         *,
-        dimension_numbers: ScatterDimensionNumbers,
-        indices_are_sorted: bool,
-        unique_indices: bool,
-        mode: GatherScatterMode | None,
+        dimension_numbers: ScatterDimensionNumbers,  # type: ignore
+        indices_are_sorted: bool,  # type: ignore
+        unique_indices: bool,  # type: ignore
+        mode: GatherScatterMode | None,  # type: ignore
     ):
+        # Output shape and dtype match the operand
         return core.ShapedArray(operand.shape, operand.dtype)
 
     def to_onnx(
@@ -184,220 +190,145 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
     ):
         operand_v, indices_v, updates_v = node_inputs
         out_v = node_outputs[0]
-
-        operand_name = s.get_name(operand_v)
         out_name = s.get_name(out_v)
 
-        operand_aval_shape = tuple(operand_v.aval.shape)
-        operand_dtype_np = np.dtype(operand_v.aval.dtype)
-        operand_rank = len(operand_aval_shape)
+        # Original operand shape and dtype for final output registration
+        operand_aval = operand_v.aval
+        operand_shape = tuple(operand_aval.shape)
+        operand_dtype_np = np.dtype(operand_aval.dtype)
 
-        dim_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
+        dimension_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
+        # mode_param = params.get("mode") # JAX `mode` (e.g. CLIP) might need handling
+        # if ScatterND reduction doesn't cover it.
+        # For 'add', ScatterND handles out-of-bounds by ignoring.
 
-        current_indices_name = s.get_name(indices_v)
-        jax_indices_shape = list(indices_v.aval.shape)
-        current_indices_dtype_np = np.dtype(indices_v.aval.dtype)
-
-        if current_indices_dtype_np != np.int64:
-            cast_indices_out_name = s.get_unique_name(f"{current_indices_name}_int64")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[current_indices_name],
-                    outputs=[cast_indices_out_name],
-                    name=s.get_unique_name(f"cast_{current_indices_name}_to_int64"),
-                    to=TensorProto.INT64,
-                )
-            )
-            s.add_shape_info(cast_indices_out_name, tuple(jax_indices_shape), np.int64)
-            current_indices_name = cast_indices_out_name
-
-        if not jax_indices_shape:
-            raise ValueError("JAX indices shape is empty for scatter_add.")
-        index_depth = jax_indices_shape[-1]
-        indices_batch_dims_shape = jax_indices_shape[:-1]
-
-        num_updates = (
-            np.prod(indices_batch_dims_shape).astype(np.int64).item()
-            if indices_batch_dims_shape
-            else 1
-        )
-        if any(d == 0 for d in indices_batch_dims_shape) or (
-            not indices_batch_dims_shape and jax_indices_shape == [0]
-        ):
-            num_updates = 0
-
-        onnx_indices_target_shape = (num_updates, index_depth)
-
-        if tuple(jax_indices_shape) != onnx_indices_target_shape:
-            reshape_indices_out_name = s.get_unique_name(
-                f"{current_indices_name}_reshaped_for_scatternd"
-            )
-            reshape_indices_shape_const = np.array(
-                onnx_indices_target_shape, dtype=np.int64
-            )
-            reshape_indices_shape_name = s.get_constant_name(
-                reshape_indices_shape_const
-            )
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    inputs=[current_indices_name, reshape_indices_shape_name],
-                    outputs=[reshape_indices_out_name],
-                    name=s.get_unique_name(
-                        f"reshape_{current_indices_name}_for_scatternd"
-                    ),
-                )
-            )
-            s.add_shape_info(
-                reshape_indices_out_name, onnx_indices_target_shape, np.int64
-            )
-            current_indices_name = reshape_indices_out_name
-
-        current_updates_name = s.get_name(updates_v)
-        jax_updates_shape = list(updates_v.aval.shape)
-
-        operand_dims_forming_slice = [
-            i
-            for i in range(operand_rank)
-            if i not in dim_numbers.scatter_dims_to_operand_dims
-        ]
-        onnx_update_window_target_shape = tuple(
-            operand_aval_shape[i] for i in operand_dims_forming_slice
-        )
-        onnx_updates_target_shape = (num_updates, *onnx_update_window_target_shape)
-
-        num_jax_updates_batch_dims = len(indices_batch_dims_shape)
-        jax_updates_actual_window_shape = tuple(
-            jax_updates_shape[num_jax_updates_batch_dims:]
+        logger.info(
+            f"Preparing inputs for ONNX ScatterND (reduction=add) for JAX scatter_add "
+            f"primitive with dimension_numbers: {dimension_numbers}"
         )
 
-        flat_batch_jax_updates_shape = (num_updates, *jax_updates_actual_window_shape)
-
-        if tuple(jax_updates_shape) != flat_batch_jax_updates_shape:
-            reshaped_flat_batch_updates_name = s.get_unique_name(
-                f"{current_updates_name}_flat_batch"
+        # 1. Call the common utility function to prepare inputs for ScatterND
+        final_operand_name, final_indices_name, final_updates_name = (
+            _prepare_scatter_inputs_for_onnx(
+                s,  # Jaxpr2OnnxConverter instance
+                operand_v,
+                indices_v,
+                updates_v,
+                dimension_numbers,  # Pass the dimension_numbers directly
             )
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    inputs=[
-                        current_updates_name,
-                        s.get_constant_name(
-                            np.array(flat_batch_jax_updates_shape, dtype=np.int64)
-                        ),
-                    ],
-                    outputs=[reshaped_flat_batch_updates_name],
-                    name=s.get_unique_name(
-                        f"reshape_{current_updates_name}_flat_batch"
-                    ),
+        )
+
+        # --- BEGIN MODIFICATION ---
+        # Explicitly ensure shape_info for all inputs to ScatterND is in converter.shape_env,
+        # using the builder's metadata as the source of truth.
+        input_names_to_ensure = {
+            "operand": (final_operand_name, operand_v.aval.dtype),
+            "indices": (
+                final_indices_name,
+                np.int64,
+            ),  # Indices are expected to be int64
+            "updates": (
+                final_updates_name,
+                updates_v.aval.dtype,
+            ),  # Original dtype of updates
+        }
+
+        for role, (name_to_check, expected_np_dtype) in input_names_to_ensure.items():
+            try:
+                # Query the builder for the canonical shape and ONNX dtype enum
+                shape_from_builder, dtype_enum_from_builder = s.builder.get_shape_dtype(
+                    name_to_check
                 )
-            )
-            s.add_shape_info(
-                reshaped_flat_batch_updates_name,
-                flat_batch_jax_updates_shape,
-                operand_dtype_np,
-            )
-            current_updates_name = reshaped_flat_batch_updates_name
 
-        if flat_batch_jax_updates_shape != onnx_updates_target_shape:
-            shape_for_unsqueeze_step_list = [num_updates]
-            consumed_jax_window_dims = 0
-
-            for i_op_dim_in_slice, op_dim_in_slice_idx in enumerate(
-                operand_dims_forming_slice
-            ):
-                if op_dim_in_slice_idx in dim_numbers.inserted_window_dims:
-                    shape_for_unsqueeze_step_list.append(1)
-                else:
-                    if consumed_jax_window_dims < len(jax_updates_actual_window_shape):
-                        shape_for_unsqueeze_step_list.append(
-                            jax_updates_actual_window_shape[consumed_jax_window_dims]
-                        )
-                        consumed_jax_window_dims += 1
-                    else:
-                        if (
-                            not jax_updates_actual_window_shape
-                            and len(onnx_update_window_target_shape) > i_op_dim_in_slice
-                            and onnx_update_window_target_shape[i_op_dim_in_slice] == 1
-                        ):
-                            shape_for_unsqueeze_step_list.append(1)
-                        elif (
-                            not jax_updates_actual_window_shape
-                            and len(onnx_update_window_target_shape) == 0
-                        ):
-                            pass
-                        else:
-                            raise NotImplementedError(
-                                f"Error in scatter_add: Mismatch in window dimension structure for ScatterND. "
-                                f"Operand slice dim {op_dim_in_slice_idx} (part of target ONNX window {onnx_update_window_target_shape}) "
-                                f"not covered by JAX updates window {jax_updates_actual_window_shape} "
-                                f"and not in inserted_dims {dim_numbers.inserted_window_dims}."
-                            )
-
-            if consumed_jax_window_dims != len(jax_updates_actual_window_shape):
-                if not (
-                    len(jax_updates_actual_window_shape) == 0
-                    and consumed_jax_window_dims == 0
-                ):
-                    raise NotImplementedError(
-                        f"Error in scatter_add: Not all JAX update window dimensions {jax_updates_actual_window_shape} were mapped "
-                        f"to ONNX slice shape {onnx_update_window_target_shape} "
-                        f"with inserted dims {dim_numbers.inserted_window_dims}."
-                    )
-
-            shape_for_unsqueeze_step = tuple(shape_for_unsqueeze_step_list)
-
-            if flat_batch_jax_updates_shape != shape_for_unsqueeze_step:
-                unsqueezed_updates_name = s.get_unique_name(
-                    f"{current_updates_name}_unsqueeze_for_expand"
-                )
-                s.add_node(
-                    helper.make_node(
-                        "Reshape",
-                        inputs=[
-                            current_updates_name,
-                            s.get_constant_name(
-                                np.array(shape_for_unsqueeze_step, dtype=np.int64)
-                            ),
-                        ],
-                        outputs=[unsqueezed_updates_name],
-                        name=s.get_unique_name(f"unsqueeze_{current_updates_name}"),
-                    )
-                )
+                # Ensure this info is in the converter's shape_env.
+                # s.add_shape_info can take np.dtype or ONNX dtype enum.
                 s.add_shape_info(
-                    unsqueezed_updates_name, shape_for_unsqueeze_step, operand_dtype_np
+                    name_to_check, shape_from_builder, dtype_enum_from_builder
                 )
-                current_updates_name = unsqueezed_updates_name
 
-            if shape_for_unsqueeze_step != onnx_updates_target_shape:
-                expanded_updates_name = s.get_unique_name(
-                    f"{current_updates_name}_expanded_to_target"
+                logger.debug(
+                    f"[ScatterAddPlugin] Ensured/updated shape_info for {role} '{name_to_check}': "
+                    f"shape={shape_from_builder}, builder_dtype_enum={dtype_enum_from_builder}"
                 )
-                s.add_node(
-                    helper.make_node(
-                        "Expand",
-                        inputs=[
-                            current_updates_name,
-                            s.get_constant_name(
-                                np.array(onnx_updates_target_shape, dtype=np.int64)
-                            ),
-                        ],
-                        outputs=[expanded_updates_name],
-                        name=s.get_unique_name(f"expand_{current_updates_name}"),
+            except ValueError as e:
+                # This means the builder doesn't have metadata for this tensor name.
+                # This is critical, especially if _prepare_scatter_inputs_for_onnx was supposed to register it.
+                # The pytest logs show register_value_info_metadata *is* called for the final updates tensor,
+                # so builder.get_shape_dtype should succeed for it.
+                logger.error(
+                    f"[ScatterAddPlugin] CRITICAL: Could not get shape/dtype for {role} '{name_to_check}' "
+                    f"from builder: {e}. Conversion may fail or be incorrect."
+                )
+                # As a last resort, if it's an input from Jaxpr, its original aval might be used,
+                # but for processed tensors (like final_updates_name), this is insufficient.
+                if (
+                    name_to_check not in s.shape_env
+                ):  # If also not in shape_env after this
+                    logger.error(
+                        f"[ScatterAddPlugin] '{name_to_check}' remains without info in shape_env."
                     )
-                )
-                s.add_shape_info(
-                    expanded_updates_name, onnx_updates_target_shape, operand_dtype_np
-                )
-                current_updates_name = expanded_updates_name
 
-        scatter_nd_node = helper.make_node(
-            "ScatterND",
-            inputs=[operand_name, current_indices_name, current_updates_name],
-            outputs=[out_name],
-            name=s.get_unique_name("scatter_add_as_scatter_nd"),
-            reduction="add",
+        # Log details before creating ScatterND
+        # This check led to the original error message. It should ideally pass now for final_updates_name.
+        if final_updates_name in s.shape_env:
+            logger.info(
+                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') in shape_env before ScatterND creation: "
+                f"{s.shape_env[final_updates_name].shape}, dtype: {s.shape_env[final_updates_name].dtype}"
+            )
+        else:
+            logger.error(
+                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') *still* not found in shape_env "
+                f"before ScatterND creation! This indicates a persistent issue."
+            )
+        # --- END MODIFICATION ---
+
+        # 2. Create the ONNX ScatterND node with reduction="add"
+        reduction_attribute = "add"
+
+        node_attributes = {}
+        # ScatterND introduced in opset 11. Reduction attribute in opset 13 (for add, mul)
+        # and expanded in opset 16 (min, max, none).
+        if s.builder.opset >= 11:  # ScatterND exists
+            if s.builder.opset >= 13:  # 'add' reduction is available
+                node_attributes["reduction"] = reduction_attribute
+            # If opset is 11 or 12, 'reduction' attribute is not supported.
+            # The default behavior of ScatterND (opset 11-12) is 'none' (update/overwrite).
+            # It does NOT default to 'add'. So, direct conversion for 'add' requires opset >= 13.
+            else:  # opset 11 or 12
+                raise NotImplementedError(
+                    f"ScatterND with reduction='{reduction_attribute}' requires ONNX opset 13+. "
+                    f"Current opset: {s.builder.opset}. For scatter_add, this is essential."
+                )
+        else:  # opset < 11
+            raise NotImplementedError(
+                f"ScatterND requires ONNX opset 11+. Current opset: {s.builder.opset}"
+            )
+
+        logger.error(
+            f"[ScatterAddPlugin] ScatterND inputs: data='{final_operand_name}', indices='{final_indices_name}', updates='{final_updates_name}'"
         )
-        s.add_node(scatter_nd_node)
-        s.add_shape_info(out_name, operand_aval_shape, operand_dtype_np)
+        if final_updates_name in s.shape_env:
+            logger.error(
+                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') going into ScatterND: {s.shape_env[final_updates_name].shape}"
+            )
+        else:
+            logger.error(
+                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') not found in shape_env before ScatterND creation!"
+            )
+
+        s.add_node(
+            helper.make_node(
+                "ScatterND",
+                inputs=[final_operand_name, final_indices_name, final_updates_name],
+                outputs=[out_name],
+                name=s.get_unique_name(f"scatter_nd_add_{out_name}"),
+                **node_attributes,
+            )
+        )
+
+        # 3. Register final output shape and dtype
+        if out_name not in s.shape_env:
+            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+        else:
+            assert s.shape_env[out_name].shape == operand_shape
+            assert s.shape_env[out_name].dtype == operand_dtype_np

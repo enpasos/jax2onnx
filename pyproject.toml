@@ -79,9 +79,14 @@ enable_x64 = true
 
 
 
-
 [tool.jax2onnx.logging]
 default_level = "WARNING"
 format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+[tool.jax2onnx.logging.levels]
 "jax2onnx" = "DEBUG"
-"jax2onnx.plugins.jax.numpy.arange" = "DEBUG" 
+"jax2onnx.plugins.jax.numpy.arange" = "DEBUG"
+"jax2onnx.plugins.jax.lax.scatter" = "DEBUG"
+"jax2onnx.plugins.jax.lax.scatter_utils" = "DEBUG"
+"jax2onnx.plugins.jax.lax.scatter_add" = "DEBUG"
+"jax2onnx.converter.jaxpr_converter" = "DEBUG"
