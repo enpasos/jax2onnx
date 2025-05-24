@@ -271,10 +271,18 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         # Log details before creating ScatterND
         # This check led to the original error message. It should ideally pass now for final_updates_name.
         if final_updates_name in s.shape_env:
-            logger.info(
-                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') in shape_env before ScatterND creation: "
-                f"{s.shape_env[final_updates_name].shape}, dtype: {s.shape_env[final_updates_name].dtype}"
-            )
+            updates_info_for_log = s.shape_env[final_updates_name]
+            if hasattr(updates_info_for_log, "shape") and hasattr(
+                updates_info_for_log, "dtype"
+            ):
+                logger.info(
+                    f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') in shape_env before ScatterND creation: "
+                    f"{updates_info_for_log.shape}, dtype: {updates_info_for_log.dtype}"
+                )
+            else:
+                logger.info(
+                    f"[ScatterAddPlugin] Updates info for '{final_updates_name}' in shape_env is not a ShapeDtypeStruct: {updates_info_for_log}"
+                )
         else:
             logger.error(
                 f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') *still* not found in shape_env "
@@ -282,24 +290,17 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             )
         # --- END MODIFICATION ---
 
-        # 2. Create the ONNX ScatterND node with reduction="add"
         reduction_attribute = "add"
-
         node_attributes = {}
-        # ScatterND introduced in opset 11. Reduction attribute in opset 13 (for add, mul)
-        # and expanded in opset 16 (min, max, none).
-        if s.builder.opset >= 11:  # ScatterND exists
-            if s.builder.opset >= 13:  # 'add' reduction is available
+        if s.builder.opset >= 11:
+            if s.builder.opset >= 13:
                 node_attributes["reduction"] = reduction_attribute
-            # If opset is 11 or 12, 'reduction' attribute is not supported.
-            # The default behavior of ScatterND (opset 11-12) is 'none' (update/overwrite).
-            # It does NOT default to 'add'. So, direct conversion for 'add' requires opset >= 13.
-            else:  # opset 11 or 12
+            else:
                 raise NotImplementedError(
                     f"ScatterND with reduction='{reduction_attribute}' requires ONNX opset 13+. "
                     f"Current opset: {s.builder.opset}. For scatter_add, this is essential."
                 )
-        else:  # opset < 11
+        else:
             raise NotImplementedError(
                 f"ScatterND requires ONNX opset 11+. Current opset: {s.builder.opset}"
             )
@@ -308,9 +309,15 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             f"[ScatterAddPlugin] ScatterND inputs: data='{final_operand_name}', indices='{final_indices_name}', updates='{final_updates_name}'"
         )
         if final_updates_name in s.shape_env:
-            logger.error(
-                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') going into ScatterND: {s.shape_env[final_updates_name].shape}"
-            )
+            updates_info_for_scatternd_log = s.shape_env[final_updates_name]
+            if hasattr(updates_info_for_scatternd_log, "shape"):
+                logger.error(
+                    f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') going into ScatterND: {updates_info_for_scatternd_log.shape}"
+                )
+            else:
+                logger.error(
+                    f"[ScatterAddPlugin] Updates info for '{final_updates_name}' in shape_env is not a ShapeDtypeStruct: {updates_info_for_scatternd_log}"
+                )
         else:
             logger.error(
                 f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') not found in shape_env before ScatterND creation!"
@@ -327,8 +334,38 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         )
 
         # 3. Register final output shape and dtype
-        if out_name not in s.shape_env:
+        output_info = s.shape_env.get(out_name)
+        if output_info is None:
             s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+            output_info = s.shape_env.get(out_name)
+
+        # Defensive: output_info could be None, tuple, or ShapeDtypeStruct
+        if (
+            output_info is not None
+            and hasattr(output_info, "shape")
+            and hasattr(output_info, "dtype")
+        ):
+            assert (
+                output_info.shape == operand_shape
+            ), f"Output shape mismatch for {out_name}: EnvShape={output_info.shape}, ExpectedOperandShape={operand_shape}"
+            assert (
+                output_info.dtype == operand_dtype_np
+            ), f"Output dtype mismatch for {out_name}: EnvDtype={output_info.dtype}, ExpectedOperandDtype={operand_dtype_np}"
+        elif isinstance(output_info, tuple):
+            logger.warning(
+                f"Output info for {out_name} in shape_env is a raw tuple: {output_info}. Expected ShapeDtypeStruct."
+            )
+            assert (
+                output_info == operand_shape
+            ), f"Output shape tuple mismatch for {out_name}: EnvShapeTuple={output_info}, ExpectedOperandShape={operand_shape}"
+            logger.warning(
+                f"Cannot assert dtype for {out_name} as shape_env entry is a tuple, not ShapeDtypeStruct."
+            )
+        elif output_info is None:
+            logger.error(
+                f"Output info for {out_name} in shape_env is None after add_shape_info. This should not happen."
+            )
         else:
-            assert s.shape_env[out_name].shape == operand_shape
-            assert s.shape_env[out_name].dtype == operand_dtype_np
+            logger.error(
+                f"Unexpected type for {out_name} in shape_env: {type(output_info)}. Cannot assert shape/dtype."
+            )
