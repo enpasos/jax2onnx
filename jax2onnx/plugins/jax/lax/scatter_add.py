@@ -3,30 +3,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Sequence, Any
 import numpy as np
-from jax import ShapeDtypeStruct, lax, core
-from jax.lax import ScatterDimensionNumbers, GatherScatterMode  # Keep for params
-from onnx import helper  # TensorProto might not be directly needed here anymore
+from jax import (
+    lax,
+    core,
+    ShapeDtypeStruct,
+)  # Ensure ShapeDtypeStruct is imported directly from jax
+from jax.lax import ScatterDimensionNumbers, GatherScatterMode
+from onnx import helper
 
-# Import the new utility function
-from .scatter_utils import (
-    _are_shapes_equal,
-    _ensure_np_dtype,
-    _prepare_scatter_inputs_for_onnx,
-)
+from .scatter_utils import _prepare_scatter_inputs_for_onnx
+
+# If _ensure_np_dtype and _are_shapes_equal are needed for assertions, they'd also need importing or inlining.
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # only for static type checkers
+if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 import logging
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_add")
-# ---------------------------------------------------------------------
-# 1. primitive alias
-# ---------------------------------------------------------------------
+
 scatter_add_p = lax.scatter_add_p
-# ---------------------------------------------------------------------
 
 
 @register_primitive(
@@ -202,15 +200,14 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         operand: core.ShapedArray,
         indices: core.ShapedArray,
         updates: core.ShapedArray,
-        update_jaxpr,  # Not directly used by scatter_add itself after preparation
-        update_consts,  # Not directly used
+        update_jaxpr,
+        update_consts,
         *,
-        dimension_numbers: ScatterDimensionNumbers,  # type: ignore
-        indices_are_sorted: bool,  # type: ignore
-        unique_indices: bool,  # type: ignore
-        mode: GatherScatterMode | None,  # type: ignore
+        dimension_numbers: ScatterDimensionNumbers,
+        indices_are_sorted: bool,
+        unique_indices: bool,
+        mode: GatherScatterMode | None,
     ):
-        # Output shape and dtype match the operand
         return core.ShapedArray(operand.shape, operand.dtype)
 
     def to_onnx(
@@ -237,17 +234,35 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
 
         final_operand_name, final_indices_name, final_updates_name = (
             _prepare_scatter_inputs_for_onnx(
-                s,
-                operand_v,
-                indices_v,
-                updates_v,
-                dimension_numbers,
+                s, operand_v, indices_v, updates_v, dimension_numbers
             )
         )
 
-        # This block was for debugging and ensuring inputs to ScatterND are known by the builder.
-        # It should be fine if _prepare_scatter_inputs_for_onnx does its job.
-        # The "Output info ... is None" error happens *after* ScatterND node is added.
+        # --- Logging Block for Inputs to ScatterND ---
+        # Ensure these logging calls robustly check for presence in shape_env and attribute existence
+        for role, name_to_check in [
+            ("operand", final_operand_name),
+            ("indices", final_indices_name),
+            ("updates", final_updates_name),
+        ]:
+            info = s.shape_env.get(name_to_check)
+            if info is not None and hasattr(info, "shape") and hasattr(info, "dtype"):
+                logger.debug(
+                    f"[ScatterAddPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                    f"shape={info.shape}, dtype={info.dtype}"
+                )
+            else:
+                if info is None:
+                    logger.warning(
+                        f"[ScatterAddPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                        f"Info is None in shape_env."
+                    )
+                else:
+                    logger.warning(
+                        f"[ScatterAddPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                        f"Info not a valid ShapeDtypeStruct in shape_env (type: {type(info)})."
+                    )
+        # --- End Logging Block ---
 
         reduction_attribute = "add"
         node_attributes = {}
@@ -257,31 +272,12 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             else:
                 raise NotImplementedError(
                     f"ScatterND with reduction='{reduction_attribute}' requires ONNX opset 13+. "
-                    f"Current opset: {s.builder.opset}. For scatter_add, this is essential."
+                    f"Current opset: {s.builder.opset}."
                 )
         else:
             raise NotImplementedError(
                 f"ScatterND requires ONNX opset 11+. Current opset: {s.builder.opset}"
             )
-
-        # Logging before ScatterND node creation
-        if final_updates_name in s.shape_env:
-            updates_info_for_scatternd_log = s.shape_env[final_updates_name]
-            if isinstance(updates_info_for_scatternd_log, ShapeDtypeStruct):
-                logger.debug(  # Changed from ERROR to DEBUG
-                    f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') going into ScatterND: {updates_info_for_scatternd_log.shape}"
-                )
-            else:
-                logger.warning(  # Changed from ERROR to WARNING
-                    f"[ScatterAddPlugin] Updates info for '{final_updates_name}' (ScatterND input) in shape_env is type {type(updates_info_for_scatternd_log)}."
-                )
-        else:
-            logger.error(  # This is genuinely an error if it happens
-                f"[ScatterAddPlugin] Shape of updates ('{final_updates_name}') not found in shape_env before ScatterND creation!"
-            )
-        logger.debug(  # Changed from ERROR to DEBUG
-            f"[ScatterAddPlugin] ScatterND inputs: data='{final_operand_name}', indices='{final_indices_name}', updates='{final_updates_name}'"
-        )
 
         s.add_node(
             helper.make_node(
@@ -293,64 +289,49 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             )
         )
 
-        # 3. Register final output shape and dtype
-        # Ensure s.shape_env is explicitly populated with a ShapeDtypeStruct
-        # operand_shape and operand_dtype_np are defined earlier from operand_v.aval
+        # 3. Register final output shape and dtype robustly
+        # operand_shape and operand_dtype_np are for the output, derived from operand_v.aval
 
-        current_out_info = s.shape_env.get(out_name)
-        if (
-            not isinstance(current_out_info, ShapeDtypeStruct)
-            or not _are_shapes_equal(current_out_info.shape, operand_shape, s)
-            or _ensure_np_dtype(current_out_info.dtype) != operand_dtype_np
-        ):
+        sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
+        s.shape_env[out_name] = (
+            sds_out  # Explicitly populate s.shape_env with the consistently imported ShapeDtypeStruct
+        )
+        s.add_shape_info(
+            out_name, operand_shape, operand_dtype_np
+        )  # Ensure builder's value_info is also updated
 
-            logger.debug(
-                f"Re-registering/ensuring ShapeDtypeStruct for output '{out_name}' in shape_env."
-            )
-            sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
-            s.shape_env[out_name] = sds_out
-            # Also call the main add_shape_info, which might do other things like add to graph value_info
-            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+        logger.debug(
+            f"[{self.__class__.__name__}] Ensured s.shape_env and called add_shape_info for ScatterND output '{out_name}' with {sds_out}"
+        )
 
-        # For debugging, verify after attempting to fix:
-        final_output_info = s.shape_env.get(out_name)
-        if not isinstance(final_output_info, ShapeDtypeStruct):
+        # More robust verification using hasattr (duck typing)
+        output_info_final_check = s.shape_env.get(out_name)
+        if output_info_final_check is None:
             logger.error(
-                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is type {type(final_output_info)} "
-                f"not ShapeDtypeStruct in shape_env even after explicit set."
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is None in shape_env AFTER explicit set."
             )
         elif not (
-            _are_shapes_equal(final_output_info.shape, operand_shape, s)
-            and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
+            hasattr(output_info_final_check, "shape")
+            and hasattr(output_info_final_check, "dtype")
+            and output_info_final_check.shape is not None
+            and output_info_final_check.dtype is not None
         ):
             logger.error(
-                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' {final_output_info} "
-                f"does not match expected operand info ({operand_shape}, {operand_dtype_np})."
-            )
-        if isinstance(
-            final_output_info, ShapeDtypeStruct
-        ):  # Use ShapeDtypeStruct from jax, not core
-            if not (
-                _are_shapes_equal(final_output_info.shape, operand_shape, s)
-                and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
-            ):
-                logger.warning(
-                    f"[ScatterAddPlugin] Final assertion mismatch for {out_name}. "
-                    f"Env: {final_output_info.shape}/{final_output_info.dtype}, "
-                    f"Expected: {operand_shape}/{operand_dtype_np}"
-                )
-                # Forcing re-registration if mismatch is found and was unexpected
-                sds_out_corrected = ShapeDtypeStruct(operand_shape, operand_dtype_np)
-                s.shape_env[out_name] = sds_out_corrected
-                s.add_shape_info(
-                    out_name, operand_shape, operand_dtype_np
-                )  # Re-call add_shape_info too
-        elif final_output_info is not None:
-            logger.warning(
-                f"[ScatterAddPlugin] Output info for {out_name} in shape_env is type {type(final_output_info)}, not ShapeDtypeStruct."
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' (type: {type(output_info_final_check)}) "
+                f"in shape_env AFTER explicit set is not ShapeDtypeStruct-like (missing .shape or .dtype)."
             )
         else:
-            logger.error(
-                f"[ScatterAddPlugin] CRITICAL: Output info for {out_name} is None in shape_env AFTER attempting registration."
-            )
-        # --- END OF MODIFIED SECTION ---
+            # Only check .shape and .dtype if output_info_final_check is not None and has those attributes
+            if not (
+                output_info_final_check.shape == operand_shape
+                and np.dtype(output_info_final_check.dtype) == operand_dtype_np
+            ):
+                logger.warning(
+                    f"[{self.__class__.__name__}] Final verification mismatch for {out_name}. "
+                    f"Env: {output_info_final_check.shape}/{output_info_final_check.dtype}, "
+                    f"Expected: {operand_shape}/{operand_dtype_np}. This might be due to symbolic shapes if dynamically resolved."
+                )
+            else:
+                logger.debug(
+                    f"[{self.__class__.__name__}] Output info for '{out_name}' verified in shape_env."
+                )

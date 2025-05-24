@@ -213,7 +213,7 @@ class OnnxBuilder:
         model_name: str = "",
         initializers: list[Any] | None = None,
         converter: Any = None,  # <-- Add converter argument
-        enable_float64: bool = False,  # Add this
+        enable_double_precision: bool = False,  # Add this
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
@@ -230,9 +230,11 @@ class OnnxBuilder:
         self.functions: dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.display_name_map: dict[str, str] = {}
-        self.enable_float64 = enable_float64  # Store the flag
+        self.enable_double_precision = enable_double_precision  # Store the flag
         self.working_dtype_onnx = (
-            onnx.TensorProto.DOUBLE if enable_float64 else onnx.TensorProto.FLOAT
+            onnx.TensorProto.DOUBLE
+            if enable_double_precision
+            else onnx.TensorProto.FLOAT
         )
 
         # Metadata for value information.
@@ -445,32 +447,32 @@ class OnnxBuilder:
                 np_val = np.array(val, dtype=np.bool_)
                 # onnx_dtype = TensorProto.BOOL # Inferred by helper.make_tensor from np_val.dtype
             elif isinstance(val, int):  # Handles Python int
-                if self.enable_float64:
+                if self.enable_double_precision:
                     # When float64 mode is enabled, and if the original JAX literal was int64,
                     # or generally to prefer wider types, create an INT64 ONNX constant.
                     logger.debug(
-                        f"Builder: Converting Python int literal '{val}' to INT64 due to enable_float64=True."
+                        f"Builder: Converting Python int literal '{val}' to INT64 due to enable_double_precision=True."
                     )
                     np_val = np.array(val, dtype=np.int64)
                 else:
-                    # In float32 mode (enable_float64=False), default to int32 if the value fits,
+                    # In float32 mode (enable_double_precision=False), default to int32 if the value fits,
                     # otherwise use int64 (current behavior for f32 seems to be just int32).
                     # This maintains potential compatibility with ops expecting int32 for smaller integers.
                     if np.iinfo(np.int32).min <= val <= np.iinfo(np.int32).max:
                         logger.debug(
-                            f"Builder: Converting Python int literal '{val}' to INT32 (fits, enable_float64=False)."
+                            f"Builder: Converting Python int literal '{val}' to INT32 (fits, enable_double_precision=False)."
                         )
                         np_val = np.array(val, dtype=np.int32)
                     else:
                         logger.debug(
-                            f"Builder: Converting Python int literal '{val}' to INT64 (does not fit in INT32, enable_float64=False)."
+                            f"Builder: Converting Python int literal '{val}' to INT64 (does not fit in INT32, enable_double_precision=False)."
                         )
                         np_val = np.array(
                             val, dtype=np.int64
                         )  # Value too large for int32
                 # dtype_enum will be correctly inferred from np_val.dtype by helper.make_tensor later
             else:  # float
-                if self.enable_float64:
+                if self.enable_double_precision:
                     np_val = np.array(val, dtype=np.float64)
                     # onnx_dtype = TensorProto.DOUBLE
                 else:
@@ -483,12 +485,12 @@ class OnnxBuilder:
             else:
                 np_val = val  # It's already a NumPy array
 
-            # Adjust float precision based on enable_float64
+            # Adjust float precision based on enable_double_precision
             if np.issubdtype(np_val.dtype, np.floating):
-                if self.enable_float64:
+                if self.enable_double_precision:
                     if np_val.dtype != np.float64:
                         np_val = np_val.astype(np.float64)
-                else:  # not enable_float64
+                else:  # not enable_double_precision
                     if np_val.dtype != np.float32:
                         # Ensure float32 if it's any other float type (e.g. float64, float16)
                         np_val = np_val.astype(np.float32)

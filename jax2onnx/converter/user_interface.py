@@ -26,7 +26,7 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
-    enable_float64: bool = False,
+    enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
@@ -43,7 +43,7 @@ def to_onnx(
                      'deterministic' flags.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
-        enable_float64: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
+        enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be
             recorded to this file. This log can be used by developers to manually
@@ -66,7 +66,7 @@ def to_onnx(
     logging.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}, enable_float64={enable_float64}, "
+        f"input_params={input_params}, enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
 
@@ -118,7 +118,7 @@ def to_onnx(
         input_params=input_params,
         model_name=model_name,
         opset=opset,
-        enable_float64=enable_float64,
+        enable_double_precision=enable_double_precision,
         record_primitive_calls_file=record_primitive_calls_file,
     )
 
@@ -137,7 +137,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # ──────────────── NEW FLAG ────────────────
     p.add_argument(
         "--float64",
-        dest="enable_float64",
+        dest="enable_double_precision",
         action="store_true",
         default=False,
         help=_FLOAT64_HELP,
@@ -186,7 +186,7 @@ def run_command_line():
         inputs=input_specs,
         model_name=args.fn,
         opset=args.opset,
-        enable_float64=args.enable_float64,
+        enable_double_precision=args.enable_double_precision,
         record_primitive_calls_file=args.record_primitive_calls_file,
     )
 
@@ -195,7 +195,7 @@ def run_command_line():
 
 def convert(
     *,
-    enable_float64: bool = False,
+    enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
     **kwargs,
 ):
@@ -204,13 +204,13 @@ def convert(
 
     Parameters
     ----------
-    enable_float64 : bool, optional
+    enable_double_precision : bool, optional
         If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
     record_primitive_calls_file : str, optional
         Path to a file to record JAX primitive calls during conversion. Defaults to None.
     """
     return to_onnx(
-        enable_float64=enable_float64,
+        enable_double_precision=enable_double_precision,
         record_primitive_calls_file=record_primitive_calls_file,
         **kwargs,
     )
