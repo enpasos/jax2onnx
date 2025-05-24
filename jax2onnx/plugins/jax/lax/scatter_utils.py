@@ -756,19 +756,24 @@ def _prepare_scatter_inputs_for_onnx(
                         "DefaultReshapedUpdates",
                     )
                     _final_updates_name_val_to_return = reshaped_updates_name
-                else:
+                else:  # Element count mismatch
                     err_msg = (
                         f"Default path: Updates element count mismatch for ScatterND. "
                         f"Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) "
                         f"cannot be reshaped to expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape} ({expected_nelem} elements). "
                         f"Operand: {final_operand_name}{operand_shape_symbolic}, "
-                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
+                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "  # Use the shape of the processed indices for the default path
                         f"Jax DimensionNumbers: {dimension_numbers}"
                     )
                     logger.error(err_msg)
-                    raise ValueError(err_msg)
+                    raise ValueError(err_msg)  # <<< THIS MUST BE ACTIVE
             except ValueError as ve:
-                if "Updates element count mismatch" not in str(ve):
+                # Ensure the re-raise includes full context or just re-raises `ve` if it's already the detailed one.
+                if "Updates element count mismatch" not in str(
+                    ve
+                ) and "Cannot make shape concrete" not in str(
+                    ve
+                ):  # Avoid wrapping our own clear error
                     err_msg = (
                         f"Default path: Could not prepare updates for ScatterND due to shape error: {ve}. "
                         f"Original JAX updates shape {original_updates_shape_symbolic}, "
@@ -779,7 +784,7 @@ def _prepare_scatter_inputs_for_onnx(
                     )
                     logger.error(err_msg)
                     raise ValueError(err_msg) from ve
-                else:
+                else:  # Re-raise the original, more specific ValueError from _make_shape_concrete_for_prod or the element mismatch
                     raise
         else:
             _manually_ensure_shape_env_entry(

@@ -293,39 +293,50 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             )
         )
 
-        # --- MODIFIED SECTION TO FIX "Output info ... is None" ---
-        # Ensure the output tensor's shape and type are correctly in s.shape_env
-        # operand_shape is the correct shape tuple for the output
-        # operand_dtype_np is the correct np.dtype for the output
+        # 3. Register final output shape and dtype
+        # Ensure s.shape_env is explicitly populated with a ShapeDtypeStruct
+        # operand_shape and operand_dtype_np are defined earlier from operand_v.aval
 
-        # Call s.add_shape_info first, as it might do more than just update shape_env
-        # (e.g., add to ONNX graph's value_info)
-        s.add_shape_info(out_name, operand_shape, operand_dtype_np)
-
-        # Then, explicitly ensure s.shape_env has the ShapeDtypeStruct
-        # This provides robustness if s.add_shape_info doesn't (or doesn't immediately) update s.shape_env
-        if out_name not in s.shape_env or not isinstance(
-            s.shape_env.get(out_name), ShapeDtypeStruct
+        current_out_info = s.shape_env.get(out_name)
+        if (
+            not isinstance(current_out_info, ShapeDtypeStruct)
+            or not _are_shapes_equal(current_out_info.shape, operand_shape, s)
+            or _ensure_np_dtype(current_out_info.dtype) != operand_dtype_np
         ):
+
+            logger.debug(
+                f"Re-registering/ensuring ShapeDtypeStruct for output '{out_name}' in shape_env."
+            )
             sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
             s.shape_env[out_name] = sds_out
-            logger.debug(
-                f"[ScatterAddPlugin] Explicitly set s.shape_env for output '{out_name}' to {sds_out}"
-            )
+            # Also call the main add_shape_info, which might do other things like add to graph value_info
+            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
 
-        # The following assertions should now pass if the above is done correctly.
-        # For safety, wrap them with checks or remove if they cause issues with Mypy and pre-commit.
-        output_info = s.shape_env.get(out_name)
+        # For debugging, verify after attempting to fix:
+        final_output_info = s.shape_env.get(out_name)
+        if not isinstance(final_output_info, ShapeDtypeStruct):
+            logger.error(
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is type {type(final_output_info)} "
+                f"not ShapeDtypeStruct in shape_env even after explicit set."
+            )
+        elif not (
+            _are_shapes_equal(final_output_info.shape, operand_shape, s)
+            and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
+        ):
+            logger.error(
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' {final_output_info} "
+                f"does not match expected operand info ({operand_shape}, {operand_dtype_np})."
+            )
         if isinstance(
-            output_info, ShapeDtypeStruct
+            final_output_info, ShapeDtypeStruct
         ):  # Use ShapeDtypeStruct from jax, not core
             if not (
-                _are_shapes_equal(output_info.shape, operand_shape, s)
-                and _ensure_np_dtype(output_info.dtype) == operand_dtype_np
+                _are_shapes_equal(final_output_info.shape, operand_shape, s)
+                and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
             ):
                 logger.warning(
                     f"[ScatterAddPlugin] Final assertion mismatch for {out_name}. "
-                    f"Env: {output_info.shape}/{output_info.dtype}, "
+                    f"Env: {final_output_info.shape}/{final_output_info.dtype}, "
                     f"Expected: {operand_shape}/{operand_dtype_np}"
                 )
                 # Forcing re-registration if mismatch is found and was unexpected
@@ -334,9 +345,9 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
                 s.add_shape_info(
                     out_name, operand_shape, operand_dtype_np
                 )  # Re-call add_shape_info too
-        elif output_info is not None:
+        elif final_output_info is not None:
             logger.warning(
-                f"[ScatterAddPlugin] Output info for {out_name} in shape_env is type {type(output_info)}, not ShapeDtypeStruct."
+                f"[ScatterAddPlugin] Output info for {out_name} in shape_env is type {type(final_output_info)}, not ShapeDtypeStruct."
             )
         else:
             logger.error(

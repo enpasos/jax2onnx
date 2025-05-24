@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Sequence, Any
 
 import numpy as np
 import jax.numpy as jnp  # Keep for potential use in test cases or future needs
-from jax import lax, core
+from jax import ShapeDtypeStruct, lax, core
 from jax.lax import (
     ScatterDimensionNumbers,
     GatherScatterMode,  # Keep for parameters, though ScatterND has limited mode support
@@ -15,7 +15,11 @@ from onnx import (
 )  # TensorProto might be needed by the utility if not passed via s.
 
 # Import the new utility function
-from .scatter_utils import _prepare_scatter_inputs_for_onnx
+from .scatter_utils import (
+    _are_shapes_equal,
+    _ensure_np_dtype,
+    _prepare_scatter_inputs_for_onnx,
+)
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -226,39 +230,50 @@ class ScatterPlugin(PrimitiveLeafPlugin):
         )
 
         # 3. Register final output shape and dtype
-        # This should match the original operand's shape and dtype for scatter.
-        output_info = s.shape_env.get(out_name)
-        if output_info is None:
-            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
-            output_info = s.shape_env.get(out_name)
+        # Ensure s.shape_env is explicitly populated with a ShapeDtypeStruct
+        # operand_shape and operand_dtype_np are defined earlier from operand_v.aval
 
-        # Defensive: output_info could be None, tuple, or ShapeDtypeStruct
+        current_out_info = s.shape_env.get(out_name)
         if (
-            output_info is not None
-            and hasattr(output_info, "shape")
-            and hasattr(output_info, "dtype")
+            not isinstance(current_out_info, ShapeDtypeStruct)
+            or not _are_shapes_equal(current_out_info.shape, operand_shape, s)
+            or _ensure_np_dtype(current_out_info.dtype) != operand_dtype_np
         ):
-            assert (
-                output_info.shape == operand_shape
-            ), f"Output shape mismatch for {out_name}: EnvShape={output_info.shape}, ExpectedOperandShape={operand_shape}"
-            assert (
-                output_info.dtype == operand_dtype_np
-            ), f"Output dtype mismatch for {out_name}: EnvDtype={output_info.dtype}, ExpectedOperandDtype={operand_dtype_np}"
-        elif isinstance(output_info, tuple):
-            logger.warning(
-                f"Output info for {out_name} in shape_env is a raw tuple: {output_info}. Expected ShapeDtypeStruct."
+
+            logger.debug(
+                f"Re-registering/ensuring ShapeDtypeStruct for output '{out_name}' in shape_env."
+            )
+            sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
+            s.shape_env[out_name] = sds_out
+            # Also call the main add_shape_info, which might do other things like add to graph value_info
+            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+
+        # For debugging, verify after attempting to fix:
+        final_output_info = s.shape_env.get(out_name)
+        if not isinstance(final_output_info, ShapeDtypeStruct):
+            logger.error(
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is type {type(final_output_info)} "
+                f"not ShapeDtypeStruct in shape_env even after explicit set."
+            )
+        elif not (
+            _are_shapes_equal(final_output_info.shape, operand_shape, s)
+            and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
+        ):
+            logger.error(
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' {final_output_info} "
+                f"does not match expected operand info ({operand_shape}, {operand_dtype_np})."
             )
             assert (
-                output_info == operand_shape
-            ), f"Output shape tuple mismatch for {out_name}: EnvShapeTuple={output_info}, ExpectedOperandShape={operand_shape}"
+                final_output_info == operand_shape
+            ), f"Output shape tuple mismatch for {out_name}: EnvShapeTuple={final_output_info}, ExpectedOperandShape={operand_shape}"
             logger.warning(
                 f"Cannot assert dtype for {out_name} as shape_env entry is a tuple, not ShapeDtypeStruct."
             )
-        elif output_info is None:
+        elif final_output_info is None:
             logger.error(
                 f"Output info for {out_name} in shape_env is None after add_shape_info. This should not happen."
             )
         else:
             logger.error(
-                f"Unexpected type for {out_name} in shape_env: {type(output_info)}. Cannot assert shape/dtype."
+                f"Unexpected type for {out_name} in shape_env: {type(final_output_info)}. Cannot assert shape/dtype."
             )
