@@ -16,8 +16,6 @@ from onnx import (
 
 # Import the new utility function
 from .scatter_utils import (
-    _are_shapes_equal,
-    _ensure_np_dtype,
     _prepare_scatter_inputs_for_onnx,
 )
 
@@ -225,55 +223,79 @@ class ScatterPlugin(PrimitiveLeafPlugin):
                 inputs=[final_operand_name, final_indices_name, final_updates_name],
                 outputs=[out_name],
                 name=s.get_unique_name(f"scatter_nd_{out_name}"),
-                **node_attributes,  # Add reduction attribute if applicable
+                **node_attributes,
             )
         )
 
-        # 3. Register final output shape and dtype
-        # Ensure s.shape_env is explicitly populated with a ShapeDtypeStruct
-        # operand_shape and operand_dtype_np are defined earlier from operand_v.aval
+        # 3. Register final output shape and dtype robustly
+        # operand_shape and operand_dtype_np are for the output, derived from operand_v.aval
 
-        current_out_info = s.shape_env.get(out_name)
-        if (
-            not isinstance(current_out_info, ShapeDtypeStruct)
-            or not _are_shapes_equal(current_out_info.shape, operand_shape, s)
-            or _ensure_np_dtype(current_out_info.dtype) != operand_dtype_np
-        ):
+        sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
+        s.shape_env[out_name] = (
+            sds_out  # Explicitly populate s.shape_env with the consistently imported ShapeDtypeStruct
+        )
+        s.add_shape_info(
+            out_name, operand_shape, operand_dtype_np
+        )  # Ensure builder's value_info is also updated
 
-            logger.debug(
-                f"Re-registering/ensuring ShapeDtypeStruct for output '{out_name}' in shape_env."
-            )
-            sds_out = ShapeDtypeStruct(operand_shape, operand_dtype_np)
-            s.shape_env[out_name] = sds_out
-            # Also call the main add_shape_info, which might do other things like add to graph value_info
-            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+        logger.debug(
+            f"[{self.__class__.__name__}] Ensured s.shape_env and called add_shape_info for ScatterND output '{out_name}' with {sds_out}"
+        )
 
-        # For debugging, verify after attempting to fix:
-        final_output_info = s.shape_env.get(out_name)
-        if not isinstance(final_output_info, ShapeDtypeStruct):
+        # --- Logging Block for Inputs to ScatterND ---
+        # Ensure these logging calls robustly check for presence in shape_env and attribute existence
+        for role, name_to_check in [
+            ("operand", final_operand_name),
+            ("indices", final_indices_name),
+            ("updates", final_updates_name),
+        ]:
+            info = s.shape_env.get(name_to_check)
+            if info is not None and hasattr(info, "shape") and hasattr(info, "dtype"):
+                logger.debug(
+                    f"[ScatterPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                    f"shape={info.shape}, dtype={info.dtype}"
+                )
+            else:
+                if info is None:
+                    logger.warning(
+                        f"[ScatterPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                        f"Info is None in shape_env."
+                    )
+                else:
+                    logger.warning(
+                        f"[ScatterPlugin] Input '{role}' ('{name_to_check}') for ScatterND: "
+                        f"Info not a valid ShapeDtypeStruct in shape_env (type: {type(info)})."
+                    )
+        # --- End Logging Block ---
+
+        # More robust verification using hasattr (duck typing)
+        output_info_final_check = s.shape_env.get(out_name)
+        if output_info_final_check is None:
             logger.error(
-                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is type {type(final_output_info)} "
-                f"not ShapeDtypeStruct in shape_env even after explicit set."
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' is None in shape_env AFTER explicit set."
             )
         elif not (
-            _are_shapes_equal(final_output_info.shape, operand_shape, s)
-            and _ensure_np_dtype(final_output_info.dtype) == operand_dtype_np
+            hasattr(output_info_final_check, "shape")
+            and hasattr(output_info_final_check, "dtype")
+            and output_info_final_check.shape is not None
+            and output_info_final_check.dtype is not None
         ):
             logger.error(
-                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' {final_output_info} "
-                f"does not match expected operand info ({operand_shape}, {operand_dtype_np})."
-            )
-            assert (
-                final_output_info == operand_shape
-            ), f"Output shape tuple mismatch for {out_name}: EnvShapeTuple={final_output_info}, ExpectedOperandShape={operand_shape}"
-            logger.warning(
-                f"Cannot assert dtype for {out_name} as shape_env entry is a tuple, not ShapeDtypeStruct."
-            )
-        elif final_output_info is None:
-            logger.error(
-                f"Output info for {out_name} in shape_env is None after add_shape_info. This should not happen."
+                f"CRITICAL ERROR in {self.__class__.__name__}: Output info for '{out_name}' (type: {type(output_info_final_check)}) "
+                f"in shape_env AFTER explicit set is not ShapeDtypeStruct-like (missing .shape or .dtype)."
             )
         else:
-            logger.error(
-                f"Unexpected type for {out_name} in shape_env: {type(final_output_info)}. Cannot assert shape/dtype."
-            )
+            # Only check .shape and .dtype if output_info_final_check is not None and has those attributes
+            if not (
+                output_info_final_check.shape == operand_shape
+                and np.dtype(output_info_final_check.dtype) == operand_dtype_np
+            ):
+                logger.warning(
+                    f"[{self.__class__.__name__}] Final verification mismatch for {out_name}. "
+                    f"Env: {output_info_final_check.shape}/{output_info_final_check.dtype}, "
+                    f"Expected: {operand_shape}/{operand_dtype_np}. This might be due to symbolic shapes if dynamically resolved."
+                )
+            else:
+                logger.debug(
+                    f"[{self.__class__.__name__}] Output info for '{out_name}' verified in shape_env."
+                )

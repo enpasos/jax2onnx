@@ -193,7 +193,7 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         if run_only_f64_variant:
             # Only generate the float64 enabled variant, using the original testcase name
             p_f64_only = base_param_set.copy()
-            p_f64_only["_enable_float64_test_setting"] = True
+            p_f64_only["_enable_double_precision_test_setting"] = True
             # testcase name remains p_f64_only["testcase"] (no suffix)
 
             # Apply float64 casting to values/dtypes for this variant if it's a float test
@@ -232,7 +232,7 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             # Default behavior: generate f32 variant (base name)
             p_f32 = base_param_set.copy()
-            p_f32["_enable_float64_test_setting"] = False
+            p_f32["_enable_double_precision_test_setting"] = False
             # testcase name remains base_param_set["testcase"]
             final_params_list.append(p_f32)
 
@@ -241,7 +241,7 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 # Check if this test involves floats, only add _f64 variant if it does.
                 p_f64 = base_param_set.copy()
                 p_f64["testcase"] += "_f64"  # Add suffix
-                p_f64["_enable_float64_test_setting"] = True
+                p_f64["_enable_double_precision_test_setting"] = True
 
                 if "input_values" in p_f64 and p_f64["input_values"] is not None:
                     p_f64["input_values"] = [
@@ -318,7 +318,9 @@ def make_test_function(tp: dict[str, Any]):
         )  # Moved this line up
 
         # Get the float64 setting for this specific test variant
-        current_enable_float64 = tp.get("_enable_float64_test_setting", False)
+        current_enable_double_precision = tp.get(
+            "_enable_double_precision_test_setting", False
+        )
         # Determine default JAX dtype based on the flag for tracing if shapes are given without dtypes
 
         # processed_input_specs_for_to_onnx will be List[Union[ShapeDtypeStruct, Tuple[Shape, Dtype]]]
@@ -343,7 +345,9 @@ def make_test_function(tp: dict[str, Any]):
                         if isinstance(shape_spec, (list, tuple))
                         else (shape_spec,)
                     )
-                    if current_enable_float64 and np.issubdtype(dt, np.floating):
+                    if current_enable_double_precision and np.issubdtype(
+                        dt, np.floating
+                    ):
                         dt = jnp.float64
                     processed_input_specs_for_to_onnx.append(
                         jax.ShapeDtypeStruct(current_shape_tuple, dt)
@@ -373,7 +377,7 @@ def make_test_function(tp: dict[str, Any]):
                 np_array = np.array(val)
                 # For float64 test variant, if original was float, ensure it's float64 for tracing
                 # otherwise, preserve the original dtype (bool, int32, etc.)
-                if current_enable_float64 and np.issubdtype(
+                if current_enable_double_precision and np.issubdtype(
                     np_array.dtype, np.floating
                 ):
                     shapes_from_values.append(
@@ -392,7 +396,7 @@ def make_test_function(tp: dict[str, Any]):
 
             logger.info(
                 f"Test '{tp['testcase']}': Using ShapeDtypeStructs for to_onnx from input_values: {processed_input_specs_for_to_onnx}. "
-                f"enable_float64={current_enable_float64}."
+                f"enable_double_precision={current_enable_double_precision}."
             )
         else:
             sig = inspect.signature(callable_obj)
@@ -426,11 +430,11 @@ def make_test_function(tp: dict[str, Any]):
 
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
-            f"enable_float64: {current_enable_float64}"
+            f"enable_double_precision: {current_enable_double_precision}"
         )
         try:
             # to_onnx expects `inputs` to be a list of shape tuples.
-            # `default_dtype` in `to_onnx` will be combined with `enable_float64`
+            # `default_dtype` in `to_onnx` will be combined with `enable_double_precision`
             # to determine the `working_dtype` for these shapes if dtypes aren't part of `processed_input_specs_for_to_onnx`.
             onnx_model = to_onnx(
                 callable_obj,
@@ -438,11 +442,11 @@ def make_test_function(tp: dict[str, Any]):
                 input_params=input_params_from_testcase,
                 model_name=testcase_name,  # Use the specific test case name (e.g., with _f64)
                 opset=opset_version,
-                enable_float64=current_enable_float64,  # Pass the flag
+                enable_double_precision=current_enable_double_precision,  # Pass the flag
             )
         except Exception as e:
             logger.error(
-                f"Failed during to_onnx conversion for '{testcase_name}' with enable_float64={current_enable_float64}: {e}",
+                f"Failed during to_onnx conversion for '{testcase_name}' with enable_double_precision={current_enable_double_precision}: {e}",
                 exc_info=True,
             )
             raise
@@ -453,15 +457,15 @@ def make_test_function(tp: dict[str, Any]):
         # --- Numerical Validation ---
         if input_values_from_testcase:
             logger.info(
-                f"Running numerical check for '{testcase_name}' (enable_float64={current_enable_float64})..."
+                f"Running numerical check for '{testcase_name}' (enable_double_precision={current_enable_double_precision})..."
             )
             # For f64 tests, input_values_from_testcase should already be cast to np.float64 if they were floats
             # The callable_obj will be called with these (potentially f64) inputs by allclose
-            # The ONNX model was generated with enable_float64=True, so it should also compute in f64
+            # The ONNX model was generated with enable_double_precision=True, so it should also compute in f64
 
             # Adjust tolerance for float64 comparisons if needed
-            rtol = 1e-7 if current_enable_float64 else 1e-5
-            atol = 1e-7 if current_enable_float64 else 1e-5
+            rtol = 1e-7 if current_enable_double_precision else 1e-5
+            atol = 1e-7 if current_enable_double_precision else 1e-5
 
             xs_for_num_check = [np.asarray(val) for val in input_values_from_testcase]
 
@@ -475,7 +479,7 @@ def make_test_function(tp: dict[str, Any]):
             )
             assert (
                 passed_numerical
-            ), f"Numerical check failed for {testcase_name} (enable_float64={current_enable_float64}): {validation_message}"
+            ), f"Numerical check failed for {testcase_name} (enable_double_precision={current_enable_double_precision}): {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
         elif input_shapes_from_testcase and input_dtypes_from_testcase:
             # -------- NEW: synthesise inputs for numerical check -----------------
@@ -484,7 +488,8 @@ def make_test_function(tp: dict[str, Any]):
                     return np.random.randn(*shape).astype(
                         jnp.float64
                         if (
-                            current_enable_float64 and np.issubdtype(dtype, np.floating)
+                            current_enable_double_precision
+                            and np.issubdtype(dtype, np.floating)
                         )
                         else dtype
                     )
@@ -502,8 +507,8 @@ def make_test_function(tp: dict[str, Any]):
                 )
             ]
 
-            rtol = 1e-7 if current_enable_float64 else 1e-5
-            atol = 1e-7 if current_enable_float64 else 1e-5
+            rtol = 1e-7 if current_enable_double_precision else 1e-5
+            atol = 1e-7 if current_enable_double_precision else 1e-5
 
             passed_numerical, validation_message = allclose(
                 callable_obj,
@@ -515,7 +520,7 @@ def make_test_function(tp: dict[str, Any]):
             )
             assert (
                 passed_numerical
-            ), f"Numerical check failed for {testcase_name} (enable_float64={current_enable_float64}): {validation_message}"
+            ), f"Numerical check failed for {testcase_name} (enable_double_precision={current_enable_double_precision}): {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
         else:
             logger.info(
@@ -532,8 +537,8 @@ def make_test_function(tp: dict[str, Any]):
             logger.info(f"Found expected {num_found_funcs} ONNX functions.")
 
         # --- DType Validation for ONNX model outputs ---
-        # This check is crucial for the enable_float64 flag.
-        # We expect float outputs to be DOUBLE if current_enable_float64 is True.
+        # This check is crucial for the enable_double_precision flag.
+        # We expect float outputs to be DOUBLE if current_enable_double_precision is True.
         if input_values_from_testcase:  # Only if we can infer JAX output dtypes
             # Determine expected JAX output dtypes by evaluating shape (and dtype) of JAX function
             # Ensure inputs to JAX for this eval_shape match the float64 setting
@@ -544,8 +549,8 @@ def make_test_function(tp: dict[str, Any]):
                 input_values_from_testcase
             ):  # These are already potentially np.float64 for f64 tests
                 np_array_val = np.array(val)
-                # If current_enable_float64 is true and it's a float, use jnp.float64 for eval_shape
-                if current_enable_float64 and np.issubdtype(
+                # If current_enable_double_precision is true and it's a float, use jnp.float64 for eval_shape
+                if current_enable_double_precision and np.issubdtype(
                     np_array_val.dtype, np.floating
                 ):
                     jax_eval_inputs_sds.append(
@@ -600,7 +605,7 @@ def make_test_function(tp: dict[str, Any]):
 
                 expected_onnx_dtype_for_float_outputs = (
                     onnx.TensorProto.DOUBLE
-                    if current_enable_float64
+                    if current_enable_double_precision
                     else onnx.TensorProto.FLOAT
                 )
 
@@ -619,17 +624,17 @@ def make_test_function(tp: dict[str, Any]):
                             ), (
                                 f"Test '{testcase_name}', output '{onnx_output_vi.name}' (index {i}): "
                                 f"ONNX dtype mismatch. JAX output dtype is {jax_dtype}, "
-                                f"enable_float64 is {current_enable_float64}. "
+                                f"enable_double_precision is {current_enable_double_precision}. "
                                 f"Expected ONNX type {onnx.TensorProto.DataType.Name(expected_onnx_dtype_for_float_outputs)}, "
                                 f"but got {onnx.TensorProto.DataType.Name(onnx_tensor_type_enum)}."
                             )
                 logger.info(
-                    f"Output dtypes verified for '{testcase_name}' (enable_float64={current_enable_float64})."
+                    f"Output dtypes verified for '{testcase_name}' (enable_double_precision={current_enable_double_precision})."
                 )
 
             except Exception as e:
                 logger.warning(
-                    f"Could not perform JAX eval_shape for dtype checking in test '{testcase_name}' (enable_float64={current_enable_float64}): {e}",
+                    f"Could not perform JAX eval_shape for dtype checking in test '{testcase_name}' (enable_double_precision={current_enable_double_precision}): {e}",
                     exc_info=True,
                 )
         else:
@@ -709,13 +714,13 @@ def make_test_function(tp: dict[str, Any]):
             )  # Default to original
 
             if (
-                current_enable_float64
-            ):  # current_enable_float64 is tp.get("_enable_float64_test_setting", False)
+                current_enable_double_precision
+            ):  # current_enable_double_precision is tp.get("_enable_double_precision_test_setting", False)
                 x64_specific_expected_shapes = tp.get("x64_expected_output_shapes")
                 if x64_specific_expected_shapes is not None:
                     logger.info(
                         f"Test '{testcase_name}': Using x64_expected_output_shapes: {x64_specific_expected_shapes} "
-                        f"due to current_enable_float64={current_enable_float64}."
+                        f"due to current_enable_double_precision={current_enable_double_precision}."
                     )
                     effective_expected_output_shapes = list(
                         x64_specific_expected_shapes
@@ -755,7 +760,7 @@ def make_test_function(tp: dict[str, Any]):
                     if (
                         input_values_from_testcase
                     ):  # If the testcase provides concrete input values
-                        # Ensure these values are JAX arrays with dtypes reflecting current_enable_float64
+                        # Ensure these values are JAX arrays with dtypes reflecting current_enable_double_precision
                         # jax_eval_inputs_sds was prepared earlier with correct dtypes for this.
                         if len(input_values_from_testcase) != len(jax_eval_inputs_sds):
                             raise ValueError(  # Should not happen if jax_eval_inputs_sds derived correctly
@@ -763,7 +768,7 @@ def make_test_function(tp: dict[str, Any]):
                                 f"does not match jax_eval_inputs_sds length ({len(jax_eval_inputs_sds)}) for {testcase_name}."
                             )
                         for idx, val_spec in enumerate(input_values_from_testcase):
-                            # Use the dtype from jax_eval_inputs_sds, as it correctly considers current_enable_float64
+                            # Use the dtype from jax_eval_inputs_sds, as it correctly considers current_enable_double_precision
                             sds_for_dtype = jax_eval_inputs_sds[idx]
                             jax_concrete_inputs_for_exec.append(
                                 jnp.asarray(val_spec, dtype=sds_for_dtype.dtype)
@@ -780,8 +785,8 @@ def make_test_function(tp: dict[str, Any]):
                     # If both are empty (e.g. for static arange like `lambda: jnp.arange(5)`),
                     # jax_concrete_inputs_for_exec remains empty, which is correct.
 
-                    # Temporarily enable x64 for this JAX execution if current_enable_float64 is set for the test variant
-                    if current_enable_float64:
+                    # Temporarily enable x64 for this JAX execution if current_enable_double_precision is set for the test variant
+                    if current_enable_double_precision:
                         with jax.config.update("jax_enable_x64", True):
                             jax_fn_outputs_for_shape = eval_target_jax_func(
                                 *jax_concrete_inputs_for_exec

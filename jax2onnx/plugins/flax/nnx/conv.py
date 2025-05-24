@@ -326,9 +326,9 @@ class ConvPlugin(PrimitiveLeafPlugin):
             else None
         )
 
-        use_float64 = getattr(s.builder, "enable_float64", False)
+        use_float64 = getattr(s.builder, "enable_double_precision", False)
         # Dtype for ONNX constants/initializers if they need to be created/cast
-        # Expected JAX dtype for float operations if enable_float64 is true
+        # Expected JAX dtype for float operations if enable_double_precision is true
 
         input_name = s.get_name(input_var)
         final_output_name = s.get_name(node_outputs[0])
@@ -589,7 +589,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             self: nnx.Conv, x: jax.Array
         ):  # self is the nnx.Conv instance
             # Determine the target JAX dtype based on JAX's x64 config,
-            # which is set by to_onnx(..., enable_float64=True)
+            # which is set by to_onnx(..., enable_double_precision=True)
             target_jax_dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
             # Ensure kernel is of target_jax_dtype if it's a float

@@ -79,7 +79,7 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,
-    enable_float64: bool = False,
+    enable_double_precision: bool = False,
     default_dtype: Any | None = None,
     record_primitive_calls_file: Optional[str] = None,
     # ... other parameters ...
@@ -100,7 +100,7 @@ def to_onnx(
         Name of the ONNX model, by default "jax_model"
     opset : int, optional
         ONNX opset version to target, by default 21
-    enable_float64 : bool, optional
+    enable_double_precision : bool, optional
         If **True**, the converter keeps every tensor in double
         precision (`tensor(double)`).  If **False** (default) the
         graph is down-cast to single precision.
@@ -123,21 +123,23 @@ def to_onnx(
     #    before we trace the function.  Needs to happen **before**
     #    any array creation inside this call.
     # ------------------------------------------------------------------
-    if enable_float64:
+    if enable_double_precision:
         jax_config.update("jax_enable_x64", True)
-        # If enable_float64 is True, working_dtype MUST be float64,
+        # If enable_double_precision is True, working_dtype MUST be float64,
         # unless default_dtype is explicitly something else (which might be an edge case to clarify or restrict)
-        working_dtype = jnp.float64  # Prioritize float64 if enable_float64 is true
+        working_dtype = (
+            jnp.float64
+        )  # Prioritize float64 if enable_double_precision is true
         if default_dtype is not None and default_dtype != jnp.float64:
             logger.warning(
-                f"enable_float64 is True, but default_dtype is {default_dtype}. Using jnp.float64."
+                f"enable_double_precision is True, but default_dtype is {default_dtype}. Using jnp.float64."
             )
     else:
         jax_config.update("jax_enable_x64", False)
         working_dtype = jnp.float32 if default_dtype is None else default_dtype
 
     logger.debug(
-        f"🔧 enable_float64 = {enable_float64} → working dtype = {working_dtype}"
+        f"🔧 enable_double_precision = {enable_double_precision} → working dtype = {working_dtype}"
     )
 
     # --- Step 0: Format input_specs ---
@@ -170,12 +172,12 @@ def to_onnx(
     # --- Setup Converter and Builder ---
     unique_name_generator = UniqueNameGenerator()
 
-    # Initialize OnnxBuilder with the enable_float64 flag
+    # Initialize OnnxBuilder with the enable_double_precision flag
     builder = OnnxBuilder(
         unique_name_generator,
         opset=opset,
         converter=None,  # Will be set later
-        enable_float64=enable_float64,  # Pass the flag
+        enable_double_precision=enable_double_precision,  # Pass the flag
     )
 
     # Set the map as an attribute *after* initialization

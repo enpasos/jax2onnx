@@ -8,7 +8,9 @@ from typing import (
     Tuple,
 )
 import numpy as np
-from jax import ShapeDtypeStruct  # Ensure jax.ShapeDtypeStruct is directly imported
+from jax import (
+    ShapeDtypeStruct,
+)  # Ensure jax.ShapeDtypeStruct is directly imported
 from jax.lax import ScatterDimensionNumbers
 from onnx import helper, TensorProto
 
@@ -19,8 +21,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-# This version will FAIL HARD on element count mismatch in default updates path
-SCATTER_UTILS_VERSION = "DEBUG-V20250524-SUTILS-FAILHARD-FOR-JAXFLUIDS"
+
+SCATTER_UTILS_VERSION = "DEBUG-V20250524-1646-v2"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -70,7 +72,7 @@ def _manually_ensure_shape_env_entry(
             f"[_prepare_scatter_inputs {context}] MANUALLY ensured s.shape_env for '{tensor_name}' to {sds_to_store}. "
             f"Check after direct set: {tensor_name in s.shape_env}. Value: {s.shape_env.get(tensor_name)}"
         )
-        if tensor_name not in s.shape_env:  # Should ideally not happen
+        if tensor_name not in s.shape_env:
             logger.error(
                 f"[_prepare_scatter_inputs {context}] FAILED to find '{tensor_name}' in s.shape_env EVEN AFTER DIRECT ASSIGNMENT. Keys: {list(s.shape_env.keys())}"
             )
@@ -96,15 +98,17 @@ def _is_dim_symbolic(dim_val: Any, s: "Jaxpr2OnnxConverter") -> bool:
 
 
 def _are_dims_equal(dim1: Any, dim2: Any, s: "Jaxpr2OnnxConverter") -> bool:
+    # This is the simplified version that passed pre-commit checks
     is_dim1_sym = _is_dim_symbolic(dim1, s)
     is_dim2_sym = _is_dim_symbolic(dim2, s)
 
     if not is_dim1_sym and not is_dim2_sym:
         return int(dim1) == int(dim2)
 
-    if is_dim1_sym != is_dim2_sym:
+    if is_dim1_sym != is_dim2_sym:  # One symbolic, one concrete
         return False
 
+    # Both are symbolic (or considered symbolic by _is_dim_symbolic fallback)
     return dim1 is dim2  # Fallback to object identity for symbolic dimensions
 
 
@@ -138,7 +142,6 @@ def _make_shape_concrete_for_prod(
             if val_to_append is not None:
                 concrete_shape.append(int(val_to_append))
             else:
-                # Check for Jax core.Literal or extend.core.Literal
                 if (
                     type(dim_val).__name__ == "Literal"
                     and hasattr(dim_val, "val")
@@ -216,8 +219,6 @@ def _prepare_scatter_inputs_for_onnx(
     index_depth_k = len(dimension_numbers.scatter_dims_to_operand_dims)
 
     target_indices_shape_symbolic: Tuple[Any, ...]
-    # ... (Indices processing logic to determine target_indices_shape_symbolic - (N,K) for ONNX)
-    # This block is from your "DEBUG-V20250524-SUTILS-FIX-NAMEERROR-APPLIED"
     if not current_indices_shape_symbolic:
         target_indices_shape_symbolic = (1, index_depth_k if index_depth_k > 0 else 0)
     elif (
@@ -284,7 +285,6 @@ def _prepare_scatter_inputs_for_onnx(
                 raise ValueError(
                     f"Invalid index_depth_k for general path: {index_depth_k}"
                 )
-    # End of target_indices_shape_symbolic calculation block
 
     final_indices_name_to_return: str
     if not _are_shapes_equal(
@@ -361,6 +361,8 @@ def _prepare_scatter_inputs_for_onnx(
 
     _final_updates_name_val_to_return = original_updates_name_val
 
+    # --- Calculate expected ONNX updates shape based on the *final processed* indices for the general path ---
+    # `processed_indices_shape_for_default_path` is `target_indices_shape_symbolic` (the (N,K) shape of final_indices_name_to_return)
     processed_indices_shape_for_default_path = target_indices_shape_symbolic
 
     onnx_updates_N_dim_list_default = list(
@@ -396,7 +398,7 @@ def _prepare_scatter_inputs_for_onnx(
         onnx_updates_N_dim_list_default + data_slice_dims_list_default
     )
 
-    use_depth2_for_batched_window_scatter = False
+    use_depth2_for_batched_window_scatter = False  # Default to False
     sdod = dimension_numbers.scatter_dims_to_operand_dims
     uwd = dimension_numbers.update_window_dims
     obd = dimension_numbers.operand_batching_dims
@@ -418,6 +420,9 @@ def _prepare_scatter_inputs_for_onnx(
         scatter_target_op_axis = sdod[0]
         if scatter_target_op_axis < op_rank:
             shapes_match_for_depth2_pattern = True
+            # Check alignment of dimensions not involved in the scatter target axis itself
+            # This simplified check assumes batch alignment on axis 0 if scatter_target_op_axis is not 0
+            # and alignment of trailing dimensions.
             if scatter_target_op_axis > 0:
                 if not _are_dims_equal(
                     operand_shape_symbolic[0], original_updates_shape_symbolic[0], s
@@ -430,6 +435,7 @@ def _prepare_scatter_inputs_for_onnx(
                     op_trailing_shape = operand_shape_symbolic[
                         scatter_target_op_axis + 1 :
                     ]
+                    # The corresponding axis in updates for L is scatter_target_op_axis because uwd spans all of updates
                     if scatter_target_op_axis < len(original_updates_shape_symbolic):
                         upd_trailing_shape = original_updates_shape_symbolic[
                             scatter_target_op_axis + 1 :
@@ -438,24 +444,25 @@ def _prepare_scatter_inputs_for_onnx(
                             op_trailing_shape, upd_trailing_shape, s
                         ):
                             shapes_match_for_depth2_pattern = False
-                    else:
+                    else:  # updates too small for trailing dims comparison
                         shapes_match_for_depth2_pattern = False
-            elif scatter_target_op_axis == 0:
-                if op_rank > 1:
+            elif scatter_target_op_axis == 0:  # Scatter on first axis
+                if op_rank > 1:  # If not 1D operand, compare remaining dims
                     if not _are_shapes_equal(
                         operand_shape_symbolic[1:],
                         original_updates_shape_symbolic[1:],
                         s,
                     ):
                         shapes_match_for_depth2_pattern = False
-                elif op_rank == 1:
-                    pass
-                else:
+                # If op_rank == 1 and scatter_target_op_axis is 0, shapes_match_for_depth2_pattern remains true
+                # if op_rank == upd_rank was already true (i.e., 1D op, 1D upd)
+                elif op_rank != 1:  # scalar operand if op_rank is 0
                     shapes_match_for_depth2_pattern = False
 
             if shapes_match_for_depth2_pattern and op_rank > 0:
-                # Check if the scatter_target_op_axis is a valid index for updates_shape as well
-                if scatter_target_op_axis < len(original_updates_shape_symbolic):
+                if scatter_target_op_axis < len(
+                    original_updates_shape_symbolic
+                ):  # Make sure L-dim exists in updates
                     use_depth2_for_batched_window_scatter = True
                 else:
                     logger.warning(
@@ -474,8 +481,12 @@ def _prepare_scatter_inputs_for_onnx(
             original_updates_shape_symbolic, s, "d2_upd_shape"
         )
 
-        B_val = concrete_operand_shape_d2[0]
-        L_val = concrete_updates_shape_d2[scatter_op_axis_idx]
+        B_val = concrete_operand_shape_d2[
+            0
+        ]  # Assumes batch is axis 0 for this strategy
+        L_val = concrete_updates_shape_d2[
+            scatter_op_axis_idx
+        ]  # Window length from updates' corresponding scatter axis
 
         col_start_scalar_name = s.get_unique_name(f"{current_indices_name}_scalar_d2")
         s.add_node(
@@ -492,6 +503,7 @@ def _prepare_scatter_inputs_for_onnx(
             s, col_start_scalar_name, (), final_indices_dtype_np, "ColStartScalarD2"
         )
 
+        # ... (Rest of the depth-2 indices construction logic - should be correct from Attempt 5/your suggestion)
         arange_b_end_name = s.get_constant_name(np.array(B_val, dtype=np.int64))
         arange_b_name = s.get_unique_name("arange_b_d2")
         s.add_node(
@@ -537,7 +549,6 @@ def _prepare_scatter_inputs_for_onnx(
             np.int64,
             "BatchIndicesBLD2",
         )
-
         arange_l_end_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
         arange_l_name = s.get_unique_name("arange_l_d2")
         s.add_node(
@@ -588,7 +599,6 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(
             s, col_indices_intermediate_name, (B_val, L_val), np.int64, "ColIndicesBLD2"
         )
-
         final_batch_indices_name = s.get_unique_name("final_batch_indices_d2")
         s.add_node(
             helper.make_node(
@@ -617,7 +627,6 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(
             s, final_col_indices_name, (B_val, L_val, 1), np.int64, "FinalColIdxD2"
         )
-
         indices_2d_name = s.get_unique_name("indices_2d_BL2_d2")
         s.add_node(
             helper.make_node(
@@ -630,9 +639,7 @@ def _prepare_scatter_inputs_for_onnx(
 
         final_indices_shape_for_depth2_strat = (
             operand_shape_symbolic[0],
-            original_updates_shape_symbolic[
-                scatter_op_axis_idx
-            ],  # L dimension from updates
+            original_updates_shape_symbolic[scatter_op_axis_idx],
             2,
         )
         _manually_ensure_shape_env_entry(
@@ -645,9 +652,9 @@ def _prepare_scatter_inputs_for_onnx(
 
         final_indices_name_to_return = indices_2d_name
         _final_updates_name_val_to_return = original_updates_name_val
-        current_expected_onnx_updates_shape = original_updates_shape_symbolic  # For this path, ONNX updates matches JAX updates
+        current_expected_onnx_updates_shape = original_updates_shape_symbolic
 
-    else:  # General path (not the depth-2 strategy case)
+    else:
         if not _are_shapes_equal(
             original_updates_shape_symbolic, current_expected_onnx_updates_shape, s
         ):
@@ -664,13 +671,10 @@ def _prepare_scatter_inputs_for_onnx(
                     current_expected_onnx_updates_shape, s, "exp_updates_nelem_default"
                 )
 
+                # Corrected element count calculation for scalar (empty shape tuple)
                 original_nelem = (
                     int(np.prod(concrete_orig_upd_shape).item())
                     if concrete_orig_upd_shape
-                    or (
-                        isinstance(concrete_orig_upd_shape, tuple)
-                        and len(concrete_orig_upd_shape) > 0
-                    )
                     else 1
                 )
                 if (
@@ -683,10 +687,6 @@ def _prepare_scatter_inputs_for_onnx(
                 expected_nelem = (
                     int(np.prod(concrete_exp_upd_shape).item())
                     if concrete_exp_upd_shape
-                    or (
-                        isinstance(concrete_exp_upd_shape, tuple)
-                        and len(concrete_exp_upd_shape) > 0
-                    )
                     else 1
                 )
                 if (
@@ -696,6 +696,7 @@ def _prepare_scatter_inputs_for_onnx(
                 ):
                     expected_nelem = 1
 
+                # Handle cases where a dimension might be 0, leading to 0 elements
                 if any(d == 0 for d in concrete_orig_upd_shape):
                     original_nelem = 0
                 if any(d == 0 for d in concrete_exp_upd_shape):
@@ -756,36 +757,33 @@ def _prepare_scatter_inputs_for_onnx(
                         "DefaultReshapedUpdates",
                     )
                     _final_updates_name_val_to_return = reshaped_updates_name
-                else:  # Element count mismatch
+                else:  # Element count mismatch - THIS IS THE CRITICAL CHANGE
                     err_msg = (
                         f"Default path: Updates element count mismatch for ScatterND. "
                         f"Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) "
                         f"cannot be reshaped to expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape} ({expected_nelem} elements). "
                         f"Operand: {final_operand_name}{operand_shape_symbolic}, "
-                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "  # Use the shape of the processed indices for the default path
-                        f"Jax DimensionNumbers: {dimension_numbers}"
-                    )
-                    logger.error(err_msg)
-                    raise ValueError(err_msg)  # <<< THIS MUST BE ACTIVE
-            except ValueError as ve:
-                # Ensure the re-raise includes full context or just re-raises `ve` if it's already the detailed one.
-                if "Updates element count mismatch" not in str(
-                    ve
-                ) and "Cannot make shape concrete" not in str(
-                    ve
-                ):  # Avoid wrapping our own clear error
-                    err_msg = (
-                        f"Default path: Could not prepare updates for ScatterND due to shape error: {ve}. "
-                        f"Original JAX updates shape {original_updates_shape_symbolic}, "
-                        f"Expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape}. "
-                        f"Operand: {final_operand_name}{operand_shape_symbolic}, "
                         f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
                         f"Jax DimensionNumbers: {dimension_numbers}"
                     )
                     logger.error(err_msg)
+                    raise ValueError(
+                        err_msg
+                    )  # <<< ENSURE THIS LINE IS PRESENT AND ACTIVE
+            except ValueError as ve:
+                if "Updates element count mismatch" in str(
+                    ve
+                ) or "Cannot make shape concrete" in str(
+                    ve
+                ):  # If it's our error or from _make_shape_concrete_for_prod
+                    raise  # Re-raise it directly
+                else:  # Wrap other ValueErrors
+                    err_msg = (
+                        f"Default path: Could not prepare updates for ScatterND due to other ValueError: {ve}. "
+                        # ... (include full context as in the err_msg above) ...
+                    )
+                    logger.error(err_msg)
                     raise ValueError(err_msg) from ve
-                else:  # Re-raise the original, more specific ValueError from _make_shape_concrete_for_prod or the element mismatch
-                    raise
         else:
             _manually_ensure_shape_env_entry(
                 s,
@@ -795,6 +793,7 @@ def _prepare_scatter_inputs_for_onnx(
                 "DefaultUpdates_ShapeOK",
             )
 
+    # ... (get_shape_dtype_str_from_env_local and final logging remain the same) ...
     def get_shape_dtype_str_from_env_local(name_to_log_local: str) -> str:
         sds_info: Optional[ShapeDtypeStruct] = s.shape_env.get(name_to_log_local)
         if sds_info is not None:
