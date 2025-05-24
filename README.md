@@ -100,10 +100,10 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 - **In Progress**: Expanding coverage of core JAX primitives.
 - **Under Evaluation**: Initial support for `flax.linen` models within `jax2onnx`.
 - **Upcoming 0.7.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
-- **Planned 0.6.1**: Additional fixes to support [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS).
+- **Planned 0.6.1**: Additional fixes to improve support for **physics simulations**.
 
 ### **Current Productive Version**
-- **0.6.0** *(PyPI)*: Added support for [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS), introduced the new `enable_double_precision` parameter (default: `False`), and improved handling of `lax.scatter`.
+- **0.6.0** *(PyPI)*: Introduced the `enable_double_precision` parameter (default: `False`) to support **physics simulations**, and enhanced handling of `lax.scatter`.
 
 ### **Past Versions**
 - **0.5.2**: Add support for additional primitives: `jnp.where`, `jnp.arange`, `jnp.linspace`.
@@ -348,6 +348,8 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ## 🌟 Special Thanks
 
 Special thanks for plugin contributions to [@burakksen](https://github.com/burakksen)
+
+Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 
 Special thanks to [@lutzroeder](https://github.com/lutzroeder) for making shapes internal to ONNX function visible in his great Netron viewer.
 
