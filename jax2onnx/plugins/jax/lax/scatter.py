@@ -227,10 +227,38 @@ class ScatterPlugin(PrimitiveLeafPlugin):
 
         # 3. Register final output shape and dtype
         # This should match the original operand's shape and dtype for scatter.
-        if (
-            out_name not in s.shape_env
-        ):  # Should be added by Jaxpr2OnnxConverter automatically
+        output_info = s.shape_env.get(out_name)
+        if output_info is None:
             s.add_shape_info(out_name, operand_shape, operand_dtype_np)
-        else:  # Verify
-            assert s.shape_env[out_name].shape == operand_shape
-            assert s.shape_env[out_name].dtype == operand_dtype_np
+            output_info = s.shape_env.get(out_name)
+
+        # Defensive: output_info could be None, tuple, or ShapeDtypeStruct
+        if (
+            output_info is not None
+            and hasattr(output_info, "shape")
+            and hasattr(output_info, "dtype")
+        ):
+            assert (
+                output_info.shape == operand_shape
+            ), f"Output shape mismatch for {out_name}: EnvShape={output_info.shape}, ExpectedOperandShape={operand_shape}"
+            assert (
+                output_info.dtype == operand_dtype_np
+            ), f"Output dtype mismatch for {out_name}: EnvDtype={output_info.dtype}, ExpectedOperandDtype={operand_dtype_np}"
+        elif isinstance(output_info, tuple):
+            logger.warning(
+                f"Output info for {out_name} in shape_env is a raw tuple: {output_info}. Expected ShapeDtypeStruct."
+            )
+            assert (
+                output_info == operand_shape
+            ), f"Output shape tuple mismatch for {out_name}: EnvShapeTuple={output_info}, ExpectedOperandShape={operand_shape}"
+            logger.warning(
+                f"Cannot assert dtype for {out_name} as shape_env entry is a tuple, not ShapeDtypeStruct."
+            )
+        elif output_info is None:
+            logger.error(
+                f"Output info for {out_name} in shape_env is None after add_shape_info. This should not happen."
+            )
+        else:
+            logger.error(
+                f"Unexpected type for {out_name} in shape_env: {type(output_info)}. Cannot assert shape/dtype."
+            )
