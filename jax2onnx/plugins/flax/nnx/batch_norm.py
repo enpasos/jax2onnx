@@ -19,12 +19,10 @@ The conversion process involves:
 """
 
 from typing import TYPE_CHECKING
-
 import numpy as np
 from flax import nnx
 from jax.extend.core import Primitive
 from onnx import helper
-
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -119,7 +117,7 @@ nnx.batch_norm_p.multiple_results = False  # Correctly set at initialization
                 num_features=1, use_running_average=True, epsilon=1e-5, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(1, 1)],
-            "input_values": np.array([[0.0]], dtype=np.float32),
+            "expected_shapes": [(1, 1)],
         },
     ],
 )
@@ -131,7 +129,6 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x, **kwargs):
         """Abstract evaluation function for BatchNorm."""
-        # Use update instead of creating a new ShapedArray to avoid issues with unhashable tracers
         return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
@@ -139,31 +136,21 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_name(node_outputs[0])
 
-        params.get("use_running_average", False)
-        params.get("axis", -1)
-        params.get("axis_index_groups", None)
-        params.get("axis_name", None)
         use_bias = params.get("use_bias", True)
-        params.get("use_fast_variance", False)
         use_scale = params.get("use_scale", True)
         dtype = getattr(node_inputs[0].aval, "dtype", np.float32)
-        params.get("num_features", None)
         bias = params.get("bias", None)
         scale = params.get("scale", None)
         var = params.get("var", None)
         mean = params.get("mean", None)
-        epsilon = params.get("epsilon")
+        epsilon = params.get("epsilon", 1e-5)
         momentum = params.get("momentum", 0.9)
-        params.get("use_running_average", False)
 
-        # --- handle NHWC/NCHW transpose and param shapes ---
+        # Get input shape and channel dimension
         input_shape = node_inputs[0].aval.shape
-        input_rank = len(input_shape)
-        channel_axis = input_rank - 1  # NHWC/NLC: last axis
-        C = input_shape[channel_axis]
+        C = input_shape[-1]  # Channel dimension for 1D, 2D, or 4D
 
-        # For NHWC->NCHW and NLC->NCL, channel order is preserved, so no reordering is needed.
-        # Just ensure parameters are 1D (C,) and ONNX initializers.
+        # Ensure parameters are 1D (C,) and ONNX initializers
         def ensure_onnx_param(param, name, default_value):
             arr = (
                 np.array(param, dtype=dtype)
@@ -190,58 +177,17 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         mean_name = ensure_onnx_param(mean, "mean", 0.0)
         variance_name = ensure_onnx_param(var, "var", 1.0)
 
-        # Insert transpose if needed
-        pre_perm = post_perm = None
-        if input_rank == 4:
-            pre_perm = [0, 3, 1, 2]
-            post_perm = [0, 2, 3, 1]
-        elif input_rank == 3:
-            pre_perm = [0, 2, 1]
-            post_perm = [0, 2, 1]
-
-        bn_input = input_name
-        if pre_perm:
-            transposed_input = s.get_unique_name("bn_pre_transpose")
-            pre_transpose_node = helper.make_node(
-                "Transpose",
-                inputs=[input_name],
-                outputs=[transposed_input],
-                name=s.get_unique_name("bn_transpose_pre"),
-                perm=pre_perm,
-            )
-            s.add_node(pre_transpose_node)
-            transposed_shape = tuple(input_shape[i] for i in pre_perm)
-            s.add_shape_info(transposed_input, transposed_shape, dtype)
-            bn_input = transposed_input
-
-        bn_output = output_name
-        if post_perm:
-            bn_output = s.get_unique_name("bn_output")
-
-        inputs = [bn_input, scale_name, bias_name, mean_name, variance_name]
-
-        # Set ONNX momentum attribute to match JAX/Flax value
+        # Directly create BatchNormalization node without Squeeze/Unsqueeze or Identity
         bn_node = helper.make_node(
             "BatchNormalization",
-            inputs=inputs,
-            outputs=[bn_output],
+            inputs=[input_name, scale_name, bias_name, mean_name, variance_name],
+            outputs=[output_name],  # Directly output to the final name
             name=s.get_unique_name("batch_norm"),
             epsilon=epsilon,
-            momentum=momentum,  # Explicitly set momentum to match params
+            momentum=momentum,
         )
         s.add_node(bn_node)
-        if post_perm:
-            s.add_shape_info(bn_output, transposed_shape, dtype)
-        if post_perm:
-            post_transpose_node = helper.make_node(
-                "Transpose",
-                inputs=[bn_output],
-                outputs=[output_name],
-                name=s.get_unique_name("bn_transpose_post"),
-                perm=post_perm,
-            )
-            s.add_node(post_transpose_node)
-            s.add_shape_info(output_name, input_shape, dtype)
+        s.add_shape_info(output_name, input_shape, dtype)  # Maintain the input shape
 
     @staticmethod
     def _batch_norm(
