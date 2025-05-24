@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence
+import logging  # ensure logger is available
+from typing import TYPE_CHECKING, Any, Sequence, Union  # added Union
+from typing import Optional
 
 import jax.numpy as jnp
 from jax import core, lax
-from jax.extend.core import Primitive
 from onnx import helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
@@ -15,10 +15,7 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scan")
-
-# Define the primitive for lax.scan
-scan_p = Primitive("scan")
-scan_p.multiple_results = True
+scan_p = lax.scan_p
 
 
 @register_primitive(
@@ -85,49 +82,60 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *in_avals: core.AbstractValue,
-        body_jaxpr: core.ClosedJaxpr,
-        length: int,
+        *in_avals_flat: core.AbstractValue,  # carry avals + scan inputs
+        jaxpr: core.ClosedJaxpr,  # body as ClosedJaxpr
+        length: int,  # scan length
         reverse: bool,
-        unroll: int,
-        **kwargs,
+        unroll: Union[int, bool],  # Union[int, True, False]
+        num_carry: int,  # how many carry vars
+        num_xs: Optional[int] = None,  # may be missing for single-seq
+        num_consts: Optional[int] = None,  # present in newer JAX versions
+        **unused_params,  # catch others like 'linear'
     ) -> Sequence[core.AbstractValue]:
-        num_leaves = kwargs.get("num_leaves_per_arg")
-        if num_leaves is None:
-            raise ValueError("Missing 'num_leaves_per_arg' in abstract_eval kwargs.")
-
-        num_carry = num_leaves[1]
-        jaxpr = body_jaxpr.jaxpr
-
-        if len(jaxpr.invars) < num_carry or len(jaxpr.outvars) < num_carry:
-            raise ValueError(
-                f"Body jaxpr mismatch: invars/outvars = {len(jaxpr.invars)}/{len(jaxpr.outvars)} vs carry={num_carry}"
+        # ------------------------------------------------------------------ #
+        # Derive missing parameters                                          #
+        # ------------------------------------------------------------------ #
+        # Robust inference for num_xs and num_carry
+        total_inputs = len(in_avals_flat)
+        # If num_xs is not provided, try to infer it
+        if num_xs is None:
+            if num_carry is not None:
+                num_xs = max(0, total_inputs - num_carry)
+            else:
+                # Fallback: try to infer from jaxpr
+                num_xs = 0
+        # If num_carry is not provided, try to infer it
+        if num_carry is None:
+            if num_xs is not None:
+                num_carry = max(0, total_inputs - num_xs)
+            else:
+                num_carry = 0
+        # Defensive: if still ambiguous, log and raise
+        if num_xs < 0 or num_carry < 0 or (num_xs + num_carry != total_inputs):
+            logger.error(
+                f"Cannot robustly determine scan input/carry split: "
+                f"len(in_avals_flat)={total_inputs}, num_carry={num_carry}, num_xs={num_xs}, "
+                f"in_avals_flat={in_avals_flat}"
             )
+            raise ValueError("Cannot determine number of scan inputs/carry")
 
-        carry_avals = in_avals[:num_carry]
+        # Build carry avals
+        carry_avals = in_avals_flat[:num_carry]
+        # Extract inner jaxpr
+        body_jaxpr = jaxpr.jaxpr
+        # Build stacked outputs from body_jaxpr.outvars after carry
         stacked_avals = []
-        for var in jaxpr.outvars[num_carry:]:
+        for var in body_jaxpr.outvars[num_carry:]:
             aval = var.aval
             if not isinstance(aval, core.ShapedArray):
-                raise TypeError(f"Expected ShapedArray, got {type(aval)} for {var}")
-            stacked_avals.append(core.ShapedArray((length, *aval.shape), aval.dtype))
-
-        # --- PATCH: Always match the number of outputs to the number of expected outputs ---
-        # If the caller expects only the scan outputs (e.g. [1] in testcases), return only those.
-        # Otherwise, return both carry and stacked outputs.
-        expected_num_outputs = kwargs.get("expected_num_outputs")
-        # If expected_num_outputs is not provided, infer from in_avals and stacked_avals
-        if expected_num_outputs is None:
-            # Heuristic: If only one output is expected and it matches a stacked output, return only stacked
-            # This matches the common JAX scan idiom: out = scan(...)[1]
-            if len(stacked_avals) == 1 and len(in_avals) == 1:
-                return tuple(stacked_avals)
-            # If only stacked outputs exist, return them
-            if len(carry_avals) == 0:
-                return tuple(stacked_avals)
-        elif expected_num_outputs == len(stacked_avals):
-            return tuple(stacked_avals)
-        return (*carry_avals, *stacked_avals)
+                logger.error(
+                    f"Expected ShapedArray for scan body output, got {type(aval)}"
+                )
+                if not (hasattr(aval, "shape") and hasattr(aval, "dtype")):
+                    raise TypeError(f"No shape/dtype on {var}")
+            shape = tuple(aval.shape) if hasattr(aval, "shape") else ()
+            stacked_avals.append(core.ShapedArray((length,) + shape, aval.dtype))
+        return tuple(carry_avals) + tuple(stacked_avals)
 
     def to_onnx(
         self,
@@ -136,29 +144,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
         node_outputs: Sequence[core.Var],
         params: dict[str, Any],
     ) -> None:
-        # Extract or synthesize the body Jaxpr and parameters
-        if "body_jaxpr" in params:
-            closed = params["body_jaxpr"]
-            jaxpr = closed.jaxpr
-            consts = closed.consts
-            num_carry, num_scan = params["num_leaves_per_arg"][1:3]
-        else:
-            # fallback: raw jaxpr eqn params (handle ClosedJaxpr or raw jaxpr)
-            jaxpr_param = params.get("jaxpr")
-            from jax.extend.core import ClosedJaxpr
-
-            if isinstance(jaxpr_param, ClosedJaxpr):
-                jaxpr = jaxpr_param.jaxpr
-                consts = jaxpr_param.consts
-            else:
-                jaxpr = jaxpr_param
-                consts = []
-            num_carry = params.get("num_carry")
-            if num_carry is None:
-                raise ValueError(
-                    "num_carry must be provided in params for scan fallback."
-                )
-            num_scan = len(getattr(jaxpr, "invars", ())) - num_carry
+        closed_jaxpr = params["jaxpr"]  # ClosedJaxpr
+        num_carry = params["num_carry"]
+        num_scan = params.get("num_xs")  # may be absent for single-seq
+        if num_scan is None:
+            # derive from invars minus carry
+            num_scan = len(closed_jaxpr.jaxpr.invars) - num_carry
+        jaxpr = closed_jaxpr.jaxpr
+        consts = closed_jaxpr.consts
 
         # Build subgraph body
         body_builder = OnnxBuilder(
@@ -172,30 +165,27 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_conv = Jaxpr2OnnxConverter(body_builder)
 
         # Map subgraph inputs (carry + scan slice)
-        for i, var in enumerate(getattr(jaxpr, "invars", ())):
+        for i, var in enumerate(jaxpr.invars):
             name = body_builder.get_unique_name(f"scan_in_{i}")
             body_builder.add_input(name, var.aval.shape, var.aval.dtype)
             body_conv.var_to_name[var] = name
 
-        # Map constants
-        for var, val in zip(getattr(jaxpr, "constvars", ()), consts):
+        # Map constants and body ops
+        for var, val in zip(jaxpr.constvars, consts):
             cname = body_conv.get_constant_name(val)
             body_conv.var_to_name[var] = cname
-
-        # Process body operations
         body_conv._process_jaxpr(jaxpr, consts)
 
-        # Map subgraph outputs (carry outs + scan outs)
+        # Map subgraph outputs
         body_builder.outputs.clear()
-        for var in getattr(jaxpr, "outvars", ()):
+        for var in jaxpr.outvars:
             name = body_conv.get_name(var)
             body_builder.add_output(name, var.aval.shape, var.aval.dtype)
-
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
 
-        # Create main Scan node
+        # Create ONNX Scan node
         scan_node = helper.make_node(
             "Scan",
             inputs=[s.get_name(v) for v in node_inputs],
@@ -204,10 +194,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body=body_graph,
             num_scan_inputs=num_scan,
             scan_input_axes=[0] * num_scan,
-            scan_output_axes=[0] * (len(getattr(jaxpr, "outvars", ())) - num_carry),
+            scan_output_axes=[0] * (len(jaxpr.outvars) - num_carry),
         )
         logger.debug(
-            f"Emitting ONNX Scan node: num_carry={num_carry}, num_scan={num_scan}, "
+            f"Emitting ONNX Scan node: num_carry={num_carry}, num_scan_inputs={num_scan}, "
             f"inputs={len(node_inputs)}, outputs={len(node_outputs)}"
         )
         s.add_node(scan_node)

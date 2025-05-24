@@ -213,6 +213,7 @@ class OnnxBuilder:
         model_name: str = "",
         initializers: list[Any] | None = None,
         converter: Any = None,  # <-- Add converter argument
+        enable_double_precision: bool = False,  # Add this
     ) -> None:
         # Initialize the ONNX builder with default values and configurations.
         self.name_generator: UniqueNameGenerator = name_generator
@@ -229,6 +230,12 @@ class OnnxBuilder:
         self.functions: dict[str, FunctionProto] = {}
         self.model_name: str = model_name
         self.display_name_map: dict[str, str] = {}
+        self.enable_double_precision = enable_double_precision  # Store the flag
+        self.working_dtype_onnx = (
+            onnx.TensorProto.DOUBLE
+            if enable_double_precision
+            else onnx.TensorProto.FLOAT
+        )
 
         # Metadata for value information.
         # Update type annotations to match the more flexible type needs
@@ -429,37 +436,68 @@ class OnnxBuilder:
         return sorted(name for name in node_names if name not in known_names)
 
     def get_constant_name(self, val):
-        if isinstance(val, Literal):
+        # If val is a JAX Literal, unwrap it to its Python value
+        if isinstance(val, Literal):  # Use the correctly imported Literal
             val = val.val
 
-        # Explicit dtype logic for Python scalars
-        from onnx import TensorProto
-
+        # Determine the ONNX TensorProto type and prepare np_val
         if isinstance(val, (bool, int, float)):
-            dtype_enum = (
-                TensorProto.BOOL
-                if isinstance(val, bool)
-                else TensorProto.INT32 if isinstance(val, int) else TensorProto.FLOAT
-            )
-            np_val = np.array(
-                val,
-                dtype={
-                    TensorProto.BOOL: np.bool_,
-                    TensorProto.INT32: np.int32,
-                    TensorProto.FLOAT: np.float32,
-                }[dtype_enum],
-            )
+            # For Python scalars
+            if isinstance(val, bool):
+                np_val = np.array(val, dtype=np.bool_)
+                # onnx_dtype = TensorProto.BOOL # Inferred by helper.make_tensor from np_val.dtype
+            elif isinstance(val, int):  # Handles Python int
+                if self.enable_double_precision:
+                    # When float64 mode is enabled, and if the original JAX literal was int64,
+                    # or generally to prefer wider types, create an INT64 ONNX constant.
+                    logger.debug(
+                        f"Builder: Converting Python int literal '{val}' to INT64 due to enable_double_precision=True."
+                    )
+                    np_val = np.array(val, dtype=np.int64)
+                else:
+                    # In float32 mode (enable_double_precision=False), default to int32 if the value fits,
+                    # otherwise use int64 (current behavior for f32 seems to be just int32).
+                    # This maintains potential compatibility with ops expecting int32 for smaller integers.
+                    if np.iinfo(np.int32).min <= val <= np.iinfo(np.int32).max:
+                        logger.debug(
+                            f"Builder: Converting Python int literal '{val}' to INT32 (fits, enable_double_precision=False)."
+                        )
+                        np_val = np.array(val, dtype=np.int32)
+                    else:
+                        logger.debug(
+                            f"Builder: Converting Python int literal '{val}' to INT64 (does not fit in INT32, enable_double_precision=False)."
+                        )
+                        np_val = np.array(
+                            val, dtype=np.int64
+                        )  # Value too large for int32
+                # dtype_enum will be correctly inferred from np_val.dtype by helper.make_tensor later
+            else:  # float
+                if self.enable_double_precision:
+                    np_val = np.array(val, dtype=np.float64)
+                    # onnx_dtype = TensorProto.DOUBLE
+                else:
+                    np_val = np.array(val, dtype=np.float32)
+                    # onnx_dtype = TensorProto.FLOAT
         else:
-            np_val = np.array(val)
-            if np_val.dtype == np.float64:
-                np_val = np_val.astype(np.float32)
-            try:
-                dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
-            except TypeError:
-                logging.warning(
-                    f"Could not convert value {val} to numpy array. Skipping initializer."
-                )
-                return self.get_unique_name("invalid_const")
+            # For NumPy arrays, JAX arrays, or other array-like objects
+            if not isinstance(val, np.ndarray):
+                np_val = np.asarray(val)  # Convert JAX arrays etc. to NumPy arrays
+            else:
+                np_val = val  # It's already a NumPy array
+
+            # Adjust float precision based on enable_double_precision
+            if np.issubdtype(np_val.dtype, np.floating):
+                if self.enable_double_precision:
+                    if np_val.dtype != np.float64:
+                        np_val = np_val.astype(np.float64)
+                else:  # not enable_double_precision
+                    if np_val.dtype != np.float32:
+                        # Ensure float32 if it's any other float type (e.g. float64, float16)
+                        np_val = np_val.astype(np.float32)
+            # For integer or boolean np.ndarray, their existing dtype (e.g., int32, int64, bool) is preserved.
+
+        # Get the ONNX dtype enum from numpy dtype
+        dtype_enum = self._numpy_dtype_to_onnx(np_val.dtype)
 
         name = self.get_unique_instance_name("const")
         tensor = helper.make_tensor(
@@ -469,14 +507,11 @@ class OnnxBuilder:
             vals=np_val.flatten().tolist(),
         )
         self.initializers.append(tensor)
-
-        # 🚨 CRITICAL STEP: Register metadata immediately here
         self.register_value_info_metadata(
             name,
             shape=tuple(np_val.shape),
-            dtype=dtype_enum,  # dtype is ONNX enum here!
+            dtype=dtype_enum,
         )
-
         return name
 
     def reset(self) -> None:

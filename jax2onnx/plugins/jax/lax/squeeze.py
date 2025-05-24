@@ -1,11 +1,13 @@
 # file: jax2onnx/plugins/jax/lax/squeeze.py
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Tuple, Union, Sequence
 
 import jax
-from onnx import helper
+import numpy as np
+from onnx import helper, TensorProto
+
+from jax.extend import core as jax_core_extend
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.converter.dynamic_utils import encode_dims
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -23,76 +25,125 @@ if TYPE_CHECKING:
     since="v0.2.0",
     context="primitives.lax",
     component="squeeze",
-    testcases=[
+    testcases=[  # Test cases use jax.lax.squeeze as this is the lax plugin
         {
-            "testcase": "squeeze",
-            "callable": lambda x: jax.lax.squeeze(x, (0,)),
+            "testcase": "lax_squeeze_specific_axis_0",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 3)],
-        }
+            "expected_output_shapes": [(3,)],
+        },
+        {
+            "testcase": "lax_squeeze_multiple_axes",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=(0, 2, 4)),
+            "input_shapes": [(1, 3, 1, 4, 1)],
+            "expected_output_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "lax_squeeze_no_op_empty_dims",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=()),
+            "input_shapes": [(1, 3, 1)],
+            "expected_output_shapes": [(1, 3, 1)],
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_only_axis_0",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=(0,)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201, 1, 1)],
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_axes_0_2",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=(0, 2)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201, 1)],
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_all_dims_explicitly",
+            "callable": lambda x: jax.lax.squeeze(x, dimensions=(0, 2, 3)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201,)],
+        },
+        # Test cases involving jnp.squeeze are better placed in a test_jnp.py
+        # as they test the JAX API frontend, which then calls lax.squeeze_p.
     ],
 )
 class SqueezePlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.squeeze to ONNX Squeeze."""
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX squeeze primitive."""
-
-        input_name = s.get_name(node_inputs[0])
+    def to_onnx(
+        self,
+        s: "Jaxpr2OnnxConverter",
+        node_inputs: Sequence[jax_core_extend.Var],
+        node_outputs: Sequence[jax_core_extend.Var],
+        params: dict,
+    ) -> None:
+        input_var = node_inputs[0]
+        input_name = s.get_name(input_var)
         output_name = s.get_var_name(node_outputs[0])
+        output_aval_dtype = node_outputs[0].aval.dtype  # Storing original dtype
 
-        # Use symbolic shape if available (e.g. batch dim "B")
-        var = node_inputs[0]
-        var_name = s.get_var_name(var)
-        input_shape = s.symbolic_shapes.get(var_name, var.aval.shape)
+        input_shape: Tuple[Union[int, str], ...] = input_var.aval.shape
+        input_rank: int = len(input_shape)
 
-        axes = params.get("axes", None)
+        jax_dimensions_to_squeeze: Sequence[int] = params["dimensions"]
 
-        # Normalize axes into positive indices; collect any symbolic axes
-        normalized_axes = []
-        symbolic_axes = []
-        for axis in axes or []:
-            axis_val = axis if axis >= 0 else axis + len(input_shape)
-            if 0 <= axis_val < len(input_shape):
-                if isinstance(input_shape[axis_val], int):
-                    normalized_axes.append(axis_val)
-                else:
-                    symbolic_axes.append(axis_val)
+        normalized_axes_to_remove: List[int] = []
+        if jax_dimensions_to_squeeze:  # If the tuple is not empty
+            for axis_from_jax in jax_dimensions_to_squeeze:
+                actual_axis = (
+                    axis_from_jax if axis_from_jax >= 0 else axis_from_jax + input_rank
+                )
+                if not (0 <= actual_axis < input_rank):
+                    # This should ideally be caught by JAX.
+                    raise ValueError(
+                        f"Squeeze dimension {axis_from_jax} (normalized: {actual_axis}) is out of bounds "
+                        f"for input rank {input_rank} with shape {input_shape}."
+                    )
+                # JAX ensures dimensions to be squeezed are of size 1.
+                normalized_axes_to_remove.append(actual_axis)
 
-        # Identify size-1 dims among those axes
-        static_axes = [i for i in normalized_axes if input_shape[i] == 1]
+        # This list will be used for the ONNX 'axes' attribute.
+        # Sorting and making unique is good practice for canonical representation.
+        onnx_axes_for_node_attribute = sorted(list(set(normalized_axes_to_remove)))
 
-        # If user specified axes but none are static size-1, identity
-        if axes is not None and not static_axes:
-            identity = helper.make_node(
-                "Identity",
-                inputs=[input_name],
-                outputs=[output_name],
-                name=s.get_unique_name("identity"),
-            )
-            s.add_node(identity)
-            s.add_shape_info(output_name, tuple(input_shape))
-            return
+        # Calculate the final output shape for the Squeezed data tensor
+        calculated_output_shape_list: List[Union[int, str]] = []
+        for i, dim_val in enumerate(input_shape):
+            if i not in onnx_axes_for_node_attribute:
+                calculated_output_shape_list.append(dim_val)
 
-        # Build the ONNX Squeeze node
-        if static_axes:
-            # Fix: Use builder.add_initializer instead of directly on converter
-            axes_name = s.get_unique_name("squeeze_axes")
-            s.builder.add_initializer(name=axes_name, vals=encode_dims(static_axes))
-            squeeze_inputs = [input_name, axes_name]
-            output_shape = tuple(
-                dim for i, dim in enumerate(input_shape) if i not in static_axes
-            )
+        if not calculated_output_shape_list and input_rank > 0:
+            final_output_shape: Tuple[Union[int, str], ...] = ()
         else:
-            squeeze_inputs = [input_name]
-            output_shape = tuple(
-                dim for dim in input_shape if not (isinstance(dim, int) and dim == 1)
-            )
+            final_output_shape = tuple(calculated_output_shape_list)
+
+        # --- Build the ONNX Squeeze node ---
+        squeeze_node_inputs = [input_name]
+
+        axes_tensor_name = s.builder.get_unique_name(f"{output_name}_squeeze_axes")
+
+        # Create the numpy array for the 'axes' initializer
+        axes_np_array = np.array(onnx_axes_for_node_attribute, dtype=np.int64)
+
+        # **CRITICAL FIX for ValueError**: Explicitly pass the correct 'dims' for the axes tensor.
+        # The shape of axes_np_array is (N,) where N is the number of axes to squeeze.
+        # For an empty list of axes (no-op), shape is (0,).
+        axes_tensor_dims = list(axes_np_array.shape)
+
+        s.builder.add_initializer(
+            name=axes_tensor_name,
+            vals=axes_np_array,  # Pass the numpy array
+            data_type=TensorProto.INT64,
+            dims=axes_tensor_dims,  # Explicitly pass the correct dimensions
+        )
+        squeeze_node_inputs.append(axes_tensor_name)
 
         squeeze_node = helper.make_node(
             "Squeeze",
-            inputs=squeeze_inputs,
+            inputs=squeeze_node_inputs,
             outputs=[output_name],
-            name=s.get_unique_name("squeeze"),
+            name=s.builder.get_unique_name("SqueezeOpInstance"),
         )
-        s.add_node(squeeze_node)
-        s.add_shape_info(output_name, output_shape)
+        s.add_node(
+            squeeze_node
+        )  # This should use the corrected add_node in jaxpr_converter
+        s.add_shape_info(output_name, final_output_shape, output_aval_dtype)

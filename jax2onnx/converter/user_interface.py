@@ -1,26 +1,33 @@
 # file: jax2onnx/converter/user_interface.py
 
-from typing import Any, Callable, Dict, List, Tuple, Union
-
-import onnx
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import argparse
 import logging
 
-
+import onnx
+from jax import config, core
 from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugin_system import onnx_function as onnx_function_impl
 
-from jax import config
-
 config.update("jax_dynamic_shapes", True)
+
+# NEW -----------------------------------------------------------------
+_FLOAT64_HELP = (
+    "Export the entire ONNX graph in double precision (tensor(double)). "
+    "If omitted, tensors are exported in single precision (tensor(float))."
+)
 
 
 def to_onnx(
     fn: Callable,
     inputs: List[Any],
-    input_params: Dict[str, Any] | None = None,
+    input_params: Optional[Dict[str, Any]] = None,  # Made Optional more explicit
     model_name: str = "jax_model",
     opset: int = 21,
+    *,  # All arguments after this must be keyword-only
+    enable_double_precision: bool = False,
+    record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
     Converts a JAX function or model into an ONNX model.
@@ -36,6 +43,11 @@ def to_onnx(
                      'deterministic' flags.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
+        enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
+        record_primitive_calls_file: Optional path to a file. If provided,
+            details of each JAX primitive encountered during conversion will be
+            recorded to this file. This log can be used by developers to manually
+            create new test cases. Defaults to None (disabled).
 
     Returns:
         An ONNX ModelProto object representing the converted model.
@@ -54,27 +66,153 @@ def to_onnx(
     logging.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}"
+        f"input_params={input_params}, enable_double_precision={enable_double_precision}, "
+        f"record_primitive_calls_file={record_primitive_calls_file}"
     )
-    # Check if inputs are shapes or actual values
 
-    def is_shape(x):
-        return isinstance(x, (tuple, list)) and all(
-            isinstance(dim, (int, str)) for dim in x
-        )
+    # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
+    processed_inputs_for_impl: list
 
-    # If all inputs are shapes, use as shapes; otherwise, treat as values and infer shapes
-    if all(is_shape(x) for x in inputs):
-        input_shapes = inputs
+    if not inputs:  # Handle empty inputs list
+        processed_inputs_for_impl = []
     else:
-        input_shapes = [x.shape for x in inputs]
+        # Check if all elements are already ShapeDtypeStructs (or compatible ShapedArray)
+        if all(isinstance(x, core.ShapedArray) for x in inputs):
+            # Case 1: Inputs are already ShapeDtypeStructs (e.g., from t_generator with input_values)
+            # Preserve them as they contain both shape and dtype.
+            processed_inputs_for_impl = list(inputs)
+        else:
+            # Case 2: Inputs might be shape tuples or actual JAX/NumPy arrays.
+
+            # Define helper to check for shape tuples
+            def is_shape_tuple(item):
+                return isinstance(item, (tuple, list)) and all(
+                    isinstance(dim, (int, str)) for dim in item
+                )
+
+            if all(is_shape_tuple(x) for x in inputs):
+                # All inputs are shape tuples.
+                # to_onnx_impl will create ShapedArrays using a default dtype.
+                processed_inputs_for_impl = list(inputs)
+            else:
+                # Assume inputs are actual JAX arrays or NumPy arrays.
+                # Convert them to ShapeDtypeStructs.
+                try:
+                    import jax  # Ensure jax is imported for jax.ShapeDtypeStruct
+
+                    processed_inputs_for_impl = [
+                        jax.ShapeDtypeStruct(x.shape, x.dtype) for x in inputs
+                    ]
+                except AttributeError as e:
+                    # This might happen if the list is mixed and some items don't have .shape/.dtype
+                    # or if an item is not a ShapeDtypeStruct, not a shape tuple, and not an array.
+                    raise ValueError(
+                        "Invalid 'inputs' argument. Expected a list of JAX/NumPy arrays, "
+                        "jax.ShapeDtypeStruct objects, or shape tuples. "
+                        f"Got an element of type {type(inputs[0]) if inputs else 'Unknown'} in the list. Error: {e}"
+                    )
 
     return to_onnx_impl(
         fn=fn,
-        inputs=input_shapes,
+        inputs=processed_inputs_for_impl,
         input_params=input_params,
         model_name=model_name,
         opset=opset,
+        enable_double_precision=enable_double_precision,
+        record_primitive_calls_file=record_primitive_calls_file,
+    )
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="jax2onnx",
+        description="Convert a JAX function to an ONNX model.",
+    )
+    p.add_argument("module", help="Python module containing the JAX function")
+    p.add_argument("fn", help="Name of the JAX function inside the module")
+    p.add_argument("--out", help="Output .onnx file", default="model.onnx")
+    p.add_argument("--opset", type=int, default=21, help="ONNX opset version")
+    # … other existing args …
+
+    # ──────────────── NEW FLAG ────────────────
+    p.add_argument(
+        "--float64",
+        dest="enable_double_precision",
+        action="store_true",
+        default=False,
+        help=_FLOAT64_HELP,
+    )
+    # ──────────────────────────────────────────
+
+    # Add new argument for primitive call recording
+    p.add_argument(
+        "--record-primitives",
+        dest="record_primitive_calls_file",
+        help="File path to record JAX primitive calls during conversion",
+        default=None,
+    )
+
+    return p
+
+
+def run_command_line():
+    args = build_arg_parser().parse_args()
+
+    # Import the module and get the function
+    import importlib
+    import sys
+
+    sys.path.append(".")
+    try:
+        module = importlib.import_module(args.module)
+        function = getattr(module, args.fn)
+    except (ImportError, AttributeError) as e:
+        logging.error(f"Error loading function: {e}")
+        sys.exit(1)
+
+    # Parse input shapes or use reasonable defaults
+    input_specs = []  # Default to empty list if not specified
+    if hasattr(args, "input_shapes") and args.input_shapes:
+        try:
+            # Parse input shapes from command line
+            # This is a placeholder - actual implementation would depend on how shapes are specified
+            input_specs = eval(args.input_shapes)
+        except Exception as e:
+            logging.error(f"Error parsing input shapes: {e}")
+            sys.exit(1)
+
+    to_onnx(
+        function,
+        inputs=input_specs,
+        model_name=args.fn,
+        opset=args.opset,
+        enable_double_precision=args.enable_double_precision,
+        record_primitive_calls_file=args.record_primitive_calls_file,
+    )
+
+    # ...existing code...
+
+
+def convert(
+    *,
+    enable_double_precision: bool = False,
+    record_primitive_calls_file: Optional[str] = None,
+    **kwargs,
+):
+    """
+    Python API thin-wrapper around :pyfunc:`jax2onnx.to_onnx`.
+
+    Parameters
+    ----------
+    enable_double_precision : bool, optional
+        If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
+    record_primitive_calls_file : str, optional
+        Path to a file to record JAX primitive calls during conversion. Defaults to None.
+    """
+    return to_onnx(
+        enable_double_precision=enable_double_precision,
+        record_primitive_calls_file=record_primitive_calls_file,
+        **kwargs,
     )
 
 
@@ -113,7 +251,7 @@ def allclose(
     fn: Callable,
     onnx_model_path: str,
     inputs: List[Any],
-    input_params: Dict[str, Any] | None = None,
+    input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
 ) -> Tuple[bool, str]:

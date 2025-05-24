@@ -36,9 +36,9 @@ def configure_logging():
 
     # Apply per-logger levels
     for logger_name, lvl in specific_levels.items():
-        logging.getLogger(logger_name).setLevel(
-            getattr(logging, lvl.upper(), logging.INFO)
-        )
+        log_obj = logging.getLogger(logger_name)
+        log_obj.setLevel(getattr(logging, lvl.upper(), logging.INFO))
+        print(f"[CONFIGURE] Set level {lvl.upper()} on logger: {logger_name}")
 
     # Ensure clean shutdown
     atexit.register(lambda: setattr(logging, "raiseExceptions", False))
