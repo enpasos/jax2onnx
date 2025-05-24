@@ -8,7 +8,7 @@ from typing import (
     Tuple,
 )
 import numpy as np
-from jax import ShapeDtypeStruct
+from jax import ShapeDtypeStruct  # Ensure jax.ShapeDtypeStruct is directly imported
 from jax.lax import ScatterDimensionNumbers
 from onnx import helper, TensorProto
 
@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-# This version fixes AttributeError for get_symbol_from_dim/are_symbols_equal
-SCATTER_UTILS_VERSION = "DEBUG-V20250524-SUTILS-FIX-ATTR-ERROR"
+# This version will FAIL HARD on element count mismatch in default updates path
+SCATTER_UTILS_VERSION = "DEBUG-V20250524-SUTILS-FAILHARD-FOR-JAXFLUIDS"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -70,7 +70,7 @@ def _manually_ensure_shape_env_entry(
             f"[_prepare_scatter_inputs {context}] MANUALLY ensured s.shape_env for '{tensor_name}' to {sds_to_store}. "
             f"Check after direct set: {tensor_name in s.shape_env}. Value: {s.shape_env.get(tensor_name)}"
         )
-        if tensor_name not in s.shape_env:
+        if tensor_name not in s.shape_env:  # Should ideally not happen
             logger.error(
                 f"[_prepare_scatter_inputs {context}] FAILED to find '{tensor_name}' in s.shape_env EVEN AFTER DIRECT ASSIGNMENT. Keys: {list(s.shape_env.keys())}"
             )
@@ -87,14 +87,11 @@ def _is_dim_symbolic(dim_val: Any, s: "Jaxpr2OnnxConverter") -> bool:
         return False
     if isinstance(dim_val, np.integer):
         return False
-    # Check if the converter has a specific method to identify symbolic dimensions
     if hasattr(s, "is_symbolic_dim") and callable(s.is_symbolic_dim):
         try:
             return s.is_symbolic_dim(dim_val)
-        except Exception:  # Fallback if the method errors or expects a different type
+        except Exception:
             pass
-    # Fallback: if it's not a standard integer type, consider it potentially symbolic.
-    # This includes JAX's symbolic dimension objects like Var, Literal, etc.
     return True
 
 
@@ -102,17 +99,13 @@ def _are_dims_equal(dim1: Any, dim2: Any, s: "Jaxpr2OnnxConverter") -> bool:
     is_dim1_sym = _is_dim_symbolic(dim1, s)
     is_dim2_sym = _is_dim_symbolic(dim2, s)
 
-    if not is_dim1_sym and not is_dim2_sym:  # Both are concrete integers
+    if not is_dim1_sym and not is_dim2_sym:
         return int(dim1) == int(dim2)
 
-    # If one is symbolic and the other is concrete, they are not equal by this logic
     if is_dim1_sym != is_dim2_sym:
         return False
 
-    # Both are symbolic, fallback to object identity
-    # A more advanced converter might have s.are_symbols_equal(s.get_symbol(dim1), s.get_symbol(dim2))
-    # but we are removing that assumption based on the AttributeError.
-    return dim1 is dim2
+    return dim1 is dim2  # Fallback to object identity for symbolic dimensions
 
 
 def _are_shapes_equal(
@@ -145,6 +138,7 @@ def _make_shape_concrete_for_prod(
             if val_to_append is not None:
                 concrete_shape.append(int(val_to_append))
             else:
+                # Check for Jax core.Literal or extend.core.Literal
                 if (
                     type(dim_val).__name__ == "Literal"
                     and hasattr(dim_val, "val")
@@ -168,14 +162,6 @@ def _prepare_scatter_inputs_for_onnx(
     logger.debug(
         f"Running _prepare_scatter_inputs_for_onnx - Version: {SCATTER_UTILS_VERSION}"
     )
-
-    # ... (rest of the function remains the same as your uploaded "DEBUG-V20250524-SUTILS-FIX-NAMEERROR-APPLIED" version)
-    # The NameError fix for onnx_indices_K_depth_val_default was already correct in that version.
-    # The np.prod fix for scalar shapes was also correct in that version.
-    # The only change is in _are_dims_equal above.
-
-    # [The rest of the function from your uploaded version "DEBUG-V20250524-SUTILS-FIX-NAMEERROR-APPLIED" follows]
-    # [No changes needed from line 153 onwards from that file, assuming the NameError fix was applied there]
 
     def to_symbolic_tuple(
         jax_shape: Tuple[Any, ...],
@@ -230,6 +216,8 @@ def _prepare_scatter_inputs_for_onnx(
     index_depth_k = len(dimension_numbers.scatter_dims_to_operand_dims)
 
     target_indices_shape_symbolic: Tuple[Any, ...]
+    # ... (Indices processing logic to determine target_indices_shape_symbolic - (N,K) for ONNX)
+    # This block is from your "DEBUG-V20250524-SUTILS-FIX-NAMEERROR-APPLIED"
     if not current_indices_shape_symbolic:
         target_indices_shape_symbolic = (1, index_depth_k if index_depth_k > 0 else 0)
     elif (
@@ -296,6 +284,7 @@ def _prepare_scatter_inputs_for_onnx(
                 raise ValueError(
                     f"Invalid index_depth_k for general path: {index_depth_k}"
                 )
+    # End of target_indices_shape_symbolic calculation block
 
     final_indices_name_to_return: str
     if not _are_shapes_equal(
@@ -463,7 +452,9 @@ def _prepare_scatter_inputs_for_onnx(
                     pass
                 else:
                     shapes_match_for_depth2_pattern = False
+
             if shapes_match_for_depth2_pattern and op_rank > 0:
+                # Check if the scatter_target_op_axis is a valid index for updates_shape as well
                 if scatter_target_op_axis < len(original_updates_shape_symbolic):
                     use_depth2_for_batched_window_scatter = True
                 else:
@@ -639,7 +630,9 @@ def _prepare_scatter_inputs_for_onnx(
 
         final_indices_shape_for_depth2_strat = (
             operand_shape_symbolic[0],
-            original_updates_shape_symbolic[scatter_op_axis_idx],
+            original_updates_shape_symbolic[
+                scatter_op_axis_idx
+            ],  # L dimension from updates
             2,
         )
         _manually_ensure_shape_env_entry(
@@ -652,9 +645,9 @@ def _prepare_scatter_inputs_for_onnx(
 
         final_indices_name_to_return = indices_2d_name
         _final_updates_name_val_to_return = original_updates_name_val
-        current_expected_onnx_updates_shape = original_updates_shape_symbolic
+        current_expected_onnx_updates_shape = original_updates_shape_symbolic  # For this path, ONNX updates matches JAX updates
 
-    else:
+    else:  # General path (not the depth-2 strategy case)
         if not _are_shapes_equal(
             original_updates_shape_symbolic, current_expected_onnx_updates_shape, s
         ):
@@ -671,10 +664,13 @@ def _prepare_scatter_inputs_for_onnx(
                     current_expected_onnx_updates_shape, s, "exp_updates_nelem_default"
                 )
 
-                # Corrected element count for scalar (empty shape tuple)
                 original_nelem = (
                     int(np.prod(concrete_orig_upd_shape).item())
                     if concrete_orig_upd_shape
+                    or (
+                        isinstance(concrete_orig_upd_shape, tuple)
+                        and len(concrete_orig_upd_shape) > 0
+                    )
                     else 1
                 )
                 if (
@@ -687,6 +683,10 @@ def _prepare_scatter_inputs_for_onnx(
                 expected_nelem = (
                     int(np.prod(concrete_exp_upd_shape).item())
                     if concrete_exp_upd_shape
+                    or (
+                        isinstance(concrete_exp_upd_shape, tuple)
+                        and len(concrete_exp_upd_shape) > 0
+                    )
                     else 1
                 )
                 if (
@@ -695,6 +695,11 @@ def _prepare_scatter_inputs_for_onnx(
                     and len(concrete_exp_upd_shape) == 0
                 ):
                     expected_nelem = 1
+
+                if any(d == 0 for d in concrete_orig_upd_shape):
+                    original_nelem = 0
+                if any(d == 0 for d in concrete_exp_upd_shape):
+                    expected_nelem = 0
 
                 if original_nelem == 0 and expected_nelem == 0:
                     _manually_ensure_shape_env_entry(
@@ -752,13 +757,30 @@ def _prepare_scatter_inputs_for_onnx(
                     )
                     _final_updates_name_val_to_return = reshaped_updates_name
                 else:
-                    err_msg = f"Default path: Updates element count mismatch for ScatterND. Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) cannot be reshaped to expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape} ({expected_nelem} elements). Operand: {final_operand_name}{operand_shape_symbolic}, Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. Jax DimensionNumbers: {dimension_numbers}"
+                    err_msg = (
+                        f"Default path: Updates element count mismatch for ScatterND. "
+                        f"Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) "
+                        f"cannot be reshaped to expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape} ({expected_nelem} elements). "
+                        f"Operand: {final_operand_name}{operand_shape_symbolic}, "
+                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
+                        f"Jax DimensionNumbers: {dimension_numbers}"
+                    )
                     logger.error(err_msg)
                     raise ValueError(err_msg)
             except ValueError as ve:
-                err_msg = f"Default path: Could not prepare updates for ScatterND due to shape error: {ve}. Original JAX updates shape {original_updates_shape_symbolic}, Expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape}. Operand: {final_operand_name}{operand_shape_symbolic}, Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. Jax DimensionNumbers: {dimension_numbers}"
-                logger.error(err_msg)
-                raise ValueError(err_msg) from ve
+                if "Updates element count mismatch" not in str(ve):
+                    err_msg = (
+                        f"Default path: Could not prepare updates for ScatterND due to shape error: {ve}. "
+                        f"Original JAX updates shape {original_updates_shape_symbolic}, "
+                        f"Expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape}. "
+                        f"Operand: {final_operand_name}{operand_shape_symbolic}, "
+                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
+                        f"Jax DimensionNumbers: {dimension_numbers}"
+                    )
+                    logger.error(err_msg)
+                    raise ValueError(err_msg) from ve
+                else:
+                    raise
         else:
             _manually_ensure_shape_env_entry(
                 s,
