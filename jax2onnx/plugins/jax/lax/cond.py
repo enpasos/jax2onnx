@@ -1,28 +1,26 @@
+# file: jax2onnx/plugins/jax/lax/cond.py
+
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Callable, Sequence
-
-import jax
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import numpy as np
-from jax import lax
-from jax.extend.core import Primitive, Var
-from onnx import helper
-
-from jax2onnx.converter.onnx_builder import OnnxBuilder
+import jax
+from jax import lax, numpy as jnp
+from jax.extend.core import ClosedJaxpr, Literal, Var
+from jax._src.core import Tracer
+from types import SimpleNamespace
+from onnx import helper, GraphProto, TensorProto
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+import logging
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    from jax2onnx.converter.onnx_builder import OnnxBuilder
 
-"""
-jax2onnx plugin: lax.cond → ONNX If   (single tensor operand / result)
-"""
+module_logger = logging.getLogger("jax2onnx.plugins.jax.lax.cond")
 
-logger = logging.getLogger("jax2onnx.plugins.jax.lax.cond")
-
-cond_p = Primitive("cond")
-cond_p.multiple_results = True
+# Use lax.cond_p directly from JAX
+cond_p = lax.cond_p
 
 
 @register_primitive(
@@ -43,105 +41,198 @@ cond_p.multiple_results = True
             ),
             "input_shapes": [],
             "expected_output_shapes": [()],
-        }
+        },
+        {
+            "testcase": "cond_multiple_operands_in_tuple",
+            "callable": lambda: lax.cond(
+                True,
+                lambda tup: tup[0] + tup[1] - tup[2],
+                lambda tup: tup[0] - tup[1] + tup[2],
+                (
+                    np.array(10, np.int32),
+                    np.array(5, np.int32),
+                    np.array(2, np.int32),
+                ),
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [()],
+        },
+        {
+            "testcase": "cond_my_new_complex_scenario",
+            "callable": lambda op1, op2: lax.cond(
+                jnp.all(op1 > 0),
+                lambda t: (t[0] * 2 + t[1], jnp.sum(t[0], axis=(-2, -1))),
+                lambda t: (t[0] - t[1] * 2, jnp.mean(t[0], axis=(-2, -1))),
+                (op1, op2),
+            ),
+            "input_shapes": [(11, 3, 4), (3, 4)],
+            # "input_shapes": [("B", 3, 4), (3, 4)],
+            "input_dtypes": [np.float32, np.float32],
+            "expected_output_shapes": [(11, 3, 4), (11,)],
+            # "expected_output_shapes": [("B", 3, 4), ("B",)],
+            "expected_output_dtypes": [np.float32, np.float32],
+        },
+        {
+            "testcase": "cond_nested_conditional",
+            "callable": lambda x, y, z_pred: lax.cond(
+                x > 5,
+                lambda op: lax.cond(
+                    z_pred,
+                    lambda inner_op: inner_op * 10,
+                    lambda inner_op: inner_op / 10,
+                    op,
+                ),
+                lambda op: op + 100,
+                y,
+            ),
+            "input_shapes": [(), (), ()],
+            "input_dtypes": [np.int32, np.float32, np.bool_],
+            "expected_output_shapes": [()],
+        },
+        {
+            "testcase": "cond_variables",
+            "callable": lambda x, y: lax.cond(
+                x > 5,
+                lambda op: op - 100,
+                lambda op: op + 100,
+                y,
+            ),
+            "input_shapes": [(), ()],
+            "input_dtypes": [np.int32, np.float32],
+            "expected_output_shapes": [()],
+        },
     ],
 )
 class CondPlugin(PrimitiveLeafPlugin):
-    _ORIG_COND: Callable | None = None
+    primitive = cond_p
 
-    # Only one output – shapes must match between branches
-    @staticmethod
-    def abstract_eval(pred_aval, *op_aval, true_jaxpr, **__):
-        return tuple(op_aval)
-
-    # ------------------------------------------------------------------ #
-    # ONNX lowering
-    # ------------------------------------------------------------------ #
     def to_onnx(
         self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Var],  # [pred, operand]
-        node_outputs: Sequence[Var],
-        params: dict[str, Any],
+        conv: Jaxpr2OnnxConverter,
+        invars: List[Var],
+        outvars: List[Var],
+        params: Dict[str, Any],
     ):
-        pred_var, op_var = node_inputs
-        out_var = node_outputs[0]
-        pred_name = s.get_name(pred_var)
-        op_name = s.get_name(op_var)
-        out_name = s.get_name(out_var)
+        fake_eqn = SimpleNamespace(invars=invars, outvars=outvars, params=params)
+        return self._to_onnx_impl(conv, fake_eqn)
 
-        true_closed = params["true_jaxpr"]
-        false_closed = params["false_jaxpr"]
+    def _make_branch(
+        self,
+        parent_conv: Jaxpr2OnnxConverter,
+        tag: str,
+        closed: ClosedJaxpr,
+        op_vars_parent: List[Var],
+        op_names_parent: List[str],
+    ) -> Tuple[GraphProto, List[str]]:
+        from jax2onnx.converter.onnx_builder import OnnxBuilder
 
-        def _make_branch(name_prefix: str, closed):
-            bb = OnnxBuilder(
-                name_generator=s.builder.name_generator,
-                opset=s.builder.opset,
-                model_name=s.builder.get_unique_name(name_prefix),
+        sub_builder = OnnxBuilder(
+            name_generator=parent_conv.builder.name_generator,
+            model_name=f"{tag}_body",
+            enable_double_precision=parent_conv.builder.enable_double_precision,
+            converter=parent_conv,
+        )
+        if hasattr(parent_conv.builder, "var_to_symbol_map"):
+            sub_builder.var_to_symbol_map.update(parent_conv.builder.var_to_symbol_map)
+
+        sub_conv = parent_conv.__class__(sub_builder)
+        sub_conv.symbolic_dim_to_origin = parent_conv.symbolic_dim_to_origin
+
+        for branch_invar, parent_var_name in zip(closed.jaxpr.invars, op_names_parent):
+            sub_conv.var_to_name[branch_invar] = parent_var_name
+
+        for cv, cval in zip(closed.jaxpr.constvars, closed.consts):
+            sub_conv.var_to_name[cv] = sub_conv.get_constant_name(cval)
+
+        sub_conv._process_jaxpr(closed.jaxpr, closed.consts)
+
+        subgraph_output_names: List[str] = [
+            sub_conv.get_name(ov) for ov in closed.jaxpr.outvars
+        ]
+
+        for ov, name_in_sub in zip(closed.jaxpr.outvars, subgraph_output_names):
+            shape = tuple(parent_conv._dim_to_symbol_safe(d) for d in ov.aval.shape)
+            dtype = parent_conv._ensure_onnx_dtype(ov.aval.dtype)
+            sub_builder.add_output(name_in_sub, shape, dtype)
+
+        graph = sub_builder.create_graph(
+            sub_builder.model_name, is_subgraph=True, empty_inputs=True
+        )
+        return graph, subgraph_output_names
+
+    def _to_onnx_impl(self, conv: Jaxpr2OnnxConverter, eqn: Any):
+        pred_var = eqn.invars[0]
+        raw_pred_name = conv.get_name(pred_var)
+
+        if isinstance(pred_var, Literal):
+            lit_val = pred_var.val
+            pred_bool_name = conv.builder.get_unique_name("cond_pred_bool")
+            tensor_proto = helper.make_tensor(
+                name=pred_bool_name,
+                data_type=TensorProto.BOOL,
+                dims=[],
+                vals=[bool(lit_val != 0)],
             )
-            bb.initializers = s.builder.initializers  # <- explicitly link initializers!
-            bb.var_to_symbol_map = s.builder.var_to_symbol_map
-            bc = s.__class__(bb)
+            conv.builder.initializers.append(tensor_proto)
+            conv.builder.add_value_info(
+                pred_bool_name,
+                (),
+                TensorProto.BOOL,
+            )
+            condition_input = pred_bool_name
 
-            # Map operand directly to outer‑scope tensor (no graph input!)
-            bc.var_to_name[closed.jaxpr.invars[0]] = op_name
-            # Closed‑over consts
-            for cv, cval in zip(closed.jaxpr.constvars, closed.consts):
-                bc.var_to_name[cv] = bc.get_constant_name(cval)
+        else:
+            pred_dtype = pred_var.aval.dtype
+            onnx_dtype = conv._ensure_onnx_dtype(pred_dtype)
+            if onnx_dtype != TensorProto.BOOL:
+                pred_bool_name = conv.builder.get_unique_name("cond_pred_bool")
+                cast_node = helper.make_node(
+                    "Cast",
+                    inputs=[raw_pred_name],
+                    outputs=[pred_bool_name],
+                    name=conv.get_unique_name("cast_to_bool"),
+                    to=TensorProto.BOOL,
+                )
+                conv.builder.add_node(cast_node)
+                conv.builder.add_value_info(
+                    pred_bool_name,
+                    (),
+                    TensorProto.BOOL,
+                )
+                condition_input = pred_bool_name
+            else:
+                condition_input = raw_pred_name
 
-            bc._process_jaxpr(closed.jaxpr, closed.consts)
-            bb.outputs.clear()
-            branch_out = bc.get_name(closed.jaxpr.outvars[0])
-            bb.add_output(branch_out, out_var.aval.shape, out_var.aval.dtype)
+        branch_inputs = eqn.invars[1:]
+        branch_input_names = [conv.get_name(v) for v in branch_inputs]
 
-            # Register operand's shape/dtype as value_info (optional but tidy)
-            bb.add_value_info(op_name, op_var.aval.shape, op_var.aval.dtype)
+        if "branches" in eqn.params:
+            # The branches in the jaxpr are (false_branch, true_branch)
+            false_closed, true_closed = eqn.params["branches"]
+        else:
+            # Fallback for older jax versions or different representations
+            true_closed = eqn.params["true_jaxpr"]
+            false_closed = eqn.params["false_jaxpr"]
 
-            bb.inputs.clear()  # ← critical: no formal inputs for If‑branch
-            return bb.create_graph(bb.model_name, is_subgraph=True)
+        then_graph, _ = self._make_branch(
+            conv, "then", true_closed, branch_inputs, branch_input_names
+        )
+        else_graph, _ = self._make_branch(
+            conv, "else", false_closed, branch_inputs, branch_input_names
+        )
 
-        then_graph = _make_branch("then", true_closed)
-        else_graph = _make_branch("else", false_closed)
-
+        out_names = [conv.get_name(v) for v in eqn.outvars]
         if_node = helper.make_node(
             "If",
-            inputs=[pred_name],
-            outputs=[out_name],
+            inputs=[condition_input],
+            outputs=out_names,
             then_branch=then_graph,
             else_branch=else_graph,
-            name=s.get_unique_name("cond"),
+            name=conv.get_unique_name("If_cond"),
         )
-        s.add_node(if_node)
-        s.add_shape_info(out_name, out_var.aval.shape, out_var.aval.dtype)
+        conv.builder.add_node(if_node)
 
-    # ------------------------------------------------------------------ #
-    # Monkey‑patch
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _cond_binding(pred, true_fun, false_fun, operand):
-        true_closed = jax.make_jaxpr(true_fun)(operand)
-        false_closed = jax.make_jaxpr(false_fun)(operand)
-        flat, tree = jax.tree_util.tree_flatten(operand)
-        res = cond_p.bind(pred, *flat, true_jaxpr=true_closed, false_jaxpr=false_closed)
-        return jax.tree_util.tree_unflatten(tree, res)
-
-    @staticmethod
-    def get_monkey_patch(orig_fn):
-        if CondPlugin._ORIG_COND is None:
-            CondPlugin._ORIG_COND = orig_fn
-
-        def patched(pred, true_fun, false_fun, operand):
-            return CondPlugin._cond_binding(pred, true_fun, false_fun, operand)
-
-        return patched
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [lax],
-            "target_attribute": "cond",
-            "patch_function": CondPlugin.get_monkey_patch,
-        }
-
-
-cond_p.def_abstract_eval(CondPlugin.abstract_eval)
+        for v, name in zip(eqn.outvars, out_names):
+            shape = tuple(conv._dim_to_symbol_safe(d) for d in v.aval.shape)
+            dtype = conv._ensure_onnx_dtype(v.aval.dtype)
+            conv.builder.add_output(name, shape, dtype)

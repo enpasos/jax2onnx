@@ -5,7 +5,7 @@ import numpy as np
 from jax import lax
 
 
-def test_scatter_add_simplified():
+def scatter_add_simplified():
     print("\n--- Testing: scatter_add_mismatched_window_dims_simplified ---")
     try:
         operand = jnp.array(np.zeros((2, 5), dtype=np.float64))
@@ -108,6 +108,6 @@ def test_scatter_add_toy():
 
 if __name__ == "__main__":
     print(f"JAX version: {jax.__version__}")
-    test_scatter_add_simplified()
+    scatter_add_simplified()
     test_scatter_add_user_report()
     test_scatter_add_toy()

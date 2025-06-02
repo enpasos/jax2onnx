@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/reduce_sum.py
+# file: jax2onnx/plugins/jax/lax/reduce_prod.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, List, Optional, Sequence
@@ -18,67 +18,59 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
-reduce_sum_p = lax.reduce_sum_p
+reduce_prod_p = lax.reduce_prod_p
 
 
 @register_primitive(
-    jaxpr_primitive=reduce_sum_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
+    jaxpr_primitive=reduce_prod_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_prod.html",
     onnx=[
         {
-            "component": "ReduceSum",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
+            "component": "ReduceProd",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceProd.html",
         }
     ],
-    since="v0.2.0",
+    since="v0.6.1",
     context="primitives.lax",
-    component="reduce_sum",
+    component="reduce_prod",
     testcases=[
         {
-            "testcase": "reduce_sum",
-            "callable": lambda x: jnp.sum(x, axis=(0,)),
+            "testcase": "reduce_prod",
+            "callable": lambda x: jnp.prod(x, axis=(0,)),
             "input_shapes": [(3, 3)],
         },
         {
-            "testcase": "reduce_sum_allaxes",
-            "callable": lambda x: jnp.sum(x),  # sum over all axes
+            "testcase": "reduce_prod_allaxes",
+            "callable": lambda x: jnp.prod(x),  # prod over all axes
             "input_shapes": [(2, 3, 4)],
         },
         {
-            "testcase": "reduce_sum_keepdims",
-            "callable": lambda x: jnp.sum(x, axis=(1,), keepdims=True),
+            "testcase": "reduce_prod_keepdims",
+            "callable": lambda x: jnp.prod(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
         },
         {
-            "testcase": "reduce_sum_dtype_f64",
-            "callable": lambda x: jnp.sum(x, axis=(0, 1), dtype=jnp.float64),
+            "testcase": "reduce_prod_dtype_f64",
+            "callable": lambda x: jnp.prod(x, axis=(0, 1), dtype=jnp.float64),
             "input_shapes": [(2, 2)],
             "input_dtypes": [np.int64],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
         },
         {
-            "testcase": "reduce_sum_dtype",
-            "callable": lambda x: jnp.sum(x, axis=(0, 1), dtype=jnp.float32),
+            "testcase": "reduce_prod_dtype",
+            "callable": lambda x: jnp.prod(x, axis=(0, 1), dtype=jnp.float32),
             "input_shapes": [(2, 2)],
             "input_dtypes": [np.int32],
             "expected_output_dtypes": [np.float32],
             "run_only_f32_variant": True,
         },
-        # {
-        #     "testcase": "reduce_sum_two_axes",
-        #     "callable": lambda x: lax.reduce_sum(x, axes=(1, 2)),
-        #     "input_shapes": [("B", 3, 4)],        # B × 3 × 4
-        #     "input_dtypes": [np.float32],
-        #     "expected_output_shapes": [("B",)],   # summing over axes 1&2 leaves shape (B,)
-        #     "expected_output_dtypes": [np.float32],
-        # },
     ],
 )
-class ReduceSumPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.reduce_sum (invoked via jnp.sum) to ONNX ReduceSum."""
+class ReduceProdPlugin(PrimitiveLeafPlugin):
+    """Plugin for converting jax.lax.reduce_prod (invoked via jnp.prod) to ONNX ReduceProd."""
 
-    primitive = reduce_sum_p
+    primitive = reduce_prod_p
 
     def to_onnx(
         self,
@@ -94,7 +86,6 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
         output_name = conv.get_name(out_var)
 
         # 2) Extract axes / keepdims / dtype from JAX parameters:
-        #    JAX primitive params are 'axes', 'keepdims', 'dtype' when traced via jnp.sum.
         axes: Optional[Sequence[int]] = params.get("axes", None)
         keepdims_flag: bool = params.get("keepdims", False)
 
@@ -113,28 +104,26 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             conv.builder.add_node(cast_node)
             input_name = casted_name
 
-        # 3) Emit the ReduceSum node via our shared helper:
+        # 3) Emit the ReduceProd node via our shared helper:
         add_reduce_node(
             conv.builder,
-            "ReduceSum",
+            "ReduceProd",
             input_name,
             output_name,
             axes=list(axes) if axes is not None else None,
             keepdims=1 if keepdims_flag else 0,
         )
 
-        # 4) If the *original input* was integer, force‐promote the ReduceSum output to DOUBLE.
-        #    (This covers the case where JAX ignored dtype=double under x64-disabled tracing,
-        #    but our test expects a DOUBLE output when summing an integer array.)
-        int_input_ctr = x_var.aval.dtype
-        if np.issubdtype(int_input_ctr, np.integer):
-            promoted_name = conv.builder.get_unique_name("reduce_sum_out_double")
+        # 4) If the *original input* was integer, force‐promote the ReduceProd output to DOUBLE.
+        int_input_dtype = x_var.aval.dtype
+        if np.issubdtype(int_input_dtype, np.integer):
+            promoted_name = conv.builder.get_unique_name("reduce_prod_out_double")
             cast_out = helper.make_node(
                 "Cast",
                 inputs=[output_name],
                 outputs=[promoted_name],
                 to=TensorProto.DOUBLE,
-                name=conv.get_unique_name("Cast_sum_output"),
+                name=conv.get_unique_name("Cast_prod_output"),
             )
             conv.builder.add_node(cast_out)
             output_name = promoted_name
@@ -142,9 +131,9 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
         # 5) Finally, declare the output's value_info (shape & dtype):
         aval = out_var.aval
         # If we forced a Cast→DOUBLE above, out_name refers to the DOUBLE‐typed tensor.
-        # Otherwise, it's whatever dtype JAX predicted (aval.dtype or requested_dtype).
-        if np.issubdtype(int_input_ctr, np.integer):
-            # We promoted to DOUBLE unconditionally
+        # Otherwise, use requested_dtype (if any) or the JAX‐inferred dtype.
+        if np.issubdtype(int_input_dtype, np.integer) and requested_dtype is None:
+            # We promoted to DOUBLE unconditionally when input was integer and no dtype was requested.
             out_dtype_enum = TensorProto.DOUBLE
         else:
             final_dtype = requested_dtype if requested_dtype is not None else aval.dtype
