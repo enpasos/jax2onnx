@@ -33,6 +33,26 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter")
 scatter_p = lax.scatter_p
 
 
+# (1) Operand is float64, so enable_x64 must be True in converter later.
+# (2) Pick a 3D operand and 2D indices so that JAX’s scatter_utils will
+#     insert and permute dimensions.
+def minimal_scatter_f64(x, idx, upd):
+    # dimension_numbers that cause both inserted_window_dims and update_window_dims
+    dnums = lax.ScatterDimensionNumbers(
+        update_window_dims=(1, 2),  # say updates has shape (N, W1, W2)
+        inserted_window_dims=(0,),  # we “insert” at the front
+        scatter_dims_to_operand_dims=(1,),  # map scatter dim 0 → operand dim 1
+    )
+    return lax.scatter(
+        x,  # shape (4,4,4), dtype float64
+        idx,  # shape (2,1), dtype int64
+        upd,  # shape (2, W1, W2), dtype float64
+        dnums,
+        indices_are_sorted=False,
+        unique_indices=False,
+    )
+
+
 @register_primitive(
     jaxpr_primitive=scatter_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html",
@@ -123,6 +143,40 @@ scatter_p = lax.scatter_p
             "input_shapes": [(5, 201, 1, 1), (2, 1), (2, 201, 1, 1)],
             "input_dtypes": [np.float32, np.int32, np.float32],
         },
+        # {
+        #     "testcase": "scatter_f64_internal_updates_reshape",
+        #     "callable": minimal_scatter_f64,  # your minimal JAX function
+        #     # 1) List the shapes of each input, in the same order as `input_values` / `input_dtypes`.
+        #     "input_shapes": [
+        #         (4, 4, 4),  # operand x
+        #         (2, 1),  # indices idx
+        #         (2, 4, 4),  # updates upd
+        #     ],
+        #     # 2) Dtypes must also have length 3
+        #     "input_dtypes": [
+        #         np.float64,  # x is float64
+        #         np.int64,  # idx is int64
+        #         np.float64,  # upd is float64
+        #     ],
+        #     # 3) (Optional) You can keep `input_values` if you want the generator to bake in concrete arrays:
+        #     "input_values": [
+        #         np.arange(4 * 4 * 4, dtype=np.float64).reshape((4, 4, 4)),
+        #         np.array([[0], [3]], dtype=np.int64),
+        #         np.arange(2 * 4 * 4, dtype=np.float64).reshape((2, 4, 4)),
+        #     ],
+        #     "params": {
+        #         "dimension_numbers": lax.ScatterDimensionNumbers(
+        #             update_window_dims=(1, 2),
+        #             inserted_window_dims=(0,),
+        #             scatter_dims_to_operand_dims=(1,),
+        #         ),
+        #         "indices_are_sorted": False,
+        #         "unique_indices": False,
+        #         "mode": lax.GatherScatterMode.PROMISE_IN_BOUNDS,
+        #     },
+        #     "expected_output_shapes": [(4, 4, 4)],  # same as operand shape
+        #     "expected_output_dtypes": [np.float64],
+        # },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):

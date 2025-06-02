@@ -90,17 +90,26 @@ def allclose(
     # Call JAX function directly with tensor args and keyword args
     jax_output = fn(*xs, **jax_kwargs)
 
-    # Ensure outputs are in list format for comparison
-    if not isinstance(jax_output, list):
-        jax_output = [jax_output]
+    # --- START OF PATCH ---
+    # Ensure outputs are in a flat list format for comparison
+    if isinstance(jax_output, tuple):
+        jax_output_list = list(jax_output)
+    elif not isinstance(jax_output, list):
+        jax_output_list = [jax_output]
+    else:
+        jax_output_list = jax_output
+
     if not isinstance(onnx_output, list):
-        onnx_output = [onnx_output]
+        onnx_output_list = [onnx_output]
+    else:
+        onnx_output_list = onnx_output
+    # --- END OF PATCH ---
 
     # Compare all outputs
     all_match = True
     detailed_messages = []
 
-    for i, (o, j) in enumerate(zip(onnx_output, jax_output, strict=False)):
+    for i, (o, j) in enumerate(zip(onnx_output_list, jax_output_list, strict=False)):
         # Convert outputs to numpy arrays if they aren't already
         o_np = np.array(o)
         j_np = np.array(j)
