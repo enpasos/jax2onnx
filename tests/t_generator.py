@@ -168,6 +168,7 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     final_params_list: List[Dict[str, Any]] = []
     for base_param_set in intermediate_params_list:
         run_only_f64_variant = base_param_set.get("run_only_f64_variant", False)
+        run_only_f32_variant = base_param_set.get("run_only_f32_variant", False)
         disable_float64_test_from_meta = base_param_set.get(
             "disable_float64_test", False
         )  # Existing flag
@@ -234,10 +235,14 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
             p_f32 = base_param_set.copy()
             p_f32["_enable_double_precision_test_setting"] = False
             # testcase name remains base_param_set["testcase"]
-            final_params_list.append(p_f32)
+
+            if not run_only_f64_variant:
+                final_params_list.append(p_f32)
 
             # And f64 variant if applicable (and not disabled)
-            if not disable_float64_test_from_meta:  # Check existing flag
+            if (
+                not disable_float64_test_from_meta and not run_only_f32_variant
+            ):  # Check existing flag and suppress if f32-only
                 # Check if this test involves floats, only add _f64 variant if it does.
                 p_f64 = base_param_set.copy()
                 p_f64["testcase"] += "_f64"  # Add suffix
