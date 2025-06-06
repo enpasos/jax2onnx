@@ -103,12 +103,12 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 - **Planned 0.6.2**: Additional fixes to improve support for **physics simulations**.
 
 ### **Current Productive Version**
-- **0.6.1** *(PyPI)*: ...
+- **0.6.1** *(PyPI)*: Improved support for `lax.cond`; added new primitives (`reduce_and`, `reduce_or`, `reduce_prod`, `reduce_xor`, `select_n`); and introduced a new sort_test example. 
 
 ### **Past Versions**
 - **0.6.0**: Introduced the `enable_double_precision` parameter (default: `False`) to support **physics simulations**, and enhanced handling of `lax.scatter`.
 - **0.5.2**: Add support for additional primitives: `jnp.where`, `jnp.arange`, `jnp.linspace`.
-- **0.5.1**: Add support for subgraph using primitives: `lax.while_loop`, `lax.cond`, `lax.fori_loop`, `lax.scan`, `lax.cond`.
+- **0.5.1**: Add support for subgraph using primitives: `lax.while_loop`, `lax.cond`, `lax.fori_loop`, `lax.scan`.
 - **0.5.0**: Improved dynamic batch dimension handling by leveraging [shape polymorphism](https://docs.jax.dev/en/latest/export/shape_poly.html) for more robust and flexible model export.
   Added support for `jnp.sign`, `jnp.abs`, `jnp.iota` primitives.
 - **0.4.4**: Added support for `lax.cos`, `lax.cosh`, `lax.sin`, `lax.sinh` and `lax.scatter` primitives.

@@ -30,7 +30,7 @@ reduce_xor_p = lax.reduce_xor_p
         },
         {"component": "Mod", "doc": "https://onnx.ai/onnx/operators/onnx__Mod.html"},
     ],
-    since="0.6.1",
+    since="v0.6.1",
     context="primitives.lax",
     component="reduce_xor",
     testcases=[

@@ -29,7 +29,7 @@ reduce_or_p = lax.reduce_or_p
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
         },
     ],
-    since="0.6.1",
+    since="v0.6.1",
     context="primitives.lax",
     component="reduce_or",
     testcases=[
