@@ -23,9 +23,9 @@ reduce_or_p = lax.reduce_or_p
     jaxpr_primitive=reduce_or_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.any.html",
     onnx=[
-        {"op_type": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
         {
-            "op_type": "ReduceMax",
+            "component": "ReduceMax",
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
         },
     ],

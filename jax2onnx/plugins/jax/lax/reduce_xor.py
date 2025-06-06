@@ -23,12 +23,12 @@ reduce_xor_p = lax.reduce_xor_p
     jaxpr_primitive=reduce_xor_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.logical_xor.html",
     onnx=[
-        {"op_type": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
         {
-            "op_type": "ReduceSum",
+            "component": "ReduceSum",
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
         },
-        {"op_type": "Mod", "doc": "https://onnx.ai/onnx/operators/onnx__Mod.html"},
+        {"component": "Mod", "doc": "https://onnx.ai/onnx/operators/onnx__Mod.html"},
     ],
     since="0.6.1",
     context="primitives.lax",
