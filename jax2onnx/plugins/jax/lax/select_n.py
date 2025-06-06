@@ -23,7 +23,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
         }
     ],
-    since="v0.6.1",
+    since="v0.2.0",
     context="primitives.lax",
     component="select_n",
     testcases=[
