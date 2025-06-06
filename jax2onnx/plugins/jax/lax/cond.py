@@ -99,6 +99,20 @@ cond_p = lax.cond_p
             "input_dtypes": [np.int32, np.float32],
             "expected_output_shapes": [()],
         },
+        {
+            "testcase": "cond_internal_constant_f64",
+            "callable": lambda: lax.cond(
+                False,
+                lambda x: x * 2.0,
+                lambda x: x + 1.0,
+                jnp.zeros((2, 4), dtype=jnp.float64),
+            ),
+            "input_shapes": [],
+            "enable_double_precision": True,
+            "expected_output_shapes": [(2, 4)],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
+        },
     ],
 )
 class CondPlugin(PrimitiveLeafPlugin):
