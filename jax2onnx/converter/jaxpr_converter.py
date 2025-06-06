@@ -954,3 +954,40 @@ class Jaxpr2OnnxConverter:
 
         # No hint found
         return None
+
+        # ---------------------------------------------------------------
+        # constant-vs-captured disambiguation
+        # ---------------------------------------------------------------
+        #
+        # `closed.consts` may contain
+        #   • true compile-time literals  →  NumPy/JAX arrays, Python scalars
+        #   • values captured from the outer scope which are still **dynamic**
+        #     (they show up as Tracers or AbstractValues).  Those must be
+        #     treated like normal graph values, **not** like initialisers.
+        #     Trying to convert the latter to NumPy triggers the
+        #     TracerArrayConversionError you are seeing.
+        #
+        from jax._src import core as _jcore  # local import to avoid hard dep
+
+        # Fix: use the method parameters instead of undefined variables
+        for cv, cval in zip(self.jaxpr.constvars, self.consts):
+            is_dynamic = isinstance(cval, _jcore.Tracer)
+            if not is_dynamic:
+                # safe – real constant
+                self.var_to_name[cv] = self.get_constant_name(cval)
+            else:
+                # dynamic capture: reuse the *outer* graph name so the
+                # sub-graph automatically receives it via lexical scoping.
+                #
+                # We map the **inner** ClosedJaxpr const-var `cv`
+                # to the already-allocated ONNX name of the **value**
+                # that produced it in the outer graph.
+                #
+                try:
+                    outer_name = self.get_name(cval)  # uses object-identity map
+                except KeyError:
+                    # value never materialised as a named output yet …
+                    # fall back to a passthrough input on the sub-graph
+                    outer_name = self.builder.get_unique_name("captured")
+                    self.builder.add_input(outer_name, cval.aval.shape, cval.aval.dtype)
+                self.var_to_name[cv] = outer_name

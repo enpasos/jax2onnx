@@ -1,3 +1,5 @@
+# file: jax2onnx/converter/onnx_builder.py
+
 from typing import Any, Dict, Union, Optional, List, Tuple, cast
 
 import logging
@@ -15,6 +17,7 @@ from onnx import (
     TypeProto,
     TensorShapeProto,
     helper,
+    AttributeProto,
 )
 
 # === Import name generators ===
@@ -684,20 +687,26 @@ class OnnxBuilder:
                 remaining_missing.append(name)
         return remaining_missing
 
-    def create_graph(self, name: str, is_subgraph: bool = False) -> GraphProto:
+    def create_graph(
+        self, name: str, is_subgraph: bool = False, empty_inputs: bool = False
+    ) -> GraphProto:
         """Creates a GraphProto, passing the is_subgraph flag."""
-        return self._build_graph(name, is_subgraph=is_subgraph)
+        return self._build_graph(
+            name, is_subgraph=is_subgraph, empty_inputs=empty_inputs
+        )
 
-    def _build_graph(self, name: str, is_subgraph: bool = False) -> GraphProto:
+    def _build_graph(
+        self, name: str, is_subgraph: bool = False, empty_inputs: bool = False
+    ) -> GraphProto:
         """Builds the GraphProto, optionally skipping input filtering for subgraphs."""
-        logger.debug(f"Building graph '{name}', is_subgraph={is_subgraph}")
+        logger.debug(
+            f"Building graph '{name}', is_subgraph={is_subgraph}, empty_inputs={empty_inputs}"
+        )
         # 1. Filter unused initializers (safe for subgraphs too)
         self.filter_unused_initializers()
 
-        # Conditionally skip filtering inputs for subgraphs
         if not is_subgraph:
-            # 2. NEW ─ remove graph-inputs that collide with node-outputs /
-            #          initializers / are never consumed
+            # For the main graph, filter redundant inputs.
             self._filter_redundant_inputs()
 
         missing = self.find_missing_value_info()
@@ -715,10 +724,14 @@ class OnnxBuilder:
                 f"Missing value_info for: {missing} in graph '{name}'\n\nConsider adding them using `builder.add_value_info(...)` or `register_value_info_metadata(...)`"
             )
 
+        # If empty_inputs is requested, use an empty list for the graph inputs.
+        # Otherwise, use the builder's current inputs.
+        final_inputs = [] if empty_inputs else self.inputs
+
         return helper.make_graph(
             nodes=self.nodes,
             name=name,
-            inputs=self.inputs,
+            inputs=final_inputs,
             outputs=self.outputs,
             initializer=self.initializers,
             value_info=self.value_info,
@@ -1278,12 +1291,21 @@ class OnnxBuilder:
         """Drop every `graph.input` that
         * is also produced by some node **or**
         * duplicates an initializer **or**
-        * is not consumed by any node.
+        * is not consumed by any node (including nodes in subgraphs).
         """
         node_in, node_out = set(), set()
         for n in self.nodes:
             node_in.update([t for t in n.input if t])
             node_out.update([t for t in n.output if t])
+            # Recursively find inputs in subgraphs
+            for attr in n.attribute:
+                if attr.type == AttributeProto.GRAPH:
+                    for sub_node in attr.g.node:
+                        node_in.update([t for t in sub_node.input if t])
+                elif attr.type == AttributeProto.GRAPHS:
+                    for g in attr.graphs:
+                        for sub_node in g.node:
+                            node_in.update([t for t in sub_node.input if t])
 
         # Build initializers dictionary if not already done
         if not hasattr(self, "initializers_by_name"):
