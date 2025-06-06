@@ -29,7 +29,7 @@ reduce_and_p = lax.reduce_and_p
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMin.html",
         },
     ],
-    since="0.6.1",
+    since="v0.6.1",
     context="primitives.lax",
     component="reduce_and",
     testcases=[
