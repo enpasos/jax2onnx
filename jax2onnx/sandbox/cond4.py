@@ -1,4 +1,6 @@
-import onnx, onnxruntime as ort, numpy as np
+import onnx
+import onnxruntime as ort
+import numpy as np
 
 m = onnx.load("docs/onnx/primitives/lax/cond_my_new_complex_scenario_dynamic.onnx")
 sess = ort.InferenceSession(m.SerializeToString(), providers=["CPUExecutionProvider"])

@@ -969,7 +969,8 @@ class Jaxpr2OnnxConverter:
         #
         from jax._src import core as _jcore  # local import to avoid hard dep
 
-        for cv, cval in zip(closed.jaxpr.constvars, closed.consts):
+        # Fix: use the method parameters instead of undefined variables
+        for cv, cval in zip(self.jaxpr.constvars, self.consts):
             is_dynamic = isinstance(cval, _jcore.Tracer)
             if not is_dynamic:
                 # safe – real constant
@@ -983,10 +984,10 @@ class Jaxpr2OnnxConverter:
                 # that produced it in the outer graph.
                 #
                 try:
-                    outer_name = s.get_name(cval)  # uses object-identity map
+                    outer_name = self.get_name(cval)  # uses object-identity map
                 except KeyError:
                     # value never materialised as a named output yet …
                     # fall back to a passthrough input on the sub-graph
-                    outer_name = bc.get_unique_name("captured")
-                    bc.add_input(outer_name, cval.aval.shape, cval.aval.dtype)
-                bc.var_to_name[cv] = outer_name
+                    outer_name = self.builder.get_unique_name("captured")
+                    self.builder.add_input(outer_name, cval.aval.shape, cval.aval.dtype)
+                self.var_to_name[cv] = outer_name

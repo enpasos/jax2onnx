@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import numpy as np
-import jax
 from jax import lax, numpy as jnp
 from jax.extend.core import ClosedJaxpr, Literal, Var
-from jax._src.core import Tracer
 from types import SimpleNamespace
 from onnx import helper, GraphProto, TensorProto
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -15,7 +13,7 @@ from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 import logging
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.onnx_builder import OnnxBuilder
+    pass
 
 module_logger = logging.getLogger("jax2onnx.plugins.jax.lax.cond")
 
