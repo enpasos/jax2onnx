@@ -3,11 +3,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from onnx import helper, TensorProto
-import onnx
 from jax import lax
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive

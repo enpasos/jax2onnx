@@ -1,4 +1,7 @@
-import numpy as np, jax.numpy as jnp, onnx, onnxruntime as ort
+import numpy as np
+import jax.numpy as jnp
+import onnx
+import onnxruntime as ort
 from jax import lax
 
 # ---------------------------------------------------------------------

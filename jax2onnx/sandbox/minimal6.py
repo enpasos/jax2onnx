@@ -66,7 +66,7 @@ def run_minimal_reproducer_v6():
     jax_output_scattered, jax_output_int = None, None
     try:
         jax_output_scattered, jax_output_int = minimal_problem_fn()
-        print(f"JAX function executed successfully (pre-conversion).")
+        print("JAX function executed successfully (pre-conversion).")
         print(
             f"  JAX scattered output dtype: {jax_output_scattered.dtype}, shape: {jax_output_scattered.shape}"
         )
