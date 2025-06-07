@@ -21,10 +21,14 @@ jnp.prod_p.multiple_results = False
 
 
 @register_primitive(
-    primitive_obj=jnp.prod_p,
-    binding_factory=lambda: jnp.prod,
-    jaxpr_primitive="reduce_prod",
-    onnx_op="ReduceProd",
+    jaxpr_primitive=jnp.prod_p,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.prod.html#jax.numpy.prod",
+    onnx=[
+        {
+            "component": "ReduceProd",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceProd.html",
+        }
+    ],
     since="v0.6.2",
     context="primitives.jnp",
     component="prod",
