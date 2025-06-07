@@ -15,11 +15,10 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scan")
-scan_p = lax.scan_p
 
 
 @register_primitive(
-    jaxpr_primitive=scan_p.name,
+    jaxpr_primitive=lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
     onnx=[
         {"component": "Scan", "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html"}
@@ -201,7 +200,3 @@ class ScanPlugin(PrimitiveLeafPlugin):
             f"inputs={len(node_inputs)}, outputs={len(node_outputs)}"
         )
         s.add_node(scan_node)
-
-
-# Bind abstract evaluation
-scan_p.def_abstract_eval(ScanPlugin.abstract_eval)

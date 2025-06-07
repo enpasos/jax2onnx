@@ -58,11 +58,17 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 3)],
+            # ADDED: This lambda will be executed by the test generator.
+            # It asserts that a "Conv" op exists in the generated graph.
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_basic_bias_2",
             "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 28, 28, 1)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_basic_bias_3",
@@ -76,6 +82,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 1)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_stride2_bias",
@@ -89,6 +97,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 32)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_no_bias",
@@ -102,6 +112,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_valid_padding",
@@ -115,6 +127,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 32, 32, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_stride1",
@@ -128,6 +142,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_stride2",
@@ -141,6 +157,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_different_kernel",
@@ -154,6 +172,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_float64",  # This test case explicitly initializes Conv with float64 params
@@ -168,6 +188,8 @@ if not hasattr(nnx, "conv_p"):
                 dtype=np.float64,  # Parameters will be float64
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_single_batch",
@@ -181,6 +203,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "conv_large_batch",
@@ -194,6 +218,8 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(32, 16, 16, 3)],
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
         },
     ],
 )
@@ -509,13 +535,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
             # Fallback or raise error
             conv_attrs["auto_pad"] = cast(Any, "VALID")
 
-        helper.make_node(
+        conv_node = helper.make_node(
             "Conv",
             inputs=conv_inputs,
             outputs=[conv_out_nchw_name],
             name=s.get_unique_name("conv"),
             **conv_attrs,
         )
+        s.add_node(conv_node)
 
         # Output shape calculation (NHWC for JAX, then transpose to NCHW for ONNX Conv output)
         # The abstract_eval of nnx.conv_p should give the correct JAX output shape.

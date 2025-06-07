@@ -24,11 +24,9 @@ import logging
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_add")
 
-scatter_add_p = lax.scatter_add_p
-
 
 @register_primitive(
-    jaxpr_primitive=scatter_add_p.name,
+    jaxpr_primitive=lax.scatter_add_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scatter_add.html",
     onnx=[
         {

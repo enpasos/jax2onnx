@@ -12,12 +12,9 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-# Alias primitive
-scatter_mul_p = lax.scatter_mul_p
-
 
 @register_primitive(
-    jaxpr_primitive=scatter_mul_p.name,
+    jaxpr_primitive=lax.scatter_mul_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scatter_mul.html",
     onnx=[{"component": "ScatterND", "attributes": ["reduction='mul'"]}],
     since="v0.5.3",

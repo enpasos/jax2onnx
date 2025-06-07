@@ -305,7 +305,7 @@ def get_plugin_grouping(reset=False) -> dict[tuple[str, str], list[dict[str, Any
 
 
 def make_test_function(tp: dict[str, Any]):
-    """Create a test function from test parameters."""  # Add function annotation to satisfy type checker
+    """Create a test function from test parameters."""
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
     func_name = f"test_{test_case_name_safe}"
 
@@ -443,11 +443,11 @@ def make_test_function(tp: dict[str, Any]):
             # to determine the `working_dtype` for these shapes if dtypes aren't part of `processed_input_specs_for_to_onnx`.
             onnx_model = to_onnx(
                 callable_obj,
-                processed_input_specs_for_to_onnx,  # This is List[Tuple[Dim,...]]
+                processed_input_specs_for_to_onnx,
                 input_params=input_params_from_testcase,
-                model_name=testcase_name,  # Use the specific test case name (e.g., with _f64)
+                model_name=testcase_name,
                 opset=opset_version,
-                enable_double_precision=current_enable_double_precision,  # Pass the flag
+                enable_double_precision=current_enable_double_precision,
             )
         except Exception as e:
             logger.error(
@@ -455,6 +455,14 @@ def make_test_function(tp: dict[str, Any]):
                 exc_info=True,
             )
             raise
+
+        # --- ADDED GENERIC POST-CHECK LOGIC ---
+        post_check = tp.get("post_check_onnx_graph")
+        if post_check:
+            assert post_check(
+                onnx_model
+            ), f"Post-conversion graph check failed for '{testcase_name}'."
+        # --- END OF ADDED LOGIC ---
 
         onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")

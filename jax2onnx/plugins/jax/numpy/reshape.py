@@ -21,14 +21,14 @@ if TYPE_CHECKING:
 import numpy as np
 
 # Define the reshape primitive
-reshape_p = Primitive("reshape")
-reshape_p.multiple_results = False
+jnp.reshape_p = Primitive("jnp.reshape")
+jnp.reshape_p.multiple_results = False
 
 
 @register_primitive(
-    primitive_obj=reshape_p,
+    primitive_obj=jnp.reshape_p,
     binding_factory=lambda: jnp.reshape,
-    jaxpr_primitive=reshape_p.name,
+    jaxpr_primitive=jnp.reshape_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html",
     onnx=[
         {
@@ -344,7 +344,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         """Binds inputs to the reshape primitive."""
         if order != "C":
             raise NotImplementedError("Only C-style reshape is supported.")
-        return reshape_p.bind(a, newshape=newshape)
+        return jnp.reshape_p.bind(a, newshape=newshape)
 
     @staticmethod
     def get_monkey_patch(orig_fn: Callable):
@@ -367,5 +367,5 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
 
 # --- Existing registration ---
-reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
+jnp.reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
 # --- End Existing registration ---

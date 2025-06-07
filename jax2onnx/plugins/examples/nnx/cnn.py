@@ -37,9 +37,14 @@ register_example(
     ],
     testcases=[
         {
+            "testcase": "simple_cnn_explicit_dimensions",
+            "callable": CNN(rngs=nnx.Rngs(0)),
+            "input_shapes": [(3, 28, 28, 1)],
+        },
+        {
             "testcase": "simple_cnn",
             "callable": CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 28, 28, 1)],
-        }
+        },
     ],
 )

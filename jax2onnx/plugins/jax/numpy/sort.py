@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------- #
 # 1.  A dedicated primitive for jnp.sort                                 #
 # ---------------------------------------------------------------------- #
-sort_p = Primitive("jnp_sort")
+sort_p = Primitive("jnp.sort")
 sort_p.multiple_results = False  # only the sorted values
 
 
