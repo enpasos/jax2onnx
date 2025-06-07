@@ -21,7 +21,7 @@ jnp.prod_p.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.prod_p,
+    jaxpr_primitive=jnp.prod_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.prod.html#jax.numpy.prod",
     onnx=[
         {
