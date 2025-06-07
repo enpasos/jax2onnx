@@ -30,9 +30,6 @@ import logging
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter")
 
 
-scatter_p = lax.scatter_p
-
-
 # (1) Operand is float64, so enable_x64 must be True in converter later.
 # (2) Pick a 3D operand and 2D indices so that JAX’s scatter_utils will
 #     insert and permute dimensions.
@@ -54,7 +51,7 @@ def minimal_scatter_f64(x, idx, upd):
 
 
 @register_primitive(
-    jaxpr_primitive=scatter_p.name,
+    jaxpr_primitive=lax.scatter_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html",
     onnx=[
         # The primary target is now ScatterND
