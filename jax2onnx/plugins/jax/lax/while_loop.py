@@ -19,6 +19,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
 
+
+def _while_loop_multi_state_fn(x):
+    """A test model for while_loop with multiple state variables."""
+    steps = 5
+
+    def cond_fn(state):
+        _, counter = state
+        return counter < steps
+
+    def body_fn(state):
+        x, counter = state
+        x_new = x + 0.1 * x**2
+        counter_new = counter + 1
+        return (x_new, counter_new)
+
+    state = (x, 0)
+    final_state = jax.lax.while_loop(cond_fn, body_fn, state)
+    return final_state[0]
+
+
 while_loop_p = Primitive("while_loop")
 while_loop_p.multiple_results = True
 
@@ -48,6 +68,34 @@ while_loop_p.multiple_results = True
             ),
             "input_shapes": [],
             "expected_output_shapes": [(1,)],
+        },
+        {
+            "testcase": "while_loop_f64",
+            "callable": lambda x: lax.while_loop(
+                lambda val: val < 5.0, lambda val: val * 1.1, x
+            ),
+            "input_shapes": [()],
+            "input_dtypes": [np.float64],
+            "expected_output_shapes": [()],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "while_loop_multi_state_f32",
+            "callable": _while_loop_multi_state_fn,
+            "input_shapes": [(2,)],
+            "input_dtypes": [np.float32],
+            "expected_output_shapes": [(2,)],
+            "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "while_loop_multi_state_f64",
+            "callable": _while_loop_multi_state_fn,
+            "input_shapes": [(2,)],
+            "input_dtypes": [np.float64],
+            "expected_output_shapes": [(2,)],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
         },
     ],
 )
@@ -88,8 +136,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
             model_name=s.builder.get_unique_name(f"{while_loop_p.name}_body_graph"),
-            initializers=None,
-            converter=None,
+        )
+        body_builder.enable_double_precision = getattr(
+            s.builder, "enable_double_precision", False
         )
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         body_converter = s.__class__(body_builder)
@@ -153,8 +202,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
             model_name=s.builder.get_unique_name(f"{while_loop_p.name}_initial_cond"),
-            initializers=None,
-            converter=None,
+        )
+        init_builder.enable_double_precision = getattr(
+            s.builder, "enable_double_precision", False
         )
         init_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         init_converter = s.__class__(init_builder)
