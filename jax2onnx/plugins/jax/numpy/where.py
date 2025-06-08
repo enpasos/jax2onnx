@@ -99,10 +99,18 @@ def create_problematic_where_sequence(cond_input, data_input):
             ],
             "expected_output_shapes": [(3, 1)],
             "expected_output_dtypes": [np.int64],
-            "run_only_f64_variant": True,  # <<< ADD THIS FLAG
+            "run_only_f64_variant": True,
             # This test, now named 'test_where_jax_int_literals_broadcast_f64_mode',
             # will run *only* with enable_double_precision=True.
             # We expect it to FAIL at ONNX model load time.
+        },
+        {
+            "testcase": "where_simple",
+            "callable": lambda x, y: jnp.where(x > 0, x, y),
+            "input_values": [
+                jnp.array([-1.0, 1.0, 0.0], dtype=jnp.float32),
+                jnp.array([10.0, 11.0, 12.0], dtype=jnp.float32),
+            ],
         },
     ],
 )
@@ -116,66 +124,18 @@ class WherePlugin(PrimitiveLeafPlugin):
         y_av: core.AbstractValue,
         **kwargs,
     ) -> core.AbstractValue:
-        import numpy as np  # local import
+        import numpy as np
 
-        bool_types = (jnp.bool_, np.bool_, bool)
-        if not isinstance(cond_av, core.ShapedArray):  # Should be ShapedArray
-            raise TypeError(
-                f"jnp.where condition must be a ShapedArray, got {type(cond_av)}"
-            )
+        if not all(isinstance(av, core.ShapedArray) for av in [cond_av, x_av, y_av]):
+            raise TypeError("All inputs to jnp.where must be ShapedArrays.")
 
-        if cond_av.dtype not in bool_types:
-            # accept float32 AND float64 when tracing – they will be lowered to Bool later
-            if cond_av.dtype in (np.float32, np.float64):
-                pass
-            else:
-                raise TypeError(
-                    f"jnp.where condition must be boolean, got {cond_av.dtype}"
-                )
+        # Directly compute the broadcasted output shape and promoted dtype.
+        # This is a more robust way to perform abstract evaluation for this primitive.
+        promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
+        shape_xy = np.broadcast_shapes(x_av.shape, y_av.shape)
+        output_shape = np.broadcast_shapes(cond_av.shape, shape_xy)
 
-        # Standard JAX abstract evaluation for where (can be simplified)
-        # The output shape is determined by broadcasting rules between x_av and y_av.
-        # The output dtype is the result of type promotion of x_av.dtype and y_av.dtype.
-        if not isinstance(x_av, core.ShapedArray) or not isinstance(
-            y_av, core.ShapedArray
-        ):
-            raise TypeError(
-                "x and y in jnp.where must be ShapedArrays for abstract_eval."
-            )
-
-        # Simplified output shape/dtype logic based on JAX's lax.select_n_p
-        try:
-            # This is how JAX's own lax.select_n (used by jnp.where) performs abstract eval
-            out_aval = lax.select_n_p.abstract_eval(cond_av, x_av, y_av, **kwargs)
-        except Exception as e:
-            # Fallback or re-raise with more context if needed
-            logger.error(f"Error during lax.select_n_p.abstract_eval for where: {e}")
-            # As a basic fallback, try to use broadcasted shape and promoted type:
-            # This might not perfectly match JAX in all edge cases.
-            try:
-                # This is a simplified shape inference. JAX's own is more robust.
-                promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
-
-                # First, broadcast the shapes of the true/false branches
-                shape_xy = np.broadcast_shapes(x_av.shape, y_av.shape)
-
-                # Then, broadcast the result with the condition's shape
-                output_shape = np.broadcast_shapes(cond_av.shape, shape_xy)
-
-                out_aval = core.ShapedArray(output_shape, promoted_dtype)
-                logger.warning(
-                    f"Used fallback shape/dtype inference for where (corrected): {out_aval}"
-                )
-
-            except Exception as fallback_e:
-                logger.error(
-                    f"Fallback shape/dtype inference for where also failed: {fallback_e}"
-                )
-                raise TypeError(
-                    f"Cannot determine output aval for jnp.where with inputs: {cond_av}, {x_av}, {y_av}"
-                ) from fallback_e
-
-        return out_aval
+        return core.ShapedArray(output_shape, promoted_dtype)
 
     def to_onnx(
         self,

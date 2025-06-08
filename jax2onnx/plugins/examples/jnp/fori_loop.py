@@ -1,3 +1,4 @@
+# file: jax2onnx/plugins/examples/jnp/fori_loop.py
 import jax
 import jax.numpy as jnp
 from jax2onnx.plugin_system import register_example

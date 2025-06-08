@@ -19,6 +19,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
 
+
+def _while_loop_multi_state_fn(x):
+    """A test model for while_loop with multiple state variables."""
+    steps = 5
+
+    def cond_fn(state):
+        _, counter = state
+        return counter < steps
+
+    def body_fn(state):
+        x, counter = state
+        x_new = x + 0.1 * x**2
+        counter_new = counter + 1
+        return (x_new, counter_new)
+
+    state = (x, 0)
+    final_state = jax.lax.while_loop(cond_fn, body_fn, state)
+    return final_state[0]
+
+
 while_loop_p = Primitive("while_loop")
 while_loop_p.multiple_results = True
 
@@ -57,6 +77,24 @@ while_loop_p.multiple_results = True
             "input_shapes": [()],
             "input_dtypes": [np.float64],
             "expected_output_shapes": [()],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "while_loop_multi_state_f32",
+            "callable": _while_loop_multi_state_fn,
+            "input_shapes": [(2,)],
+            "input_dtypes": [np.float32],
+            "expected_output_shapes": [(2,)],
+            "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "while_loop_multi_state_f64",
+            "callable": _while_loop_multi_state_fn,
+            "input_shapes": [(2,)],
+            "input_dtypes": [np.float64],
+            "expected_output_shapes": [(2,)],
+            "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
         },
     ],
