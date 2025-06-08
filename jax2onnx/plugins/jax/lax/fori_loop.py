@@ -20,8 +20,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.fori_loop")
 
 # ─────────────────────────────── primitive stub ──────────────────────────────
-fori_loop_p = Primitive("fori_loop")
+fori_loop_p = Primitive("lax.fori_loop")
 fori_loop_p.multiple_results = True
+
+
+def model_fn(x):
+    steps = 5
+
+    def body_func(index, args):
+        x, counter = args
+        x += 0.1 * x**2
+        counter += 1
+        return (x, counter)
+
+    args = (x, 0)
+    args = jax.lax.fori_loop(0, steps, body_func, args)
+
+    return args
 
 
 # ────────────────────────── registration & testcases ─────────────────────────
@@ -58,7 +73,6 @@ fori_loop_p.multiple_results = True
             "input_shapes": [],
             "expected_output_shapes": [(3,)],
         },
-        # Added example from examples/nnx/fori_loop.py
         {
             "testcase": "fori_loop_example",
             "callable": lambda: jax.lax.fori_loop(
@@ -69,6 +83,22 @@ fori_loop_p.multiple_results = True
             )[0],
             "input_shapes": [],
             "expected_output_shapes": [(1,)],
+        },
+        {
+            "testcase": "fori_loop_test",
+            "callable": lambda x: model_fn(x),
+            "input_shapes": [(2,)],
+            "input_dtypes": [jnp.float32],
+            "expected_output_shapes": [(2,), ()],  # Output shapes for x and counter
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "fori_loop_test_f64",
+            "callable": lambda x: model_fn(x),
+            "input_shapes": [(2,)],
+            "input_dtypes": [jnp.float64],
+            "expected_output_shapes": [(2,), ()],
+            "run_only_f64_variant": True,
         },
     ],
 )
@@ -110,6 +140,14 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             opset=s.builder.opset,
             model_name=s.builder.get_unique_name(f"{prefix}_body"),
         )
+
+        # --- CORRECTED FIX START ---
+        # Propagate the double precision flag from the main builder to the subgraph builder.
+        body_builder.enable_double_precision = getattr(
+            s.builder, "enable_double_precision", False
+        )
+        # --- CORRECTED FIX END ---
+
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         body_conv = s.__class__(body_builder)
 
