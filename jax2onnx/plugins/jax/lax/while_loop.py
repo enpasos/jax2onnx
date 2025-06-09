@@ -39,12 +39,12 @@ def _while_loop_multi_state_fn(x):
     return final_state[0]
 
 
-while_loop_p = Primitive("while_loop")
-while_loop_p.multiple_results = True
+lax.while_loop_p = Primitive("lax.while_loop")
+lax.while_loop_p.multiple_results = True
 
 
 @register_primitive(
-    jaxpr_primitive=while_loop_p.name,
+    jaxpr_primitive=lax.while_loop_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.while_loop.html",
     onnx=[
         {"component": "Loop", "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html"}
@@ -113,7 +113,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         node_outputs: Sequence[Var],
         params: dict[str, Any],
     ):
-        logger.debug(f"Attempting conversion for {while_loop_p.name}")
+        logger.debug(f"Attempting conversion for {lax.while_loop_p.name}")
 
         if "cond_jaxpr" not in params or "body_jaxpr" not in params:
             raise ValueError("Missing cond_jaxpr or body_jaxpr in primitive params.")
@@ -135,7 +135,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         body_builder = OnnxBuilder(
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
-            model_name=s.builder.get_unique_name(f"{while_loop_p.name}_body_graph"),
+            model_name=s.builder.get_unique_name(f"{lax.while_loop_p.name}_body_graph"),
         )
         body_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
@@ -201,7 +201,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         init_builder = OnnxBuilder(
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
-            model_name=s.builder.get_unique_name(f"{while_loop_p.name}_initial_cond"),
+            model_name=s.builder.get_unique_name(
+                f"{lax.while_loop_p.name}_initial_cond"
+            ),
         )
         init_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
@@ -248,11 +250,37 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             s.add_shape_info(name, var.aval.shape, var.aval.dtype)
 
     @staticmethod
+    def _while_loop_impl(*flat_state, tree, cond_jaxpr, body_jaxpr):
+        """JAX implementation for the custom while_loop primitive."""
+        init_val = jax.tree_util.tree_unflatten(tree, flat_state)
+        cond_consts = cond_jaxpr.consts
+        body_consts = body_jaxpr.consts
+        cond_jaxpr = cond_jaxpr.jaxpr
+        body_jaxpr = body_jaxpr.jaxpr
+
+        def cond_fun(val):
+            flat_val, _ = jax.tree_util.tree_flatten(val)
+            res = core.eval_jaxpr(cond_jaxpr, cond_consts, *flat_val)
+            return res[0]
+
+        def body_fun(val):
+            flat_val, val_tree = jax.tree_util.tree_flatten(val)
+            res = core.eval_jaxpr(body_jaxpr, body_consts, *flat_val)
+            return jax.tree_util.tree_unflatten(val_tree, res)
+
+        if WhileLoopPlugin._ORIG_WHILE_LOOP is None:
+            raise RuntimeError("Original lax.while_loop not found.")
+
+        final_val = WhileLoopPlugin._ORIG_WHILE_LOOP(cond_fun, body_fun, init_val)
+        flat_final, _ = jax.tree_util.tree_flatten(final_val)
+        return flat_final
+
+    @staticmethod
     def _while_loop_binding(cond_fun, body_fun, init_val):
         closed_cond = jax.make_jaxpr(cond_fun)(init_val)
         closed_body = jax.make_jaxpr(body_fun)(init_val)
         flat, tree = jax.tree_util.tree_flatten(init_val)
-        results = while_loop_p.bind(
+        results = lax.while_loop_p.bind(
             *flat, cond_jaxpr=closed_cond, body_jaxpr=closed_body
         )
         return jax.tree_util.tree_unflatten(tree, results)
@@ -276,4 +304,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         }
 
 
-while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
+lax.while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
+
+lax.while_loop_p.def_impl(WhileLoopPlugin._while_loop_impl)
