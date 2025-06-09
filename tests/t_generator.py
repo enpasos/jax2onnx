@@ -478,13 +478,6 @@ def make_test_function(tp: dict[str, Any]):
 
             # --- START MODIFIED SECTION for xs_for_num_check ---
             xs_for_num_check = []
-            # We need to map input_values_from_testcase to the actual ONNX graph input names and their dtypes
-            # Get runnable ONNX graph input names and their expected ONNX dtypes
-
-            # To do this robustly, we should use the onnx_model's graph definition
-            # This part assumes that 'onnx_model' is the loaded ONNX model object
-
-            # Get graph input names (excluding initializers)
             runnable_graph_input_names = []
             if hasattr(onnx_model, "graph"):
                 initializers = {init.name for init in onnx_model.graph.initializer}
@@ -494,50 +487,25 @@ def make_test_function(tp: dict[str, Any]):
                     if inp.name not in initializers
                 ]
 
-            # Determine the order of inputs for xs_for_num_check based on runnable_graph_input_names
-            # This step is crucial if input_names_from_testcase is not provided or if its order
-            # doesn't perfectly match the runnable graph inputs.
-            # For simplicity in this example, we'll assume input_values_from_testcase
-            # are in the same order as runnable_graph_input_names.
-            # A more robust solution would involve using onnx_input_names_from_testcase if available
-            # to map values to names, then use the graph to find dtypes for those names.
-
             if len(input_values_from_testcase) != len(runnable_graph_input_names):
-                # This can happen if some inputs are parameters/initializers.
-                # The xs_for_num_check should only contain values for the non-initializer inputs.
-                # This logic might need to be more sophisticated based on how your test cases
-                # distinguish between regular inputs and parameters that become initializers.
                 logger.warning(
                     f"Test '{testcase_name}': Mismatch between input_values_from_testcase ({len(input_values_from_testcase)}) "
                     f"and runnable_graph_input_names ({len(runnable_graph_input_names)}). "
                     "Numerical validation might be incorrect if input order/selection is misaligned."
                 )
-                # Fallback to old behavior for now if counts mismatch, or handle error
-                # For the reported issue, the count usually matches.
-                # The original code:
-                # xs_for_num_check = [np.asarray(val) for val in input_values_from_testcase]
-                # will be adjusted below assuming the order corresponds.
 
             for i, val_from_tc in enumerate(input_values_from_testcase):
                 original_np_array = np.asarray(val_from_tc)
-                # Default to original dtype
                 final_dtype_for_this_input = original_np_array.dtype
 
-                # Predict the ONNX graph input type based on current_enable_double_precision
-                # This logic should mirror how JAX converts types during tracing for to_onnx
                 if not current_enable_double_precision:  # jax_enable_x64=False
                     if original_np_array.dtype == np.float64:
                         final_dtype_for_this_input = np.float32
                     elif original_np_array.dtype == np.int64:
                         final_dtype_for_this_input = np.int32
                 else:  # jax_enable_x64=True
-                    if (
-                        original_np_array.dtype == np.float32
-                    ):  # Promote f32 to f64 if in x64 mode
+                    if np.issubdtype(original_np_array.dtype, np.floating):
                         final_dtype_for_this_input = np.float64
-                    # np.float64 remains np.float64
-                    # np.int64 remains np.int64
-                    # np.int32 would remain np.int32 (JAX doesn't promote int32 to int64 in x64 unless explicitly asked)
 
                 xs_for_num_check.append(
                     np.asarray(val_from_tc, dtype=final_dtype_for_this_input)
@@ -1218,6 +1186,35 @@ def create_minimal_test_files(
 
         context_components.setdefault(context_key, []).append(original_component_name)
 
+    # Ensure unique components per context before writing files
+    unique_context_components = {
+        ctx: sorted(list(set(comps))) for ctx, comps in context_components.items()
+    }
+
+    for context_str, components_list in unique_context_components.items():
+        create_minimal_test_file(directory, context_str, components_list)
+
+
+# --- Main Generation ---
+def generate_all_tests():
+    """Cleans generated directories and creates all test files."""
+    logger.info("Starting generation of all test files...")
+    clean_generated_test_dirs()
+    # Get plugin grouping (force reset to load fresh metadata and apply new generate_test_params logic)
+    plugin_grouping_data = get_plugin_grouping(reset=True)
+    create_minimal_test_files(plugin_grouping_data, TESTS_DIR)
+    logger.info("Test file generation complete.")
+
+
+if __name__ == "__main__":
+    # This allows the script to be run directly to regenerate tests.
+    # Ensure JAX/ONNX and other dependencies are available in the environment.
+    # It's good practice to also import and configure logging here if not done by an imported module.
+    # For example:
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+    logger.info("Running t_generator.py script...")
+    generate_all_tests()
     # Ensure unique components per context before writing files
     unique_context_components = {
         ctx: sorted(list(set(comps))) for ctx, comps in context_components.items()

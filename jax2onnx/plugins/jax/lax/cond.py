@@ -1,8 +1,8 @@
-# file: jax2onnx/plugins/jax/lax/cond.py
+# jax2onnx/plugins/jax/lax/cond.py
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List
 import numpy as np
 from jax import lax, numpy as jnp
 from jax.extend.core import ClosedJaxpr, Literal, Var
@@ -64,10 +64,8 @@ cond_p = lax.cond_p
                 (op1, op2),
             ),
             "input_shapes": [(11, 3, 4), (3, 4)],
-            # "input_shapes": [("B", 3, 4), (3, 4)],
             "input_dtypes": [np.float32, np.float32],
             "expected_output_shapes": [(11, 3, 4), (11,)],
-            # "expected_output_shapes": [("B", 3, 4), ("B",)],
             "expected_output_dtypes": [np.float32, np.float32],
         },
         {
@@ -113,6 +111,44 @@ cond_p = lax.cond_p
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
         },
+        {
+            "testcase": "cond_passthrough_identity",
+            "callable": lambda pred, x, y: lax.cond(
+                pred,
+                lambda op_x, op_y: lax.add(op_x, op_y),
+                lambda op_x, op_y: op_x,
+                x,
+                y,
+            ),
+            "input_values": [
+                np.array(True),
+                np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                np.array([4.0, 5.0, 6.0], dtype=np.float32),
+            ],
+        },
+        {
+            "testcase": "cond_with_scatter",
+            "callable": lambda operand, updates: lax.cond(
+                True,
+                lambda op, upd: lax.scatter_add(
+                    op,
+                    jnp.array([[1], [3]], dtype=jnp.int32),
+                    upd,
+                    lax.ScatterDimensionNumbers(
+                        update_window_dims=(1,),
+                        inserted_window_dims=(0,),
+                        scatter_dims_to_operand_dims=(0,),
+                    ),
+                ),
+                lambda op, upd: op,
+                operand,
+                updates,
+            ),
+            "input_values": [
+                np.ones((5, 3), dtype=np.float32),
+                np.ones((2, 3), dtype=np.float32) * 9,
+            ],
+        },
     ],
 )
 class CondPlugin(PrimitiveLeafPlugin):
@@ -126,24 +162,26 @@ class CondPlugin(PrimitiveLeafPlugin):
         params: Dict[str, Any],
     ):
         fake_eqn = SimpleNamespace(invars=invars, outvars=outvars, params=params)
-        return self._to_onnx_impl(conv, fake_eqn)
+        self._to_onnx_impl(conv, fake_eqn)
 
     def _make_branch(
         self,
         parent_conv: Jaxpr2OnnxConverter,
         tag: str,
         closed: ClosedJaxpr,
-        op_vars_parent: List[Var],
         op_names_parent: List[str],
-    ) -> Tuple[GraphProto, List[str]]:
+    ) -> GraphProto:
         from jax2onnx.converter.onnx_builder import OnnxBuilder
 
         sub_builder = OnnxBuilder(
             name_generator=parent_conv.builder.name_generator,
+            opset=parent_conv.builder.opset,
             model_name=f"{tag}_body",
+            initializers=parent_conv.builder.initializers,
             enable_double_precision=parent_conv.builder.enable_double_precision,
             converter=parent_conv,
         )
+
         if hasattr(parent_conv.builder, "var_to_symbol_map"):
             sub_builder.var_to_symbol_map.update(parent_conv.builder.var_to_symbol_map)
 
@@ -158,19 +196,35 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         sub_conv._process_jaxpr(closed.jaxpr, closed.consts)
 
-        subgraph_output_names: List[str] = [
-            sub_conv.get_name(ov) for ov in closed.jaxpr.outvars
-        ]
+        # --- FIX STARTS HERE ---
+        sub_builder.outputs.clear()  # Clear any outputs added by _process_jaxpr
 
-        for ov, name_in_sub in zip(closed.jaxpr.outvars, subgraph_output_names):
-            shape = tuple(parent_conv._dim_to_symbol_safe(d) for d in ov.aval.shape)
-            dtype = parent_conv._ensure_onnx_dtype(ov.aval.dtype)
+        subgraph_input_names = set(op_names_parent)
+        final_output_names = []
+
+        for out_var in closed.jaxpr.outvars:
+            out_name = sub_conv.get_name(out_var)
+            if out_name in subgraph_input_names:
+                identity_out_name = sub_conv.get_unique_name(f"{out_name}_identity")
+                node = helper.make_node("Identity", [out_name], [identity_out_name])
+                sub_builder.add_node(node)
+                final_output_names.append(identity_out_name)
+            else:
+                final_output_names.append(out_name)
+
+        # Now, correctly define the outputs for the subgraph using the final names
+        for name_in_sub, out_var in zip(final_output_names, closed.jaxpr.outvars):
+            shape = tuple(
+                parent_conv._dim_to_symbol_safe(d) for d in out_var.aval.shape
+            )
+            dtype = parent_conv._ensure_onnx_dtype(out_var.aval.dtype)
             sub_builder.add_output(name_in_sub, shape, dtype)
+        # --- FIX ENDS HERE ---
 
         graph = sub_builder.create_graph(
             sub_builder.model_name, is_subgraph=True, empty_inputs=True
         )
-        return graph, subgraph_output_names
+        return graph
 
     def _to_onnx_impl(self, conv: Jaxpr2OnnxConverter, eqn: Any):
         pred_var = eqn.invars[0]
@@ -219,19 +273,13 @@ class CondPlugin(PrimitiveLeafPlugin):
         branch_input_names = [conv.get_name(v) for v in branch_inputs]
 
         if "branches" in eqn.params:
-            # The branches in the jaxpr are (false_branch, true_branch)
             false_closed, true_closed = eqn.params["branches"]
         else:
-            # Fallback for older jax versions or different representations
             true_closed = eqn.params["true_jaxpr"]
             false_closed = eqn.params["false_jaxpr"]
 
-        then_graph, _ = self._make_branch(
-            conv, "then", true_closed, branch_inputs, branch_input_names
-        )
-        else_graph, _ = self._make_branch(
-            conv, "else", false_closed, branch_inputs, branch_input_names
-        )
+        then_graph = self._make_branch(conv, "then", true_closed, branch_input_names)
+        else_graph = self._make_branch(conv, "else", false_closed, branch_input_names)
 
         out_names = [conv.get_name(v) for v in eqn.outvars]
         if_node = helper.make_node(
