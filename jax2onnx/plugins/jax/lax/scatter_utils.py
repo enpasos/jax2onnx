@@ -6,6 +6,7 @@ from typing import (
     Optional,
     Any,
     Tuple,
+    Sequence,
 )
 import numpy as np
 from jax import (
@@ -153,6 +154,55 @@ def _make_shape_concrete_for_prod(
                         f"Cannot make {context_msg} concrete for np.prod: {shp}. Symbolic dim '{dim_val}' (type: {type(dim_val)}) at index {i} could not be resolved by available converter methods."
                     )
     return tuple(concrete_shape)
+
+
+def compute_expected_updates_shape(
+    dnums: ScatterDimensionNumbers,
+    operand_shape: Sequence[int],
+    indices_shape: Sequence[int],
+) -> Tuple[int, ...]:
+    """
+    Return the exact shape `updates` must have for a JAX scatter-style op,
+    per the official spec:
+
+        updates.shape == indices.shape[:-1]  (batch part, order preserved)
+                       + operand.shape[window_dims]  (at positions given
+                         by `update_window_dims`)
+
+    The `update_window_dims` values are **positions in the updates tensor**,
+    *not* operand-dimension IDs.  We therefore build the full result rank
+    first, place window-dim sizes at those positions, and fill the remaining
+    slots with the leading batch dims coming from `indices`.
+    """
+    batch_shape: Tuple[int, ...] = tuple(indices_shape[:-1])
+
+    # Which operand dims participate in the slice (window)?
+    inserted = set(dnums.inserted_window_dims)
+    window_operand_dims = [d for d in range(len(operand_shape)) if d not in inserted]
+
+    if len(window_operand_dims) != len(dnums.update_window_dims):
+        raise ValueError(
+            "Inconsistent scatter dnums: |window_operand_dims| "
+            f"{len(window_operand_dims)} != |update_window_dims| "
+            f"{len(dnums.update_window_dims)}"
+        )
+
+    window_sizes = [operand_shape[d] for d in window_operand_dims]
+
+    updates_rank = len(batch_shape) + len(window_sizes)
+    result: list = [None] * updates_rank
+
+    # 1️⃣  place window dims at the positions given by update_window_dims
+    for pos_in_updates, win_size in zip(dnums.update_window_dims, window_sizes):
+        result[pos_in_updates] = win_size
+
+    # 2️⃣  fill the remaining slots (in order) with batch dims
+    batch_iter = iter(batch_shape)
+    for i in range(updates_rank):
+        if result[i] is None:
+            result[i] = next(batch_iter)
+
+    return tuple(result)
 
 
 def _prepare_scatter_inputs_for_onnx(

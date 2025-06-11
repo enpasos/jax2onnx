@@ -38,11 +38,15 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
         input_name = s.get_name(node_inputs[0])
         output_name = s.get_var_name(node_outputs[0])
         exponent = params.get("y", 2)  # Default exponent is 2 if not provided
-        power_value = np.array(exponent, dtype=np.int32)
-        power_name = s.get_constant_name(power_value)
+
+        # Promote exponent to the same dtype as the base *before* Pow.
+        aval = node_inputs[0].aval
+        promoted = np.array(exponent, dtype=aval.dtype)
+        y_name = s.get_constant_name(promoted)
+
         node = helper.make_node(
             "Pow",
-            inputs=[input_name, power_name],
+            inputs=[input_name, y_name],
             outputs=[output_name],
             name=s.get_unique_name("integer_pow"),
         )

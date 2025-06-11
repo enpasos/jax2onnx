@@ -1215,32 +1215,3 @@ if __name__ == "__main__":
 
     logger.info("Running t_generator.py script...")
     generate_all_tests()
-    # Ensure unique components per context before writing files
-    unique_context_components = {
-        ctx: sorted(list(set(comps))) for ctx, comps in context_components.items()
-    }
-
-    for context_str, components_list in unique_context_components.items():
-        create_minimal_test_file(directory, context_str, components_list)
-
-
-# --- Main Generation ---
-def generate_all_tests():
-    """Cleans generated directories and creates all test files."""
-    logger.info("Starting generation of all test files...")
-    clean_generated_test_dirs()
-    # Get plugin grouping (force reset to load fresh metadata and apply new generate_test_params logic)
-    plugin_grouping_data = get_plugin_grouping(reset=True)
-    create_minimal_test_files(plugin_grouping_data, TESTS_DIR)
-    logger.info("Test file generation complete.")
-
-
-if __name__ == "__main__":
-    # This allows the script to be run directly to regenerate tests.
-    # Ensure JAX/ONNX and other dependencies are available in the environment.
-    # It's good practice to also import and configure logging here if not done by an imported module.
-    # For example:
-    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-    logger.info("Running t_generator.py script...")
-    generate_all_tests()
