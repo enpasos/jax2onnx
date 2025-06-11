@@ -5,23 +5,220 @@ from typing import TYPE_CHECKING, Sequence, Any
 import numpy as np
 from jax import lax, core
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper, TensorProto
+from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from .scatter_utils import _prepare_scatter_inputs_for_onnx
+import logging
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_mul")
 
 
 @register_primitive(
     jaxpr_primitive=lax.scatter_mul_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scatter_mul.html",
-    onnx=[{"component": "ScatterND", "attributes": ["reduction='mul'"]}],
-    since="v0.5.3",
+    onnx=[
+        {
+            "component": "ScatterND",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
+            "attributes": ["reduction='mul'"],
+        }
+    ],
+    since="v0.6.4",
     context="primitives.lax",
     component="scatter_mul",
     testcases=[
-        # ... (testcases omitted for brevity)
+        {
+            "testcase": "scatter_mul_simple_1d",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32),
+                np.array([[1], [3]], dtype=np.int32),
+                np.array([10.0, 20.0], dtype=np.float32),
+            ],
+        },
+        {
+            "testcase": "scatter_mul_window_2d_operand_1d_indices",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=ScatterDimensionNumbers(
+                    update_window_dims=(1,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
+                np.array([[0]], dtype=np.int32),
+                np.array([[10.0, 20.0, 30.0]], dtype=np.float32),
+            ],
+        },
+        {
+            "testcase": "scatter_mul_batch_updates_1d_operand",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.ones((5,), dtype=np.float32),
+                np.array([[[0], [1]], [[0], [2]]], dtype=np.int32),
+                np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float32),
+            ],
+        },
+        {
+            "testcase": "scatter_mul_mismatched_window_dims_from_user_report",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.ones((5, 208, 1, 1), dtype=np.float64),
+                np.array([4], dtype=np.int32),
+                np.full((5, 200, 1, 1), 2.0, dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(5, 208, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_mul_mismatched_window_dims_from_user_report2",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.ones((3, 150, 1, 1), dtype=np.float64),
+                np.array([7], dtype=np.int32),
+                np.full((3, 140, 1, 1), 2.0, dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(3, 150, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_mul_mismatched_window_dims_from_user_report3",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                np.ones((8, 50, 1, 1), dtype=np.float64),
+                np.array([2], dtype=np.int32),
+                np.full((8, 45, 1, 1), 2.0, dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(8, 50, 1, 1)],
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_mul_fluids_pattern_updates_5_4_1_1",
+            "callable": lambda operand, indices, updates: lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(
+                        1,
+                    ),  # JAX index targets axis 1 of operand
+                    operand_batching_dims=(),
+                    scatter_indices_batching_dims=(),
+                ),
+            ),
+            "input_values": [
+                # Operand shape (5, 208, 1, 1)
+                np.ones((5, 208, 1, 1), dtype=np.float64),
+                # JAX indices: e.g., update starting at column index 0 of axis 1 for all batches
+                np.array([0], dtype=np.int32),
+                # JAX Updates shape (5, 4, 1, 1)
+                np.full((5, 4, 1, 1), 2.0, dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            "expected_output_shapes": [(5, 208, 1, 1)],  # Matches operand
+            "expected_output_dtypes": [np.float64],
+        },
+        {
+            "testcase": "scatter_mul_in_cond_float64",
+            # This model places the scatter_mul call within a lax.cond branch.
+            # All arguments are passed through the conditional branches.
+            "callable": lambda pred, operand, indices, updates: lax.cond(
+                pred,
+                # True branch: performs the scatter_mul
+                lambda op, idx, upd: lax.scatter_mul(
+                    op,
+                    idx,
+                    upd,
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        # These dimension numbers are known to trigger complex logic
+                        # in the scatter plugin.
+                        update_window_dims=(0, 1, 2, 3),
+                        inserted_window_dims=(),
+                        scatter_dims_to_operand_dims=(1,),
+                        operand_batching_dims=(),
+                        scatter_indices_batching_dims=(),
+                    ),
+                ),
+                # False branch: returns the operand unchanged.
+                lambda op, idx, upd: op,
+                # Operands for lax.cond:
+                operand,
+                indices,
+                updates,
+            ),
+            # Input data with valid shapes for the scatter operation.
+            "input_values": [
+                np.array(True),  # The predicate for lax.cond
+                np.ones((8, 50, 1, 1), dtype=np.float64),  # operand
+                np.array([2], dtype=np.int32),  # indices
+                np.full((8, 45, 1, 1), 2.0, dtype=np.float64),  # updates
+            ],
+            "run_only_f64_variant": True,
+        },
     ],
 )
 class ScatterMulPlugin(PrimitiveLeafPlugin):
@@ -49,128 +246,30 @@ class ScatterMulPlugin(PrimitiveLeafPlugin):
     ):
         operand_v, indices_v, updates_v = node_inputs
         out_v = node_outputs[0]
-
-        operand_name = s.get_name(operand_v)
         out_name = s.get_name(out_v)
-        operand_shape = tuple(operand_v.aval.shape)
-        operand_dtype_np = np.dtype(operand_v.aval.dtype)
+        operand_aval = operand_v.aval
 
-        # Prepare indices and updates
-        idx_name, idx_depth, num_updates = self._prepare_indices(s, indices_v)
-        upd_name, window_shape = self._prepare_updates(
-            s, updates_v, params, num_updates
+        dimension_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
+
+        # The _prepare_scatter_inputs_for_onnx function ensures that the operand,
+        # indices, and updates are correctly transformed to be compatible with
+        # the ONNX ScatterND operator.
+        final_operand_name, final_indices_name, final_updates_name = (
+            _prepare_scatter_inputs_for_onnx(
+                s, operand_v, indices_v, updates_v, dimension_numbers
+            )
         )
-        dnums: ScatterDimensionNumbers = params["dimension_numbers"]
 
-        # If windowed scatter, implement as GatherND -> Mul -> ScatterND
-        if dnums.update_window_dims:
-            # Gather existing slices
-            gathered = s.get_unique_name("gathered_slices")
-            s.add_node(
-                helper.make_node(
-                    "GatherND",
-                    inputs=[operand_name, idx_name],
-                    outputs=[gathered],
-                    name=s.get_unique_name("gathernd_scatter_mul"),
-                )
-            )
-            s.add_shape_info(gathered, (num_updates, *window_shape), operand_dtype_np)
-
-            # Multiply
-            multiplied = s.get_unique_name("multiplied_slices")
-            s.add_node(
-                helper.make_node(
-                    "Mul",
-                    inputs=[gathered, upd_name],
-                    outputs=[multiplied],
-                    name=s.get_unique_name("mul_scatter_mul"),
-                )
-            )
-            s.add_shape_info(multiplied, (num_updates, *window_shape), operand_dtype_np)
-
-            # Scatter multiplied slices back (replace)
-            scatter_node = helper.make_node(
+        # The correct approach is to always use a single ScatterND node with the
+        # 'mul' reduction, as ONNX supports this directly.
+        s.add_node(
+            helper.make_node(
                 "ScatterND",
-                inputs=[operand_name, idx_name, multiplied],
+                inputs=[final_operand_name, final_indices_name, final_updates_name],
                 outputs=[out_name],
-                name=s.get_unique_name("scatter_mul_windowed"),
-            )
-            s.add_node(scatter_node)
-            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
-        else:
-            # Direct scatter_mul via reduction attribute
-            scatter_node = helper.make_node(
-                "ScatterND",
-                inputs=[operand_name, idx_name, upd_name],
-                outputs=[out_name],
-                name=s.get_unique_name("scatter_mul"),
+                name=s.get_unique_name("scatter_nd_mul"),
                 reduction="mul",
             )
-            s.add_node(scatter_node)
-            s.add_shape_info(out_name, operand_shape, operand_dtype_np)
+        )
 
-    @staticmethod
-    def _prepare_indices(s: "Jaxpr2OnnxConverter", indices_v):
-        name = s.get_name(indices_v)
-        shape = list(indices_v.aval.shape)
-        dtype_np = np.dtype(indices_v.aval.dtype)
-        # Cast to int64
-        if dtype_np != np.int64:
-            casted = s.get_unique_name(f"{name}_int64")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    [name],
-                    [casted],
-                    to=TensorProto.INT64,
-                    name=s.get_unique_name("cast_to_int64"),
-                )
-            )
-            name = casted
-        # Flatten to (num_updates, index_depth)
-        index_depth = shape[-1]
-        batch_dims = shape[:-1]
-        num_updates = int(np.prod(batch_dims)) if batch_dims else 1
-        target_shape = (num_updates, index_depth)
-        if tuple(shape) != target_shape:
-            reshaped = s.get_unique_name(f"{name}_reshaped")
-            shape_const = np.array(target_shape, dtype=np.int64)
-            const_name = s.get_constant_name(shape_const)
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    [name, const_name],
-                    [reshaped],
-                    name=s.get_unique_name("reshape_indices"),
-                )
-            )
-            name = reshaped
-        return name, index_depth, num_updates
-
-    @staticmethod
-    def _prepare_updates(
-        s: "Jaxpr2OnnxConverter",
-        updates_v,
-        params,
-        num_updates,
-    ):
-        name = s.get_name(updates_v)
-        shape = list(updates_v.aval.shape)
-        dnums: ScatterDimensionNumbers = params["dimension_numbers"]
-        batch_dims = len(shape) - len(dnums.update_window_dims)
-        window_shape = shape[batch_dims:]
-        target_shape = (num_updates, *window_shape)
-        if tuple(shape) != target_shape:
-            reshaped = s.get_unique_name("updates_reshaped")
-            shape_const = np.array(target_shape, dtype=np.int64)
-            const_name = s.get_constant_name(shape_const)
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    [name, const_name],
-                    [reshaped],
-                    name=s.get_unique_name("reshape_updates"),
-                )
-            )
-            name = reshaped
-        return name, tuple(window_shape)
+        s.add_shape_info(out_name, operand_aval.shape, operand_aval.dtype)

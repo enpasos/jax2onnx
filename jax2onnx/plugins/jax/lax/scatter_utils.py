@@ -6,6 +6,7 @@ from typing import (
     Optional,
     Any,
     Tuple,
+    Sequence,
 )
 import numpy as np
 from jax import (
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250524-1646-v2"
+SCATTER_UTILS_VERSION = "DEBUG-V20250610-1115-final"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -153,6 +154,55 @@ def _make_shape_concrete_for_prod(
                         f"Cannot make {context_msg} concrete for np.prod: {shp}. Symbolic dim '{dim_val}' (type: {type(dim_val)}) at index {i} could not be resolved by available converter methods."
                     )
     return tuple(concrete_shape)
+
+
+def compute_expected_updates_shape(
+    dnums: ScatterDimensionNumbers,
+    operand_shape: Sequence[int],
+    indices_shape: Sequence[int],
+) -> Tuple[int, ...]:
+    """
+    Return the exact shape `updates` must have for a JAX scatter-style op,
+    per the official spec:
+
+        updates.shape == indices.shape[:-1]  (batch part, order preserved)
+                       + operand.shape[window_dims]  (at positions given
+                         by `update_window_dims`)
+
+    The `update_window_dims` values are **positions in the updates tensor**,
+    *not* operand-dimension IDs.  We therefore build the full result rank
+    first, place window-dim sizes at those positions, and fill the remaining
+    slots with the leading batch dims coming from `indices`.
+    """
+    batch_shape: Tuple[int, ...] = tuple(indices_shape[:-1])
+
+    # Which operand dims participate in the slice (window)?
+    inserted = set(dnums.inserted_window_dims)
+    window_operand_dims = [d for d in range(len(operand_shape)) if d not in inserted]
+
+    if len(window_operand_dims) != len(dnums.update_window_dims):
+        raise ValueError(
+            "Inconsistent scatter dnums: |window_operand_dims| "
+            f"{len(window_operand_dims)} != |update_window_dims| "
+            f"{len(dnums.update_window_dims)}"
+        )
+
+    window_sizes = [operand_shape[d] for d in window_operand_dims]
+
+    updates_rank = len(batch_shape) + len(window_sizes)
+    result: list = [None] * updates_rank
+
+    # 1️⃣  place window dims at the positions given by update_window_dims
+    for pos_in_updates, win_size in zip(dnums.update_window_dims, window_sizes):
+        result[pos_in_updates] = win_size
+
+    # 2️⃣  fill the remaining slots (in order) with batch dims
+    batch_iter = iter(batch_shape)
+    for i in range(updates_rank):
+        if result[i] is None:
+            result[i] = next(batch_iter)
+
+    return tuple(result)
 
 
 def _prepare_scatter_inputs_for_onnx(
@@ -398,11 +448,12 @@ def _prepare_scatter_inputs_for_onnx(
         onnx_updates_N_dim_list_default + data_slice_dims_list_default
     )
 
-    use_depth2_for_batched_window_scatter = False  # Default to False
+    # --- New logic for batched window scatter ---
+    use_depth2_for_batched_window_scatter = False
     sdod = dimension_numbers.scatter_dims_to_operand_dims
     uwd = dimension_numbers.update_window_dims
-    obd = dimension_numbers.operand_batching_dims
     iwd = dimension_numbers.inserted_window_dims
+    obd = dimension_numbers.operand_batching_dims
     op_rank = len(operand_shape_symbolic)
     upd_rank = len(original_updates_shape_symbolic)
 
@@ -420,9 +471,6 @@ def _prepare_scatter_inputs_for_onnx(
         scatter_target_op_axis = sdod[0]
         if scatter_target_op_axis < op_rank:
             shapes_match_for_depth2_pattern = True
-            # Check alignment of dimensions not involved in the scatter target axis itself
-            # This simplified check assumes batch alignment on axis 0 if scatter_target_op_axis is not 0
-            # and alignment of trailing dimensions.
             if scatter_target_op_axis > 0:
                 if not _are_dims_equal(
                     operand_shape_symbolic[0], original_updates_shape_symbolic[0], s
@@ -435,7 +483,6 @@ def _prepare_scatter_inputs_for_onnx(
                     op_trailing_shape = operand_shape_symbolic[
                         scatter_target_op_axis + 1 :
                     ]
-                    # The corresponding axis in updates for L is scatter_target_op_axis because uwd spans all of updates
                     if scatter_target_op_axis < len(original_updates_shape_symbolic):
                         upd_trailing_shape = original_updates_shape_symbolic[
                             scatter_target_op_axis + 1 :
@@ -444,25 +491,21 @@ def _prepare_scatter_inputs_for_onnx(
                             op_trailing_shape, upd_trailing_shape, s
                         ):
                             shapes_match_for_depth2_pattern = False
-                    else:  # updates too small for trailing dims comparison
+                    else:
                         shapes_match_for_depth2_pattern = False
-            elif scatter_target_op_axis == 0:  # Scatter on first axis
-                if op_rank > 1:  # If not 1D operand, compare remaining dims
+            elif scatter_target_op_axis == 0:
+                if op_rank > 1:
                     if not _are_shapes_equal(
                         operand_shape_symbolic[1:],
                         original_updates_shape_symbolic[1:],
                         s,
                     ):
                         shapes_match_for_depth2_pattern = False
-                # If op_rank == 1 and scatter_target_op_axis is 0, shapes_match_for_depth2_pattern remains true
-                # if op_rank == upd_rank was already true (i.e., 1D op, 1D upd)
-                elif op_rank != 1:  # scalar operand if op_rank is 0
+                elif op_rank != 1:
                     shapes_match_for_depth2_pattern = False
 
             if shapes_match_for_depth2_pattern and op_rank > 0:
-                if scatter_target_op_axis < len(
-                    original_updates_shape_symbolic
-                ):  # Make sure L-dim exists in updates
+                if scatter_target_op_axis < len(original_updates_shape_symbolic):
                     use_depth2_for_batched_window_scatter = True
                 else:
                     logger.warning(
@@ -671,7 +714,6 @@ def _prepare_scatter_inputs_for_onnx(
                     current_expected_onnx_updates_shape, s, "exp_updates_nelem_default"
                 )
 
-                # Corrected element count calculation for scalar (empty shape tuple)
                 original_nelem = (
                     int(np.prod(concrete_orig_upd_shape).item())
                     if concrete_orig_upd_shape
@@ -696,7 +738,6 @@ def _prepare_scatter_inputs_for_onnx(
                 ):
                     expected_nelem = 1
 
-                # Handle cases where a dimension might be 0, leading to 0 elements
                 if any(d == 0 for d in concrete_orig_upd_shape):
                     original_nelem = 0
                 if any(d == 0 for d in concrete_exp_upd_shape):
@@ -711,53 +752,105 @@ def _prepare_scatter_inputs_for_onnx(
                         "DefaultUpdates_EmptyShapeOK",
                     )
                 elif original_nelem == expected_nelem:
-                    reshaped_updates_name = s.get_unique_name(
-                        f"{original_updates_name_val}_reshaped_default"
-                    )
-                    concrete_target_for_op_list_upd = []
-                    has_minus_one_already_upd = False
-                    for i_dim, dim_sym_val_upd in enumerate(
-                        current_expected_onnx_updates_shape
+                    # START of modification: Check if Reshape is just a Squeeze
+                    is_squeeze = False
+                    squeeze_axis = -1
+                    if (
+                        len(original_updates_shape_symbolic)
+                        == len(current_expected_onnx_updates_shape) + 1
                     ):
-                        if isinstance(dim_sym_val_upd, int):
-                            concrete_target_for_op_list_upd.append(dim_sym_val_upd)
-                        else:
-                            if not has_minus_one_already_upd:
-                                concrete_target_for_op_list_upd.append(-1)
-                                has_minus_one_already_upd = True
-                            else:
-                                concrete_target_for_op_list_upd.append(
-                                    int(
-                                        _make_shape_concrete_for_prod(
-                                            (dim_sym_val_upd,),
-                                            s,
-                                            f"reshape_target_updates_dim_def_{i_dim}",
-                                        )[0]
-                                    )
-                                )
-                    s.add_node(
-                        helper.make_node(
-                            "Reshape",
-                            [
-                                original_updates_name_val,
-                                s.get_constant_name(
-                                    np.array(
-                                        concrete_target_for_op_list_upd, dtype=np.int64
-                                    )
-                                ),
-                            ],
-                            [reshaped_updates_name],
+                        for i in range(len(original_updates_shape_symbolic)):
+                            # Check if removing the dimension at axis `i` results in the expected shape
+                            if original_updates_shape_symbolic[i] == 1:
+                                temp_shape = list(original_updates_shape_symbolic)
+                                temp_shape.pop(i)
+                                if _are_shapes_equal(
+                                    tuple(temp_shape),
+                                    current_expected_onnx_updates_shape,
+                                    s,
+                                ):
+                                    is_squeeze = True
+                                    squeeze_axis = i
+                                    break
+
+                    if is_squeeze:
+                        logger.debug(
+                            f"Replacing Reshape with Squeeze on axis {squeeze_axis} for updates."
                         )
-                    )
-                    _manually_ensure_shape_env_entry(
-                        s,
-                        reshaped_updates_name,
-                        current_expected_onnx_updates_shape,
-                        original_updates_dtype_np,
-                        "DefaultReshapedUpdates",
-                    )
-                    _final_updates_name_val_to_return = reshaped_updates_name
-                else:  # Element count mismatch - THIS IS THE CRITICAL CHANGE
+                        squeezed_updates_name = s.get_unique_name(
+                            f"{original_updates_name_val}_squeezed_default"
+                        )
+                        s.add_node(
+                            helper.make_node(
+                                "Squeeze",
+                                [
+                                    original_updates_name_val,
+                                    s.get_constant_name(
+                                        np.array([squeeze_axis], dtype=np.int64)
+                                    ),
+                                ],
+                                [squeezed_updates_name],
+                            )
+                        )
+                        _manually_ensure_shape_env_entry(
+                            s,
+                            squeezed_updates_name,
+                            current_expected_onnx_updates_shape,
+                            original_updates_dtype_np,
+                            "DefaultSqueezedUpdates",
+                        )
+                        _final_updates_name_val_to_return = squeezed_updates_name
+                    else:
+                        # Fallback to original Reshape logic
+                        reshaped_updates_name = s.get_unique_name(
+                            f"{original_updates_name_val}_reshaped_default"
+                        )
+                        concrete_target_for_op_list_upd = []
+                        has_minus_one_already_upd = False
+                        for i_dim, dim_sym_val_upd in enumerate(
+                            current_expected_onnx_updates_shape
+                        ):
+                            if isinstance(dim_sym_val_upd, int):
+                                concrete_target_for_op_list_upd.append(dim_sym_val_upd)
+                            else:
+                                if not has_minus_one_already_upd:
+                                    concrete_target_for_op_list_upd.append(-1)
+                                    has_minus_one_already_upd = True
+                                else:
+                                    concrete_target_for_op_list_upd.append(
+                                        int(
+                                            _make_shape_concrete_for_prod(
+                                                (dim_sym_val_upd,),
+                                                s,
+                                                f"reshape_target_updates_dim_def_{i_dim}",
+                                            )[0]
+                                        )
+                                    )
+                        s.add_node(
+                            helper.make_node(
+                                "Reshape",
+                                [
+                                    original_updates_name_val,
+                                    s.get_constant_name(
+                                        np.array(
+                                            concrete_target_for_op_list_upd,
+                                            dtype=np.int64,
+                                        )
+                                    ),
+                                ],
+                                [reshaped_updates_name],
+                            )
+                        )
+                        _manually_ensure_shape_env_entry(
+                            s,
+                            reshaped_updates_name,
+                            current_expected_onnx_updates_shape,
+                            original_updates_dtype_np,
+                            "DefaultReshapedUpdates",
+                        )
+                        _final_updates_name_val_to_return = reshaped_updates_name
+                    # END of modification
+                else:  # Element count mismatch
                     err_msg = (
                         f"Default path: Updates element count mismatch for ScatterND. "
                         f"Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) "
@@ -767,20 +860,18 @@ def _prepare_scatter_inputs_for_onnx(
                         f"Jax DimensionNumbers: {dimension_numbers}"
                     )
                     logger.error(err_msg)
-                    raise ValueError(
-                        err_msg
-                    )  # <<< ENSURE THIS LINE IS PRESENT AND ACTIVE
+                    raise ValueError(err_msg)
             except ValueError as ve:
                 if "Updates element count mismatch" in str(
                     ve
-                ) or "Cannot make shape concrete" in str(
-                    ve
-                ):  # If it's our error or from _make_shape_concrete_for_prod
-                    raise  # Re-raise it directly
-                else:  # Wrap other ValueErrors
+                ) or "Cannot make shape concrete" in str(ve):
+                    raise
+                else:
                     err_msg = (
                         f"Default path: Could not prepare updates for ScatterND due to other ValueError: {ve}. "
-                        # ... (include full context as in the err_msg above) ...
+                        f"Operand: {final_operand_name}{operand_shape_symbolic}, "
+                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
+                        f"Jax DimensionNumbers: {dimension_numbers}"
                     )
                     logger.error(err_msg)
                     raise ValueError(err_msg) from ve
@@ -793,7 +884,6 @@ def _prepare_scatter_inputs_for_onnx(
                 "DefaultUpdates_ShapeOK",
             )
 
-    # ... (get_shape_dtype_str_from_env_local and final logging remain the same) ...
     def get_shape_dtype_str_from_env_local(name_to_log_local: str) -> str:
         sds_info: Optional[ShapeDtypeStruct] = s.shape_env.get(name_to_log_local)
         if sds_info is not None:
