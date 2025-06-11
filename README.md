@@ -1,6 +1,6 @@
 # jax2onnx 🌟
 
-`jax2onnx` converts your JAX/Flax functions directly into the ONNX format.
+`jax2onnx` converts your JAX/Flax(nnx) functions directly into the ONNX format.
 
 ![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
 
@@ -98,8 +98,8 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Planned Versions**
 - **In Progress**: 
-  - Expanding coverage of core JAX primitives.
-  - Additional support for **physics simulations**.
+  - Expanding coverage of JAX and Flax(nnx) components.
+  - Improved support for **physics simulations**.
 - **Under Evaluation**: Initial support for `flax.linen` models within `jax2onnx`.
 - **Upcoming 0.7.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
 
