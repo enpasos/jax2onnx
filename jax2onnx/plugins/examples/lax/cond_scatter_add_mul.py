@@ -49,14 +49,8 @@ def cond_scatter_add_mul_f64(
 
 register_example(
     component="cond_scatter_add_mul",
-    description="""
-    Tests a scenario where `scatter_add` and `scatter_mul` operations are
-    placed within the branches of a conditional (jnp.where). This specific
-    pattern helps validate that the ONNX conversion for scatter primitives
-    is numerically correct, even when nested inside other operations. It was
-    created to debug numerical mismatches in a larger simulation model.
-    """,
-    since="v0.8.0",
+    description="Tests scatter_add/mul inside jnp.where branches",
+    since="v0.6.4",
     context="examples.lax",
     children=[],
     testcases=[
