@@ -97,15 +97,17 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 
 ### **Planned Versions**
-- **In Progress**: Expanding coverage of core JAX primitives.
+- **In Progress**: 
+  - Expanding coverage of core JAX primitives.
+  - Additional support for **physics simulations**.
 - **Under Evaluation**: Initial support for `flax.linen` models within `jax2onnx`.
 - **Upcoming 0.7.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
-- **Planned 0.6.4**: Additional fixes to improve support for **physics simulations**.
 
 ### **Current Productive Version**
-- **0.6.3** *(PyPI)*: Double precision fixes for  `lax.fori_loop` and `lax.while_loop`. Fixed bugs in `lax.scan` and `jnp.where`.
+- **0.6.4** *(PyPI)*: Improved support for `lax.scatter_mul`.  
 
 ### **Past Versions**
+- **0.6.3**: Double precision fixes for  `lax.fori_loop` and `lax.while_loop`. Fixed bugs in `lax.scan` and `jnp.where`.
 - **0.6.2**: Fixed bugs in `nnx.conv` and `lax.reshape`; added new primitive `jnp.prod`.
 - **0.6.1**: Improved support for `lax.cond` and `lax.select_n`; added new primitives (`lax.reduce_and`, `lax.reduce_or`, `lax.reduce_prod`, `lax.reduce_xor`); and introduced new examples for `jnp.select` and `jnp.sort`. 
 - **0.6.0**: Introduced the `enable_double_precision` parameter (default: `False`) to support **physics simulations**, and enhanced handling of `lax.scatter`.
