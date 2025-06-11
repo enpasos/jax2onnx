@@ -59,7 +59,7 @@ def linspace_fn():
 register_example(
     component="issue18_sign",
     description="Test jnp.sign from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -73,7 +73,7 @@ register_example(
 register_example(
     component="issue18_abs",
     description="Test jnp.abs from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -87,7 +87,7 @@ register_example(
 register_example(
     component="issue18_fori_loop",
     description="Test fori_loop from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -101,7 +101,7 @@ register_example(
 register_example(
     component="issue18_while_loop",
     description="Test while_loop from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -115,7 +115,7 @@ register_example(
 register_example(
     component="issue18_scan",
     description="Test scan from issue 18 (no xs)",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -129,7 +129,7 @@ register_example(
 register_example(
     component="issue18_where",
     description="Test where from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -146,7 +146,7 @@ register_example(
 register_example(
     component="issue18_arange",
     description="Test arange from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[{"testcase": "arange_fn", "callable": arange_fn, "input_values": []}],
 )
@@ -154,7 +154,7 @@ register_example(
 register_example(
     component="issue18_linspace",
     description="Test linspace from issue 18",
-    since="vNext",
+    since="v0.6.3",
     context="examples.jnp",
     testcases=[
         {"testcase": "linspace_fn", "callable": linspace_fn, "input_values": []}
