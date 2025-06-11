@@ -20,7 +20,13 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_mul")
 @register_primitive(
     jaxpr_primitive=lax.scatter_mul_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scatter_mul.html",
-    onnx=[{"component": "ScatterND", "attributes": ["reduction='mul'"]}],
+    onnx=[
+        {
+            "component": "ScatterND",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
+            "attributes": ["reduction='mul'"],
+        }
+    ],
     since="v0.6.4",
     context="primitives.lax",
     component="scatter_mul",
