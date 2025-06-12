@@ -1,12 +1,12 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from typing import Any, Dict, Union, Optional, List, Tuple, cast
+from typing import Any, Dict, Sequence, Union, Optional, List, Tuple, cast
 
 import logging
 
 import numpy as np
 import onnx
-from jax.extend.core import Literal
+from jax.extend.core import Literal, ClosedJaxpr
 from onnx import (
     FunctionProto,
     GraphProto,
@@ -1251,6 +1251,28 @@ class OnnxBuilder:
         if hasattr(d, "symbol") and d.symbol:
             return str(d.symbol)
         return _symbol_name(self, d)  # final fallback
+
+    # ------------------------------------------------------------------
+    # Sub-graph helper (placeholder)
+    # ------------------------------------------------------------------
+    def subgraph(
+        self,
+        name: str,
+        invars: Sequence[str],
+        jaxpr: "ClosedJaxpr",
+    ) -> "OnnxBuilder":
+        """
+        Lightweight stub so that experimental control-flow code can call
+        `builder.subgraph()` without breaking the current stable path.
+
+        * Returns **self** for now – i.e. the caller keeps using the parent
+          builder context.
+        * Adds **no** nodes, **no** IO, **no** metadata.
+        * Logs a DEBUG line so we know if it ever gets hit in production
+          before the real implementation lands.
+        """
+        logger.debug("subgraph(%s) called in stub mode – no graph emitted", name)
+        return self
 
     # ------------------------------------------------------------------
     #  Remove any ValueInfo that is *not* referenced by nodes, outputs
