@@ -726,11 +726,14 @@ class Jaxpr2OnnxConverter:
         # Register handlers from the main plugin registry
         for key, plugin in PLUGIN_REGISTRY.items():
             if isinstance(plugin, PrimitiveLeafPlugin):
+                if key == "lax.remat2":
+                    self.primitive_handlers["remat2"] = plugin.get_handler(self)
                 self.primitive_handlers[key] = plugin.get_handler(self)
 
         # Register handlers from the ONNX function plugin registry
         for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
             primitive = plugin.primitive
+
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
 
         # built‑in call‑style primitive that we inline
