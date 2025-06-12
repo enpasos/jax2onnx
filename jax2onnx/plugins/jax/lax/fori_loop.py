@@ -215,6 +215,15 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             body_builder.model_name, is_subgraph=True
         )
 
+        # stub: register the fori_loop body subgraph (no real graph yet)
+        s.subgraph(
+            name="fori_body",
+            invars=list(
+                body_conv.var_to_name.values()
+            ),  # Convert dict_values to a list
+            jaxpr=body_closed.jaxpr,
+        )
+
         # ---------------------------------------------------------------------------
         # Emit the outer Loop node
         # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/while_loop.py
+# jax2onnx/plugins/jax/lax/while_loop.py
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, Sequence, Callable
 import jax
 import numpy as np
 from jax import core, lax
-from jax.extend.core import Primitive, Var
-from onnx import helper
+from jax.extend.core import Primitive
+from onnx import TensorProto, helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -21,24 +21,21 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
 
 
 def _while_loop_multi_state_fn(x):
-    """A test model for while_loop with multiple state variables."""
+    """Test helper: a two‐state while_loop."""
     steps = 5
 
     def cond_fn(state):
-        _, counter = state
-        return counter < steps
+        _, cnt = state
+        return cnt < steps
 
     def body_fn(state):
-        x, counter = state
-        x_new = x + 0.1 * x**2
-        counter_new = counter + 1
-        return (x_new, counter_new)
+        xx, cnt = state
+        return xx + 0.1 * xx**2, cnt + 1
 
-    state = (x, 0)
-    final_state = jax.lax.while_loop(cond_fn, body_fn, state)
-    return final_state[0]
+    return lax.while_loop(cond_fn, body_fn, (x, 0))[0]
 
 
+# define a new primitive and give it multiple results
 lax.while_loop_p = Primitive("lax.while_loop")
 lax.while_loop_p.multiple_results = True
 
@@ -100,203 +97,180 @@ lax.while_loop_p.multiple_results = True
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
-    _ORIG_WHILE_LOOP: Callable | None = None
+    _ORIG: Callable | None = None
 
     @staticmethod
-    def abstract_eval(*in_avals: core.AbstractValue, cond_jaxpr, body_jaxpr, **__):
+    def abstract_eval(*in_avals: core.AbstractValue, **kwargs):
+        # just pass through all the loop‐carried args
         return tuple(in_avals)
 
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Var],
-        node_outputs: Sequence[Var],
+        node_inputs: Sequence[Any],
+        node_outputs: Sequence[Any],
         params: dict[str, Any],
     ):
-        logger.debug(f"Attempting conversion for {lax.while_loop_p.name}")
+        # unpack the closed JAXPRs
+        cond_closed = params["cond_jaxpr"]
+        body_closed = params["body_jaxpr"]
+        c_jaxpr, c_consts = cond_closed.jaxpr, cond_closed.consts
+        b_jaxpr, b_consts = body_closed.jaxpr, body_closed.consts
 
-        if "cond_jaxpr" not in params or "body_jaxpr" not in params:
-            raise ValueError("Missing cond_jaxpr or body_jaxpr in primitive params.")
+        # the input‐names and output‐names for the loop state
+        state_in = [s.get_name(v) for v in node_inputs]
+        state_out = [s.get_name(v) for v in node_outputs]
 
-        cond_closed_jaxpr = params["cond_jaxpr"]
-        body_closed_jaxpr = params["body_jaxpr"]
-
-        cond_jaxpr = cond_closed_jaxpr.jaxpr
-        body_jaxpr = body_closed_jaxpr.jaxpr
-        cond_consts = cond_closed_jaxpr.consts
-        body_consts = body_closed_jaxpr.consts
-
-        state_input_vars = node_inputs
-        state_input_names = [s.get_name(v) for v in state_input_vars]
-        state_output_vars = node_outputs
-        state_output_names = [s.get_name(v) for v in state_output_vars]
-
-        # Create body subgraph builder and converter
+        # 1) build the Loop‐body subgraph
         body_builder = OnnxBuilder(
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
-            model_name=s.builder.get_unique_name(f"{lax.while_loop_p.name}_body_graph"),
+            model_name=s.builder.get_unique_name("while_body"),
         )
         body_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
         )
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
-        body_converter = s.__class__(body_builder)
 
-        # Define inputs: iter_num, cond_in, state_in
-        iter_name = body_builder.name_generator.get("iter_num")
-        cond_in_name = body_builder.name_generator.get("cond_in")
-        state_in_names = [
-            body_builder.name_generator.get(f"state_in_{i}")
-            for i in range(len(state_input_vars))
-        ]
+        # a *fresh* converter for the subgraph
+        body_conv = s.__class__(body_builder)
 
-        body_builder.add_scalar_input(iter_name, helper.TensorProto.INT64)
-        body_builder.add_scalar_input(cond_in_name, helper.TensorProto.BOOL)
-        for name, var in zip(state_in_names, state_input_vars):
-            body_builder.add_input(name, var.aval.shape, var.aval.dtype)
+        # the two Loop‐reserved inputs: iteration count and incoming bool
+        it_name = body_builder.name_generator.get("iter_count")
+        prev_cond = body_builder.name_generator.get("cond_in")
+        body_builder.add_scalar_input(it_name, TensorProto.INT64)
+        body_builder.add_scalar_input(prev_cond, TensorProto.BOOL)
 
-        # Map constants and state inputs into subgraph
-        for i, const_var in enumerate(body_jaxpr.constvars):
-            body_converter.var_to_name[const_var] = body_converter.get_constant_name(
-                body_consts[i]
-            )
-        for i, state_var in enumerate(body_jaxpr.invars[len(body_jaxpr.constvars) :]):
-            body_converter.var_to_name[state_var] = state_in_names[i]
+        # now only map the ***body*** JAXPR’s own invars after its constvars
+        n_const = len(b_jaxpr.constvars)
+        for idx, var in enumerate(b_jaxpr.invars[n_const:]):
+            nm = state_in[idx]
+            body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
+            body_conv.var_to_name[var] = nm
 
-        # Process body_jaxpr without adding outputs automatically
-        # Process body_jaxpr (default call adds its outvars as graph outputs)
-        body_converter._process_jaxpr(body_jaxpr, body_consts)
+        # bring in the body constants
+        for cvar, cval in zip(b_jaxpr.constvars, b_consts):
+            body_conv.var_to_name[cvar] = body_conv.get_constant_name(cval)
 
-        # Remove any auto‑added outputs – we will register them in required order below
+        # process all body eqns
+        for eqn in b_jaxpr.eqns:
+            body_conv._process_eqn(eqn)
+
+        # now wire the cond JAXPR *inside* the body:
+        for cvar, cval in zip(c_jaxpr.constvars, c_consts):
+            body_conv.var_to_name[cvar] = body_conv.get_constant_name(cval)
+        # cond_jaxpr.invars after its constvars line up with body_jaxpr.outvars
+        for inp, outp in zip(c_jaxpr.invars[len(c_jaxpr.constvars) :], b_jaxpr.outvars):
+            body_conv.var_to_name[inp] = body_conv.get_name(outp)
+
+        # process the cond eqns
+        for eqn in c_jaxpr.eqns:
+            body_conv._process_eqn(eqn)
+        cond_out = body_conv.get_name(c_jaxpr.outvars[0])
+
+        # clear whatever OnnxBuilder auto‐added as outputs, then re‐add:
         body_builder.outputs.clear()
+        body_builder.add_output(cond_out, (), np.bool_)
+        for outp in b_jaxpr.outvars:
+            nm = body_conv.get_name(outp)
+            body_builder.add_output(nm, outp.aval.shape, outp.aval.dtype)
 
-        # Collect state outputs
-        state_out_vars = body_jaxpr.outvars
-        state_out_names = [body_converter.get_name(v) for v in state_out_vars]
-
-        # Map and process cond_jaxpr inside body
-        for i, const_var in enumerate(cond_jaxpr.constvars):
-            body_converter.var_to_name[const_var] = body_converter.get_constant_name(
-                cond_consts[i]
-            )
-        for i, state_var in enumerate(cond_jaxpr.invars[len(cond_jaxpr.constvars) :]):
-            body_converter.var_to_name[state_var] = state_out_names[i]
-        for eqn in cond_jaxpr.eqns:
-            body_converter._process_eqn(eqn)
-
-        cond_out_name = body_converter.get_name(cond_jaxpr.outvars[0])
-
-        # Register body outputs in order (cond, state)
-        body_builder.add_output(cond_out_name, (), np.bool_)
-        for name, var in zip(state_out_names, state_out_vars):
-            body_builder.add_output(name, var.aval.shape, var.aval.dtype)
-
-        # Create subgraph proto
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
 
-        # Initial condition builder
+        # 2) build the “initial‐condition” subgraph for cond(init_state)
         init_builder = OnnxBuilder(
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
-            model_name=s.builder.get_unique_name(
-                f"{lax.while_loop_p.name}_initial_cond"
-            ),
+            model_name=s.builder.get_unique_name("while_init"),
         )
         init_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
         )
-        init_builder.var_to_symbol_map = s.builder.var_to_symbol_map
-        init_converter = s.__class__(init_builder)
+        init_conv = s.__class__(init_builder)
 
-        for i, const_var in enumerate(cond_jaxpr.constvars):
-            init_converter.var_to_name[const_var] = init_converter.get_constant_name(
-                cond_consts[i]
-            )
-        for i, state_var in enumerate(cond_jaxpr.invars[len(cond_jaxpr.constvars) :]):
-            init_converter.var_to_name[state_var] = state_input_names[i]
+        # wire cond consts
+        for cvar, cval in zip(c_jaxpr.constvars, c_consts):
+            init_conv.var_to_name[cvar] = init_conv.get_constant_name(cval)
+        # then wire the cond invars to the *same* outer state names
+        for inp, nm in zip(c_jaxpr.invars[len(c_jaxpr.constvars) :], state_in):
+            init_conv.var_to_name[inp] = nm
 
-        # Process cond_jaxpr without outputs
-        # Process cond_jaxpr to compute initial condition
-        init_converter._process_jaxpr(cond_jaxpr, cond_consts)
+        # process the cond JAXPR once
+        init_conv._process_jaxpr(c_jaxpr, c_consts)
+        init_cond = init_conv.get_name(c_jaxpr.outvars[0])
 
-        # Merge init subgraph elements into main builder
+        # merge init nodes & inits into the main graph
         s.builder.nodes.extend(init_builder.nodes)
-        existing = {init.name for init in s.builder.initializers}
-        for tensor in init_builder.initializers:
-            if tensor.name not in existing:
-                s.builder.initializers.append(tensor)
+        existing = {t.name for t in s.builder.initializers}
+        for t in init_builder.initializers:
+            if t.name not in existing:
+                s.builder.initializers.append(t)
         s.builder.value_info_metadata.update(init_builder.value_info_metadata)
-        merged_vi = {vi.name: vi for vi in s.builder.value_info}
+        vi_map = {vi.name: vi for vi in s.builder.value_info}
         for vi in init_builder.value_info:
-            merged_vi[vi.name] = vi
-        s.builder.value_info = list(merged_vi.values())
+            vi_map[vi.name] = vi
+        s.builder.value_info = list(vi_map.values())
         s.builder.functions.update(init_builder.functions)
 
-        init_out = init_converter.get_name(cond_jaxpr.outvars[0])
-        max_iter = s.get_constant_name(np.array(2**31 - 1, dtype=np.int64))
-
-        loop = helper.make_node(
+        # 3) finally, emit the ONNX Loop node
+        max_trip = s.get_constant_name(np.array(np.iinfo(np.int64).max, dtype=np.int64))
+        loop_node = helper.make_node(
             "Loop",
-            inputs=[max_iter, init_out, *state_input_names],
-            outputs=state_output_names,
+            inputs=[max_trip, init_cond, *state_in],
+            outputs=state_out,
             body=body_graph,
             name=s.get_unique_name("while_loop"),
         )
-        s.add_node(loop)
-        for name, var in zip(state_output_names, state_output_vars):
-            s.add_shape_info(name, var.aval.shape, var.aval.dtype)
+        s.add_node(loop_node)
 
-    @staticmethod
-    def _while_loop_impl(*flat_state, tree, cond_jaxpr, body_jaxpr):
-        """JAX implementation for the custom while_loop primitive."""
-        init_val = jax.tree_util.tree_unflatten(tree, flat_state)
-        cond_consts = cond_jaxpr.consts
-        body_consts = body_jaxpr.consts
-        cond_jaxpr = cond_jaxpr.jaxpr
-        body_jaxpr = body_jaxpr.jaxpr
-
-        def cond_fun(val):
-            flat_val, _ = jax.tree_util.tree_flatten(val)
-            res = core.eval_jaxpr(cond_jaxpr, cond_consts, *flat_val)
-            return res[0]
-
-        def body_fun(val):
-            flat_val, val_tree = jax.tree_util.tree_flatten(val)
-            res = core.eval_jaxpr(body_jaxpr, body_consts, *flat_val)
-            return jax.tree_util.tree_unflatten(val_tree, res)
-
-        if WhileLoopPlugin._ORIG_WHILE_LOOP is None:
-            raise RuntimeError("Original lax.while_loop not found.")
-
-        final_val = WhileLoopPlugin._ORIG_WHILE_LOOP(cond_fun, body_fun, init_val)
-        flat_final, _ = jax.tree_util.tree_flatten(final_val)
-        return flat_final
-
-    @staticmethod
-    def _while_loop_binding(cond_fun, body_fun, init_val):
-        closed_cond = jax.make_jaxpr(cond_fun)(init_val)
-        closed_body = jax.make_jaxpr(body_fun)(init_val)
-        flat, tree = jax.tree_util.tree_flatten(init_val)
-        results = lax.while_loop_p.bind(
-            *flat, cond_jaxpr=closed_cond, body_jaxpr=closed_body
-        )
-        return jax.tree_util.tree_unflatten(tree, results)
+        # register the output shapes/dtypes
+        for nm, var in zip(state_out, node_outputs):
+            s.add_shape_info(nm, var.aval.shape, var.aval.dtype)
 
     @staticmethod
     def get_monkey_patch(orig_fn):
-        if WhileLoopPlugin._ORIG_WHILE_LOOP is None:
-            WhileLoopPlugin._ORIG_WHILE_LOOP = orig_fn
+        # stash the original Python while_loop
+        if WhileLoopPlugin._ORIG is None:
+            WhileLoopPlugin._ORIG = orig_fn
 
         def patched(cond_fun, body_fun, init_val):
-            return WhileLoopPlugin._while_loop_binding(cond_fun, body_fun, init_val)
+            # create closed JAXPRs for cond & body
+            closed_c = jax.make_jaxpr(cond_fun)(init_val)
+            closed_b = jax.make_jaxpr(body_fun)(init_val)
+            flat, tree = jax.tree_util.tree_flatten(init_val)
+            # bind the primitive
+            results = lax.while_loop_p.bind(
+                *flat, cond_jaxpr=closed_c, body_jaxpr=closed_b
+            )
+            return jax.tree_util.tree_unflatten(tree, results)
 
         return patched
 
     @staticmethod
+    def _while_loop_impl(*flat_state, tree, cond_jaxpr, body_jaxpr):
+        # interpret the while‐loop via the original
+        if WhileLoopPlugin._ORIG is None:
+            raise RuntimeError("Original lax.while_loop not recorded")
+        init_val = jax.tree_util.tree_unflatten(tree, flat_state)
+
+        def cond_f(v):
+            fv, _ = jax.tree_util.tree_flatten(v)
+            return core.eval_jaxpr(cond_jaxpr.jaxpr, cond_jaxpr.consts, *fv)[0]
+
+        def body_f(v):
+            fv, vt = jax.tree_util.tree_flatten(v)
+            out = core.eval_jaxpr(body_jaxpr.jaxpr, body_jaxpr.consts, *fv)
+            return jax.tree_util.tree_unflatten(vt, out)
+
+        final = WhileLoopPlugin._ORIG(cond_f, body_f, init_val)
+        ff, _ = jax.tree_util.tree_flatten(final)
+        return ff
+
+    @staticmethod
     def patch_info():
+        # patch the Python API for jax.lax.while_loop → our `patched`
         return {
             "patch_targets": [lax],
             "target_attribute": "while_loop",
@@ -304,6 +278,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         }
 
 
+# hook the primitive up to JAX and to our impl
 lax.while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
-
 lax.while_loop_p.def_impl(WhileLoopPlugin._while_loop_impl)

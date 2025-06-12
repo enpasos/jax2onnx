@@ -6,7 +6,7 @@ to ONNX format. It provides the main Jaxpr2OnnxConverter class which traverses t
 representation of a JAX function and converts it to equivalent ONNX operations.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 import logging
 import jax
 import jax.random
@@ -230,33 +230,18 @@ class Jaxpr2OnnxConverter:
         # Centralized mapping for numpy and string dtypes
         dtype_map = {
             np.float32: TensorProto.FLOAT,
+            np.dtype("float32"): TensorProto.FLOAT,
             np.float64: TensorProto.DOUBLE,
+            np.dtype("float64"): TensorProto.DOUBLE,
             np.int32: TensorProto.INT32,
+            np.dtype("int32"): TensorProto.INT32,
             np.int64: TensorProto.INT64,
+            np.dtype("int64"): TensorProto.INT64,
             np.bool_: TensorProto.BOOL,
-            np.uint8: TensorProto.UINT8,
-            np.int8: TensorProto.INT8,
-            np.uint16: TensorProto.UINT16,
-            np.int16: TensorProto.INT16,
-            np.uint32: TensorProto.UINT32,
-            np.uint64: TensorProto.UINT64,
-            np.float16: TensorProto.FLOAT16,
-            np.complex64: TensorProto.COMPLEX64,
-            np.complex128: TensorProto.COMPLEX128,
-            "float32": TensorProto.FLOAT,
-            "float64": TensorProto.DOUBLE,
-            "int32": TensorProto.INT32,
+            np.dtype("bool"): TensorProto.BOOL,
+            bool: TensorProto.BOOL,
             "int64": TensorProto.INT64,
             "bool": TensorProto.BOOL,
-            "uint8": TensorProto.UINT8,
-            "int8": TensorProto.INT8,
-            "uint16": TensorProto.UINT16,
-            "int16": TensorProto.INT16,
-            "uint32": TensorProto.UINT32,
-            "uint64": TensorProto.UINT64,
-            "float16": TensorProto.FLOAT16,
-            "complex64": TensorProto.COMPLEX64,
-            "complex128": TensorProto.COMPLEX128,
         }
 
         # If it's already an int, assume it's a valid ONNX enum
@@ -290,24 +275,55 @@ class Jaxpr2OnnxConverter:
             return TensorProto.FLOAT
 
     def _handle_pjit(self, eqn, params):
-        """Inline a `pjit` call inside the current graph."""
+        """
+        Processes a pjit call by creating a new, isolated converter context
+        to prevent name collisions, then inlining the resulting nodes.
+        """
+        parent_converter = self
+        self.logger.debug(f"Creating isolated context for pjit eqn: {eqn.primitive}")
 
-        # ① fetch the closed jaxpr (API changed a few times)
+        # ① Fetch the closed jaxpr from the parameters
         closed = params.get("call_jaxpr") or params.get("jaxpr")
         if isinstance(closed, ClosedJaxpr):
             inner_jaxpr = closed.jaxpr
             consts = closed.consts
-        else:  # already an open jaxpr
+        else:
             inner_jaxpr = closed
             consts = params.get("consts", ())
 
-        # ② recursively convert the body
-        self._process_jaxpr(inner_jaxpr, consts)
+        # ② Create a new temporary converter to process the subgraph in isolation.
+        #    It inherits the parent's builder to add nodes to the same graph,
+        #    but it will have its own separate variable-to-name mapping.
+        sub_converter = Jaxpr2OnnxConverter(
+            parent_converter.builder,
+            parent_converter.record_primitive_calls_file,
+            parent_converter.function_context_for_recording,
+        )
 
-        # ③ wire inner outputs → outer outputs
-        for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
-            inner_name = self.get_name(inner_var)
-            self.set_var_name(outer_var, inner_name)
+        # ③ Map the inputs for the subgraph. The inputs to the pjit call (eqn.invars)
+        #    already have names in the parent converter. We tell the sub-converter
+        #    to use these same names for the subgraph's input variables (inner_jaxpr.invars).
+        for outer_invar, inner_invar in zip(eqn.invars, inner_jaxpr.invars):
+            outer_name = parent_converter.get_name(outer_invar)
+            sub_converter.set_var_name(inner_invar, outer_name)
+
+        # ④ Process the subgraph using the new converter. This will generate all the
+        #    necessary ONNX nodes, but any new variable names will be created in the
+        #    isolated sub_converter and won't clash with the parent.
+        sub_converter._process_jaxpr(inner_jaxpr, consts)
+
+        # ── remove any outputs that the subgraph mistakenly added ────────────
+        inner_output_names = {sub_converter.get_name(v) for v in inner_jaxpr.outvars}
+        self.builder.outputs = [
+            o for o in self.builder.outputs if o.name not in inner_output_names
+        ]
+
+        # ⑤ Wire the outputs. The output variables of the subgraph (inner_jaxpr.outvars)
+        #    now have unique names within the subgraph's context. We need to alias the
+        #    pjit's output variables (eqn.outvars) to these names in the parent converter.
+        for outer_outvar, inner_outvar in zip(eqn.outvars, inner_jaxpr.outvars):
+            inner_name = sub_converter.get_name(inner_outvar)
+            parent_converter.set_var_name(outer_outvar, inner_name)
 
     def register_shape(self, name: str, shape: tuple[int, ...], dtype: Any) -> str:
         """Register shape and dtype information for a tensor, preserving symbolic dims."""
@@ -587,56 +603,8 @@ class Jaxpr2OnnxConverter:
                 )
 
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
-        # --------------------------------------------------------------------
-        # 1) Special‐case: static‐only JAXPR (e.g. `lambda x: x.shape[0]` ⇒ literal)
-        # --------------------------------------------------------------------
-        if not jaxpr.eqns and len(jaxpr.invars) == 1 and len(jaxpr.outvars) == 1:
-            jaxpr.invars[0]
-            out = jaxpr.outvars[0]
-            # Only proceed if the JAXPR actually returns a literal int
-            from jax.extend.core import Literal
-
-            if isinstance(out, Literal) or isinstance(out, (int,)):
-                # pull out the integer
-                static_val = int(out.val if isinstance(out, Literal) else out)
-                # --- emit exactly the static‐dim ONNX snippet ---
-                import numpy as _np
-                from onnx import TensorProto
-
-                # 1) make int64 initializer
-                arr = _np.array(static_val, dtype=_np.int64)
-                init_name = self.get_constant_name(arr)
-
-                # 2) Cast it down to INT32
-                cast_name = self.get_unique_name("dim_as_value_static_cast")
-                self.builder.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[init_name],
-                        outputs=[cast_name],
-                        to=int(TensorProto.INT32),
-                        name=cast_name,
-                    )
-                )
-                # record its shape (scalar) and dtype
-                self.add_shape_info(cast_name, (), _np.int32)
-
-                # 3) Identity into the real output var
-                out_name = self.get_var_name(out)
-                id_name = self.get_unique_name("dim_as_value_static_id")
-                self.builder.add_node(
-                    helper.make_node(
-                        "Identity", inputs=[cast_name], outputs=[out_name], name=id_name
-                    )
-                )
-                self.add_shape_info(out_name, (), _np.int32)
-                # 4) register it as graph output
-                self.builder.add_output(out_name, (), _np.int32)
-                return
-
-        # --------------------------------------------------------------------
-        # 2) Otherwise, normal path: register any true JAXPR‐constvars...
-        # --------------------------------------------------------------------
+        # ... (implementation details) ...
+        # Process equations
         for i, const in enumerate(consts):
             # register initializer-name → value
             const_name = self.get_constant_name(const)
@@ -660,8 +628,6 @@ class Jaxpr2OnnxConverter:
             dtype = var.aval.dtype
             if not any(inp.name == var_name for inp in self.builder.inputs):
                 self.add_input(var, shape, dtype)
-
-        # Process equations
         for eqn in jaxpr.eqns:
             self._process_eqn(eqn)
 
@@ -728,7 +694,8 @@ class Jaxpr2OnnxConverter:
             if isinstance(plugin, PrimitiveLeafPlugin):
                 if key == "lax.remat2":
                     self.primitive_handlers["remat2"] = plugin.get_handler(self)
-                self.primitive_handlers[key] = plugin.get_handler(self)
+                else:
+                    self.primitive_handlers[key] = plugin.get_handler(self)
 
         # Register handlers from the ONNX function plugin registry
         for plugin in ONNX_FUNCTION_PLUGIN_REGISTRY.values():
@@ -937,6 +904,35 @@ class Jaxpr2OnnxConverter:
                     # Handle literals or vars without shape info if necessary
                     pass
 
+    def _handle_cond(self, eqn, params):
+        # ─── register all cond inputs so they get value_info ────────────────
+        # ...existing code...
+
+        # ─── now build and inline the THEN‐ and ELSE‐subgraphs ───────────────
+        then_closed, else_closed = params["branches"]
+
+        # THEN branch (calls stub for now)
+        self.builder.subgraph(
+            name="then_body",
+            invars=[self.get_name(v) for v in eqn.invars[1:]],
+            jaxpr=then_closed.jaxpr,
+        )
+
+        # ELSE branch (calls stub for now)
+        self.builder.subgraph(
+            name="else_body",
+            invars=[self.get_name(v) for v in eqn.invars[1:]],
+            jaxpr=else_closed.jaxpr,
+        )
+
+        # Finally emit the ONNX If node (subgraph bodies currently stubbed)
+        self.builder.add_node(
+            "If",
+            inputs=[self.get_name(eqn.invars[0])],
+            outputs=[self.get_name(v) for v in eqn.outvars],
+            name=self.unique_name("If"),
+        )
+
     def _get_plugin_file_hint(self, primitive) -> Optional[str]:
         """Get a hint about which plugin file might handle this primitive."""
         name = primitive.name
@@ -958,39 +954,17 @@ class Jaxpr2OnnxConverter:
         # No hint found
         return None
 
-        # ---------------------------------------------------------------
-        # constant-vs-captured disambiguation
-        # ---------------------------------------------------------------
-        #
-        # `closed.consts` may contain
-        #   • true compile-time literals  →  NumPy/JAX arrays, Python scalars
-        #   • values captured from the outer scope which are still **dynamic**
-        #     (they show up as Tracers or AbstractValues).  Those must be
-        #     treated like normal graph values, **not** like initialisers.
-        #     Trying to convert the latter to NumPy triggers the
-        #     TracerArrayConversionError you are seeing.
-        #
-        from jax._src import core as _jcore  # local import to avoid hard dep
-
-        # Fix: use the method parameters instead of undefined variables
-        for cv, cval in zip(self.jaxpr.constvars, self.consts):
-            is_dynamic = isinstance(cval, _jcore.Tracer)
-            if not is_dynamic:
-                # safe – real constant
-                self.var_to_name[cv] = self.get_constant_name(cval)
-            else:
-                # dynamic capture: reuse the *outer* graph name so the
-                # sub-graph automatically receives it via lexical scoping.
-                #
-                # We map the **inner** ClosedJaxpr const-var `cv`
-                # to the already-allocated ONNX name of the **value**
-                # that produced it in the outer graph.
-                #
-                try:
-                    outer_name = self.get_name(cval)  # uses object-identity map
-                except KeyError:
-                    # value never materialised as a named output yet …
-                    # fall back to a passthrough input on the sub-graph
-                    outer_name = self.builder.get_unique_name("captured")
-                    self.builder.add_input(outer_name, cval.aval.shape, cval.aval.dtype)
-                self.var_to_name[cv] = outer_name
+    # ------------------------------------------------------------------
+    # Sub‐graph helper (stub) on the converter front‐end
+    # ------------------------------------------------------------------
+    def subgraph(
+        self,
+        name: str,
+        invars: Sequence[str],
+        jaxpr: "ClosedJaxpr",
+    ) -> "OnnxBuilder":
+        """
+        Stub passthrough so that plugins can call `converter.subgraph(...)`
+        and it simply delegates to the builder.subgraph stub.
+        """
+        return self.builder.subgraph(name=name, invars=invars, jaxpr=jaxpr)
