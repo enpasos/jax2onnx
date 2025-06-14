@@ -1,9 +1,10 @@
 """
 Batch Norm Plugin for JAX to ONNX conversion.
 
-This plugin enables conversion of flax.nnx.BatchNorm layers (in inference mode)
-to ONNX format. It transforms JAX’s batch_norm operations into an ONNX
-BatchNormalization operator.
+This plugin enables conversion of flax.nnx.BatchNorm layers to ONNX format.
+It transforms JAX’s batch_norm operations into an ONNX BatchNormalization operator.
+If a BatchNorm layer is provided in training mode (`use_running_average=False`),
+it will be automatically converted to inference mode with a warning.
 
 The conversion process involves:
   1. Defining a JAX primitive for BatchNorm's inference behavior.
@@ -15,6 +16,7 @@ The conversion process involves:
 """
 
 from typing import TYPE_CHECKING
+import logging
 
 import jax.numpy as jnp
 from flax import nnx
@@ -107,6 +109,15 @@ nnx.batch_norm_p.multiple_results = False
             ),
             "input_shapes": [("B", 4, 4, 3)],
         },
+        {
+            "testcase": "batch_norm_training_mode_fallback",
+            "callable": nnx.BatchNorm(
+                num_features=8,
+                use_running_average=False,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 8)],
+        },
     ],
 )
 class BatchNormPlugin(PrimitiveLeafPlugin):
@@ -157,8 +168,9 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
         def patched_batch_norm_call(self, x, use_running_average=None, *, mask=None):
             if not self.use_running_average:
-                raise NotImplementedError(
-                    "BatchNorm conversion is only supported with use_running_average=True."
+                logging.warning(
+                    "BatchNorm is being converted with use_running_average=False. "
+                    "The ONNX model will be created in inference mode."
                 )
 
             param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype

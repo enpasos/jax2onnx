@@ -11,8 +11,9 @@ import logging
 import jax
 import jax.random
 import numpy as np
+import jax.core as core
 from jax.extend import core as extend_core
-from jax.extend.core import Literal, ClosedJaxpr
+from jax.extend.core import Var, Literal, ClosedJaxpr
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
@@ -82,9 +83,9 @@ class Jaxpr2OnnxConverter:
         # Note: dim_to_symbol might need access to the builder's map directly later
         # self.dim_to_symbol = lambda d: _canonical_symbol(self.builder, d) # Maybe pass builder?
 
-    def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> extend_core.Var:
+    def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> Var:
         """Create a new JAX variable with the given dtype and shape."""
-        return extend_core.Var(
+        return Var(
             self.builder.get_unique_name(""), extend_core.ShapedArray(shape, dtype)
         )
 
@@ -119,7 +120,7 @@ class Jaxpr2OnnxConverter:
 
     def _import_var_as_input(
         self,
-        var: extend_core.Var,
+        var: Var,
         sym: str,
     ):
         """Make *sym* a formal graph input **iff** it is not
@@ -357,13 +358,16 @@ class Jaxpr2OnnxConverter:
         return name
 
     def get_name(self, var: Any) -> str:
-        """Get the ONNX name for a JAX variable or literal."""
-        if isinstance(var, jax._src.core.Var):
+        """Get the ONNX name for a JAX variable, tracer, or literal."""
+        if isinstance(var, Var):
             return self.get_var_name(var)
-        elif isinstance(var, extend_core.Literal):
+        if isinstance(var, core.Tracer):
+            # Tracers are stand-ins for Vars during tracing. They are hashable
+            # and used as keys in the var_to_name map.
+            return self.get_var_name(var)
+        if isinstance(var, extend_core.Literal):
             return self.get_constant_name(var)
-        else:
-            raise NotImplementedError("not yet implemented")
+        raise NotImplementedError(f"get_name not yet implemented for type: {type(var)}")
 
     def _extract_symbolic_axes(self, example_args):
         # Returns a tuple of all symbolic dimension tokens in the example args (if any)
@@ -603,7 +607,6 @@ class Jaxpr2OnnxConverter:
                 )
 
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
-        # ... (implementation details) ...
         # Process equations
         for i, const in enumerate(consts):
             # register initializer-name → value
@@ -968,3 +971,11 @@ class Jaxpr2OnnxConverter:
         and it simply delegates to the builder.subgraph stub.
         """
         return self.builder.subgraph(name=name, invars=invars, jaxpr=jaxpr)
+
+    def get_var_from_tracer(self, tracer):
+        """Get the underlying JAX variable from a tracer.
+
+        This is used to find the source variable that produced a tracer value,
+        which is important when dealing with captured variables in closures.
+        """
+        return tracer._trace.full_raise(tracer)

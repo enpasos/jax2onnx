@@ -514,7 +514,7 @@ def make_test_function(tp: dict[str, Any]):
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
         elif input_shapes_from_testcase and input_dtypes_from_testcase:
-            # -------- NEW: synthesise inputs for numerical check -----------------
+
             def _rand(shape, dtype):
                 if np.issubdtype(dtype, np.floating):
                     # np.random.randn(*shape) → Python float when shape == ()
