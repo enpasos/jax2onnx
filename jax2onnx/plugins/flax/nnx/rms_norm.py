@@ -1,12 +1,9 @@
-# filepath: /home/enpasos/projects/jax2onnx/jax2onnx/plugins/flax/nnx/rms_norm.py
-# file: jax2onnx/plugins/flax/nnx/rms_norm.py
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List
+
+import jax.numpy as jnp
 import numpy as np
-import jax
-from types import SimpleNamespace
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive, Var
@@ -39,14 +36,24 @@ nnx.rms_norm_p.multiple_results = False
     component="rms_norm",
     testcases=[
         {
-            "testcase": "rms_norm",
-            "callable": nnx.RMSNorm(6, rngs=nnx.Rngs(0)),
-            "input_shapes": [(11, 2, 2, 6)],
+            "testcase": "rms_norm_basic",
+            "callable": nnx.RMSNorm(num_features=6, rngs=nnx.Rngs(0)),
+            "input_shapes": [(2, 6)],
         },
         {
-            "testcase": "rms_norm_2",
-            "callable": nnx.RMSNorm(num_features=20, rngs=nnx.Rngs(0)),
-            "input_shapes": [(2, 20)],
+            "testcase": "rms_norm_use_scale_false",
+            "callable": nnx.RMSNorm(num_features=6, use_scale=False, rngs=nnx.Rngs(0)),
+            "input_shapes": [(2, 6)],
+        },
+        {
+            "testcase": "rms_norm_4d_dynamic",
+            "callable": nnx.RMSNorm(num_features=3, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 4, 4, 3)],
+        },
+        {
+            "testcase": "rms_norm_4d_dynamic_no_scale",
+            "callable": nnx.RMSNorm(num_features=3, use_scale=False, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 4, 4, 3)],
         },
     ],
 )
@@ -58,40 +65,15 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     * **Else** fall back to the explicit graph that reproduces the same maths.
     """
 
-    # Store original implementation
     _ORIG_CALL = None
 
     # ------------------------------------------------------------------
-    # JAX abstract evaluation – using jax.eval_shape for symbolic dims
+    # JAX abstract evaluation
     # ------------------------------------------------------------------
-
     @staticmethod
     def abstract_eval(x, scale, *_, **kwargs):
         """Shape inference via :pyfunc:`jax.eval_shape`."""
-        # Build ShapeDtypeStruct specs for symbolic-shape safe evaluation
-        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
-        scale_spec = jax.ShapeDtypeStruct(scale.shape, scale.dtype)
-
-        # Extract epsilon parameter
-        epsilon = kwargs.get("epsilon", 1e-6)
-
-        def _helper(xv, sv):
-            """Helper function that executes the actual RMS normalization."""
-            if RMSNormPlugin._ORIG_CALL is None:
-                # Fall back to our own implementation if original not captured
-                mean = (xv**2).mean(axis=-1, keepdims=True)
-                inv_sqrt = jax.lax.rsqrt(mean + epsilon)
-                return xv * inv_sqrt * sv
-
-            # Create a dummy module object with all required attributes
-            dummy = SimpleNamespace(
-                scale=SimpleNamespace(value=sv),
-                epsilon=epsilon,
-            )
-            return RMSNormPlugin._ORIG_CALL(dummy, xv)
-
-        out = jax.eval_shape(_helper, x_spec, scale_spec)
-        return core.ShapedArray(out.shape, out.dtype)
+        return core.ShapedArray(x.shape, x.dtype)
 
     # ------------------------------------------------------------------
     # ONNX lowering
@@ -100,15 +82,11 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
-        node_inputs: List[Var],  # Change from List[str] to List[core.Var]
-        node_outputs: List[Var],  # Change from List[str] to List[core.Var]
+        node_inputs: List[Var],
+        node_outputs: List[Var],
         params,
     ) -> None:
-        # ------------------------------------------------------------------
-        # Resolve names / shapes / dtypes
-        # ------------------------------------------------------------------
-        x_var = node_inputs[0]
-        scale_var = node_inputs[1]
+        x_var, scale_var = node_inputs
         y_var = node_outputs[0]
 
         input_name = s.get_name(x_var)
@@ -118,14 +96,10 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
         input_shape = tuple(x_var.aval.shape)
         input_dtype = x_var.aval.dtype
-        axis = len(input_shape) - 1  # normalise over the last dimension
+        axis = len(input_shape) - 1
 
-        # ------------------------------------------------------------------
-        # Decide whether we can use the native op
-        # ------------------------------------------------------------------
         opset = getattr(s.builder, "opset_version", 0)
         if opset >= 23:
-            # ---------------- native RMSNormalization -----------------
             s.add_node(
                 helper.make_node(
                     "RMSNormalization",
@@ -139,14 +113,12 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             s.builder.add_value_info(output_name, tuple(input_shape), input_dtype)
             return
 
-        # ---------------- fallback: manual construction ------------------
-        # 1. x²
+        # Fallback for older opsets
         pow2 = s.get_unique_name("pow2")
         two_const = s.get_constant_name(np.array(2.0, dtype=np.float32))
         s.add_node(helper.make_node("Pow", [input_name, two_const], [pow2], name=pow2))
         s.builder.add_value_info(pow2, tuple(input_shape), input_dtype)
 
-        # 2. mean(x²) over last axis (axes as tensor, ONNX ≥ 13)
         axes_tensor = s.get_constant_name(np.array([axis], dtype=np.int64))
         mean = s.get_unique_name("mean")
         s.add_node(
@@ -162,23 +134,19 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         mean_shape[-1] = 1
         s.builder.add_value_info(mean, tuple(mean_shape), input_dtype)
 
-        # 3. add epsilon
         add_eps = s.get_unique_name("add_eps")
         eps_const = s.get_constant_name(np.array(epsilon, dtype=np.float32))
         s.add_node(helper.make_node("Add", [mean, eps_const], [add_eps], name=add_eps))
         s.builder.add_value_info(add_eps, tuple(mean_shape), input_dtype)
 
-        # 4. sqrt
         sqrt = s.get_unique_name("sqrt")
         s.add_node(helper.make_node("Sqrt", [add_eps], [sqrt], name=sqrt))
         s.builder.add_value_info(sqrt, tuple(mean_shape), input_dtype)
 
-        # 5. x / sqrt
         div = s.get_unique_name("div")
         s.add_node(helper.make_node("Div", [input_name, sqrt], [div], name=div))
         s.builder.add_value_info(div, tuple(input_shape), input_dtype)
 
-        # 6. * scale
         s.add_node(
             helper.make_node(
                 "Mul", [div, scale_name], [output_name], name=s.get_unique_name("mul")
@@ -189,24 +157,30 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     # ------------------------------------------------------------------
     # Runtime binding and monkey patching
     # ------------------------------------------------------------------
-
     @staticmethod
-    def _rms_norm(x, scale, epsilon):  # type: ignore[override]
+    def _rms_norm(x, scale, epsilon):
         return nnx.rms_norm_p.bind(x, scale, epsilon=epsilon)
 
     @staticmethod
-    def rms_norm(x, scale, epsilon):  # noqa: D401 – public helper
+    def rms_norm(x, scale, epsilon):
         return RMSNormPlugin._rms_norm(x, scale, epsilon)
 
     @staticmethod
     def get_monkey_patch():
-        def patched_rms_norm_call(self, x):  # noqa: D401 – inline patch fn
-            return RMSNormPlugin._rms_norm(x, self.scale.value, self.epsilon)
+        def patched_rms_norm_call(self, x):
+            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
+
+            if self.use_scale:
+                scale_value = self.scale.value
+            else:
+                scale_value = jnp.ones((self.num_features,), dtype=param_dtype)
+
+            return RMSNormPlugin._rms_norm(x, scale_value, self.epsilon)
 
         return patched_rms_norm_call
 
     @staticmethod
-    def patch_info():  # noqa: D401 – required by PrimitiveLeafPlugin
+    def patch_info():
         return {
             "patch_targets": [nnx.RMSNorm],
             "patch_function": lambda orig_fn: RMSNormPlugin.get_monkey_patch(),
@@ -218,7 +192,6 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
 
 # -----------------------------------------------------------------------------
-# Register abstract‑eval fn so that JAX knows the primitive's output shape/dtype
+# Register abstract-eval fn
 # -----------------------------------------------------------------------------
-
 nnx.rms_norm_p.def_abstract_eval(RMSNormPlugin.abstract_eval)
