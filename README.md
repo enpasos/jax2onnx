@@ -385,6 +385,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ## 🌟 Special Thanks
 
 Special thanks for example contributions to [@burakksen](https://github.com/burakksen), [@Cadynum](https://github.com/Cadynum) and [@clementpoiret](https://github.com/clementpoiret)
+
 Special thanks for plugin contributions to [@burakksen](https://github.com/burakksen)
 
 Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
