@@ -1,12 +1,12 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from typing import Any, Dict, Union, Optional, List, Tuple, cast
+from typing import Any, Dict, Sequence, Union, Optional, List, Tuple, cast
 
 import logging
 
 import numpy as np
 import onnx
-from jax.extend.core import Literal
+from jax.extend.core import Literal, ClosedJaxpr
 from onnx import (
     FunctionProto,
     GraphProto,
@@ -254,6 +254,31 @@ class OnnxBuilder:
         )  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
         self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
+
+    # ------------------------------------------------------------------
+    # Symbolic‐dimension origin registry
+    # ------------------------------------------------------------------
+    def _register_symbol_origin(self, dim: Any, tensor_name: str, axis: int):
+        """
+        Record that the symbolic dimension `dim` (or its string) comes from
+        axis `axis` of the top‐level tensor `tensor_name`, so later
+        plugins can look it up via converter.symbolic_dim_to_origin.
+        """
+        conv = getattr(self, "converter", None)
+        if conv is None:
+            return
+        # Ensure the map exists on the converter
+        mapping = getattr(conv, "symbolic_dim_to_origin", None)
+        if mapping is None:
+            mapping = {}
+            setattr(conv, "symbolic_dim_to_origin", mapping)
+
+        # Register both the raw dim object and its str key
+        mapping[dim] = (tensor_name, axis)
+        try:
+            mapping[str(dim)] = (tensor_name, axis)
+        except Exception:
+            pass
 
     def make_value_info(self, name: str, shape: Shape, dtype: Any):
         # Ensure shape is always a tuple (handle None case)
@@ -586,7 +611,7 @@ class OnnxBuilder:
         self,
         name: str,
         shape: tuple[Any, ...] | None,
-        dtype: Any = np.float32,  # Fix type annotation
+        dtype: Any = np.float32,
     ) -> None:
         # ──────────────────────────────────────────────────────────────────
         # Do **not** promote the tensor to a formal graph input when it is
@@ -606,20 +631,29 @@ class OnnxBuilder:
 
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
+        # ─── register any symbolic dims on this new input ───────────────
+        if shape is not None:
+            for axis, dim in enumerate(shape):
+                if not isinstance(dim, int):
+                    self._register_symbol_origin(dim, name, axis)
 
     def add_output(
         self,
         name: str,
         shape: tuple[Any, ...] | None,
         dtype: Any = np.float32,  # Fix type annotation
-    ) -> str:  # Fix: Added return type annotation
+    ) -> str:
         # Do not emit the same graph-output twice
         if any(vi.name == name for vi in self.outputs):
             return name
-
         self.dtype_env[name] = dtype
         self._add_tensor(self.outputs, name, shape, dtype)
-        return name  # Ensure the method returns the name consistently
+        # ─── register any symbolic dims on this new graph-output ────────
+        if shape is not None:
+            for ax, d in enumerate(shape):
+                if not isinstance(d, int):
+                    self._register_symbol_origin(d, name, ax)
+        return name
 
     def add_value_info(
         self,
@@ -644,14 +678,19 @@ class OnnxBuilder:
 
         self.value_info.append(vi)
 
-        # Get ONNX enum dtype if needed
+        # ─── determine ONNX enum dtype ─────────────────────────────────
         if isinstance(dtype, int):
             onnx_dtype = dtype
         else:
             onnx_dtype = vi.type.tensor_type.elem_type
 
-        # Pass the tuple version to register_value_info_metadata
+        # ─── register metadata ─────────────────────────────────────────
         self.register_value_info_metadata(name, shape_tuple, onnx_dtype)
+
+        # ─── register any symbolic dims on this intermediate tensor ─────
+        for ax, d in enumerate(shape_tuple):
+            if not isinstance(d, int):
+                self._register_symbol_origin(d, name, ax)
 
     def create_node(
         self, op_type: str, inputs: list[str], outputs: list[str], **kwargs: Any
@@ -696,14 +735,18 @@ class OnnxBuilder:
         )
 
     def _build_graph(
-        self, name: str, is_subgraph: bool = False, empty_inputs: bool = False
-    ) -> GraphProto:
-        """Builds the GraphProto, optionally skipping input filtering for subgraphs."""
+        self, name=None, is_subgraph=False, empty_inputs=False
+    ) -> onnx.GraphProto:
+        """Build the ONNX graph."""
+        name = name or self.model_name
         logger.debug(
             f"Building graph '{name}', is_subgraph={is_subgraph}, empty_inputs={empty_inputs}"
         )
         # 1. Filter unused initializers (safe for subgraphs too)
         self.filter_unused_initializers()
+
+        # 1.a Strict topology check: every node input must have been produced already
+        self._assert_topologically_sorted()
 
         if not is_subgraph:
             # For the main graph, filter redundant inputs.
@@ -1252,6 +1295,36 @@ class OnnxBuilder:
             return str(d.symbol)
         return _symbol_name(self, d)  # final fallback
 
+    def _assert_topologically_sorted(self):
+        """Assert that the nodes are topologically sorted.
+
+        This ensures that for every node, all its inputs have been defined earlier
+        in the graph, either as inputs, initializers, or outputs of previous nodes.
+        """
+        available_tensors = set()
+
+        # Add all graph inputs
+        for inp in self.inputs:
+            available_tensors.add(inp.name)
+
+        # Add all initializers
+        for init in self.initializers:
+            available_tensors.add(init.name)
+
+        # Check each node in order
+        for node in self.nodes:
+            # Check that all inputs to this node are available
+            for inp in node.input:
+                if inp and inp not in available_tensors:
+                    raise RuntimeError(
+                        f"Node {node.name} (op={node.op_type}) has an input '{inp}' "
+                        f"that hasn't been produced yet. This indicates the graph is not "
+                        f"topologically sorted or there's a missing tensor definition."
+                    )
+
+            # Add this node's outputs to available tensors
+            available_tensors.update(node.output)
+
     # ------------------------------------------------------------------
     #  Remove any ValueInfo that is *not* referenced by nodes, outputs
     #  or initializers.  This prevents compile-time constants that were
@@ -1337,3 +1410,22 @@ class OnnxBuilder:
 
         if before != len(self.inputs):
             logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
+
+    def subgraph(
+        self,
+        name: str,
+        invars: Sequence[str],
+        jaxpr: "ClosedJaxpr",
+    ) -> "OnnxBuilder":
+        """
+        Lightweight stub so that experimental control-flow code can call
+        `builder.subgraph()` without breaking the current stable path.
+
+        * Returns **self** for now – i.e. the caller keeps using the parent
+          builder context.
+        * Adds **no** nodes, **no** IO, **no** metadata.
+        * Logs a DEBUG line so we know if it ever gets hit in production
+          before the real implementation lands.
+        """
+        logger.debug("subgraph(%s) called in stub mode – no graph emitted", name)
+        return self

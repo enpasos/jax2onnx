@@ -8,6 +8,7 @@ with necessary Transpose operations for NHWC to NCHW conversion.
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
@@ -44,7 +45,35 @@ nnx.group_norm_p.multiple_results = False  # Set at initialization
         {
             "testcase": "group_norm_2",
             "callable": nnx.GroupNorm(num_features=16, num_groups=4, rngs=nnx.Rngs(0)),
-            "input_shapes": [(2, 16)],
+            "input_shapes": [(2, 20)],
+        },
+        {
+            "testcase": "group_norm_no_bias_no_scale",
+            "callable": nnx.GroupNorm(
+                32, num_groups=8, use_bias=False, use_scale=False, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 16, 16, 32)],
+        },
+        {
+            "testcase": "group_norm_bias_no_scale",
+            "callable": nnx.GroupNorm(
+                32, num_groups=8, use_bias=True, use_scale=False, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 16, 16, 32)],
+        },
+        {
+            "testcase": "group_norm_no_bias_scale",
+            "callable": nnx.GroupNorm(
+                32, num_groups=8, use_bias=False, use_scale=True, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 16, 16, 32)],
+        },
+        {
+            "testcase": "group_norm_bias_scale",
+            "callable": nnx.GroupNorm(
+                32, num_groups=8, use_bias=True, use_scale=True, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 16, 16, 32)],
         },
     ],
 )
@@ -63,14 +92,15 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handles conversion of group_norm to ONNX format."""
-        input_name = s.get_name(node_inputs[0])
-        scale_name = s.get_name(node_inputs[1])
-        bias_name = s.get_name(node_inputs[2])
+        input_var, scale_var, bias_var = node_inputs
+        input_name = s.get_name(input_var)
+        scale_name = s.get_name(scale_var)
+        bias_name = s.get_name(bias_var)
+
         final_output_name = s.get_name(node_outputs[0])
         epsilon = params.get("epsilon", 1e-5)
         num_groups = params.get("num_groups")
-
-        jax_shape = node_inputs[0].aval.shape  # e.g. (11, 2, 2, 64) or (2, 20)
+        jax_shape = input_var.aval.shape
 
         if len(jax_shape) == 4:
             pre_transpose_name = s.get_unique_name("gn_pre_transpose")
@@ -138,10 +168,23 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         """Returns a patched version of GroupNorm.__call__."""
 
         def patched_group_norm_call(self, x):
+            num_features = x.shape[-1]
+            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
+
+            if self.use_scale and self.scale is not None:
+                scale_value = self.scale.value
+            else:
+                scale_value = jnp.ones((num_features,), dtype=param_dtype)
+
+            if self.use_bias and self.bias is not None:
+                bias_value = self.bias.value
+            else:
+                bias_value = jnp.zeros((num_features,), dtype=param_dtype)
+
             return GroupNormPlugin._group_norm(
                 x,
-                self.scale.value,
-                self.bias.value,
+                scale_value,
+                bias_value,
                 epsilon=self.epsilon,
                 num_groups=self.num_groups,
             )
