@@ -7,6 +7,7 @@ import logging  # ensure logger is available
 from typing import Any, Sequence, Union  # added Union
 from typing import Optional
 
+import jax
 import jax.numpy as jnp
 from jax import core, lax
 from onnx import helper
@@ -28,6 +29,38 @@ def scan_fn(x):
 
     carry, ys = lax.scan(body, x, None, length=5)
     return ys
+
+
+# ----------------------------------------------------------------------
+# New helper that reproduces the "simulate → main → jax.jit" pattern
+# ----------------------------------------------------------------------
+def _scan_jit_no_xs() -> jax.Array:
+    """
+    Mirrors the example in the issue:
+
+    ```
+    def simulate():
+        def step_fn(carry, _):
+            return carry + 1, carry * 2
+        return lax.scan(step_fn, 0, xs=None, length=10)[1]
+
+    def main():
+        return jax.jit(simulate)()
+    ```
+    """
+
+    def simulate():
+        def step_fn(carry, _):
+            new_carry = carry + 1
+            output = carry * 2
+            return new_carry, output
+
+        # xs=None  →   Loop-style scan, needs explicit length
+        _, ys = lax.scan(step_fn, 0, xs=None, length=10)
+        return ys
+
+    # JIT-compile exactly as in the sample code
+    return jax.jit(simulate)()
 
 
 @register_primitive(
@@ -100,6 +133,22 @@ def scan_fn(x):
             "testcase": "scan_fn",
             "callable": scan_fn,
             "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+        },
+        {
+            "testcase": "scan_jit_no_xs",
+            "callable": _scan_jit_no_xs,
+            "input_shapes": [],  # simulate() takes no arguments
+            "expected_output_shapes": [(10,)],  # length = 10 → stacked outputs
+            "expected_output_dtypes": [jnp.int32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_jit_no_xs_f64",
+            "callable": _scan_jit_no_xs,
+            "input_shapes": [],  # simulate() takes no arguments
+            "expected_output_shapes": [(10,)],  # length = 10 → stacked outputs
+            "expected_output_dtypes": [jnp.int64],
+            "run_only_f64_variant": True,
         },
     ],
 )

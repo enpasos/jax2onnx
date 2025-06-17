@@ -79,6 +79,18 @@ broadcast_in_dim_p = lax.broadcast_in_dim_p
             ],  # Use a concrete batch for non-dynamic test
             "expected_output_shapes": [("B", 1, 256)],
         },
+        # ------------------------------------------------------------------
+        # dynamic-batch test: symbolic B
+        {
+            "testcase": "broadcast_in_dim_dynamic_B",
+            "callable": lambda x: lax.broadcast_in_dim(
+                0.5, shape=(x.shape[0], 3, 4), broadcast_dimensions=()
+            ),
+            "input_shapes": [("B",)],  # symbolic batch dim
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
     ],
 )
 class BroadcastInDimPlugin(PrimitiveLeafPlugin):
