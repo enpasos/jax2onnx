@@ -23,7 +23,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__BitwiseAnd.html",
         },
     ],
-    since="v0.6.6",
+    since="v0.6.5",
     context="primitives.lax",
     component="and",
     testcases=[
