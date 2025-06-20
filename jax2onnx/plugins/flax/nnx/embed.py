@@ -35,14 +35,14 @@ nnx.embed_p.multiple_results = False
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": nnx.Embed(num_embeddings=50304, features=768, rngs=nnx.Rngs(0)),
-            "input_shapes": [("B", 1024)],
+            "callable": nnx.Embed(num_embeddings=3144, features=48, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
         },
         {
             "testcase": "positional_embedding",
-            "callable": nnx.Embed(num_embeddings=1024, features=768, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 1024)],
+            "callable": nnx.Embed(num_embeddings=64, features=48, rngs=nnx.Rngs(0)),
+            "input_shapes": [(1, 64)],
             "input_dtypes": [jnp.int32],
         },
     ],
