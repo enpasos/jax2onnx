@@ -535,68 +535,66 @@ files = [
 
 [[package]]
 name = "jax"
-version = "0.6.1"
+version = "0.6.2"
 description = "Differentiate, compile, and transform Numpy code."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "jax-0.6.1-py3-none-any.whl", hash = "sha256:69a4e4506caa5466702bdfd0d7a13d1f9b7281d473885721100a3087fcabf8f9"},
-    {file = "jax-0.6.1.tar.gz", hash = "sha256:c4dcb93e1d34f80cf7adfa81f3fdab62a5068b69107b7a6117f8742ab37b6779"},
+    {file = "jax-0.6.2-py3-none-any.whl", hash = "sha256:bb24a82dc60ccf704dcaf6dbd07d04957f68a6c686db19630dd75260d1fb788c"},
+    {file = "jax-0.6.2.tar.gz", hash = "sha256:a437d29038cbc8300334119692744704ca7941490867b9665406b7f90665cd96"},
 ]
 
 [package.dependencies]
-jaxlib = "0.6.1"
+jaxlib = "0.6.2"
 ml_dtypes = ">=0.5.0"
-numpy = [
-    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
-    {version = ">=1.25"},
-]
+numpy = ">=1.26"
 opt_einsum = "*"
-scipy = ">=1.11.1"
+scipy = ">=1.12"
 
 [package.extras]
-ci = ["jaxlib (==0.6.0)"]
-cuda = ["jax-cuda12-plugin[with-cuda] (==0.6.1)", "jaxlib (==0.6.1)"]
-cuda12 = ["jax-cuda12-plugin[with-cuda] (==0.6.1)", "jaxlib (==0.6.1)"]
-cuda12-local = ["jax-cuda12-plugin (==0.6.1)", "jaxlib (==0.6.1)"]
+ci = ["jaxlib (==0.6.1)"]
+cuda = ["jax-cuda12-plugin[with-cuda] (==0.6.2)", "jaxlib (==0.6.2)"]
+cuda12 = ["jax-cuda12-plugin[with-cuda] (==0.6.2)", "jaxlib (==0.6.2)"]
+cuda12-local = ["jax-cuda12-plugin (==0.6.2)", "jaxlib (==0.6.2)"]
 k8s = ["kubernetes"]
-minimum-jaxlib = ["jaxlib (==0.6.1)"]
-rocm = ["jax-rocm60-plugin (==0.6.1)", "jaxlib (==0.6.1)"]
-tpu = ["jaxlib (==0.6.1)", "libtpu (==0.0.15.*)", "requests"]
+minimum-jaxlib = ["jaxlib (==0.6.2)"]
+rocm = ["jax-rocm60-plugin (==0.6.2)", "jaxlib (==0.6.2)"]
+tpu = ["jaxlib (==0.6.2)", "libtpu (==0.0.17.*)", "requests"]
+xprof = ["xprof"]
 
 [[package]]
 name = "jaxlib"
-version = "0.6.1"
+version = "0.6.2"
 description = "XLA library for JAX"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "jaxlib-0.6.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:277cc7e9d657d0893a559261277b3eae916ad7fa73e300a629261fb537dca0f1"},
-    {file = "jaxlib-0.6.1-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:8106dc316eb440d07b9d4628a0c8e2acf76da5606742c9f5c33104aaa77b0ac2"},
-    {file = "jaxlib-0.6.1-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:7ae5815ada71b69532ce443a11160a3ed25c67e82a294a0d89af9d4d27429434"},
-    {file = "jaxlib-0.6.1-cp310-cp310-win_amd64.whl", hash = "sha256:3301addee156f55d1f8079f80b314d89b80094740b7d64e5ec6e7ef2e1febbd7"},
-    {file = "jaxlib-0.6.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:02bac5153389f01616516a9fd1dcd6038d23ee50681dac14e4ddbc43ccb3133a"},
-    {file = "jaxlib-0.6.1-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:5a90ee7c59b2c00773026fbf918269c7a8676a6a81a34a03af919f7d7bdce9a8"},
-    {file = "jaxlib-0.6.1-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:11fcc4b1c741a1e0057f2ffa77d5a82bfe7ee97c3864ed88df67493e789b9173"},
-    {file = "jaxlib-0.6.1-cp311-cp311-win_amd64.whl", hash = "sha256:2168217ec37bf951ca33377d3e0953178ba5cade95f194211d9ab2d53dcd2201"},
-    {file = "jaxlib-0.6.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:e14195c23eecd559a61c31027b4172e912e5a50f630320918ffdfae83090ca5a"},
-    {file = "jaxlib-0.6.1-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:b58c29fe747622b70946ea87823ad39202cc83da3d93a5293b432173b738a868"},
-    {file = "jaxlib-0.6.1-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:d039124468565bbf39363b1504c190e6719e6af89a7948dee256f1dee813bb94"},
-    {file = "jaxlib-0.6.1-cp312-cp312-win_amd64.whl", hash = "sha256:76d6f65f3153ffb70e20a76b915d4431823cf70a786d86ba1b76a9c5bf66a0a4"},
-    {file = "jaxlib-0.6.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f4ca75d9d47a2e90099adfede0e9c926b83ef703d349b3289b8c88e861c09e5d"},
-    {file = "jaxlib-0.6.1-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:d0c343c51b1052593edb603ddf58cf7f98812b2951ae6c45bd6e93e3e1f2f621"},
-    {file = "jaxlib-0.6.1-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:e734be70fe3e1fa2a31415362721189d974d10a66b0f5396c84585587d101b15"},
-    {file = "jaxlib-0.6.1-cp313-cp313-win_amd64.whl", hash = "sha256:b12c8842b2dfc0770ca3785e183f7bed3fa1c2596c720591dbfbe29a05045108"},
-    {file = "jaxlib-0.6.1-cp313-cp313t-manylinux2014_aarch64.whl", hash = "sha256:acfe91eb44c29dbbd1f1f65f9bd66e1aef4483f57ad5e3d645129f3ec9ecde2a"},
-    {file = "jaxlib-0.6.1-cp313-cp313t-manylinux2014_x86_64.whl", hash = "sha256:5e4f49113a527bcbac70c9e7074e95d8abfa35c3d67c2fed01f77a7abfd317aa"},
+    {file = "jaxlib-0.6.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:da4601b2b5dc8c23d6afb293eacfb9aec4e1d1871cb2f29c5a151d103e73b0f8"},
+    {file = "jaxlib-0.6.2-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:4205d098ce8efb5f7fe2fe5098bae6036094dc8d8829f5e0e0d7a9b155326336"},
+    {file = "jaxlib-0.6.2-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:c087a0eb6fb7f6f8f54d56f4730328dfde5040dd3b5ddfa810e7c28ea7102b42"},
+    {file = "jaxlib-0.6.2-cp310-cp310-win_amd64.whl", hash = "sha256:153eaa51f778b60851720729d4f461a91edd9ba3932f6f3bc598d4413870038b"},
+    {file = "jaxlib-0.6.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a208ff61c58128d306bb4e5ad0858bd2b0960f2c1c10ad42c548f74a60c0020e"},
+    {file = "jaxlib-0.6.2-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:11eae7e05bc5a79875da36324afb9eddd4baeaef2a0386caf6d4f3720b9aef28"},
+    {file = "jaxlib-0.6.2-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:335d7e3515ce78b52a410136f46aa4a7ea14d0e7d640f34e1e137409554ad0ac"},
+    {file = "jaxlib-0.6.2-cp311-cp311-win_amd64.whl", hash = "sha256:c6815509997d6b05e5c9daa7994b9ad473ce3e8c8a17bdbbcacc3c744f76f7a0"},
+    {file = "jaxlib-0.6.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:34d8a684a8be949dd87dd4acc97101b4106a0dc9ad151ec891da072319a57b99"},
+    {file = "jaxlib-0.6.2-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:87ec2dc9c3ed9ab936eec8535160c5fbd2c849948559f1c5daa75f63fabe5942"},
+    {file = "jaxlib-0.6.2-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:f1dd09b481a93c1d4c750013f467f74194493ba7bd29fcd4d1cec16e3a214f65"},
+    {file = "jaxlib-0.6.2-cp312-cp312-win_amd64.whl", hash = "sha256:921dbd4db214eba19a29ba9f2450d880e08b2b2c7b968f28cc89da3e62366af4"},
+    {file = "jaxlib-0.6.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:bff67b188133ce1f0111c7b163ac321fd646b59ed221ea489063e2e0f85cb967"},
+    {file = "jaxlib-0.6.2-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:70498837caf538bd458ff6858c8bfd404db82015aba8f663670197fa9900ff02"},
+    {file = "jaxlib-0.6.2-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:f94163f14c8fd3ba93ae14b631abacf14cb031bba0b59138869984b4d10375f8"},
+    {file = "jaxlib-0.6.2-cp313-cp313-win_amd64.whl", hash = "sha256:b977604cd36c74b174d25ed685017379468138eb747d865f75e466cb273c801d"},
+    {file = "jaxlib-0.6.2-cp313-cp313t-manylinux2014_aarch64.whl", hash = "sha256:39cf9555f85ae1ce2e2c1a59fc71f2eca4f9867a7cb934fef881ba56b11371d1"},
+    {file = "jaxlib-0.6.2-cp313-cp313t-manylinux2014_x86_64.whl", hash = "sha256:3abd536e44b05fb1657507e3ff1fc3691f99613bae3921ecab9e82f27255f784"},
 ]
 
 [package.dependencies]
-ml_dtypes = ">=0.2.0"
-numpy = ">=1.25"
-scipy = ">=1.11.1"
+ml_dtypes = ">=0.5.0"
+numpy = ">=1.26"
+scipy = ">=1.12"
 
 [[package]]
 name = "jaxtyping"
@@ -1573,14 +1571,14 @@ test = ["flax (>=0.5.3)", "scikit-learn", "scipy (>=1.7.1)"]
 
 [[package]]
 name = "orbax-checkpoint"
-version = "0.11.15"
+version = "0.11.16"
 description = "Orbax Checkpoint"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "orbax_checkpoint-0.11.15-py3-none-any.whl", hash = "sha256:1c6ed79e398588a2fd592ad5e017d9aff8915fe83e8b2d7146daa78576c3bb05"},
-    {file = "orbax_checkpoint-0.11.15.tar.gz", hash = "sha256:b602787715200de22a5b29a493cfa6e09c951697bee5e3df36509b62f01c87d8"},
+    {file = "orbax_checkpoint-0.11.16-py3-none-any.whl", hash = "sha256:5891409943a856d22ce9ec2a418202c3789c46282601dd86d3e4859af91b1db3"},
+    {file = "orbax_checkpoint-0.11.16.tar.gz", hash = "sha256:f02d80059530c74a220201e19eac275ddb7394de8d939e69fac0283a37fcc265"},
 ]
 
 [package.dependencies]
@@ -1858,14 +1856,14 @@ dev = ["build", "flake8", "mypy", "pytest", "twine"]
 
 [[package]]
 name = "pytest"
-version = "8.4.0"
+version = "8.4.1"
 description = "pytest: simple powerful testing with Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "pytest-8.4.0-py3-none-any.whl", hash = "sha256:f40f825768ad76c0977cbacdf1fd37c6f7a468e460ea6a0636078f8972d4517e"},
-    {file = "pytest-8.4.0.tar.gz", hash = "sha256:14d920b48472ea0dbf68e45b96cd1ffda4705f33307dcc86c676c1b5104838a6"},
+    {file = "pytest-8.4.1-py3-none-any.whl", hash = "sha256:539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"},
+    {file = "pytest-8.4.1.tar.gz", hash = "sha256:7c67fd69174877359ed9371ec3af8a3d2b04741818c51e5e99cc1742251fa93c"},
 ]
 
 [package.dependencies]
@@ -2566,14 +2564,14 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 
 [[package]]
 name = "wadler-lindig"
-version = "0.1.6"
+version = "0.1.7"
 description = "A Wadler–Lindig pretty-printer for Python."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "wadler_lindig-0.1.6-py3-none-any.whl", hash = "sha256:d707f63994c7d3e1e125e7fb7e196f4adb6f80f4a11beb955c6da937754026a3"},
-    {file = "wadler_lindig-0.1.6.tar.gz", hash = "sha256:8b6adad9718291a7d82fb088a596b93659ce2346321ca76819810affbc66102b"},
+    {file = "wadler_lindig-0.1.7-py3-none-any.whl", hash = "sha256:e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953"},
+    {file = "wadler_lindig-0.1.7.tar.gz", hash = "sha256:81d14d3fe77d441acf3ebd7f4aefac20c74128bf460e84b512806dccf7b2cd55"},
 ]
 
 [package.extras]
