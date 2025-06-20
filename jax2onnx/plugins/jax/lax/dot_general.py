@@ -30,7 +30,14 @@ if TYPE_CHECKING:
                 x1, x2, (((1,), (0,)), ((), ()))
             ),
             "input_shapes": [(3, 3), (3, 3)],
-        }
+        },
+        {
+            "testcase": "dot_general_lhs1_rhs1",
+            "callable": lambda x1, x2: jax.lax.dot_general(
+                x1, x2, (((1,), (1,)), ((), ()))
+            ),
+            "input_shapes": [(3, 3), (3, 3)],
+        },
     ],
 )
 class DotGeneralPlugin(PrimitiveLeafPlugin):
@@ -52,21 +59,47 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             "dimension_numbers"
         ]
 
-        # This plugin currently only handles:
-        #   Contract: last dim of lhs with first dim of rhs
-        #   No batching
-        if lhs_contract != (1,) or rhs_contract != (0,) or lhs_batch or rhs_batch:
+        if lhs_batch or rhs_batch:
+            raise NotImplementedError(
+                f"dot_general with batching not supported: contract={params['dimension_numbers']}"
+            )
+
+        # Standard matrix multiplication
+        if lhs_contract == (1,) and rhs_contract == (0,):
+            # MatMul directly supports (N, K) @ (K, M) => (N, M)
+            matmul_node = helper.make_node(
+                "MatMul",
+                inputs=[lhs_name, rhs_name],
+                outputs=[out_name],
+                name=s.get_unique_name("dot_general_matmul"),
+            )
+            s.add_node(matmul_node)
+            s.add_shape_info(out_name, out_shape)
+
+        # Contraction of the last dimension of both inputs
+        elif lhs_contract == (1,) and rhs_contract == (1,):
+            # Transpose the second input to match MatMul's expectation
+            transposed_rhs_name = s.get_unique_name("transposed_rhs")
+            transpose_node = helper.make_node(
+                "Transpose",
+                inputs=[rhs_name],
+                outputs=[transposed_rhs_name],
+                perm=[1, 0],
+                name=s.get_unique_name("transpose_rhs"),
+            )
+            s.add_node(transpose_node)
+            transposed_shape = (rhs_var.aval.shape[1], rhs_var.aval.shape[0])
+            s.add_shape_info(transposed_rhs_name, transposed_shape)
+
+            matmul_node = helper.make_node(
+                "MatMul",
+                inputs=[lhs_name, transposed_rhs_name],
+                outputs=[out_name],
+                name=s.get_unique_name("dot_general_matmul"),
+            )
+            s.add_node(matmul_node)
+            s.add_shape_info(out_name, out_shape)
+        else:
             raise NotImplementedError(
                 f"dot_general config not supported: contract={params['dimension_numbers']}"
             )
-
-        # MatMul directly supports (N, K) @ (K, M) => (N, M)
-        # So if shapes are fine, no need to reshape
-        matmul_node = helper.make_node(
-            "MatMul",
-            inputs=[lhs_name, rhs_name],
-            outputs=[out_name],
-            name=s.get_unique_name("dot_general_matmul"),
-        )
-        s.add_node(matmul_node)
-        s.add_shape_info(out_name, out_shape)
