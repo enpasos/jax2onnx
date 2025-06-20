@@ -64,7 +64,7 @@ register_example(
     description="Cutting the image into patches and linearly embedding them.",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
     testcases=[
         {
@@ -152,7 +152,7 @@ register_example(
     description="Convolutional Token Embedding for MNIST with hierarchical downsampling.",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=[
         "flax.nnx.Conv",
         "flax.nnx.LayerNorm",
@@ -200,7 +200,7 @@ register_example(
     description="MLP in Transformer",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
     testcases=[
         {
@@ -280,7 +280,7 @@ register_example(
     description="Transformer from 'Attention Is All You Need.'",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=[
         "flax.nnx.MultiHeadAttention",
         "flax.nnx.LayerNorm",
@@ -342,7 +342,7 @@ register_example(
     description="Stack of Transformer blocks",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.1.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["TransformerBlock"],
     testcases=[
         {
@@ -373,7 +373,7 @@ register_example(
     component="GetTokenFlatten",
     description="Get the CLS token from the input embedding",
     since="v0.4.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=[],
     testcases=[
         {
@@ -408,7 +408,7 @@ register_example(
     component="ClassificationHeadFlatten",
     description="Classification head for Vision Transformer",
     since="v0.4.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["flax.nnx.LayerNorm", "flax.nnx.Linear", "flax.nnx.log_softmax"],
     testcases=[
         {
@@ -448,7 +448,7 @@ register_example(
     component="ConcatClsTokenFlatten",
     description="Concatenate CLS token to the input embedding",
     since="v0.4.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["flax.nnx.Param", "jax.numpy.tile", "jax.numpy.concatenate"],
     testcases=[
         {
@@ -480,7 +480,7 @@ register_example(
     component="PositionalEmbeddingFlatten",
     description="Add positional embedding to the input embedding",
     since="v0.4.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=["flax.nnx.Param"],
     testcases=[
         {
@@ -596,7 +596,7 @@ register_example(
     description="A Vision Transformer (ViT) model for MNIST with configurable embedding type.",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.2.0",
-    context="examples.nnx",
+    context="examples.vit",
     children=[
         "PatchEmbedding",
         "ConvEmbedding",
