@@ -48,7 +48,7 @@ register_example(
     component="CausalSelfAttention",
     description="A causal self-attention module.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["MultiHeadAttention"],
     testcases=[
@@ -88,7 +88,7 @@ register_example(
     component="GPT_MLP",
     description="An MLP block with GELU activation from nanoGPT.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["nnx.Linear", "nnx.gelu", "nnx.Dropout"],
     testcases=[
@@ -139,13 +139,141 @@ register_example(
     component="Block",
     description="A transformer block combining attention and MLP.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["CausalSelfAttention", "GPT_MLP", "nnx.LayerNorm"],
     testcases=[
         {
             "testcase": "gpt_block",
             "callable": Block(
+                n_head=12,
+                n_embd=768,
+                block_size=1024,
+                dropout=0.0,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 1024, 768)],
+            "input_params": {"deterministic": True},
+        }
+    ],
+)
+
+
+@onnx_function
+class TokenEmbedding(nnx.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        n_embd: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.wte = nnx.Embed(vocab_size, n_embd, rngs=rngs)
+
+    def __call__(self, idx: jax.Array) -> jax.Array:
+        return self.wte(idx)
+
+
+register_example(
+    component="TokenEmbedding",
+    description="A token embedding layer using nnx.Embed.",
+    source="https://github.com/karpathy/nanoGPT",
+    since="v0.7.0",
+    context="examples.gpt",
+    children=["nnx.Embed"],
+    testcases=[
+        {
+            "testcase": "token_embedding",
+            "callable": TokenEmbedding(
+                vocab_size=3144,
+                n_embd=768,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 1024)],
+            "input_dtypes": [jnp.int32],
+        }
+    ],
+)
+
+
+@onnx_function
+class PositionEmbedding(nnx.Module):
+    def __init__(
+        self,
+        block_size: int,
+        n_embd: int,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
+
+    def __call__(self, idx: jax.Array) -> jax.Array:
+        return self.wpe(idx)
+
+
+register_example(
+    component="PositionEmbedding",
+    description="A positional embedding layer using nnx.Embed.",
+    source="https://github.com/karpathy/nanoGPT",
+    since="v0.7.0",
+    context="examples.gpt",
+    children=["nnx.Embed"],
+    testcases=[
+        {
+            "testcase": "position_embedding",
+            "callable": PositionEmbedding(
+                block_size=1024,
+                n_embd=768,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 1024)],
+            "input_dtypes": [jnp.int32],
+        }
+    ],
+)
+
+
+@onnx_function
+class TransformerStack(nnx.Module):
+    def __init__(
+        self,
+        n_layer: int,
+        n_head: int,
+        n_embd: int,
+        block_size: int,
+        dropout: float,
+        *,
+        rngs: nnx.Rngs,
+    ):
+        self.blocks = [
+            Block(
+                n_head=n_head,
+                n_embd=n_embd,
+                block_size=block_size,
+                dropout=dropout,
+                rngs=rngs,
+            )
+            for _ in range(n_layer)
+        ]
+
+    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+        for block in self.blocks:
+            x = block(x, deterministic=deterministic)
+        return x
+
+
+register_example(
+    component="TransformerStack",
+    description="A stack of transformer blocks.",
+    source="https://github.com/karpathy/nanoGPT",
+    since="v0.7.0",
+    context="examples.gpt",
+    children=["Block"],
+    testcases=[
+        {
+            "testcase": "transformer_stack",
+            "callable": TransformerStack(
+                n_layer=2,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
@@ -173,19 +301,18 @@ class GPT(nnx.Module):
         rngs: nnx.Rngs,
     ):
         super().__init__()
-        self.wte = nnx.Embed(vocab_size, n_embd, rngs=rngs)
-        self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
+        self.wte = TokenEmbedding(vocab_size, n_embd, rngs=rngs)
+        self.wpe = PositionEmbedding(block_size, n_embd, rngs=rngs)
         self.drop = nnx.Dropout(dropout)
-        self.h = [
-            Block(
-                n_head=n_head,
-                n_embd=n_embd,
-                block_size=block_size,
-                dropout=dropout,
-                rngs=rngs,
-            )
-            for _ in range(n_layer)
-        ]
+        self.stack = TransformerStack(
+            n_layer=n_layer,
+            n_head=n_head,
+            n_embd=n_embd,
+            block_size=block_size,
+            dropout=dropout,
+            rngs=rngs,
+        )
+
         self.ln_f = nnx.LayerNorm(n_embd, rngs=rngs)
         self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False, rngs=rngs)
 
@@ -196,8 +323,7 @@ class GPT(nnx.Module):
         tok_emb = self.wte(idx)
         pos_emb = self.wpe(pos)
         x = self.drop(tok_emb + pos_emb, deterministic=deterministic)
-        for block in self.h:
-            x = block(x, deterministic=deterministic)
+        x = self.stack(x=x, deterministic=deterministic)
         x = self.ln_f(x)
         logits = self.lm_head(x)
         return logits
@@ -207,9 +333,16 @@ register_example(
     component="GPT",
     description="A simple GPT model that reuses nnx.MultiHeadAttention.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
-    children=["Block"],
+    children=[
+        "TokenEmbedding",
+        "PositionEmbedding",
+        "TransformerStack",
+        "nnx.LayerNorm",
+        "nnx.Linear",
+        "nnx.Dropout",
+    ],
     testcases=[
         {
             "testcase": "gpt",
