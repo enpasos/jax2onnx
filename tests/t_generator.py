@@ -514,6 +514,23 @@ def make_test_function(tp: dict[str, Any]):
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
         elif input_shapes_from_testcase and input_dtypes_from_testcase:
+            # *** THE FIX IS HERE ***
+            # For numerical validation with symbolic shapes, substitute symbolic
+            # dimensions with concrete values. A common practice is to use a
+            # small integer like 2.
+            symbol_map = {}
+            concrete_shapes = []
+            for shape_tuple in input_shapes_from_testcase:
+                concrete_shape_list = []
+                for dim in shape_tuple:
+                    if isinstance(dim, str):
+                        if dim not in symbol_map:
+                            # Assign a concrete value for the new symbolic dimension
+                            symbol_map[dim] = 2
+                        concrete_shape_list.append(symbol_map[dim])
+                    else:
+                        concrete_shape_list.append(dim)
+                concrete_shapes.append(tuple(concrete_shape_list))
 
             def _rand(shape, dtype):
                 if np.issubdtype(dtype, np.floating):
@@ -535,7 +552,8 @@ def make_test_function(tp: dict[str, Any]):
             xs_for_num_check = [
                 _rand(tuple(shp), dt)
                 for shp, dt in zip(
-                    input_shapes_from_testcase, input_dtypes_from_testcase
+                    concrete_shapes,
+                    input_dtypes_from_testcase,  # Use concrete_shapes now
                 )
             ]
 
@@ -552,7 +570,7 @@ def make_test_function(tp: dict[str, Any]):
             )
             assert (
                 passed_numerical
-            ), f"Numerical check failed for {testcase_name} (enable_double_precision={current_enable_double_precision}): {validation_message}"
+            ), f"Numerical check failed for {testcase_name}: {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
         else:
             logger.info(

@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins/flax/nnx/embed.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Any
 
 import jax.numpy as jnp
 from flax import nnx
@@ -42,13 +42,15 @@ nnx.embed_p.multiple_results = False
         {
             "testcase": "positional_embedding",
             "callable": nnx.Embed(num_embeddings=64, features=48, rngs=nnx.Rngs(0)),
-            "input_shapes": [(1, 64)],
+            "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
         },
     ],
 )
 class EmbedPlugin(PrimitiveLeafPlugin):
     """Plugin for converting flax.nnx.Embed to ONNX."""
+
+    _ORIG_CALL: Callable[..., Any] | None = None
 
     @staticmethod
     def abstract_eval(indices_aval, embedding_aval):
@@ -72,16 +74,23 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         indices_var, embedding_var = node_inputs
         (output_var,) = node_outputs
 
-        # --- FIX STARTS HERE ---
-        # The jaxpr provides the original dtype. If it's a floating type,
-        # we must use the converter's working_dtype to ensure precision
-        # (e.g., float32 vs float64) is handled correctly.
+        # Determine the correct output dtype based on the converter's settings
         original_dtype = embedding_var.aval.dtype
         output_dtype = original_dtype
         if jnp.issubdtype(original_dtype, jnp.floating):
-            output_dtype = s.working_dtype
-        # --- FIX ENDS HERE ---
+            if (
+                hasattr(s.builder, "enable_double_precision")
+                and s.builder.enable_double_precision
+            ):
+                output_dtype = jnp.float64
 
+        # *** THE FIX IS HERE ***
+        # Update the output variable's abstract value (aval) with the correct dtype.
+        # The main converter loop will use this updated aval to create the
+        # final ONNX ValueInfoProto, preventing the type mismatch.
+        output_var.aval = core.ShapedArray(output_var.aval.shape, output_dtype)
+
+        # Now, create the ONNX node.
         indices_name = s.get_name(indices_var)
         embedding_name = s.get_name(embedding_var)
         output_name = s.get_name(output_var)
@@ -94,11 +103,32 @@ class EmbedPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("embed_gather"),
         )
         s.add_node(gather_node)
+        # We no longer need to call s.add_shape_info here, as the main loop handles it.
 
-        # Update the graph's output metadata with the correct shape and dtype
-        batch_shape = indices_var.aval.shape
-        feat = embedding_var.aval.shape[-1]
-        s.add_shape_info(output_name, batch_shape + (feat,), output_dtype)
+    @staticmethod
+    def _embed_binding(embedding_table, indices):
+        """Binds inputs to the embed primitive."""
+        return nnx.embed_p.bind(indices, embedding_table)
+
+    @staticmethod
+    def get_monkey_patch(orig_fn: Callable):
+        """Returns a patched version of Embed's __call__ method."""
+        EmbedPlugin._ORIG_CALL = orig_fn
+
+        def patched_embed_call(self, inputs):
+            embedding = self.embedding.value
+            return EmbedPlugin._embed_binding(embedding, inputs)
+
+        return patched_embed_call
+
+    @staticmethod
+    def patch_info():
+        """Provides patching information for nnx.Embed."""
+        return {
+            "patch_targets": [nnx.Embed],
+            "patch_function": EmbedPlugin.get_monkey_patch,
+            "target_attribute": "__call__",
+        }
 
 
 # Register the abstract evaluation rule with the primitive.
