@@ -49,11 +49,17 @@ eqx.identity_p.multiple_results = False
             "testcase": "eqx_identity_static",
             "callable": eqx.nn.Identity(),
             "input_shapes": [(10, 20)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Identity" for node in m.graph.node)
+            ),
         },
         {
             "testcase": "eqx_identity_symbolic_batch",
             "callable": eqx.nn.Identity(),
             "input_shapes": [("B", 32)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Identity" for node in m.graph.node)
+            ),
         },
     ],
 )

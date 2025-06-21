@@ -35,7 +35,7 @@ register_example(
     source="https://github.com/patrick-kidger/equinox",
     since="v0.7.0",
     context="examples.eqx",
-    children=["eqx.Linear", "eqx.Identity"],
+    children=["eqx.nn.Linear", "eqx.nn.Identity"],
     testcases=[
         {
             "testcase": "simple_mlp",
