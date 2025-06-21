@@ -55,7 +55,7 @@ def find_empty_name_in_model(model_path):
                     print("  ✅ No empty names found in this function's signature.")
 
     except Exception as e:
-        print(f"\n❌ An error occurred while trying to load or parse the ONNX model.")
+        print("\n❌ An error occurred while trying to load or parse the ONNX model.")
         print(f"   Error: {e}")
         print(
             "   This can happen if the model is severely corrupted, but the error message you saw"

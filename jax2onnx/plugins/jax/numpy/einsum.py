@@ -6,7 +6,6 @@ from typing import (
     Sequence,
     TYPE_CHECKING,
     Dict,
-    Union,
     Tuple,
 )
 import importlib
@@ -15,8 +14,7 @@ import numpy as np
 from jax import core, numpy as jnp
 from jax.interpreters import batching
 from jax.extend.core import Primitive
-from jax._src.export.shape_poly import _DimExpr as DimExpr
-from onnx import helper, mapping
+from onnx import helper
 from jax import eval_shape, ShapeDtypeStruct
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive

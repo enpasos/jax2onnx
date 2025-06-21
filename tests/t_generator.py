@@ -486,8 +486,8 @@ def make_test_function(tp: dict[str, Any]):
                 logger.info(
                     f"Running numerical check for '{testcase_name}' (enable_double_precision={current_enable_double_precision})..."
                 )
-                rtol = 1e-7 if current_enable_double_precision else 1e-5
-                atol = 1e-7 if current_enable_double_precision else 1e-5
+                # Choose rtol/atol based on precision and testcase overrides
+                rtol, atol = _get_rtol_atol(tp, current_enable_double_precision)
 
                 xs_for_num_check = []
                 for val_from_tc in input_values_from_testcase:
@@ -557,8 +557,14 @@ def make_test_function(tp: dict[str, Any]):
                 )
             ]
 
-            rtol = 1e-7 if current_enable_double_precision else 1e-5
-            atol = 1e-7 if current_enable_double_precision else 1e-5
+            if current_enable_double_precision:
+                default_rtol, default_atol = 1e-7, 1e-7
+                rtol = tp.get("rtol_f64", tp.get("rtol", default_rtol))
+                atol = tp.get("atol_f64", tp.get("atol", default_atol))
+            else:
+                default_rtol, default_atol = 1e-5, 1e-5
+                rtol = tp.get("rtol_f32", tp.get("rtol", default_rtol))
+                atol = tp.get("atol_f32", tp.get("atol", default_atol))
 
             passed_numerical, validation_message = allclose(
                 callable_obj,
@@ -1198,6 +1204,18 @@ def generate_all_tests():
     plugin_grouping_data = get_plugin_grouping(reset=True)
     create_minimal_test_files(plugin_grouping_data, TESTS_DIR)
     logger.info("Test file generation complete.")
+
+
+def _get_rtol_atol(tp, current_enable_double_precision):
+    if current_enable_double_precision:
+        default_rtol, default_atol = 1e-7, 1e-7
+        rtol = tp.get("rtol_f64", tp.get("rtol", default_rtol))
+        atol = tp.get("atol_f64", tp.get("atol", default_atol))
+    else:
+        default_rtol, default_atol = 1e-5, 1e-5
+        rtol = tp.get("rtol_f32", tp.get("rtol", default_rtol))
+        atol = tp.get("atol_f32", tp.get("atol", default_atol))
+    return rtol, atol
 
 
 if __name__ == "__main__":

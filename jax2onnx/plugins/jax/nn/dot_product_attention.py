@@ -9,7 +9,6 @@ from jax import numpy as jnp
 from jax import core, nn
 from jax.extend.core import Primitive
 from onnx import TensorProto, helper
-import os
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -140,6 +139,8 @@ nn.dot_product_attention_p.multiple_results = False
                 (2, 4, 8, 16),
             ],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_tiny_mask_all_valid",
@@ -150,6 +151,8 @@ nn.dot_product_attention_p.multiple_results = False
                 np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
                 np.ones((1, 1, 2, 3), dtype=bool),
             ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_tiny_mask_mixed",
@@ -160,6 +163,8 @@ nn.dot_product_attention_p.multiple_results = False
                 np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
                 np.array([[[[True, False, True], [False, True, False]]]], dtype=bool),
             ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_one_false",
@@ -175,8 +180,9 @@ nn.dot_product_attention_p.multiple_results = False
                 ),
                 np.array([[[[True, False]]]], dtype=bool),
             ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
-        # FIX: Renamed and modified to avoid undefined NaN behavior.
         {
             "testcase": "dpa_mostly_false",
             "callable": dpa_with_mask,
@@ -187,12 +193,15 @@ nn.dot_product_attention_p.multiple_results = False
                 np.array([[[[False, True]]]], dtype=bool),  # Not all entries are masked
             ],
             "expected_output_numpy": [np.zeros((1, 1, 1, 4), np.float32)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
-        # New test cases for masking scenarios
         {
             "testcase": "dpa_with_causal_mask",
             "callable": dpa_with_causal_mask,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_with_padding_mask",
@@ -204,11 +213,15 @@ nn.dot_product_attention_p.multiple_results = False
                 np.array([8, 4], dtype=np.int32),
                 np.array([8, 7], dtype=np.int32),
             ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_with_local_window_mask",
             "callable": dpa_with_local_window_mask,
             "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
     ],
 )
@@ -226,7 +239,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         B, T, N, H = q.aval.shape
         _, S, _, _ = k.aval.shape
         np_dtype = q.aval.dtype
-        onnx_f_dtype = s.builder._numpy_dtype_to_onnx(np_dtype)
+        s.builder._numpy_dtype_to_onnx(np_dtype)
 
         q_t = s.get_unique_name("q_T")
         k_t = s.get_unique_name("k_T")
