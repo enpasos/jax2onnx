@@ -5,7 +5,7 @@ import numpy as np
 from flax import nnx
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
-from onnx import TensorProto, helper
+from onnx import helper
 from jax.interpreters import batching
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
