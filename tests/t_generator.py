@@ -314,33 +314,22 @@ def make_test_function(tp: dict[str, Any]):
 
         callable_obj = tp["callable"]
         input_values_from_testcase = tp.get("input_values")
-        # input_shapes_from_testcase is List[Tuple[Union[str, int], ...]]
-        # e.g. [("B", 28, 28, 3)] or [(2, 28, 28, 1)]
         input_shapes_from_testcase = tp.get("input_shapes")
         input_dtypes_from_testcase = tp.get("input_dtypes")
-        expected_output_dtypes_from_testcase = tp.get(
-            "expected_output_dtypes"
-        )  # Moved this line up
+        expected_output_dtypes_from_testcase = tp.get("expected_output_dtypes")
 
-        # Get the float64 setting for this specific test variant
         current_enable_double_precision = tp.get(
             "_enable_double_precision_test_setting", False
         )
-        # Determine default JAX dtype based on the flag for tracing if shapes are given without dtypes
 
-        # processed_input_specs_for_to_onnx will be List[Union[ShapeDtypeStruct, Tuple[Shape, Dtype]]]
-        # to_onnx expects List[Tuple[Shape, Dtype]] or List[ShapeDtypeStruct]
         processed_input_specs_for_to_onnx: List[Any]
 
         if input_shapes_from_testcase is not None:
-            # -------- Shapes given ------------------------------------------------
             processed_input_specs_for_to_onnx = []
             if input_dtypes_from_testcase:
-                # ---- NEW: honour the dtype list ----------------------------------
                 if len(input_dtypes_from_testcase) != len(input_shapes_from_testcase):
                     raise ValueError(
-                        f"Testcase '{tp['testcase']}' – "
-                        "`input_dtypes` length must match `input_shapes`."
+                        f"Testcase '{tp['testcase']}': `input_dtypes` length must match `input_shapes`."
                     )
                 for shape_spec, dt in zip(
                     input_shapes_from_testcase, input_dtypes_from_testcase
@@ -358,12 +347,9 @@ def make_test_function(tp: dict[str, Any]):
                         jax.ShapeDtypeStruct(current_shape_tuple, dt)
                     )
                 logger.info(
-                    f"Test '{tp['testcase']}': Using ShapeDtypeStructs from "
-                    "`input_shapes` + `input_dtypes`: "
-                    f"{processed_input_specs_for_to_onnx}."
+                    f"Test '{tp['testcase']}': Using ShapeDtypeStructs from `input_shapes` + `input_dtypes`: {processed_input_specs_for_to_onnx}."
                 )
             else:
-                # ---- legacy path: only shapes, no dtypes -------------------------
                 for shape_spec in input_shapes_from_testcase:
                     current_shape_tuple = (
                         tuple(shape_spec)
@@ -372,16 +358,12 @@ def make_test_function(tp: dict[str, Any]):
                     )
                     processed_input_specs_for_to_onnx.append(current_shape_tuple)
                 logger.info(
-                    f"Test '{tp['testcase']}': Using explicit input_shapes from "
-                    "testcase (no dtype list supplied): "
-                    f"{processed_input_specs_for_to_onnx}."
+                    f"Test '{tp['testcase']}': Using explicit input_shapes from testcase (no dtype list supplied): {processed_input_specs_for_to_onnx}."
                 )
         elif input_values_from_testcase is not None:
-            shapes_from_values = []  # This list will hold ShapeDtypeStructs
+            shapes_from_values = []
             for val in input_values_from_testcase:
                 np_array = np.array(val)
-                # For float64 test variant, if original was float, ensure it's float64 for tracing
-                # otherwise, preserve the original dtype (bool, int32, etc.)
                 if current_enable_double_precision and np.issubdtype(
                     np_array.dtype, np.floating
                 ):
@@ -389,16 +371,10 @@ def make_test_function(tp: dict[str, Any]):
                         jax.ShapeDtypeStruct(np_array.shape, jnp.float64)
                     )
                 else:
-                    # For f32 or non-float types (bool, int), use original dtype
                     shapes_from_values.append(
                         jax.ShapeDtypeStruct(np_array.shape, np_array.dtype)
                     )
-
-            # ****** THE FIX IS HERE ******
-            # Pass the list of ShapeDtypeStructs directly
             processed_input_specs_for_to_onnx = shapes_from_values
-            # Previously was: [s.shape for s in shapes_from_values]
-
             logger.info(
                 f"Test '{tp['testcase']}': Using ShapeDtypeStructs for to_onnx from input_values: {processed_input_specs_for_to_onnx}. "
                 f"enable_double_precision={current_enable_double_precision}."
@@ -406,14 +382,13 @@ def make_test_function(tp: dict[str, Any]):
         else:
             sig = inspect.signature(callable_obj)
             if not sig.parameters:
-                processed_input_specs_for_to_onnx = []  # Empty list of shapes
+                processed_input_specs_for_to_onnx = []
                 logger.info(
                     f"Test '{tp['testcase']}': Callable takes no arguments. Using empty input_specs for to_onnx."
                 )
             else:
                 raise ValueError(
-                    f"Testcase '{tp['testcase']}' (for a callable that expects arguments) "
-                    "must provide 'input_shapes' (for symbolic/typed tracing) or 'input_values' (for concrete tracing)."
+                    f"Testcase '{tp['testcase']}' must provide 'input_shapes' or 'input_values'."
                 )
 
         input_params_from_testcase = tp.get("input_params", {})
@@ -423,12 +398,8 @@ def make_test_function(tp: dict[str, Any]):
         onnx_input_names_from_testcase = tp.get("input_names")
 
         context_path = tp.get("context", "default.unknown").split(".")
-        opset_version = tp.get(
-            "opset_version", 21
-        )  # Ensure this is a reasonable default
+        opset_version = tp.get("opset_version", 21)
 
-        # Ensure model_path is correctly formed
-        # Example: docs/onnx/primitives/nnx/conv_basic_bias_f64.onnx
         model_folder_path = os.path.join("docs", "onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
         model_path = os.path.join(model_folder_path, f"{test_case_name_safe}.onnx")
@@ -438,9 +409,6 @@ def make_test_function(tp: dict[str, Any]):
             f"enable_double_precision: {current_enable_double_precision}"
         )
         try:
-            # to_onnx expects `inputs` to be a list of shape tuples.
-            # `default_dtype` in `to_onnx` will be combined with `enable_double_precision`
-            # to determine the `working_dtype` for these shapes if dtypes aren't part of `processed_input_specs_for_to_onnx`.
             onnx_model = to_onnx(
                 callable_obj,
                 processed_input_specs_for_to_onnx,
@@ -456,20 +424,16 @@ def make_test_function(tp: dict[str, Any]):
             )
             raise
 
-        # --- ADDED GENERIC POST-CHECK LOGIC ---
         post_check = tp.get("post_check_onnx_graph")
         if post_check:
             assert post_check(
                 onnx_model
             ), f"Post-conversion graph check failed for '{testcase_name}'."
-        # --- END OF ADDED LOGIC ---
 
         onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
-        # --- Numerical Validation ---
         if input_values_from_testcase:
-            # Skip numerical validation when constants are lifted into graph inputs
             initializers = {init.name for init in onnx_model.graph.initializer}
             runnable_graph_input_names = [
                 inp.name
@@ -478,22 +442,18 @@ def make_test_function(tp: dict[str, Any]):
             ]
             if len(input_values_from_testcase) != len(runnable_graph_input_names):
                 logger.warning(
-                    f"Skipping numerical validation for '{testcase_name}' due to input count mismatch. "
-                    f"Testcase has {len(input_values_from_testcase)} inputs, but ONNX model has {len(runnable_graph_input_names)} runnable inputs. "
-                    "This can happen when `pjit` lifts constants to graph inputs."
+                    f"Skipping numerical validation for '{testcase_name}' due to input count mismatch."
                 )
             else:
                 logger.info(
                     f"Running numerical check for '{testcase_name}' (enable_double_precision={current_enable_double_precision})..."
                 )
-                # Choose rtol/atol based on precision and testcase overrides
                 rtol, atol = _get_rtol_atol(tp, current_enable_double_precision)
 
                 xs_for_num_check = []
                 for val_from_tc in input_values_from_testcase:
                     arr = np.asarray(val_from_tc)
                     dt = arr.dtype
-                    # down-/up-cast based on precision flag
                     if not current_enable_double_precision:
                         if dt == np.float64:
                             dt = np.float32
@@ -514,28 +474,17 @@ def make_test_function(tp: dict[str, Any]):
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
         elif input_shapes_from_testcase and input_dtypes_from_testcase:
-            # *** THE FIX IS HERE ***
-            # For numerical validation with symbolic shapes, substitute symbolic
-            # dimensions with concrete values. A common practice is to use a
-            # small integer like 2.
             symbol_map = {}
             concrete_shapes = []
             for shape_tuple in input_shapes_from_testcase:
-                concrete_shape_list = []
-                for dim in shape_tuple:
-                    if isinstance(dim, str):
-                        if dim not in symbol_map:
-                            # Assign a concrete value for the new symbolic dimension
-                            symbol_map[dim] = 2
-                        concrete_shape_list.append(symbol_map[dim])
-                    else:
-                        concrete_shape_list.append(dim)
+                concrete_shape_list = [
+                    symbol_map.setdefault(dim, 2) if isinstance(dim, str) else dim
+                    for dim in shape_tuple
+                ]
                 concrete_shapes.append(tuple(concrete_shape_list))
 
             def _rand(shape, dtype):
                 if np.issubdtype(dtype, np.floating):
-                    # np.random.randn(*shape) → Python float when shape == ()
-                    # Wrap in np.asarray so the result is always a NumPy array.
                     return np.asarray(np.random.randn(*shape)).astype(
                         jnp.float64
                         if current_enable_double_precision
@@ -543,7 +492,7 @@ def make_test_function(tp: dict[str, Any]):
                         else dtype
                     )
                 elif np.issubdtype(dtype, np.integer):
-                    return np.zeros(shape, dtype=dtype)  # keeps indices in range
+                    return np.zeros(shape, dtype=dtype)
                 elif dtype == np.bool_:
                     return np.random.rand(*shape) > 0.5
                 else:
@@ -551,20 +500,31 @@ def make_test_function(tp: dict[str, Any]):
 
             xs_for_num_check = [
                 _rand(tuple(shp), dt)
-                for shp, dt in zip(
-                    concrete_shapes,
-                    input_dtypes_from_testcase,  # Use concrete_shapes now
-                )
+                for shp, dt in zip(concrete_shapes, input_dtypes_from_testcase)
             ]
 
-            if current_enable_double_precision:
-                default_rtol, default_atol = 1e-7, 1e-7
-                rtol = tp.get("rtol_f64", tp.get("rtol", default_rtol))
-                atol = tp.get("atol_f64", tp.get("atol", default_atol))
-            else:
-                default_rtol, default_atol = 1e-5, 1e-5
-                rtol = tp.get("rtol_f32", tp.get("rtol", default_rtol))
-                atol = tp.get("atol_f32", tp.get("atol", default_atol))
+            # FIX FOR NaN in DPA MASK: Ensure no all-False rows in attention masks.
+            if "dpa" in testcase_name and "mask" in testcase_name:
+                mask_indices = [
+                    i
+                    for i, dt in enumerate(input_dtypes_from_testcase)
+                    if dt == np.bool_
+                ]
+                for i in mask_indices:
+                    mask = xs_for_num_check[i]
+                    # Check for any rows along the last axis that are all False.
+                    all_false_rows = ~np.any(mask, axis=-1, keepdims=True)
+                    if np.any(all_false_rows):
+                        # Create a fixup mask that is True only at the first element.
+                        fixup_mask = np.zeros_like(mask, dtype=bool)
+                        fixup_mask[..., 0] = True
+                        # Apply the fixup where the original row was all False.
+                        xs_for_num_check[i] = np.where(all_false_rows, fixup_mask, mask)
+                        logger.warning(
+                            f"Modified random attention mask for test '{testcase_name}' to prevent all-False rows that can cause NaNs."
+                        )
+
+            rtol, atol = _get_rtol_atol(tp, current_enable_double_precision)
 
             passed_numerical, validation_message = allclose(
                 callable_obj,
@@ -580,10 +540,10 @@ def make_test_function(tp: dict[str, Any]):
             logger.info(f"Numerical check passed for {testcase_name}.")
         else:
             logger.info(
-                f"No concrete inputs available for '{testcase_name}', "
-                "skipping numerical validation."
+                f"No concrete inputs available for '{testcase_name}', skipping numerical validation."
             )
 
+        # ... (rest of the function is unchanged)
         # --- Function Count Check ---
         if expected_num_funcs is not None:
             num_found_funcs = len(list(onnx_model.functions))
@@ -593,61 +553,36 @@ def make_test_function(tp: dict[str, Any]):
             logger.info(f"Found expected {num_found_funcs} ONNX functions.")
 
         # --- DType Validation for ONNX model outputs ---
-        # This check is crucial for the enable_double_precision flag.
-        # We expect float outputs to be DOUBLE if current_enable_double_precision is True.
-        if input_values_from_testcase:  # Only if we can infer JAX output dtypes
-            # Determine expected JAX output dtypes by evaluating shape (and dtype) of JAX function
-            # Ensure inputs to JAX for this eval_shape match the float64 setting
+        if input_values_from_testcase:
             jax_eval_inputs_sds = []
-            for (
-                val
-            ) in (
-                input_values_from_testcase
-            ):  # These are already potentially np.float64 for f64 tests
+            for val in input_values_from_testcase:
                 np_array_val = np.array(val)
-                # If current_enable_double_precision is true and it's a float, use jnp.float64 for eval_shape
                 if current_enable_double_precision and np.issubdtype(
                     np_array_val.dtype, np.floating
                 ):
                     jax_eval_inputs_sds.append(
                         jax.ShapeDtypeStruct(np_array_val.shape, jnp.float64)
                     )
-                else:  # Otherwise, use the dtype from the (potentially f32) input_values
+                else:
                     jax_eval_inputs_sds.append(
                         jax.ShapeDtypeStruct(np_array_val.shape, np_array_val.dtype)
                     )
 
             try:
-                # JAX callable_obj might be a class instance, ensure it's callable for eval_shape
-                # If callable_obj is an nnx.Module, its __call__ is the target
                 eval_target_jax_func = callable_obj
-
-                # If callable_obj is an instance of a class that itself is not directly callable
-                # but has a __call__ method (common for Flax modules), use that.
                 if (
                     hasattr(callable_obj, "__call__")
                     and not inspect.isfunction(callable_obj)
                     and not inspect.ismethod(callable_obj)
                 ):
-                    # Check if it's a class instance rather than the class type itself
                     if not inspect.isclass(callable_obj):
                         eval_target_jax_func = callable_obj.__call__
-                    # If it is the class type, we assume to_onnx handles it by instantiating or similar.
-                    # For eval_shape, we'd typically need an instance or a function.
-                    # This part might need refinement based on how `callable_obj` is structured for nnx.Conv etc.
-                    # For nnx.Conv, callable_obj is an instance of nnx.Conv.
-
-                # Special handling for nnx.Module instances for eval_shape
-                # JAX's eval_shape expects a function. If callable_obj is an nnx.Module instance,
-                # we need to wrap its call.
                 if isinstance(callable_obj, jax.tree_util.Partial) or (
                     hasattr(callable_obj, "__module__")
                     and "flax.experimental.nnx" in callable_obj.__module__
                 ):
 
                     def jax_func_wrapper(*args):
-                        # For nnx.Conv, it expects one arg usually.
-                        # If callable_obj is nnx.Conv(..), then callable_obj(x) is the call.
                         return callable_obj(*args)
 
                     eval_target_jax_func = jax_func_wrapper
@@ -655,42 +590,28 @@ def make_test_function(tp: dict[str, Any]):
                 jax_output_sds = jax.eval_shape(
                     eval_target_jax_func, *jax_eval_inputs_sds
                 )
-
                 if not isinstance(jax_output_sds, (list, tuple)):
                     jax_output_sds = [jax_output_sds]
-
                 expected_onnx_dtype_for_float_outputs = (
                     onnx.TensorProto.DOUBLE
                     if current_enable_double_precision
                     else onnx.TensorProto.FLOAT
                 )
-
                 for i, onnx_output_vi in enumerate(onnx_model.graph.output):
                     if i < len(jax_output_sds):
                         jax_dtype = jax_output_sds[i].dtype
                         onnx_tensor_type_enum = (
                             onnx_output_vi.type.tensor_type.elem_type
                         )
-
-                        # We only enforce this check for JAX float types. Other types (int, bool) should remain as they are.
                         if jnp.issubdtype(jax_dtype, jnp.floating):
                             assert (
                                 onnx_tensor_type_enum
                                 == expected_onnx_dtype_for_float_outputs
-                            ), (
-                                f"Test '{testcase_name}', output '{onnx_output_vi.name}' (index {i}): "
-                                f"ONNX dtype mismatch. JAX output dtype is {jax_dtype}, "
-                                f"enable_double_precision is {current_enable_double_precision}. "
-                                f"Expected ONNX type {onnx.TensorProto.DataType.Name(expected_onnx_dtype_for_float_outputs)}, "
-                                f"but got {onnx.TensorProto.DataType.Name(onnx_tensor_type_enum)}."
-                            )
-                logger.info(
-                    f"Output dtypes verified for '{testcase_name}' (enable_double_precision={current_enable_double_precision})."
-                )
-
+                            ), f"Test '{testcase_name}', output '{onnx_output_vi.name}' (index {i}): ONNX dtype mismatch."
+                logger.info(f"Output dtypes verified for '{testcase_name}'.")
             except Exception as e:
                 logger.warning(
-                    f"Could not perform JAX eval_shape for dtype checking in test '{testcase_name}' (enable_double_precision={current_enable_double_precision}): {e}",
+                    f"Could not perform JAX eval_shape for dtype checking in test '{testcase_name}': {e}",
                     exc_info=True,
                 )
         else:
@@ -1008,9 +929,7 @@ def make_test_function(tp: dict[str, Any]):
             )
 
     test_func.__name__ = func_name
-    setattr(
-        test_func, "_testcase_params", tp
-    )  # Store params for potential debugging or inspection
+    setattr(test_func, "_testcase_params", tp)
     return test_func
 
 
