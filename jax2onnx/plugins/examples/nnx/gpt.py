@@ -45,7 +45,7 @@ class CausalSelfAttention(nnx.Module):
 
 
 register_example(
-    component="CausalSelfAttention",
+    component="GPT_CausalSelfAttention",
     description="A causal self-attention module.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -138,7 +138,7 @@ class Block(nnx.Module):
 
 
 register_example(
-    component="Block",
+    component="GPT_TransformerBlock",
     description="A transformer block combining attention and MLP.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -178,7 +178,7 @@ class TokenEmbedding(nnx.Module):
 
 
 register_example(
-    component="TokenEmbedding",
+    component="GPT_TokenEmbedding",
     description="A token embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -218,7 +218,7 @@ class PositionEmbedding(nnx.Module):
 
 
 register_example(
-    component="PositionEmbedding",
+    component="GPT_PositionEmbedding",
     description="A positional embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -319,7 +319,7 @@ class GPTEmbeddings(nnx.Module):
 
 
 register_example(
-    component="GPTEmbeddings",
+    component="GPT_Embeddings",
     description="Combines token and position embeddings with dropout.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -361,14 +361,14 @@ class GPTHead(nnx.Module):
         self.ln_f = nnx.LayerNorm(n_embd, rngs=rngs)
         self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False, rngs=rngs)
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jax.Array) -> jax.Array:
         x = self.ln_f(x)
         logits = self.lm_head(x)
         return logits
 
 
 register_example(
-    component="GPTHead",
+    component="GPT_Head",
     description="The head of the GPT model.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.6.6",
@@ -386,7 +386,6 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024, 768)],
-            "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
         }
@@ -432,7 +431,7 @@ class GPT(nnx.Module):
     def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
         x = self.embeddings(x, deterministic=deterministic)
         x = self.stack(x, deterministic=deterministic)
-        x = self.head(x, deterministic=deterministic)
+        x = self.head(x)
         return x
 
 
