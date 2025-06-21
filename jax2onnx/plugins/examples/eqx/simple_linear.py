@@ -36,7 +36,7 @@ register_example(
     children=["eqx.Linear"],
     testcases=[
         {
-            "testcase": "simple_mlp",
+            "testcase": "simple_linear",
             "callable": model,
             "input_shapes": [("B", 30)],
         },
