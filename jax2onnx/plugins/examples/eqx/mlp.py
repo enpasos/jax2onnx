@@ -6,6 +6,7 @@ import jax
 from jax2onnx.plugin_system import register_example
 
 
+# WARNING: this is temporary until I add other layers
 class Mlp(eqx.Module):
     linear1: eqx.nn.Linear
     identity: eqx.nn.Identity
