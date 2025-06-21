@@ -459,6 +459,7 @@ def rename_and_register_param_inputs(
     required call parameters that must be exposed as ONNX inputs.
     Any user-supplied parameter must be a graph input (variable), never a constant/initializer.
     """
+
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
     ):

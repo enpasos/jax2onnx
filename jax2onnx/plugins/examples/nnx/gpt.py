@@ -207,8 +207,10 @@ class PositionEmbedding(nnx.Module):
     ):
         self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
 
-    def __call__(self, idx: jax.Array) -> jax.Array:
-        return self.wpe(idx)
+    def __call__(self, x: jax.Array) -> jax.Array:
+        B, T = x.shape
+        pos = jnp.arange(0, T, dtype=jnp.int32).reshape(1, T)
+        return self.wpe(pos)
 
 
 register_example(
@@ -234,7 +236,7 @@ register_example(
 
 
 @onnx_function
-class TransformerStack(nnx.Module):
+class GPTTransformerStack(nnx.Module):
     def __init__(
         self,
         n_layer: int,
@@ -263,7 +265,7 @@ class TransformerStack(nnx.Module):
 
 
 register_example(
-    component="TransformerStack",
+    component="GPT_TransformerStack",
     description="A stack of transformer blocks.",
     source="https://github.com/karpathy/nanoGPT",
     since="v0.7.0",
@@ -272,7 +274,7 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack",
-            "callable": TransformerStack(
+            "callable": GPTTransformerStack(
                 n_layer=2,
                 n_head=12,
                 n_embd=768,
@@ -304,7 +306,7 @@ class GPT(nnx.Module):
         self.wte = TokenEmbedding(vocab_size, n_embd, rngs=rngs)
         self.wpe = PositionEmbedding(block_size, n_embd, rngs=rngs)
         self.drop = nnx.Dropout(dropout)
-        self.stack = TransformerStack(
+        self.stack = GPTTransformerStack(
             n_layer=n_layer,
             n_head=n_head,
             n_embd=n_embd,
@@ -316,14 +318,12 @@ class GPT(nnx.Module):
         self.ln_f = nnx.LayerNorm(n_embd, rngs=rngs)
         self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False, rngs=rngs)
 
-    def __call__(self, idx: jax.Array, deterministic: bool = True) -> jax.Array:
-        B, T = idx.shape
-        pos = jnp.arange(0, T, dtype=jnp.int32).reshape(1, T)
+    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+        pos_emb = self.wpe(x)
+        x = self.wte(x)
 
-        tok_emb = self.wte(idx)
-        pos_emb = self.wpe(pos)
-        x = self.drop(tok_emb + pos_emb, deterministic=deterministic)
-        x = self.stack(x=x, deterministic=deterministic)
+        x = self.drop(x + pos_emb, deterministic=deterministic)
+        x = self.stack(x, deterministic=deterministic)
         x = self.ln_f(x)
         logits = self.lm_head(x)
         return logits
@@ -356,7 +356,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024)],
-            "input_dtypes": [jnp.int32],
+            # "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
