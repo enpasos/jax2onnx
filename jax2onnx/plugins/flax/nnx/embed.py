@@ -29,7 +29,7 @@ nnx.embed_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.6.6",
     context="primitives.nnx",
     component="embed",
     testcases=[

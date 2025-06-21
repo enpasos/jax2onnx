@@ -35,13 +35,25 @@ nnx.dot_product_attention_p.multiple_results = False
     jaxpr_primitive=nnx.dot_product_attention_p.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
     onnx=[
-        {"component": "Transpose"},
-        {"component": "MatMul"},
-        {"component": "Mul"},
-        {"component": "Add"},
-        {"component": "Cast"},
-        {"component": "Softmax"},
-        {"component": "Where"},
+        {
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+        },
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
+        {"component": "Sqrt", "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {
+            "component": "Einsum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+        },
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
     ],
     since="v0.1.0",
     context="primitives.nnx",
