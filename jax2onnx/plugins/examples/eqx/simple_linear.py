@@ -26,6 +26,11 @@ class Linear(eqx.Module):
 # 2. We also apply jax.vmap here to create a batched version of the model.
 model = jax.vmap(Linear(30, 3, key=jax.random.PRNGKey(0)))
 
+# Example using eqx.nn.Linear
+model_nn = jax.vmap(
+    eqx.nn.Linear(in_features=30, out_features=3, key=jax.random.PRNGKey(1))
+)
+
 
 register_example(
     component="SimpleLinearExample",
@@ -33,11 +38,16 @@ register_example(
     source="https://github.com/patrick-kidger/equinox",
     since="v0.7.0",
     context="examples.eqx",
-    children=["eqx.Linear"],
+    children=["eqx.nn.Linear"],
     testcases=[
         {
             "testcase": "simple_linear",
             "callable": model,
+            "input_shapes": [("B", 30)],
+        },
+        {
+            "testcase": "nn_linear",
+            "callable": model_nn,
             "input_shapes": [("B", 30)],
         },
     ],

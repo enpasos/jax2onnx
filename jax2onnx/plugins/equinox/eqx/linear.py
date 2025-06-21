@@ -24,7 +24,6 @@ from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from types import SimpleNamespace
-import jax.numpy as jnp
 from jax.interpreters import batching
 
 if TYPE_CHECKING:  # only for type checkers & IDEs
@@ -67,11 +66,17 @@ eqx.linear_p.multiple_results = False
             "testcase": "eqx_linear_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Gemm" for node in m.graph.node)
+            ),
         },
         {
             "testcase": "eqx_linear_high_rank",
             "callable": lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(_mod)(x),
             "input_shapes": [(32, 10, 128)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Gemm" for node in m.graph.node)
+            ),
         },
     ],
 )
@@ -124,7 +129,6 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
 
         def _helper(xv, wv, bv):
             """Call the un-patched Linear with a dummy module."""
-            from types import SimpleNamespace
 
             dummy = SimpleNamespace(
                 weight=wv,
@@ -256,35 +260,24 @@ eqx.linear_p.def_abstract_eval(EqxLinearPlugin.abstract_eval)
 # 4.  Batching rule ------------------------------------------------
 # ------------------------------------------------------------------
 def _eqx_linear_batching_rule(batched_args, batch_dims, **_):
+    """Batching rule for `eqx.linear_p`."""
     x, weight, bias = batched_args
-    bd, _, _ = batch_dims
-    # Move the batch axis of x to front if needed
-    if bd is not None and bd != 0:
-        x = jnp.moveaxis(x, bd, 0)
+    x_bdim, w_bdim, b_bdim = batch_dims
 
-    # Flatten all but the feature dimension into one leading axis
-    # so that we produce (N, in_features) where N = prod(batch_shape)
-    batch_shape = x.shape[:-1]
-    flat_x = x.reshape(-1, weight.shape[1])
-
-    # Define a single-example apply using the original __call__
-    def _apply(xi):
-        dummy = SimpleNamespace(
-            weight=weight,
-            bias=bias,
-            in_features=weight.shape[1],
-            out_features=weight.shape[0],
-            use_bias=(bias is not None),
+    # For `vmap(model)(xs)`, only `xs` has a batch dimension.
+    # The model parameters (weight, bias) are treated as constants w.r.t. `vmap`.
+    if w_bdim is not None or b_bdim is not None:
+        raise NotImplementedError(
+            "Batching over `eqx.nn.Linear` parameters is not supported."
         )
-        return EqxLinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xi)
 
-    # vmap over the flattened examples, then reshape back
-    flat_out = jax.vmap(_apply)(flat_x)  # shape (N, out_features)
-    out = flat_out.reshape(*batch_shape, weight.shape[0])  # restore original batch dims
-    return out, 0
+    # The primitive is now applied to a batched `x`. The `to_onnx` implementation
+    # will see the extra dimension on `x` and handle it by flattening/unflattening.
+    out = eqx.linear_p.bind(x, weight, bias)
+
+    # The output has a batch dimension at the same axis as the input.
+    return out, x_bdim
 
 
-# Register the batching rule for our primitive
-batching.primitive_batchers[eqx.linear_p] = _eqx_linear_batching_rule
 # Register the batching rule for our primitive
 batching.primitive_batchers[eqx.linear_p] = _eqx_linear_batching_rule
