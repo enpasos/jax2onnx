@@ -2,25 +2,32 @@
 
 import equinox as eqx
 import jax
+import jax.random as jr
 import numpy as np
 from onnx import numpy_helper
 
 from jax2onnx.plugin_system import register_example
 
 
-# WARNING: this is temporary until I add other layers
 class Mlp(eqx.Module):
     linear1: eqx.nn.Linear
-    dropout1: eqx.nn.Dropout
+    dropout: eqx.nn.Dropout
+    norm: eqx.nn.LayerNorm
+    linear2: eqx.nn.Linear
 
-    def __init__(self, in_size: int, out_size: int, key: jax.Array):
-        self.linear1 = eqx.nn.Linear(
-            in_features=in_size, out_features=out_size, key=key
-        )
-        self.dropout1 = eqx.nn.Dropout(p=0.2, inference=False)
+    def __init__(
+        self, in_features: int, hidden_features: int, out_features: int, key: jax.Array
+    ):
+        key_1, key_2 = jr.split(key, 2)
+
+        self.linear1 = eqx.nn.Linear(in_features, hidden_features, key=key_1)
+        self.dropout = eqx.nn.Dropout(p=0.2, inference=False)
+        self.norm = eqx.nn.LayerNorm(hidden_features)
+        self.linear2 = eqx.nn.Linear(hidden_features, out_features, key=key_2)
 
     def __call__(self, x, key=None):
-        return jax.nn.gelu(self.dropout1(self.linear1(x), key=key))
+        x = jax.nn.gelu(self.dropout(self.norm(self.linear1(x)), key=key))
+        return self.linear2(x)
 
 
 # --- Test Case Definition ---
@@ -28,7 +35,7 @@ class Mlp(eqx.Module):
 #    This ensures that the random weight initialization is not part of the
 #    function that gets traced for ONNX conversion.
 # 2. Create variations for inference and batching.
-model = Mlp(30, 3, key=jax.random.PRNGKey(0))
+model = Mlp(30, 20, 10, key=jax.random.PRNGKey(0))
 inference_model = eqx.nn.inference_mode(model, value=True)
 batched_model = jax.vmap(model, in_axes=(0, None))
 
