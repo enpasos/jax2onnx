@@ -80,9 +80,9 @@ eqx.dropout_p.multiple_results = False
         },
         {
             "testcase": "eqx_dropout_training_mode",
-            "callable": lambda x, key, model=eqx.nn.Dropout(
-                p=0.5, inference=False
-            ): model(x, key=key),
+            "callable": lambda x,
+            key,
+            model=eqx.nn.Dropout(p=0.5, inference=False): model(x, key=key),
             "input_shapes": [("B", 64), ()],
             "post_check_onnx_graph": lambda m: (
                 (
@@ -101,7 +101,7 @@ eqx.dropout_p.multiple_results = False
                         None,
                     )
                 )
-                and numpy_helper.to_array(training_mode_init) is True
+                and numpy_helper.to_array(training_mode_init)
             ),
         },
         {
