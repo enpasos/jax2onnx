@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import equinox as eqx
 import numpy as np
 from jax import core
-from jax.extend.core import Literal, Primitive
+from jax.extend.core import Literal, Primitive, Var
 from jax.interpreters import batching
 from onnx import helper, numpy_helper
 
@@ -46,7 +46,7 @@ eqx.dropout_p.multiple_results = False
         {
             "testcase": "eqx_dropout_inference_mode",
             "callable": eqx.nn.Dropout(p=0.42, inference=True),
-            "input_shapes": [(64)],
+            "input_shapes": [(64,)],
             "post_check_onnx_graph": lambda m: (
                 (
                     dropout_node := next(
@@ -75,14 +75,14 @@ eqx.dropout_p.multiple_results = False
                         None,
                     )
                 )
-                and numpy_helper.to_array(training_mode_init) == False
+                and not numpy_helper.to_array(training_mode_init)
             ),
         },
         {
             "testcase": "eqx_dropout_training_mode",
-            "callable": lambda x,
-            key,
-            model=eqx.nn.Dropout(p=0.5, inference=False): model(x, key=key),
+            "callable": lambda x, key, model=eqx.nn.Dropout(
+                p=0.5, inference=False
+            ): model(x, key=key),
             "input_shapes": [("B", 64), ()],
             "post_check_onnx_graph": lambda m: (
                 (
@@ -101,47 +101,45 @@ eqx.dropout_p.multiple_results = False
                         None,
                     )
                 )
-                and numpy_helper.to_array(training_mode_init) == True
+                and numpy_helper.to_array(training_mode_init) is True
             ),
         },
         {
             "testcase": "eqx_dropout_dynamic_inference",
-            "callable": lambda x,
-            key,
-            inference,
-            model=eqx.nn.Dropout(p=0.5, inference=False): model(x, key=key),
-            "input_shapes": [(64), ()],
+            "callable": lambda x, key, inference, model=eqx.nn.Dropout(p=0.5): model(
+                x, key=key, inference=inference
+            ),
+            "input_shapes": [(64,), ()],
             "input_params": {
-                "inference": True,
+                "inference": np.array(True, dtype=bool),
             },
-            # "post_check_onnx_graph": lambda m: (
-            # Check that a Not node exists to invert the inference flag
-            # (
-            #     not_node := next(
-            #         (n for n in m.graph.node if n.op_type == "Not"), None
-            #     )
-            # )
-            # and (
-            #     dropout_node := next(
-            #         (n for n in m.graph.node if n.op_type == "Dropout"),
-            #         None,
-            #     )
-            # )
-            #     # The dropout's 3rd input should be the output of the Not node
-            #     and dropout_node.input[2] == not_node.output[0]
-            #     # The ratio (2nd input) should still be 0.5
-            #     and (
-            #         ratio_init := next(
-            #             (
-            #                 i
-            #                 for i in m.graph.initializer
-            #                 if i.name == dropout_node.input[1]
-            #             ),
-            #             None,
-            #         )
-            #     )
-            #     and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
-            # ),
+            "input_names": ["x", "key", "inference"],
+            "post_check_onnx_graph": lambda m: (
+                (
+                    not_node := next(
+                        (n for n in m.graph.node if n.op_type == "Not"), None
+                    )
+                )
+                and (
+                    dropout_node := next(
+                        (n for n in m.graph.node if n.op_type == "Dropout"),
+                        None,
+                    )
+                )
+                and dropout_node.input[2] == not_node.output[0]
+                and not_node.input[0] == "inference"
+                and (
+                    ratio_init := next(
+                        (
+                            i
+                            for i in m.graph.initializer
+                            if i.name == dropout_node.input[1]
+                        ),
+                        None,
+                    )
+                )
+                and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
+            ),
         },
     ],
 )
@@ -204,10 +202,9 @@ class EqxDropoutPlugin(PrimitiveLeafPlugin):
             #     )
             # )
             inference_name = "inference"
-            if isinstance(inference_var, core.Var):
+            # FIX: Use Var from jax.extend.core for the type check
+            if isinstance(inference_var, Var):
                 s.change_var_name(inference_var, inference_name)
-            else:
-                inference_name = s.get_name(inference_var)
 
             # Add a `Not` operator to invert the boolean value.
             training_mode_name = s.get_unique_name("training_mode")
@@ -218,6 +215,11 @@ class EqxDropoutPlugin(PrimitiveLeafPlugin):
                     outputs=[training_mode_name],
                     name=s.get_unique_name("not_inference"),
                 )
+            )
+            s.add_shape_info(
+                training_mode_name,
+                inference_var.aval.shape,
+                inference_var.aval.dtype,
             )
 
         # The ONNX Dropout operator has three inputs: data, ratio, training_mode.
