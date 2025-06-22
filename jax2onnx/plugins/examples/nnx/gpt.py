@@ -6,6 +6,11 @@ from flax import nnx
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
+# @onnx_function   todo
+def attention(*args, **kwargs):
+    return nnx.dot_product_attention(*args, **kwargs)
+
+
 @onnx_function
 class CausalSelfAttention(nnx.Module):
     def __init__(
@@ -13,7 +18,7 @@ class CausalSelfAttention(nnx.Module):
         n_head: int,
         n_embd: int,
         block_size: int,
-        dropout: float,
+        dropout: float,  # ← new
         *,
         rngs: nnx.Rngs,
     ):
@@ -23,9 +28,11 @@ class CausalSelfAttention(nnx.Module):
             in_features=n_embd,
             qkv_features=n_embd,
             out_features=n_embd,
-            dropout_rate=dropout,
+            # attention_fn=lambda *args, **kwargs: attention(*args),
+            attention_fn=attention,
             rngs=rngs,
         )
+        self.dropout = nnx.Dropout(dropout)  # ← new
         self.causal_mask = nnx.Param(
             jnp.tril(jnp.ones((block_size, block_size))).reshape(
                 1, 1, block_size, block_size
@@ -38,9 +45,10 @@ class CausalSelfAttention(nnx.Module):
         y = self.attn(
             inputs_q=x,
             mask=mask,
-            deterministic=deterministic,
             decode=False,
         )
+        # apply dropout to the projected attention output
+        y = self.dropout(y, deterministic=deterministic)
         return y
 
 
@@ -58,11 +66,10 @@ register_example(
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
-                dropout=0.0,
+                dropout=0.0,  # ← new
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024, 768)],
-            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -125,14 +132,14 @@ class Block(nnx.Module):
             n_head=n_head,
             n_embd=n_embd,
             block_size=block_size,
-            dropout=dropout,
+            dropout=dropout,  # ← pass it through
             rngs=rngs,
         )
         self.ln_2 = nnx.LayerNorm(n_embd, rngs=rngs)
         self.mlp = MLP(n_embd, dropout, rngs=rngs)
 
     def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
-        x = x + self.attn(self.ln_1(x), deterministic=deterministic)
+        x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x), deterministic=deterministic)
         return x
 

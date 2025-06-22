@@ -5,7 +5,7 @@ import numpy as np
 from flax import nnx
 from jax import core, numpy as jnp
 from jax.extend.core import Primitive
-from onnx import helper
+from onnx import TensorProto, helper
 from jax.interpreters import batching
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -97,6 +97,8 @@ nnx.dot_product_attention_p.multiple_results = False
                 (2, 4, 8, 8),
             ],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_, np.float32],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
         },
     ],
 )
@@ -132,18 +134,21 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
         final_logits = scaled_scores
 
-        mask_name = None
-        bias_name = None
-        if len(optional_inputs) == 1:
-            if optional_inputs[0].aval.dtype == jnp.bool_:
-                mask_name = s.get_name(optional_inputs[0])
-            else:
-                bias_name = s.get_name(optional_inputs[0])
-        elif len(optional_inputs) == 2:
-            mask_name = s.get_name(optional_inputs[0])
-            bias_name = s.get_name(optional_inputs[1])
+        has_mask = params.get("has_mask", False)
+        has_bias = params.get("has_bias", False)
 
-        if bias_name:
+        opt_input_idx = 0
+        mask_var = None
+        bias_var = None
+
+        if has_mask:
+            mask_var = optional_inputs[opt_input_idx]
+            opt_input_idx += 1
+        if has_bias:
+            bias_var = optional_inputs[opt_input_idx]
+
+        if bias_var is not None:
+            bias_name = s.get_name(bias_var)
             biased_logits = s.get_unique_name("biased_logits")
             s.add_node(
                 helper.make_node("Add", [final_logits, bias_name], [biased_logits])
@@ -151,7 +156,22 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             s.add_shape_info(biased_logits, (B, N, T, S), np_dtype)
             final_logits = biased_logits
 
-        if mask_name:
+        if mask_var is not None:
+            mask_name = s.get_name(mask_var)
+            mask_cond_name = mask_name
+
+            # Explicitly cast mask to bool if it isn't already
+            if mask_var.aval.dtype != jnp.bool_:
+                mask_bool_name = s.get_unique_name("mask_bool")
+                s.add_node(
+                    helper.make_node(
+                        "Cast", [mask_name], [mask_bool_name], to=TensorProto.BOOL
+                    )
+                )
+                # This is the fix: register shape info for the new tensor.
+                s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
+                mask_cond_name = mask_bool_name
+
             large_negative_number_const = s.get_constant_name(
                 np.array(-1e9, dtype=np_dtype)
             )
@@ -159,7 +179,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             s.add_node(
                 helper.make_node(
                     "Where",
-                    [mask_name, final_logits, large_negative_number_const],
+                    [mask_cond_name, final_logits, large_negative_number_const],
                     [masked_logits],
                 )
             )
@@ -184,12 +204,16 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def get_monkey_patch():
         def patched(q, k, v, mask=None, bias=None, **kwargs):
+            has_mask = mask is not None
+            has_bias = bias is not None
             inputs = [q, k, v]
-            if mask is not None:
+            if has_mask:
                 inputs.append(mask)
-            if bias is not None:
+            if has_bias:
                 inputs.append(bias)
-            return nnx.dot_product_attention_p.bind(*inputs)
+            return nnx.dot_product_attention_p.bind(
+                *inputs, has_mask=has_mask, has_bias=has_bias
+            )
 
         return patched
 
