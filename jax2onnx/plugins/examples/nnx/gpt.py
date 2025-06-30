@@ -56,7 +56,7 @@ register_example(
     component="GPT_CausalSelfAttention",
     description="A causal self-attention module.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["MultiHeadAttention"],
     testcases=[
@@ -96,7 +96,7 @@ register_example(
     component="GPT_MLP",
     description="An MLP block with GELU activation from nanoGPT.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["nnx.Linear", "nnx.gelu", "nnx.Dropout"],
     testcases=[
@@ -148,7 +148,7 @@ register_example(
     component="GPT_TransformerBlock",
     description="A transformer block combining attention and MLP.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["CausalSelfAttention", "GPT_MLP", "nnx.LayerNorm"],
     testcases=[
@@ -188,7 +188,7 @@ register_example(
     component="GPT_TokenEmbedding",
     description="A token embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["nnx.Embed"],
     testcases=[
@@ -209,26 +209,23 @@ register_example(
 
 @onnx_function
 class PositionEmbedding(nnx.Module):
-    def __init__(
-        self,
-        block_size: int,
-        n_embd: int,
-        *,
-        rngs: nnx.Rngs,
-    ):
+    def __init__(self, block_size: int, n_embd: int, *, rngs: nnx.Rngs):
+        super().__init__()
+        self.block_size = block_size  # ① keep literal
         self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
 
-    def __call__(self, x: jax.Array) -> jax.Array:
-        B, T = x.shape
-        pos = jnp.arange(0, T, dtype=jnp.int32).reshape(1, T)
-        return self.wpe(pos)
+    def __call__(self) -> jax.Array:
+        # ② literal length → static shape, and reshape with explicit dim
+        pos = jnp.arange(self.block_size, dtype=jnp.int32)
+        pos = pos.reshape((1, self.block_size))  # shape (1, T)
+        return self.wpe(pos)  # (1, T, C)
 
 
 register_example(
     component="GPT_PositionEmbedding",
     description="A positional embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["nnx.Embed"],
     testcases=[
@@ -239,8 +236,8 @@ register_example(
                 n_embd=768,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [("B", 1024)],
-            "input_dtypes": [jnp.int32],
+            "input_shapes": [],  # ③ no inputs
+            "expected_output_shapes": [(1, 1024, 768)],
             "run_only_f32_variant": True,
         }
     ],
@@ -280,7 +277,7 @@ register_example(
     component="GPT_TransformerStack",
     description="A stack of transformer blocks.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=["Block"],
     testcases=[
@@ -303,6 +300,11 @@ register_example(
 
 
 @onnx_function
+def broadcast_add(x: jax.Array, y: jax.Array) -> jax.Array:
+    return x + y
+
+
+@onnx_function
 class GPTEmbeddings(nnx.Module):
     def __init__(
         self,
@@ -319,9 +321,9 @@ class GPTEmbeddings(nnx.Module):
         self.drop = nnx.Dropout(dropout)
 
     def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
-        pos_emb = self.wpe(x)
+        pos_emb = self.wpe()
         x = self.wte(x)
-        x = self.drop(x + pos_emb, deterministic=deterministic)
+        x = self.drop(broadcast_add(x, pos_emb), deterministic=deterministic)
         return x
 
 
@@ -329,7 +331,7 @@ register_example(
     component="GPT_Embeddings",
     description="Combines token and position embeddings with dropout.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=[
         "TokenEmbedding",
@@ -378,7 +380,7 @@ register_example(
     component="GPT_Head",
     description="The head of the GPT model.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=[
         "nnx.LayerNorm",
@@ -446,7 +448,7 @@ register_example(
     component="GPT",
     description="A simple GPT model that reuses nnx.MultiHeadAttention.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.6.6",
+    since="v0.7.0",
     context="examples.gpt",
     children=[
         "TokenEmbedding",
@@ -464,11 +466,11 @@ register_example(
                 n_layer=2,  # downsampled from 12 to 2 layers for testing
                 n_head=12,
                 n_embd=768,
-                block_size=1024,
+                block_size=1024,  # context window size
                 dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [("B", 1024)],
+            "input_shapes": [("B", 1024)],  # input is a sequence of token indices
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),  # logits for each token
             "run_only_f32_variant": True,
