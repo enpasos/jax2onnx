@@ -48,7 +48,7 @@ class ArangeTakeModule(nnx.Module):
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="v0.6.6",
+    since="v0.7.0",
     context="primitives.jnp",
     component="take",
     testcases=[
