@@ -1,5 +1,7 @@
 # file: jax2onnx/plugins/jax/nn/dot_product_attention.py
-
+# --------------------------------------------------------------------------- #
+#   Dot-Product-Attention primitive → ONNX                                    #
+# --------------------------------------------------------------------------- #
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,55 +12,71 @@ from onnx import TensorProto, helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 # --------------------------------------------------------------------------- #
-#  Ensure `jnp.einsum` has a batching rule installed.                         #
-#  * If the upstream JAX helper is importable, reuse it.                      #
-#  * Otherwise assume the custom `jax2onnx` einsum plugin has already         #
-#    registered its own rule (import order: numpy‑plugins are usually loaded  #
-#    before nn‑plugins).                                                      #
+#   Ensure jnp.einsum has a batching rule (needed by reference implementation) #
 # --------------------------------------------------------------------------- #
 from jax.interpreters import batching
 
-try:
-    # JAX keeps the rule inside the private module; may disappear in future.
-    from importlib import import_module
 
-    _std_rule = import_module("jax._src.numpy.einsum").einsum_batching_rule
-    batching.primitive_batchers.setdefault(jnp.einsum_p, _std_rule)
-except (ModuleNotFoundError, AttributeError):
-    # Either the private symbol moved or our own einsum plugin is in charge.
-    pass
+# Callable definitions for test cases
+def dpa_with_mask(q, k, v, mask):
+    """Wrapper for dot_product_attention with a boolean mask."""
+    return nn.dot_product_attention(q, k, v, mask=mask)
 
 
+def dpa_with_causal_mask(q, k, v):
+    """Wrapper for dot_product_attention with causal masking."""
+    return nn.dot_product_attention(q, k, v, is_causal=True)
+
+
+def dpa_with_padding_mask(q, k, v, q_len, kv_len):
+    """Wrapper for dpa with padding masks."""
+    return nn.dot_product_attention(
+        q, k, v, query_seq_lengths=q_len, key_value_seq_lengths=kv_len
+    )
+
+
+def dpa_with_local_window_mask(q, k, v):
+    """Wrapper for dpa with a local window mask."""
+    return nn.dot_product_attention(q, k, v, local_window_size=(1, 1))
+
+
+# --------------------------------------------------------------------------- #
+#   JAX primitive stub                                                        #
+# --------------------------------------------------------------------------- #
 nn.dot_product_attention_p = Primitive("nn.dot_product_attention")
 nn.dot_product_attention_p.multiple_results = False
 
 
 @register_primitive(
     jaxpr_primitive=nn.dot_product_attention_p.name,
-    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nn.dot_product_attention",
+    jax_doc=(
+        "https://flax.readthedocs.io/en/latest/api_reference/"
+        "flax.nnx/nn/attention.html#flax.nn.dot_product_attention"
+    ),
     onnx=[
         {
-            "component": "Shape",
-            "doc": "https://onn.ai/onnx/operators/onnx__Shape.html",
+            "component": "Transpose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
         {
-            "component": "Gather",
-            "doc": "https://onn.ai/onnx/operators/onnx__Gather.html",
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         },
-        {"component": "Cast", "doc": "https://onn.ai/onnx/operators/onnx__Cast.html"},
-        {"component": "Sqrt", "doc": "https://onn.ai/onnx/operators/onnx__Sqrt.html"},
-        {"component": "Div", "doc": "https://onn.ai/onnx/operators/onnx__Div.html"},
-        {
-            "component": "Einsum",
-            "doc": "https://onn.ai/onnx/operators/onnx__Einsum.html",
-        },
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
+        {"component": "Not", "doc": "https://onnx.ai/onnx/operators/onnx__Not.html"},
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
         {
             "component": "Softmax",
-            "doc": "https://onn.ai/onnx/operators/onnx__Softmax.html",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
         },
     ],
     since="v0.1.0",
@@ -108,170 +126,182 @@ nn.dot_product_attention_p.multiple_results = False
         },
         {
             "testcase": "dpa_axis1",
-            "callable": lambda q, k, v: nn.dot_product_attention(
-                q, k, v
-            ),  # axis param removed for compatibility
+            "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
         },
-        # Uncomment and implement mask support to enable this test
-        # {
-        #     "testcase": "dpa_with_mask",
-        #     "callable": lambda q, k, v, mask: nn.dot_product_attention(q, k, v, mask=mask),
-        #     "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 8)],
-        # },
+        {
+            "testcase": "dpa_with_tensor_mask",
+            "callable": dpa_with_mask,
+            "input_shapes": [
+                (2, 8, 4, 16),
+                (2, 16, 4, 16),
+                (2, 16, 4, 16),
+                (2, 4, 8, 16),
+            ],
+            "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_tiny_mask_all_valid",
+            "callable": dpa_with_mask,
+            "input_values": [
+                np.arange(1 * 2 * 1 * 4).reshape((1, 2, 1, 4)).astype(np.float32),
+                np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
+                np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
+                np.ones((1, 1, 2, 3), dtype=bool),
+            ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_tiny_mask_mixed",
+            "callable": dpa_with_mask,
+            "input_values": [
+                np.arange(1 * 2 * 1 * 4).reshape((1, 2, 1, 4)).astype(np.float32),
+                np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
+                np.arange(1 * 3 * 1 * 4).reshape((1, 3, 1, 4)).astype(np.float32),
+                np.array([[[[True, False, True], [False, True, False]]]], dtype=bool),
+            ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_one_false",
+            "callable": dpa_with_mask,
+            "input_values": [
+                np.array([[[[1.0, 2.0, 3.0, 4.0]]]], dtype=np.float32),
+                np.array(
+                    [[[[1.0, 0.0, 0.0, 0.0]], [[0.0, 1.0, 0.0, 0.0]]]], dtype=np.float32
+                ),
+                np.array(
+                    [[[[10.0, 20.0, 30.0, 40.0]], [[50.0, 60.0, 70.0, 80.0]]]],
+                    dtype=np.float32,
+                ),
+                np.array([[[[True, False]]]], dtype=bool),
+            ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_mostly_false",
+            "callable": dpa_with_mask,
+            "input_values": [
+                np.ones((1, 1, 1, 4), np.float32),
+                np.ones((1, 2, 1, 4), np.float32),
+                np.ones((1, 2, 1, 4), np.float32) * 7,
+                np.array([[[[False, True]]]], dtype=bool),  # Not all entries are masked
+            ],
+            "expected_output_numpy": [np.zeros((1, 1, 1, 4), np.float32)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_with_causal_mask",
+            "callable": dpa_with_causal_mask,
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_with_padding_mask",
+            "callable": dpa_with_padding_mask,
+            "input_values": [
+                np.random.randn(2, 8, 4, 16).astype(np.float32),
+                np.random.randn(2, 8, 4, 16).astype(np.float32),
+                np.random.randn(2, 8, 4, 16).astype(np.float32),
+                np.array([8, 4], dtype=np.int32),
+                np.array([8, 7], dtype=np.int32),
+            ],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
+        {
+            "testcase": "dpa_with_local_window_mask",
+            "callable": dpa_with_local_window_mask,
+            "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
+        },
     ],
 )
 class DotProductAttentionPlugin(PrimitiveLeafPlugin):
-
     @staticmethod
-    def abstract_eval(q, k, v, *args, axis=-1):
+    def abstract_eval(q, k, v, *args, **kwargs):
         return core.ShapedArray(q.shape, q.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         q, k, v, *optional_inputs = node_inputs
         out_var = node_outputs[0]
 
-        q_name = s.get_name(q)
-        k_name = s.get_name(k)
-        v_name = s.get_name(v)
+        q_name, k_name, v_name = map(s.get_name, (q, k, v))
         out_name = s.get_name(out_var)
+        B, T, N, H = q.aval.shape
+        _, S, _, _ = k.aval.shape
+        np_dtype = q.aval.dtype
+        s.builder._numpy_dtype_to_onnx(np_dtype)
 
-        B, N, H, E = q.aval.shape
-        _, M, _, _ = k.aval.shape
+        q_t = s.get_unique_name("q_T")
+        k_t = s.get_unique_name("k_T")
+        s.add_node(helper.make_node("Transpose", [q_name], [q_t], perm=[0, 2, 1, 3]))
+        s.add_node(helper.make_node("Transpose", [k_name], [k_t], perm=[0, 2, 3, 1]))
+        s.add_shape_info(q_t, (B, N, T, H), np_dtype)
+        s.add_shape_info(k_t, (B, N, H, S), np_dtype)
 
-        # Step 1: Einsum(Q, K) -> attention scores
-        attn_scores = s.get_unique_name("attn_scores")
-        s.add_node(
-            helper.make_node(
-                "Einsum",
-                inputs=[q_name, k_name],
-                outputs=[attn_scores],
-                equation="BNHE,BMHE->BNHM",
-                name=s.get_unique_name("einsum_qk"),
-            )
-        )
-        s.add_shape_info(attn_scores, (B, N, H, M), dtype=q.aval.dtype)
+        logits = s.get_unique_name("attn_scores")
+        s.add_node(helper.make_node("MatMul", [q_t, k_t], [logits]))
+        s.add_shape_info(logits, (B, N, T, S), np_dtype)
 
-        # Step 2: scale by sqrt(E)
-        shape_q = s.get_unique_name("q_shape")
-        s.add_node(
-            helper.make_node(
-                "Shape",
-                inputs=[q_name],
-                outputs=[shape_q],
-                name=s.get_unique_name("shape_q"),
-            )
-        )
-        s.add_shape_info(shape_q, tuple([4]), dtype=np.int64)
-
-        idx_last = s.get_constant_name(np.array([-1], dtype=np.int64))
-        e_val = s.get_unique_name("e_val")
-        s.add_node(
-            helper.make_node(
-                "Gather",
-                inputs=[shape_q, idx_last],
-                outputs=[e_val],
-                axis=0,
-                name=s.get_unique_name("gather_e"),
-            )
-        )
-        s.add_shape_info(e_val, tuple([]), dtype=np.int64)
-
-        e_float = s.get_unique_name("e_float")
-        s.add_node(
-            helper.make_node(
-                "Cast",
-                inputs=[e_val],
-                outputs=[e_float],
-                to=TensorProto.FLOAT,
-                name=s.get_unique_name("cast_e"),
-            )
-        )
-        s.add_shape_info(e_float, tuple([]), dtype=np.float32)
-
-        sqrt_e = s.get_unique_name("sqrt_e")
-        s.add_node(
-            helper.make_node(
-                "Sqrt",
-                inputs=[e_float],
-                outputs=[sqrt_e],
-                name=s.get_unique_name("sqrt_e"),
-            )
-        )
-        s.add_shape_info(sqrt_e, tuple([]), dtype=np.float32)
-
+        scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
         scaled_scores = s.get_unique_name("scaled_scores")
-        s.add_node(
-            helper.make_node(
-                "Div",
-                inputs=[attn_scores, sqrt_e],
-                outputs=[scaled_scores],
-                name=s.get_unique_name("scale_scores"),
-            )
-        )
-        s.add_shape_info(scaled_scores, (B, N, H, M), dtype=q.aval.dtype)
+        s.add_node(helper.make_node("Mul", [logits, scale_const], [scaled_scores]))
+        s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
 
-        # Step 3: Optional mask
+        final_logits = scaled_scores
         if optional_inputs:
-            mask_var = optional_inputs[-1]
+            mask_var = optional_inputs[0]
             mask_name = s.get_name(mask_var)
-
-            mask_bool = s.get_unique_name("mask_bool")
+            mask_bool_name = s.get_unique_name("mask_bool")
             s.add_node(
                 helper.make_node(
-                    "Cast",
-                    inputs=[mask_name],
-                    outputs=[mask_bool],
-                    to=TensorProto.BOOL,
-                    name=s.get_unique_name("cast_mask"),
+                    "Cast", [mask_name], [mask_bool_name], to=TensorProto.BOOL
                 )
             )
-            s.add_shape_info(mask_bool, (B, N, H, M), dtype=bool)
-
-            neg_inf = s.get_constant_name(np.array([-1e9], dtype=np.float32))
-            masked_scores = s.get_unique_name("masked_scores")
+            s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
+            large_negative_number_const = s.get_constant_name(
+                np.array(-1e9, dtype=np_dtype)
+            )
+            masked_logits = s.get_unique_name("masked_logits")
             s.add_node(
                 helper.make_node(
                     "Where",
-                    inputs=[mask_bool, scaled_scores, neg_inf],
-                    outputs=[masked_scores],
-                    name=s.get_unique_name("where_mask"),
+                    inputs=[mask_bool_name, scaled_scores, large_negative_number_const],
+                    outputs=[masked_logits],
                 )
             )
-            s.add_shape_info(masked_scores, (B, N, H, M), dtype=q.aval.dtype)
-            scaled_scores = masked_scores
+            s.add_shape_info(masked_logits, (B, N, T, S), np_dtype)
+            final_logits = masked_logits
 
-        # Step 4: Softmax
-        attn_weights = s.get_unique_name("attn_weights")
-        s.add_node(
-            helper.make_node(
-                "Softmax",
-                inputs=[scaled_scores],
-                outputs=[attn_weights],
-                axis=params.get("axis", -1),
-                name=s.get_unique_name("softmax"),
-            )
-        )
-        s.add_shape_info(attn_weights, (B, N, H, M), dtype=q.aval.dtype)
+        weights = s.get_unique_name("attn_weights")
+        s.add_node(helper.make_node("Softmax", [final_logits], [weights], axis=-1))
+        s.add_shape_info(weights, (B, N, T, S), np_dtype)
 
-        # Step 5: Einsum(attn_weights, V)
+        v_t = s.get_unique_name("v_T")
+        out_t = s.get_unique_name("out_T")
+        s.add_node(helper.make_node("Transpose", [v_name], [v_t], perm=[0, 2, 1, 3]))
+        s.add_shape_info(v_t, (B, N, S, H), np_dtype)
+        s.add_node(helper.make_node("MatMul", [weights, v_t], [out_t]))
+        s.add_shape_info(out_t, (B, N, T, H), np_dtype)
         s.add_node(
-            helper.make_node(
-                "Einsum",
-                inputs=[attn_weights, v_name],
-                outputs=[out_name],
-                equation="BNHM,BMHE->BNHE",
-                name=s.get_unique_name("einsum_weights_v"),
-            )
+            helper.make_node("Transpose", [out_t], [out_name], perm=[0, 2, 1, 3])
         )
-        s.add_shape_info(out_name, (B, N, H, E), dtype=q.aval.dtype)
+        s.add_shape_info(out_name, (B, T, N, H), np_dtype)
 
     @staticmethod
     def _dot_product_attention(q, k, v, mask=None, axis=-1):
         if mask is not None:
             return nn.dot_product_attention_p.bind(q, k, v, mask, axis=axis)
-        else:
-            return nn.dot_product_attention_p.bind(q, k, v, axis=axis)
+        return nn.dot_product_attention_p.bind(q, k, v, axis=axis)
 
     @staticmethod
     def get_monkey_patch():
@@ -291,24 +321,26 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         }
 
 
+# attach abstract-eval
 nn.dot_product_attention_p.def_abstract_eval(DotProductAttentionPlugin.abstract_eval)
 
 
-# Add batching rule
+# --------------------------- batching rule -----------------------------------
 def dpa_batch(xs, dims, *, axis=-1):
-    # assume all operands have the same batch axis
-    assert len(set(d for d in dims if d is not None)) == 1
+    assert len(set(d for d in dims if d is not None)) <= 1
     q, k, v, *rest = xs
-    # Move the batch axis to the front if it isn't already
-    bdim = dims[0]
-    if bdim != 0:
+    bdim = next((d for d in dims if d is not None), None)
+
+    if bdim is not None and bdim != 0:
         q = jnp.moveaxis(q, bdim, 0)
         k = jnp.moveaxis(k, bdim, 0)
         v = jnp.moveaxis(v, bdim, 0)
-        rest = [
-            jnp.moveaxis(r, d, 0) if d is not None else r
-            for r, d in zip(rest, dims[3:])
-        ]
+        if rest:
+            rest = [
+                jnp.moveaxis(r, d, 0) if d is not None else r
+                for r, d in zip(rest, dims[3:])
+            ]
+
     out = nn.dot_product_attention(q, k, v, *rest, axis=axis)
     return out, 0
 
