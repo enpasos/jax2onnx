@@ -1,4 +1,3 @@
-docs/onnx
 data
 output
 .idea
@@ -10,3 +9,4 @@ tests/primitives
 .vscode
 python-venv
 jax2onnx.log
+*.onnx
