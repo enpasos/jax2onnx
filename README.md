@@ -12,7 +12,7 @@ Hi all,
 We’re planning to **rewrite the Git history** of the `jax2onnx` repository to permanently remove the large `docs/onnx/` folder and reduce repository size.
 This rewrite will affect **all commits, branches, and tags**, and will require everyone to **synchronize or re-clone** the repository afterward.
 
-### 📅 Deadline: **by Saturday, 1 June, 20:00 CEST**
+### 📅 Deadline: **by Tuesday, 1 June, 20:00 CEST**
 
 ---
 
