@@ -2,6 +2,57 @@
 
 `jax2onnx` converts your JAX/Flax(nnx) functions directly into the ONNX format.
 
+
+---
+
+🚨 **Important Notice: Git History Rewrite Coming**
+
+Hi all,
+
+We’re planning to **rewrite the Git history** of the `jax2onnx` repository to permanently remove the large `docs/onnx/` folder and reduce repository size.
+This rewrite will affect **all commits, branches, and tags**, and will require everyone to **synchronize or re-clone** the repository afterward.
+
+### 📅 Deadline: **by Saturday, 1 June, 20:00 CEST**
+
+---
+
+### ✅ What you need to do *before the deadline*:
+
+1. **Push all your local branches and tags** to GitHub:
+
+   ```bash
+   git push --all
+   git push --tags
+   ```
+
+2. **Back up any local work** (commit or stash anything in progress).
+
+3. **Avoid pushing new changes after 20:00 CEST on June 1** until we confirm the rewrite is done.
+
+---
+
+### 🔁 What will happen:
+
+* We will **rewrite the full history** to remove `docs/onnx/`
+* A **force-push** will overwrite the current remote
+* After the rewrite, you will need to:
+
+  * Either **re-clone the repository**, or
+  * Run:
+
+    ```bash
+    git fetch
+    git reset --hard origin/main
+    git clean -fdx
+    ```
+
+You’ll get a confirmation message once everything is complete.
+
+Thanks!
+
+---
+
+
 ![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
 
 ## ✨ Key Features
@@ -101,10 +152,13 @@ save_model(model, "docs/onnx/model_with_function.onnx")
   - Expanding coverage of JAX and Flax(nnx) components.
   - Improved support for **physics simulations**.
 - **Under Evaluation**: Initial support for `flax.linen` models within `jax2onnx`.
-- **Upcoming 0.7.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
+- **Upcoming 0.8.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
+ 
 
 ### **Under Development**
-- **0.6.6**: GPT-2 model example (nanoGPT based) with ONNX function support. Added masking support for attention layers.
+- **0.7.0**: 
+  - GPT-2 model example (nanoGPT based) with ONNX function support. Added masking support for attention layers.
+  - hosting of the ONNX models on Hugging Face.
 
 ### **Current Productive Version**
 - **0.6.5** *(PyPI)*: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`, 
