@@ -156,6 +156,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
  
 
 ### **Under Development**
+- **t.b.d.**: Started support for `equinox` models.
 - **0.7.0**: 
   - GPT-2 model example (nanoGPT based) with ONNX function support. Added masking support for attention layers.
   - hosting of the ONNX models on Hugging Face.
