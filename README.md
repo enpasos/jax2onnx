@@ -7,7 +7,7 @@
 
 ## ✨ Key Features
 
-- **Simple API**
+- **Simple API**  
   Easily convert JAX callables—including Flax (NNX) models—into ONNX format using `to_onnx(...)`.
 
 - **Model structure preserved**  
