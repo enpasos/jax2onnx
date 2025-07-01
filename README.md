@@ -53,7 +53,7 @@ onnx_model = to_onnx(my_callable, [("B", 30)])
 onnx.save_model(onnx_model, "my_callable.onnx")
 ```
  
-🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/my_callable.onnx)
+🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/my_callable.onnx)
 
 ---
 
@@ -90,7 +90,7 @@ model = to_onnx(callable, [(100, 256)])
 save_model(model, "docs/onnx/model_with_function.onnx")
 ```
 
-🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://enpasos.github.io/jax2onnx/onnx/model_with_function.onnx)
+🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/model_with_function.onnx)
 
 ---
 
