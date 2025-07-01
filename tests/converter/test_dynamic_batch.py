@@ -2,8 +2,9 @@ import numpy as np
 import onnxruntime as ort
 import jax
 from jax2onnx import to_onnx
+import pytest
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_dynamic_batch():
     @jax.jit
     def get_token(x):

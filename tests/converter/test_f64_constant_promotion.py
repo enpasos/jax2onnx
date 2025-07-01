@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
+import pytest
 from onnx import TensorProto
 
 from jax2onnx import to_onnx, allclose
@@ -17,7 +18,7 @@ def function_with_captured_constant(x):
     # When this function is traced, CAPTURED_CONSTANT_F32 becomes a jaxpr constant.
     return x + jnp.array(CAPTURED_CONSTANT_F32)
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_f64_promotion_for_captured_constants():
     """
     Tests that constants captured from a function's closure are correctly
@@ -86,7 +87,7 @@ def function_with_only_captured_constants():
     # FIX: Multiply by a float64 constant to ensure promotion
     return jnp.array(CAPTURED_CONSTANT_F32) * np.float64(2.0)
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_f64_promotion_for_function_with_no_inputs():
     """
     Tests that constants are promoted correctly for a function with no inputs,
