@@ -117,16 +117,15 @@ Here’s a polished version:
 
   * Advanced ONNX function support, including function reuse, optimized internal graph structure, and improved variable naming for clarity and readability
   * Support for `equinox` models 
-
  
-
 ### **Current Productive Version**
-- **0.7.0**:
-  - GPT-2 model example ([nanoGPT](https://github.com/karpathy/nanoGPT/blob/master/model.py) based) with ONNX function support. Added masking support for attention layers.
-  - hosting of the ONNX models on Hugging Face.
+* **0.7.0** *(PyPI)*: 
+  * Added a GPT-2 model example based on [nanoGPT](https://github.com/karpathy/nanoGPT/blob/master/model.py), featuring ONNX function support and attention masking
+  * New support for `jnp.concatenate`, `jnp.take`, `nnx.Embed`
+  * ONNX models are now hosted on Hugging Face 
 
 ### **Past Versions**
-- **0.6.5** *(PyPI)*: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`,
+- **0.6.5**: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`,
   `lax.integer_pow`, `lax.scan`, `lax.scatter`, `lax.scatter_add`, `lax.scatter_mul` and `lax.while_loop`;
   added support for `lax.and`, `lax.rem` and `lax.remat2`.
 - **0.6.4**: Improved support for `lax.scatter_mul`.
