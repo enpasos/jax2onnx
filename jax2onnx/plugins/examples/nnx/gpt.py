@@ -1,4 +1,5 @@
 # file: jax2onnx/plugins/examples/nnx/gpt.py
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -6,9 +7,12 @@ from flax import nnx
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-# @onnx_function   todo
-def attention(*args, **kwargs):
-    return nnx.dot_product_attention(*args, **kwargs)
+@onnx_function
+def attention(q, k, v, mask=None):
+    """
+    A thin wrapper for nnx.dot_product_attention that only exposes q, k, v and mask.
+    """
+    return nnx.dot_product_attention(q, k, v, mask=mask)
 
 
 @onnx_function
@@ -18,21 +22,25 @@ class CausalSelfAttention(nnx.Module):
         n_head: int,
         n_embd: int,
         block_size: int,
-        dropout: float,  # ← new
+        dropout: float,
         *,
         rngs: nnx.Rngs,
     ):
         super().__init__()
+        # Attention‐weight dropout (“attn_dropout”) built into MultiHeadAttention:
         self.attn = nnx.MultiHeadAttention(
             num_heads=n_head,
             in_features=n_embd,
             qkv_features=n_embd,
             out_features=n_embd,
-            # attention_fn=lambda *args, **kwargs: attention(*args),
-            attention_fn=attention,
+            broadcast_dropout=True,
+            dropout_rate=dropout,
+            # strip away all kwargs except mask and forward only mask
+            attention_fn=lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
             rngs=rngs,
         )
-        self.dropout = nnx.Dropout(dropout)  # ← new
+        # Residual/output dropout (“resid_dropout”):
+        self.resid_dropout = nnx.Dropout(dropout)
         self.causal_mask = nnx.Param(
             jnp.tril(jnp.ones((block_size, block_size))).reshape(
                 1, 1, block_size, block_size
@@ -42,13 +50,15 @@ class CausalSelfAttention(nnx.Module):
     def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
         B, T, C = x.shape
         mask = self.causal_mask[:, :, :T, :T]
+        # Apply MultiHeadAttention (which now does its own attn_dropout)
         y = self.attn(
             inputs_q=x,
             mask=mask,
+            deterministic=deterministic,
             decode=False,
         )
-        # apply dropout to the projected attention output
-        y = self.dropout(y, deterministic=deterministic)
+        # Then apply the residual/output dropout
+        y = self.resid_dropout(y, deterministic=deterministic)
         return y
 
 
@@ -139,7 +149,8 @@ class Block(nnx.Module):
         self.mlp = MLP(n_embd, dropout, rngs=rngs)
 
     def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
-        x = x + self.attn(self.ln_1(x))
+        # pass the top‐level `deterministic` flag into both the attention and the MLP
+        x = x + self.attn(self.ln_1(x), deterministic=deterministic)
         x = x + self.mlp(self.ln_2(x), deterministic=deterministic)
         return x
 
