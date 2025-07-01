@@ -1,5 +1,6 @@
 # file: jax2onnx/plugins/flax/nnx/dot_product_attention.py
-from typing import TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 from flax import nnx
@@ -12,6 +13,10 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+
+# Global variable to store the original function
+_ORIGINAL_DOT_PRODUCT_ATTENTION_CALL: Callable | None = None
 
 
 # Callable definitions for test cases
@@ -75,15 +80,14 @@ nnx.dot_product_attention_p.multiple_results = False
             "callable": dpa_with_bias,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
         },
-        # Causal mask test now provides the mask as a concrete input value
         {
             "testcase": "dpa_with_causal_mask",
-            "callable": dpa_with_mask,  # A causal mask is just a specific kind of mask
+            "callable": dpa_with_mask,
             "input_values": [
-                np.random.randn(1, 8, 4, 16).astype(np.float32),  # q
-                np.random.randn(1, 8, 4, 16).astype(np.float32),  # k
-                np.random.randn(1, 8, 4, 16).astype(np.float32),  # v
-                np.tril(np.ones((1, 4, 8, 8), dtype=bool)),  # mask
+                np.random.randn(1, 8, 4, 16).astype(np.float32),
+                np.random.randn(1, 8, 4, 16).astype(np.float32),
+                np.random.randn(1, 8, 4, 16).astype(np.float32),
+                np.tril(np.ones((1, 4, 8, 8), dtype=bool)),
             ],
         },
         {
@@ -106,6 +110,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(q, k, v, *args, **kwargs):
+        # The output shape is always the same as the query's shape.
         return core.ShapedArray(q.shape, q.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
@@ -120,6 +125,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         q_t = s.get_unique_name("q_T")
         s.add_node(helper.make_node("Transpose", [q_name], [q_t], perm=[0, 2, 1, 3]))
         s.add_shape_info(q_t, (B, N, T, H), np_dtype)
+
         k_t = s.get_unique_name("k_T")
         s.add_node(helper.make_node("Transpose", [k_name], [k_t], perm=[0, 2, 3, 1]))
         s.add_shape_info(k_t, (B, N, H, S), np_dtype)
@@ -160,7 +166,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             mask_name = s.get_name(mask_var)
             mask_cond_name = mask_name
 
-            # Explicitly cast mask to bool if it isn't already
             if mask_var.aval.dtype != jnp.bool_:
                 mask_bool_name = s.get_unique_name("mask_bool")
                 s.add_node(
@@ -168,7 +173,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                         "Cast", [mask_name], [mask_bool_name], to=TensorProto.BOOL
                     )
                 )
-                # This is the fix: register shape info for the new tensor.
                 s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
                 mask_cond_name = mask_bool_name
 
@@ -193,9 +197,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         v_t = s.get_unique_name("v_T")
         s.add_node(helper.make_node("Transpose", [v_name], [v_t], perm=[0, 2, 1, 3]))
         s.add_shape_info(v_t, (B, N, S, H), np_dtype)
+
         out_t = s.get_unique_name("out_T")
         s.add_node(helper.make_node("MatMul", [weights, v_t], [out_t]))
         s.add_shape_info(out_t, (B, N, T, H), np_dtype)
+
         s.add_node(
             helper.make_node("Transpose", [out_t], [out_name], perm=[0, 2, 1, 3])
         )
@@ -211,8 +217,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 inputs.append(mask)
             if has_bias:
                 inputs.append(bias)
+            # Pass kwargs through to the primitive binding
             return nnx.dot_product_attention_p.bind(
-                *inputs, has_mask=has_mask, has_bias=has_bias
+                *inputs, has_mask=has_mask, has_bias=has_bias, **kwargs
             )
 
         return patched
