@@ -1,7 +1,7 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.6.5"
+version = "0.7.0"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
@@ -88,5 +88,5 @@ default_level = "WARNING"
 format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 [tool.jax2onnx.logging.levels]
-"jax2onnx" = "INFO"
+"jax2onnx" = "DEBUG"
  

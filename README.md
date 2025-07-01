@@ -3,62 +3,12 @@
 `jax2onnx` converts your JAX/Flax(nnx) functions directly into the ONNX format.
 
 
----
-
-🚨 **Important Notice: Git History Rewrite Coming**
-
-Hi all,
-
-We’re planning to **rewrite the Git history** of the `jax2onnx` repository to permanently remove the large `docs/onnx/` folder and reduce repository size.
-This rewrite will affect **all commits, branches, and tags**, and will require everyone to **synchronize or re-clone** the repository afterward.
-
-### 📅 Deadline: **by Tuesday, 1 June, 20:00 CEST**
-
----
-
-### ✅ What you need to do *before the deadline*:
-
-1. **Push all your local branches and tags** to GitHub:
-
-   ```bash
-   git push --all
-   git push --tags
-   ```
-
-2. **Back up any local work** (commit or stash anything in progress).
-
-3. **Avoid pushing new changes after 20:00 CEST on June 1** until we confirm the rewrite is done.
-
----
-
-### 🔁 What will happen:
-
-* We will **rewrite the full history** to remove `docs/onnx/`
-* A **force-push** will overwrite the current remote
-* After the rewrite, you will need to:
-
-  * Either **re-clone the repository**, or
-  * Run:
-
-    ```bash
-    git fetch
-    git reset --hard origin/main
-    git clean -fdx
-    ```
-
-You’ll get a confirmation message once everything is complete.
-
-Thanks!
-
----
-
-
 ![img.png](https://enpasos.github.io/jax2onnx/images/jax2onnx.png)
 
 ## ✨ Key Features
 
-- **Simple API**  
-  Convert any JAX/Flax model to ONNX using `to_onnx(...)`
+- **Simple API**
+  Easily convert JAX callables—including Flax (NNX) models—into ONNX format using `to_onnx(...)`.
 
 - **Model structure preserved**  
   With `@onnx_function`, submodules appear as named functions in the ONNX graph (e.g. in Netron). Useful for readability and reuse.
@@ -148,26 +98,37 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 
 ### **Planned Versions**
-- **In Progress**: 
-  - Expanding coverage of JAX and Flax(nnx) components.
-  - Improved support for **physics simulations**.
-- **Under Evaluation**: Initial support for `flax.linen` models within `jax2onnx`.
-- **Upcoming 0.8.x**: Advanced ONNX function support — including function reuse, optimized internal graph generation, and improved variable naming for better readability.
+Here’s a polished version:
+
+---
+
+### **Planned Versions**
+
+* **Ongoing**
+
+  * Expanding coverage of JAX and Flax (NNX) components
+  * Enhancing support for **physics-based simulations**
+
+* **Under Evaluation**
+
+  * Integrating `onnx-ir` as a backend to improve ONNX model construction, memory efficiency, and performance
+
+* **Upcoming**
+
+  * Advanced ONNX function support, including function reuse, optimized internal graph structure, and improved variable naming for clarity and readability
+  * Support for `equinox` models 
+
  
 
-### **Under Development**
-- **t.b.d.**: Started support for `equinox` models.
-- **0.7.0**: 
-  - GPT-2 model example (nanoGPT based) with ONNX function support. Added masking support for attention layers.
+### **Current Productive Version**
+- **0.7.0**:
+  - GPT-2 model example ([nanoGPT](https://github.com/karpathy/nanoGPT/blob/master/model.py) based) with ONNX function support. Added masking support for attention layers.
   - hosting of the ONNX models on Hugging Face.
 
-### **Current Productive Version**
-- **0.6.5** *(PyPI)*: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`, 
-`lax.integer_pow`, `lax.scan`, `lax.scatter`, `lax.scatter_add`, `lax.scatter_mul` and `lax.while_loop`; 
-added support for `lax.and`, `lax.rem` and `lax.remat2`.  
-
-
 ### **Past Versions**
+- **0.6.5** *(PyPI)*: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`,
+  `lax.integer_pow`, `lax.scan`, `lax.scatter`, `lax.scatter_add`, `lax.scatter_mul` and `lax.while_loop`;
+  added support for `lax.and`, `lax.rem` and `lax.remat2`.
 - **0.6.4**: Improved support for `lax.scatter_mul`.
 - **0.6.3**: Double precision fixes for  `lax.fori_loop` and `lax.while_loop`. Fixed bugs in `lax.scan` and `jnp.where`.
 - **0.6.2**: Fixed bugs in `nnx.conv` and `lax.reshape`; added new primitive `jnp.prod`.
@@ -332,7 +293,7 @@ If conversion doesn't work out of the box, it could be due to:
 | GPT_Embeddings | Combines token and position embeddings with dropout. | [`gpt_embeddings_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_embeddings_dynamic.onnx) ✅<br>[`gpt_embeddings`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_embeddings.onnx) ✅ | v0.7.0 |
 | GPT_Head | The head of the GPT model. | [`gpt_head_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_head_dynamic.onnx) ✅<br>[`gpt_head`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_head.onnx) ✅ | v0.7.0 |
 | GPT_MLP | An MLP block with GELU activation from nanoGPT. | [`gpt_mlp_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_mlp_dynamic.onnx) ✅<br>[`gpt_mlp`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_mlp.onnx) ✅ | v0.7.0 |
-| GPT_PositionEmbedding | A positional embedding layer using nnx.Embed. | [`position_embedding_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/position_embedding_dynamic.onnx) ✅<br>[`position_embedding`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/position_embedding.onnx) ✅ | v0.7.0 |
+| GPT_PositionEmbedding | A positional embedding layer using nnx.Embed. | [`position_embedding`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/position_embedding.onnx) ✅ | v0.7.0 |
 | GPT_TokenEmbedding | A token embedding layer using nnx.Embed. | [`token_embedding_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/token_embedding_dynamic.onnx) ✅<br>[`token_embedding`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/token_embedding.onnx) ✅ | v0.7.0 |
 | GPT_TransformerBlock | A transformer block combining attention and MLP. | [`gpt_block_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_block_dynamic.onnx) ✅<br>[`gpt_block`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_block.onnx) ✅ | v0.7.0 |
 | GPT_TransformerStack | A stack of transformer blocks. | [`transformer_stack_dynamic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/transformer_stack_dynamic.onnx) ✅<br>[`transformer_stack`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/transformer_stack.onnx) ✅ | v0.7.0 |
