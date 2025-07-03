@@ -96,12 +96,6 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ## 📅 Roadmap and Releases
 
-
-### **Planned Versions**
-Here’s a polished version:
-
----
-
 ### **Planned Versions**
 
 * **Ongoing**
