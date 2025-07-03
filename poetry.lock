@@ -1503,6 +1503,24 @@ typing_extensions = ">=4.7.1"
 reference = ["Pillow", "google-re2 ; python_version < \"3.13\""]
 
 [[package]]
+name = "onnx-ir"
+version = "0.1.3"
+description = "Efficient in-memory representation for ONNX"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "onnx_ir-0.1.3-py3-none-any.whl", hash = "sha256:d52f4316fa39a51bf6547cb0fed4a17811ea452023ef870ea6ba9f3eec1ff52c"},
+    {file = "onnx_ir-0.1.3.tar.gz", hash = "sha256:239dab04addc5cadbf496b8d41caeac771f6791239718fd43cef3987b5d20305"},
+]
+
+[package.dependencies]
+ml_dtypes = "*"
+numpy = "*"
+onnx = ">=1.16"
+typing_extensions = ">=4.10"
+
+[[package]]
 name = "onnxruntime"
 version = "1.22.0"
 description = "ONNX Runtime is a runtime accelerator for Machine Learning models"
@@ -2663,4 +2681,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "de4391efc3924a80352fc38246d5a13fab201253e5437a2668b928389c0a79a7"
+content-hash = "40256393c1489214d6dba9b3a925c1383101b3708b817c866ff490c25a2b4870"
