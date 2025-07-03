@@ -1,12 +1,10 @@
 import unittest
 import numpy as np
-import pytest
 from onnx import helper, TensorProto
 
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.name_generator import UniqueNameGenerator
-
 
 
 class TestOnnxBuilderSubgraphInputs(unittest.TestCase):

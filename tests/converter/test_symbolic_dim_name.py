@@ -1,6 +1,7 @@
 import jax.numpy as jnp
-from jax2onnx import to_onnx 
+from jax2onnx import to_onnx
 import pytest
+
 
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def test_symbolic_batch_dim_is_preserved():

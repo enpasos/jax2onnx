@@ -9,6 +9,7 @@ from jax2onnx.converter.optimize_onnx_graph import (
     remove_redundant_reshapes,
 )
 
+
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def create_test_model() -> onnx.ModelProto:
     # Create an input and an output value_info.
@@ -51,6 +52,7 @@ def create_test_model() -> onnx.ModelProto:
     graph.value_info.extend([r1_vi, gelu_vi, dropout_vi])
 
     return oh.make_model(graph)
+
 
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def test_remove_redundant_reshapes():
