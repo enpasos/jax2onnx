@@ -192,7 +192,7 @@ class WherePlugin(PrimitiveLeafPlugin):
             return jnp.where_p.bind(cond, x, y)
 
         return {
-            "patch_targets": [jnp, lax],
+            "patch_targets": [jnp],
             "target_attribute": "where",
             "patch_function": lambda orig: patched_where,
         }
