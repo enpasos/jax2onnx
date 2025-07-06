@@ -2,12 +2,14 @@
 
 from typing import TYPE_CHECKING
 
+import flax.linen
 import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+import flax.linen
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -33,11 +35,22 @@ jax.nn.relu_p.multiple_results = False
             "testcase": "jaxnn_relu",
             "callable": lambda x: jax.nn.relu(x),
             "input_shapes": [(1,)],
+            "post_check_onnx_graph": lambda model: "Relu"
+            in {n.op_type for n in model.graph.node},
+        }, 
+        {
+            "testcase": "flaxlinen_relu",
+            "callable": lambda x: flax.linen.relu(x),
+            "input_shapes": [(1,)],
+            "post_check_onnx_graph": lambda model: "Relu"
+            in {n.op_type for n in model.graph.node},
         },
         {
             "testcase": "jaxnn_relu_2d",
             "callable": lambda x: jax.nn.relu(x),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": lambda model: "Relu"
+            in {n.op_type for n in model.graph.node},
         },
     ],
 )
@@ -79,7 +92,7 @@ class JaxReluPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def patch_info():
         return {
-            "patch_targets": [jax.nn],
+            "patch_targets": [jax.nn, flax.linen, flax.linen.activation],
             "patch_function": lambda _: JaxReluPlugin.get_monkey_patch(),
             "target_attribute": "relu",
         }
