@@ -1,9 +1,10 @@
-# file: jax2onnx/examples/transformer_decoder.py
+# file: jax2onnx/examples/nnx/transformer_decoder2.py
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 from jax2onnx.plugin_system import onnx_function, register_example
+
 
 # ------------------------------------------------------------------------------
 # A tiny Transformer‐style decoder built from nnx primitives
@@ -25,12 +26,9 @@ class TransformerDecoderLayer(nnx.Module):
             dropout_rate=encoder_attention_dropout,
             decode=False,
             rngs=rngs
-        )
-        self.ffn = nnx.Sequential(
-            nnx.Linear(in_features=embed_dim, out_features=ff_dim, rngs=rngs),
-            lambda x: nnx.relu(x),
-            nnx.Linear(in_features=ff_dim, out_features=embed_dim, rngs=rngs)
-        )
+        ) 
+        self.lin1 = nnx.Linear(in_features=embed_dim,  out_features=ff_dim,  rngs=rngs)
+        self.lin2 = nnx.Linear(in_features=ff_dim,     out_features=embed_dim, rngs=rngs)
         self.layernorm1 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
         self.layernorm2 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
         self.layernorm3 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
@@ -56,7 +54,7 @@ class TransformerDecoderLayer(nnx.Module):
         x = self.layernorm2(x + self.dropout2(cross_attn_output, deterministic=deterministic))
 
         # Feed-forward block
-        ffn_output = self.ffn(x)
+        ffn_output = self.lin2(nnx.relu(self.lin1(x)))
         x = self.layernorm3(x + self.dropout3(ffn_output, deterministic=deterministic))
         return x
 
@@ -80,7 +78,7 @@ class TransformerDecoder(nnx.Module):
 
 
 register_example(
-    component="TransformerDecoder",
+    component="TransformerDecoder2",
     description="A single-layer Transformer decoder built with nnx primitives (MHA, LayerNorm, Feed-Forward, Dropout).",
     source="https://github.com/google/flax/tree/main/flax/nnx",
     since="v0.7.1",
@@ -94,7 +92,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "tiny_decoder",
+            "testcase": "tiny_decoder2",
             "callable": TransformerDecoder(
                 num_layers=1,
                 embed_dim=16,
