@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
 import jax.numpy as jnp
-from jax import core, lax
+from jax import core
 from jax.extend.core import Primitive, Var
 import numpy as np
 from onnx import helper

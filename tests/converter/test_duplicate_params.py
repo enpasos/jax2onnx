@@ -86,6 +86,7 @@ def check_duplicate_function_inputs(model):
 
     return duplicates
 
+
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def test_duplicate_parameters():
     """Test that functions don't have duplicate parameters"""

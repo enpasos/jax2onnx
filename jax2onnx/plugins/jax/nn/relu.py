@@ -9,7 +9,6 @@ from jax.interpreters import batching
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-import flax.linen
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -17,6 +16,7 @@ if TYPE_CHECKING:
 # Define our own primitive
 jax.nn.relu_p = Primitive("jax.nn.relu")
 jax.nn.relu_p.multiple_results = False
+
 
 @register_primitive(
     jaxpr_primitive=jax.nn.relu_p.name,
@@ -37,7 +37,7 @@ jax.nn.relu_p.multiple_results = False
             "input_shapes": [(1,)],
             "post_check_onnx_graph": lambda model: "Relu"
             in {n.op_type for n in model.graph.node},
-        }, 
+        },
         {
             "testcase": "flaxlinen_relu",
             "callable": lambda x: flax.linen.relu(x),
@@ -87,6 +87,7 @@ class JaxReluPlugin(PrimitiveLeafPlugin):
     def get_monkey_patch():
         def patched_relu(x):
             return jax.nn.relu_p.bind(x)
+
         return patched_relu
 
     @staticmethod
@@ -108,6 +109,7 @@ def relu_batching_rule(batched_args, batch_dims):
 
     y = jax.nn.relu_p.bind(x)
     return y, bdim
+
 
 # === Registration ===
 # Register the abstract evaluation function

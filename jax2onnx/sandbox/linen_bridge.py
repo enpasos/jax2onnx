@@ -20,8 +20,8 @@ model = nnx.bridge.ToNNX(model, rngs=nnx.Rngs(0))
 inputs = jnp.ones((1, 10))
 model = nnx.bridge.lazy_init(model, inputs)
 
-# avoid flax.errors.TraceContextError: Cannot mutate RngStream from a different trace level 
-model.rngs = False 
+# avoid flax.errors.TraceContextError: Cannot mutate RngStream from a different trace level
+model.rngs = False
 
 jax2onnx.to_onnx(
     model,

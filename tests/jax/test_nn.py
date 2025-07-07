@@ -2,5 +2,4 @@
 from tests.t_generator import generate_test_class
 
 # Tests for jax.nn.relu
-generate_test_class(context='jax.nn', component='relu', namespace=globals())
-
+generate_test_class(context="jax.nn", component="relu", namespace=globals())

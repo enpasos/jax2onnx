@@ -17,7 +17,6 @@ import numpy as np
 # Import ONNX helpers
 from onnx import helper as onnx_helper
 from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
-from onnx import TensorProto
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -53,7 +52,7 @@ def _test_truncated_normal_callable(key, lower, upper):
                 jnp.array(2.0, dtype=jnp.float32),
             ],
             "expected_output_shapes": [(4, 5)],
-            "expected_output_dtypes": [jnp.float32], 
+            "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
         },
         {
@@ -74,7 +73,7 @@ def _test_truncated_normal_callable(key, lower, upper):
             ),
             "input_values": [
                 jax.random.PRNGKey(0),
-                jnp.ones((1, 10), dtype=jnp.float32)
+                jnp.ones((1, 10), dtype=jnp.float32),
             ],
             "expected_output_shapes": [(10, 128)],
             "expected_output_dtypes": [jnp.float32],
@@ -102,6 +101,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
                 return d
             except TypeError:
                 return None
+
         safe_shape = tuple(_safe_dim(d) for d in shape)
         return core.ShapedArray(safe_shape, dtype)
 
@@ -181,19 +181,22 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
             "patch_function": lambda orig: _patched_truncated_normal,
         }
 
+
 # Register abstract eval for the primitive
 truncated_normal_p.def_abstract_eval(TruncatedNormalPlugin.abstract_eval)
 
 
 def _truncated_normal_lowering_mlir(ctx, key, lower, upper, *, shape, dtype):
     aval_out = ctx.avals_out[0]
-    tensor_type = ir.RankedTensorType.get(aval_out.shape, mlir.dtype_to_ir_type(aval_out.dtype))
+    tensor_type = ir.RankedTensorType.get(
+        aval_out.shape, mlir.dtype_to_ir_type(aval_out.dtype)
+    )
     zero = mlir.ir_constant(np.array(0, dtype=aval_out.dtype))
     return [hlo.BroadcastOp(tensor_type, zero, mlir.dense_int_elements([])).result]
+
 
 # Register MLIR lowering
 mlir.register_lowering(
     truncated_normal_p,
     _truncated_normal_lowering_mlir,
 )
-

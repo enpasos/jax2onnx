@@ -51,7 +51,6 @@ def temporary_monkey_patches(
         yield
 
 
-
 @contextlib.contextmanager
 def _temporary_patch(
     target: Any, attr: str, patch_func: Callable

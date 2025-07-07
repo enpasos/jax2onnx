@@ -2,21 +2,25 @@
 from typing import TYPE_CHECKING
 import jax
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from onnx import helper
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
+
 
 # ---------- tiny custom-JVP function used by the testcase ----------
 @jax.custom_jvp
 def square(x):
     return x * x
 
+
 @square.defjvp
 def square_jvp(primals, tangents):
     (x,), (t,) = primals, tangents
     return square(x), 2 * x * t
+
+
 # -------------------------------------------------------------------
+
 
 @register_primitive(
     jaxpr_primitive="custom_jvp_call",
@@ -39,8 +43,8 @@ class GenericCustomJvpPlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s, node_inputs, node_outputs, params):
         # 1) peel apart the ClosedJaxpr
-        closed     = params["call_jaxpr"]
-        sub_jaxpr  = closed.jaxpr
+        closed = params["call_jaxpr"]
+        sub_jaxpr = closed.jaxpr
         sub_consts = getattr(closed, "consts", [])
 
         # 2) hook up sub-invars → outer inputs

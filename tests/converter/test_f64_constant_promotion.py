@@ -18,6 +18,7 @@ def function_with_captured_constant(x):
     # When this function is traced, CAPTURED_CONSTANT_F32 becomes a jaxpr constant.
     return x + jnp.array(CAPTURED_CONSTANT_F32)
 
+
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def test_f64_promotion_for_captured_constants():
     """
@@ -86,6 +87,7 @@ def function_with_only_captured_constants():
     """A JAX function that works only on captured constants."""
     # FIX: Multiply by a float64 constant to ensure promotion
     return jnp.array(CAPTURED_CONSTANT_F32) * np.float64(2.0)
+
 
 @pytest.mark.order(-1)  # run *after* the models have been produced
 def test_f64_promotion_for_function_with_no_inputs():
