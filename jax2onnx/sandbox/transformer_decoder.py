@@ -102,8 +102,10 @@ onnx.save_model(onnx_model, onnx_path)
 print(f"✅ Saved ONNX model to {onnx_path}")
 
 # --- Verify outputs match ---
-decoder_input  = jnp.ones((1, 8, 16), dtype=jnp.float32)
-encoder_output = jnp.ones((1, 4, 16), dtype=jnp.float32)
+  
+# ⚠️ both inputs must be rank-3 (B, seq_len, emb_dim) to match the ONNX signature:
+decoder_input  = jnp.ones((1,  8, 16), dtype=jnp.float32)  # (B=1, seq=8, emb=16)
+encoder_output = jnp.ones((1,  4, 16), dtype=jnp.float32)  # (B=1, seq=4, emb=16)
 
 jax_out = model(decoder_input, encoder_output)
 sess = ort.InferenceSession(onnx_path)

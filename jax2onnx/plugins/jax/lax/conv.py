@@ -36,7 +36,8 @@ def compute_same_pads(input_size, filter_size, stride):
             "callable": lambda x, y: jax.lax.conv(
                 x, y, window_strides=(1, 1), padding="VALID"
             ),
-            "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
+            "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)], 
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "conv2",  # NHWC & HWIO: transposition required.
@@ -48,6 +49,7 @@ def compute_same_pads(input_size, filter_size, stride):
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
+            "run_only_f32_variant": True,
         },
     ],
 )

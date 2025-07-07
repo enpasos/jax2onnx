@@ -87,8 +87,12 @@ def allclose(
     # Run ONNX model with both tensor and parameter inputs
     onnx_output = session.run(None, onnx_inputs)
 
-    # Call JAX function directly with tensor args and keyword args
-    jax_output = fn(*xs, **jax_kwargs)
+    # compute JAX output, making sure inputs are JAX arrays
+    import jax.numpy as jnp
+
+    # Wrap any array-like inputs into JAX arrays so methods like .at work
+    jax_inputs = [jnp.asarray(x) for x in xs]
+    jax_output = fn(*jax_inputs, **jax_kwargs)
 
     # --- START OF PATCH ---
     # Ensure outputs are in a flat list format for comparison

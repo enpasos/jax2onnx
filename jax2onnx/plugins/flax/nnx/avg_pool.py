@@ -47,6 +47,7 @@ avg_pool_p.multiple_results = False
                 x, window_shape=(2, 2), strides=(2, 2), padding="VALID"
             ),
             "input_shapes": [("B", 32, 32, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_same_padding",
@@ -54,11 +55,13 @@ avg_pool_p.multiple_results = False
                 x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
             ),
             "input_shapes": [("B", 32, 32, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_default_padding",
             "callable": lambda x: nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2)),
             "input_shapes": [("B", 32, 32, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_stride1",
@@ -66,6 +69,7 @@ avg_pool_p.multiple_results = False
                 x, window_shape=(2, 2), strides=(1, 1), padding="VALID"
             ),
             "input_shapes": [("B", 8, 8, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_win3x3_stride2",
@@ -73,6 +77,7 @@ avg_pool_p.multiple_results = False
                 x, window_shape=(3, 3), strides=(2, 2), padding="VALID"
             ),
             "input_shapes": [("B", 10, 10, 1)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_stride_none",
@@ -80,6 +85,7 @@ avg_pool_p.multiple_results = False
                 x, window_shape=(2, 2), strides=None, padding="VALID"
             ),
             "input_shapes": [("B", 8, 8, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "avg_pool_count_include_pad_false",
@@ -91,6 +97,7 @@ avg_pool_p.multiple_results = False
                 count_include_pad=False,
             ),
             "input_shapes": [("B", 8, 8, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )

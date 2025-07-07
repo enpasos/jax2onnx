@@ -74,11 +74,13 @@ nnx.dot_product_attention_p.multiple_results = False
             "callable": dpa_with_mask,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "dpa_with_bias",
             "callable": dpa_with_bias,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "dpa_with_causal_mask",

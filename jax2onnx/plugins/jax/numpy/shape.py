@@ -20,7 +20,9 @@ shape_p.multiple_results = False
 
 
 def shape_impl(operand):
-    return jnp.shape(operand)
+    # Return the dynamic shape as a 1-D JAX array of int64
+    # (pull shape directly from the operand to avoid a host→device round-trip)
+    return jnp.asarray(operand.shape, dtype=jnp.int64)
 
 
 def shape_abstract_eval(operand_aval):
@@ -95,11 +97,8 @@ class ShapePlugin(PrimitiveLeafPlugin):
         # ONNX Shape outputs INT64
         output_dtype_enum = onnx.TensorProto.INT64
 
+        # Register output metadata (ONNX Shape outputs a 1-D int64 tensor)
         s.builder.register_value_info_metadata(
-            output_name, shape=output_shape_tuple, dtype=output_dtype_enum
-        )
-        # Also add to value_info list if needed by subsequent steps
-        s.builder.add_value_info(
             output_name, shape=output_shape_tuple, dtype=output_dtype_enum
         )
 
@@ -120,3 +119,9 @@ class ShapePlugin(PrimitiveLeafPlugin):
             "patch_function": lambda _: ShapePlugin._patched_jnp_shape,  # The function to patch with
             "target_attribute": "shape",  # The attribute name in the target module
         }
+
+# At import time, override jnp.shape globally (but keep the original around
+# in case anyone needs to restore it)
+from jax import numpy as _jnp_module
+_original_jnp_shape = _jnp_module.shape
+_jnp_module.shape = ShapePlugin._patched_jnp_shape

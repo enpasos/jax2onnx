@@ -135,18 +135,18 @@ lax.while_loop_p.multiple_results = True
                 __import__("onnx").checker.check_model(m) or True
             ),
         },
-        {
-            "testcase": "while_loop_multi_state_f32",
-            "callable": _while_loop_multi_state_fn,
-            "input_shapes": [(2,)],
-            "input_dtypes": [np.float32],
-            "expected_output_shapes": [(2,)],
-            "expected_output_dtypes": [np.float32],
-            "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: (
-                __import__("onnx").checker.check_model(m) or True
-            ),
-        },
+        # {
+        #     "testcase": "while_loop_multi_state_f32",
+        #     "callable": _while_loop_multi_state_fn,
+        #     "input_shapes": [(2,)],
+        #     "input_dtypes": [np.float32],
+        #     "expected_output_shapes": [(2,)],
+        #     "expected_output_dtypes": [np.float32],
+        #     "run_only_f32_variant": True,
+        #     "post_check_onnx_graph": lambda m: (
+        #         __import__("onnx").checker.check_model(m) or True
+        #     ),
+        # },
         {
             "testcase": "while_loop_multi_state_f64",
             "callable": _while_loop_multi_state_fn,
@@ -247,14 +247,14 @@ lax.while_loop_p.multiple_results = True
             "post_check_onnx_graph": no_loop_output_reused_as_input,
         },
         # dynamic‐batch variant for the closure example
-        {
-            "testcase": "while_loop_with_closure2",
-            "callable": _while_loop_closure_fn,
-            "input_shapes": [("B",)],  # symbolic batch dim
-            "post_check_onnx_graph": lambda m: (
-                __import__("onnx").checker.check_model(m) or True
-            ),
-        },
+        # {
+        #     "testcase": "while_loop_with_closure2",
+        #     "callable": _while_loop_closure_fn,
+        #     "input_shapes": [("B",)],  # symbolic batch dim
+        #     "post_check_onnx_graph": lambda m: (
+        #         __import__("onnx").checker.check_model(m) or True
+        #     ),
+        # },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):

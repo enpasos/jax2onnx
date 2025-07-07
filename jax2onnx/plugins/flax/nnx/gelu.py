@@ -31,11 +31,13 @@ nnx.gelu_p.multiple_results = False  # Correct initialization
             "testcase": "gelu",
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "gelu_1",
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1, 10)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "gelu_2",

@@ -87,47 +87,65 @@ nn.dot_product_attention_p.multiple_results = False
             "testcase": "dpa_basic",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_diff_heads_embed",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_batch4_seq16",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(4, 2, 16, 8), (4, 2, 16, 8), (4, 2, 16, 8)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_float64",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "input_dtype": np.float64,
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_heads1_embed4",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 1, 8, 4), (2, 1, 8, 4), (2, 1, 8, 4)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_heads8_embed8",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 8, 8, 8), (2, 8, 8, 8), (2, 8, 8, 8)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_batch1_seq2",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(1, 2, 2, 8), (1, 2, 2, 8), (1, 2, 2, 8)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_batch8_seq4",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(8, 2, 4, 16), (8, 2, 4, 16), (8, 2, 4, 16)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_axis1",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_with_tensor_mask",
@@ -226,6 +244,9 @@ nn.dot_product_attention_p.multiple_results = False
     ],
 )
 class DotProductAttentionPlugin(PrimitiveLeafPlugin):
+    # stash the real JAX impl so we can call it at runtime
+    _ORIG_CALL = nn.dot_product_attention
+
     @staticmethod
     def abstract_eval(q, k, v, *args, **kwargs):
         return core.ShapedArray(q.shape, q.dtype)
@@ -253,11 +274,47 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         s.add_shape_info(logits, (B, N, T, S), np_dtype)
 
         scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
+        # 1) scale the raw attention scores
         scaled_scores = s.get_unique_name("scaled_scores")
         s.add_node(helper.make_node("Mul", [logits, scale_const], [scaled_scores]))
         s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
 
         final_logits = scaled_scores
+
+        # 2) if causal masking was requested, blank out j > i entries by injecting a
+        #    lower-triangular mask + a "-infinity" fill
+        if params.get("is_causal", False):
+            # extract static dims from the input abstract (batch, seq_q, heads, head_dim)
+            b, seq_q, n_heads, head_dim = node_inputs[0].aval.shape
+            # for keys the sequence length is at axis=1
+            seq_k = node_inputs[1].aval.shape[1]
+            # build a [seq_q, seq_k] lower-triangular boolean mask
+            mask_np = np.tril(np.ones((seq_q, seq_k), dtype=bool))
+            mask_name = s.get_constant_name(mask_np)
+
+            # build a scalar "-∞" of the correct dtype
+            neg_inf_np = np.array(-np.inf, dtype=node_inputs[0].aval.dtype)
+            neg_inf_name = s.get_constant_name(neg_inf_np)
+
+            # apply:   masked = Where(mask, scaled_scores, -inf)
+            masked_name = s.get_unique_name("masked_scores")
+            s.add_node(
+                helper.make_node(
+                    "Where",
+                    inputs=[mask_name, scaled_scores, neg_inf_name],
+                    outputs=[masked_name],
+                    name=s.get_unique_name("where"),
+                )
+            )
+            # tell ONNX about the shape of that new tensor
+            s.add_shape_info(
+                masked_name,
+                (b, n_heads, seq_q, seq_k),
+                node_inputs[0].aval.dtype,
+            )
+            final_logits = masked_name
+
+        # Handle optional mask input
         if optional_inputs:
             mask_var = optional_inputs[0]
             mask_name = s.get_name(mask_var)
@@ -268,9 +325,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 )
             )
             s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
-            large_negative_number_const = s.get_constant_name(
-                np.array(-1e9, dtype=np_dtype)
-            )
+            # JAX fills masked positions with the minimum finite value
+            very_neg = np.array(np.finfo(np_dtype).min, dtype=np_dtype)
+            large_negative_number_const = s.get_constant_name(very_neg)
             masked_logits = s.get_unique_name("masked_logits")
             s.add_node(
                 helper.make_node(
@@ -282,6 +339,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             s.add_shape_info(masked_logits, (B, N, T, S), np_dtype)
             final_logits = masked_logits
 
+        # 3) finally softmax over the last (key) axis
         weights = s.get_unique_name("attn_weights")
         s.add_node(helper.make_node("Softmax", [final_logits], [weights], axis=-1))
         s.add_shape_info(weights, (B, N, T, S), np_dtype)
@@ -298,17 +356,33 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         s.add_shape_info(out_name, (B, T, N, H), np_dtype)
 
     @staticmethod
-    def _dot_product_attention(q, k, v, mask=None, axis=-1):
-        if mask is not None:
-            return nn.dot_product_attention_p.bind(q, k, v, mask, axis=axis)
-        return nn.dot_product_attention_p.bind(q, k, v, axis=axis)
+    def _dot_product_attention(q, k, v, *args, **kwargs):
+        """
+        Convert the *tensor* mask from a keyword into a positional operand so
+        the converter sees it as `node_inputs[3]`.  All other flags
+        (`is_causal`, `query_seq_lengths`, …) stay as static params.
+        """
+        if "mask" in kwargs:
+            mask_tensor = kwargs.pop("mask")         # dynamic → operand #4
+            return nn.dot_product_attention_p.bind(q, k, v, mask_tensor,
+                                                   *args, **kwargs)
+        return nn.dot_product_attention_p.bind(q, k, v, *args, **kwargs)
 
     @staticmethod
     def get_monkey_patch():
-        def patched(q, k, v, mask=None, axis=-1, **kwargs):
-            return DotProductAttentionPlugin._dot_product_attention(
-                q, k, v, mask, axis=axis
-            )
+        """
+        Install a wrapper that:
+         - If we're *exporting* (i.e. in a JAX tracer / ShapeDtypeStruct), bind to the ONNX primitive;
+         - Otherwise (eager numpy/jax.Array inputs), call the real JAX dot_product_attention.
+        """
+        from jax.core import Tracer
+        def patched(q, k, v, *args, **kwargs):
+            # Detect ONNX‐tracing: ShapeDtypeStruct or JAX Tracer
+            if hasattr(q, 'aval') or isinstance(q, Tracer):
+                # export path → primitive
+                return DotProductAttentionPlugin._dot_product_attention(q, k, v, *args, **kwargs)
+            # runtime path → fall back to real JAX implementation
+            return DotProductAttentionPlugin._ORIG_CALL(q, k, v, *args, **kwargs)
 
         return patched
 

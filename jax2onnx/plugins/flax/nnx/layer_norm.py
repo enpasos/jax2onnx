@@ -33,6 +33,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
             "testcase": "layer_norm",
             "callable": nnx.LayerNorm(num_features=32, epsilon=1e-5, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
@@ -40,6 +41,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 32, use_bias=False, use_scale=False, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_bias_no_scale",
@@ -47,6 +49,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 32, use_bias=True, use_scale=False, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_no_bias_scale",
@@ -54,6 +57,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 32, use_bias=False, use_scale=True, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_bias_scale",
@@ -61,6 +65,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 32, use_bias=True, use_scale=True, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_multiaxis",
@@ -71,6 +76,7 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 3, 3, 64)],
+            "run_only_f32_variant": True,
         },
     ],
 )

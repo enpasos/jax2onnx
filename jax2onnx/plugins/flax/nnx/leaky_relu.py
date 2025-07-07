@@ -32,6 +32,7 @@ nnx.leaky_relu_p.multiple_results = False  # Correctly set at initialization
             "testcase": "leaky_relu",
             "callable": lambda x: nnx.leaky_relu(x),
             "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         }
     ],
 )

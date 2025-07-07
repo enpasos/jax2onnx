@@ -345,7 +345,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
         # 3. Map inputs for the subgraph body
         for i, var in enumerate(jaxpr.invars):
             name = body_builder.get_unique_name(f"scan_body_in_{i}")
-            aval_shape = var.aval.shape[1:] if i >= num_carry else var.aval.shape
+            # body jaxpr already sees per-step shapes, so use them directly
+            aval_shape = var.aval.shape
             body_builder.add_input(name, aval_shape, var.aval.dtype)
             body_conv.var_to_name[var] = name
 

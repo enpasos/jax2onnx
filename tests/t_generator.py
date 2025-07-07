@@ -473,53 +473,75 @@ def make_test_function(tp: dict[str, Any]):
                 )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
-        elif input_shapes_from_testcase and input_dtypes_from_testcase:
-            symbol_map = {}
-            concrete_shapes = []
+
+        # ------------------------------------------------------------------
+        # ✅  NUMERICAL CHECK – fall-back to default float32 dtypes
+        # ------------------------------------------------------------------
+        #
+        # If a testcase gives `input_shapes` but forgets an explicit
+        # `input_dtypes`, we still want to run the end-to-end numeric
+        # comparison.  Assume `jnp.float32` for every tensor unless the
+        # testcase overrode it.
+        #
+        elif input_shapes_from_testcase:
+            # Build a dtype list: honour explicit list if present.
+            # Otherwise choose float32 *or* float64 depending on the
+            # variant we are running.
+            if input_dtypes_from_testcase is None:
+                default_dtype = (
+                    jnp.float64 if current_enable_double_precision else jnp.float32
+                )
+                input_dtypes_from_testcase = [default_dtype] * len(input_shapes_from_testcase)
+
+            symbol_map: dict[str, int] = {}
+            concrete_shapes: list[tuple[int, ...]] = []
             for shape_tuple in input_shapes_from_testcase:
-                concrete_shape_list = [
+                concrete_shape = tuple(
                     symbol_map.setdefault(dim, 2) if isinstance(dim, str) else dim
                     for dim in shape_tuple
-                ]
-                concrete_shapes.append(tuple(concrete_shape_list))
+                )
+                concrete_shapes.append(concrete_shape)
 
             def _rand(shape, dtype):
+                """
+                Return a NumPy array/random scalar of the requested shape and dtype,
+                always as an np.ndarray (so .astype is available).
+                """
+                # 1) Generate a raw Python float or ndarray
                 if np.issubdtype(dtype, np.floating):
-                    return np.asarray(np.random.randn(*shape)).astype(
-                        jnp.float64
-                        if current_enable_double_precision
-                        and np.issubdtype(dtype, np.floating)
-                        else dtype
-                    )
+                    raw = np.random.randn(*shape) if shape else np.random.randn()
                 elif np.issubdtype(dtype, np.integer):
-                    return np.zeros(shape, dtype=dtype)
-                elif dtype == np.bool_:
-                    return np.random.rand(*shape) > 0.5
+                    raw = np.random.randint(0, 5, size=shape) if shape else np.random.randint(0, 5)
+                elif dtype == np.bool_ or dtype == np.dtype(bool):
+                    raw = (np.random.rand(*shape) > 0.5) if shape else (np.random.rand() > 0.5)
                 else:
-                    return np.asarray(np.random.randn(*shape)).astype(dtype)
+                    raw = np.random.randn(*shape) if shape else np.random.randn()
+
+                # 2) Wrap into ndarray and cast
+                arr = np.array(raw)
+                target = jnp.float64 if (current_enable_double_precision and np.issubdtype(dtype, np.floating)) else dtype
+                return arr.astype(target)
 
             xs_for_num_check = [
-                _rand(tuple(shp), dt)
+                _rand(shp, dt)
                 for shp, dt in zip(concrete_shapes, input_dtypes_from_testcase)
             ]
 
-            # FIX FOR NaN in DPA MASK: Ensure no all-False rows in attention masks.
-            if "dpa" in testcase_name and "mask" in testcase_name:
-                mask_indices = [
-                    i
-                    for i, dt in enumerate(input_dtypes_from_testcase)
-                    if dt == np.bool_
-                ]
-                for i in mask_indices:
-                    mask = xs_for_num_check[i]
-                    # Check for any rows along the last axis that are all False.
+            # Special-case: avoid all-False attention masks (would yield −inf → NaN).
+            for idx, dt in enumerate(input_dtypes_from_testcase):
+                if dt == np.bool_ or dt == np.dtype(bool):
+                    mask = xs_for_num_check[idx]
+                    # Only apply if there's at least one dimension to index
+                    if mask.ndim == 0:
+                        continue
                     all_false_rows = ~np.any(mask, axis=-1, keepdims=True)
                     if np.any(all_false_rows):
-                        # Create a fixup mask that is True only at the first element.
-                        fixup_mask = np.zeros_like(mask, dtype=bool)
-                        fixup_mask[..., 0] = True
-                        # Apply the fixup where the original row was all False.
-                        xs_for_num_check[i] = np.where(all_false_rows, fixup_mask, mask)
+                        fix = np.zeros_like(mask)
+                        # build a safe indexer for the last axis
+                        idxers = [slice(None)] * mask.ndim
+                        idxers[-1] = 0
+                        fix[tuple(idxers)] = True
+                        xs_for_num_check[idx] = np.where(all_false_rows, fix, mask)
                         logger.warning(
                             f"Modified random attention mask for test '{testcase_name}' to prevent all-False rows that can cause NaNs."
                         )
@@ -538,12 +560,12 @@ def make_test_function(tp: dict[str, Any]):
                 passed_numerical
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
+
         else:
             logger.info(
                 f"No concrete inputs available for '{testcase_name}', skipping numerical validation."
             )
 
-        # ... (rest of the function is unchanged)
         # --- Function Count Check ---
         if expected_num_funcs is not None:
             num_found_funcs = len(list(onnx_model.functions))
