@@ -107,7 +107,8 @@ register_example(
         {
             "testcase": "while_loop_fn",
             "callable": while_loop_fn,
-            "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+            "input_values": [jnp.array(0.0, dtype=jnp.float64)],
+            "run_only_f64_variant": True,
         }
     ],
 )

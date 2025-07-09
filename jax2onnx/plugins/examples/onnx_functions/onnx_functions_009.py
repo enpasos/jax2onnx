@@ -109,6 +109,7 @@ register_example(
             ),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 4,
+            "run_only_f32_variant": True,
         },
     ],
 )

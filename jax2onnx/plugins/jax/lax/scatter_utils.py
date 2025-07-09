@@ -211,6 +211,8 @@ def _prepare_scatter_inputs_for_onnx(
     indices_v: Any,
     updates_v: Any,
     dimension_numbers: ScatterDimensionNumbers,
+    scatter_mode: Optional[Any] = None,  # Add scatter_mode parameter
+    reduction: str = "add",  # Add reduction parameter
 ) -> Tuple[str, str, str]:
     logger.debug(
         f"Running _prepare_scatter_inputs_for_onnx - Version: {SCATTER_UTILS_VERSION}"
@@ -883,6 +885,166 @@ def _prepare_scatter_inputs_for_onnx(
                 original_updates_dtype_np,
                 "DefaultUpdates_ShapeOK",
             )
+
+    # -----------------------------------------------------------------
+    #  ➤  JAX `FILL_OR_DROP` ⇒  ONNX: mask-out out-of-range rows
+    # -----------------------------------------------------------------
+    if scatter_mode is not None and hasattr(scatter_mode, '__name__') and scatter_mode.__name__ == 'FILL_OR_DROP':
+        # ---------------- Step 1: build a boolean mask per *row* -----------
+        # Create shape tensor for bounds checking
+        operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
+        s.add_node(
+            helper.make_node(
+                "Shape",
+                [final_operand_name],
+                [operand_shape_tensor_name]
+            )
+        )
+        
+        # Create zero tensor for lower bound check
+        zero_tensor_name = s.get_constant_name(np.array(0, dtype=np.int64))
+        
+        # Check lower bounds: indices >= 0
+        low_ok_name = s.get_unique_name("low_bounds_ok")
+        s.add_node(
+            helper.make_node(
+                "GreaterOrEqual",
+                [final_indices_name_to_return, zero_tensor_name],
+                [low_ok_name]
+            )
+        )
+        
+        # -------------------------------------------------------------
+        # 1. Pick only the dims used by this scatter  (e.g. (0,) ➜ N)
+        # -------------------------------------------------------------
+        scatter_dims = list(dimension_numbers.scatter_dims_to_operand_dims)  # e.g. [0]
+        dims_const_name = s.get_constant_name(np.array(scatter_dims, dtype=np.int64))
+
+        dim_limits_name = s.get_unique_name("dim_limits")
+        s.add_node(
+            helper.make_node(
+                "Gather",
+                [operand_shape_tensor_name, dims_const_name],
+                [dim_limits_name],
+                axis=0
+            )
+        )
+
+        # -------------------------------------------------------------
+        # 2. Broadcast the (k,) vector to the same shape as `indices`
+        # -------------------------------------------------------------
+        indices_shape_info = s.shape_env.get(final_indices_name_to_return)
+        if indices_shape_info is not None:
+            indices_rank = len(indices_shape_info.shape)
+            if indices_rank >= 2:
+                # Create target shape for broadcasting dim_limits
+                target_shape = list(indices_shape_info.shape)
+                target_shape_name = s.get_constant_name(np.array(target_shape, dtype=np.int64))
+                
+                # Reshape dim_limits to be broadcastable
+                dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
+                reshape_target = [1] * (indices_rank - 1) + [len(scatter_dims)]
+                s.add_node(
+                    helper.make_node(
+                        "Reshape",
+                        [dim_limits_name, s.get_constant_name(np.array(reshape_target, dtype=np.int64))],
+                        [dim_limits_reshaped_name]
+                    )
+                )
+                
+                # Expand to match indices shape
+                dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
+                s.add_node(
+                    helper.make_node(
+                        "Expand",
+                        [dim_limits_reshaped_name, target_shape_name],
+                        [dim_limits_bc_name]
+                    )
+                )
+                
+                # Check upper bounds: indices < shape
+                high_ok_name = s.get_unique_name("high_bounds_ok")
+                s.add_node(
+                    helper.make_node(
+                        "Less",
+                        [final_indices_name_to_return, dim_limits_bc_name],
+                        [high_ok_name]
+                    )
+                )
+                
+                # Combine bounds checks
+                both_ok_name = s.get_unique_name("both_bounds_ok")
+                s.add_node(
+                    helper.make_node(
+                        "And",
+                        [low_ok_name, high_ok_name],
+                        [both_ok_name]
+                    )
+                )
+                
+                # Reduce along last dimension to get row validity
+                row_ok_name = s.get_unique_name("row_ok")
+                s.add_node(
+                    helper.make_node(
+                        "ReduceAll",
+                        [both_ok_name],
+                        [row_ok_name],
+                        axes=[-1],
+                        keepdims=0
+                    )
+                )
+                
+                # ------------- Step 2: neutral-element for this reduction ----------
+                def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
+                    if reduction_op == "add":
+                        return np.array(0, dtype=dtype)
+                    elif reduction_op == "mul":
+                        return np.array(1, dtype=dtype)
+                    elif reduction_op == "max":
+                        return np.array(np.finfo(dtype).min if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).min, dtype=dtype)
+                    elif reduction_op == "min":
+                        return np.array(np.finfo(dtype).max if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).max, dtype=dtype)
+                    else:  # For 'replace' or unknown operations, use zero
+                        return np.array(0, dtype=dtype)
+                
+                neutral_val = _get_neutral_value(reduction, original_updates_dtype_np)
+                neutral_updates_name = s.get_constant_name(neutral_val)
+                
+                # Broadcast row_ok to match updates shape and create safe updates
+                safe_updates_name = s.get_unique_name("safe_updates")
+                s.add_node(
+                    helper.make_node(
+                        "Where",
+                        [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
+                        [safe_updates_name]
+                    )
+                )
+                
+                # ------------- Step 3: replace *bad* indices with 0 ----------------
+                safe_indices_name = s.get_unique_name("safe_indices")
+                s.add_node(
+                    helper.make_node(
+                        "Where",
+                        [both_ok_name, final_indices_name_to_return, zero_tensor_name],
+                        [safe_indices_name]
+                    )
+                )
+                
+                # Update the return values
+                final_indices_name_to_return = safe_indices_name
+                _final_updates_name_val_to_return = safe_updates_name
+                
+                # Add shape info for the new tensors
+                _manually_ensure_shape_env_entry(
+                    s, safe_indices_name, target_indices_shape_symbolic, 
+                    final_indices_dtype_np, "SafeIndices"
+                )
+                _manually_ensure_shape_env_entry(
+                    s, safe_updates_name, current_expected_onnx_updates_shape,
+                    original_updates_dtype_np, "SafeUpdates"
+                )
+
+    # -----------------------------------------------------------------
 
     def get_shape_dtype_str_from_env_local(name_to_log_local: str) -> str:
         sds_info: Optional[ShapeDtypeStruct] = s.shape_env.get(name_to_log_local)

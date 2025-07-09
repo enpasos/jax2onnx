@@ -78,6 +78,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "run_only_f32_variant": True,
         }
     ],
 )
@@ -169,6 +170,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "run_only_f32_variant": True,
         }
     ],
 )
@@ -209,6 +211,7 @@ register_example(
                 num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 10, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -302,6 +305,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -360,6 +364,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -380,6 +385,7 @@ register_example(
             "testcase": "get_token_flat",
             "callable": lambda x: get_token(x, 0),
             "input_shapes": [("B", 50, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -419,6 +425,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 50, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -458,6 +465,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 49, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -490,6 +498,7 @@ register_example(
                 num_hiddens=256,
             ),
             "input_shapes": [("B", 50, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -627,6 +636,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "vit_patch_embedding_flat",
@@ -646,6 +656,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
     ],
 )

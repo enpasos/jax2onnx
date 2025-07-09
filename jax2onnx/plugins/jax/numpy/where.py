@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/numpy/where.py
+#file: jax2onnx/plugins/jax/numpy/where.py
 
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ logger = logging.getLogger("jax2onnx.plugins.jax.numpy.where")
 jnp.where_p = Primitive("jnp.where")
 jnp.where_p.multiple_results = False
 
-
 # Example definition (ensure it's globally accessible for the test generator):
 def create_problematic_where_sequence(cond_input, data_input):
     scalar_true_val = jnp.array(1.0, dtype=data_input.dtype)
@@ -31,7 +30,6 @@ def create_problematic_where_sequence(cond_input, data_input):
     where_output = jnp.where(cond_input, scalar_true_val, scalar_false_val)
     processed_data = data_input * where_output
     return processed_data
-
 
 @register_primitive(
     jaxpr_primitive=jnp.where_p.name,
@@ -43,6 +41,19 @@ def create_problematic_where_sequence(cond_input, data_input):
     context="primitives.jnp",
     component="where",
     testcases=[
+        {
+            # Reproduce GPT causal‐attention mask: broadcast mask vs. scores, with a scalar "else"… currently unhandled.
+            "testcase": "where_gpt_mask_scores_literal_else",
+            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
+            "input_shapes": [
+                ("B", 1, "T", "T"),    # the causal mask
+                ("B", 12, "T", "T"),   # the attention scores
+            ],
+            "input_dtypes": [jnp.bool_, jnp.float32],
+            "expected_output_shapes": [
+                ("B", 12, "T", "T"),
+            ],
+        },
         {
             "testcase": "where_simple",
             "callable": lambda c, x, y: jnp.where(c, x, y),
@@ -86,7 +97,31 @@ def create_problematic_where_sequence(cond_input, data_input):
             "expected_output_dtypes": [np.int32],
         },
         {
-            "testcase": "where_jax_int_literals_broadcast_f64_mode",  # Base name
+            # Fails exactly like GPT causal attention: bool mask, float scores, scalar else
+            "testcase": "where_gpt_mask_scores_scalar_else",
+            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
+            "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
+            "input_dtypes": [jnp.bool_, jnp.float32],
+            "expected_output_shapes": [("B", 12, "T", "T")],
+        },
+        {
+            "testcase": "where_int_condition_cast",
+            "callable": lambda c_int, x, y: jnp.where(c_int, x, y),
+            "input_shapes": [(3,), (3,), (3,)],
+            "input_dtypes": [np.int32, np.float32, np.float32],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+        },
+
+        {
+            "testcase": "where_literal_else_pyfloat",
+            "callable": lambda cond, x: jnp.where(cond, x, -1e9),
+            "input_shapes": [(4, 4), (4, 4)],
+            "expected_output_shapes": [(4, 4)],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "where_jax_int_literals_broadcast_f64_mode",
             "callable": lambda c, x_scalar_py, y_scalar_py: jnp.where(
                 c,
                 jnp.array(x_scalar_py, dtype=jnp.int64),
@@ -100,9 +135,6 @@ def create_problematic_where_sequence(cond_input, data_input):
             "expected_output_shapes": [(3, 1)],
             "expected_output_dtypes": [np.int64],
             "run_only_f64_variant": True,
-            # This test, now named 'test_where_jax_int_literals_broadcast_f64_mode',
-            # will run *only* with enable_double_precision=True.
-            # We expect it to FAIL at ONNX model load time.
         },
         {
             "testcase": "where_simple",
@@ -124,16 +156,16 @@ class WherePlugin(PrimitiveLeafPlugin):
         y_av: core.AbstractValue,
         **kwargs,
     ) -> core.AbstractValue:
-        import numpy as np
-
-        if not all(isinstance(av, core.ShapedArray) for av in [cond_av, x_av, y_av]):
+        # All inputs must be ShapedArrays
+        if not all(isinstance(av, core.ShapedArray) for av in (cond_av, x_av, y_av)):
             raise TypeError("All inputs to jnp.where must be ShapedArrays.")
 
-        # Directly compute the broadcasted output shape and promoted dtype.
-        # This is a more robust way to perform abstract evaluation for this primitive.
+        # Determine promoted dtype
         promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
-        shape_xy = np.broadcast_shapes(x_av.shape, y_av.shape)
-        output_shape = np.broadcast_shapes(cond_av.shape, shape_xy)
+        # Broadcast shapes via JAX's own broadcast_shapes (handles symbolic dims)
+        from jax import numpy as _jnp
+
+        output_shape = _jnp.broadcast_shapes(cond_av.shape, x_av.shape, y_av.shape)
 
         return core.ShapedArray(output_shape, promoted_dtype)
 
@@ -196,7 +228,6 @@ class WherePlugin(PrimitiveLeafPlugin):
             "target_attribute": "where",
             "patch_function": lambda orig: patched_where,
         }
-
 
 # Bind abstract evaluation
 jnp.where_p.def_abstract_eval(WherePlugin.abstract_eval)

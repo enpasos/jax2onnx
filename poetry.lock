@@ -1571,14 +1571,14 @@ test = ["flax (>=0.5.3)", "scikit-learn", "scipy (>=1.7.1)"]
 
 [[package]]
 name = "orbax-checkpoint"
-version = "0.11.18"
+version = "0.11.19"
 description = "Orbax Checkpoint"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "orbax_checkpoint-0.11.18-py3-none-any.whl", hash = "sha256:9f2f1ebc0305d75593e5720aeb8a82ee42c68f436ef98840411b2804136f7034"},
-    {file = "orbax_checkpoint-0.11.18.tar.gz", hash = "sha256:de7c3826550fc5fed1eb362be30e4b83125cb32bb86de951652bb3c4f9337415"},
+    {file = "orbax_checkpoint-0.11.19-py3-none-any.whl", hash = "sha256:f9a9b007db8b7e7175d5be30afd754c4a29cae6d4a631cbe34cb9eb5b6cbd96f"},
+    {file = "orbax_checkpoint-0.11.19.tar.gz", hash = "sha256:6f7f2cd89644e1892f2adf17dfa2ad29253712b22374ca9d6b02129922d46795"},
 ]
 
 [package.dependencies]
@@ -1596,7 +1596,7 @@ tensorstore = ">=0.1.71"
 typing_extensions = "*"
 
 [package.extras]
-docs = ["flax", "google-cloud-logging", "grain", "opencv-python", "tensorflow_datasets"]
+docs = ["aiofiles", "flax", "google-cloud-logging", "grain", "opencv-python", "tensorflow_datasets"]
 testing = ["aiofiles", "chex", "flax", "google-cloud-logging", "mock", "pytest", "pytest-xdist"]
 
 [[package]]
