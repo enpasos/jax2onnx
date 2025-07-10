@@ -14,12 +14,12 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 # Define the LayerNorm primitive
-eqx.layer_norm_p = Primitive("eqx.layer_norm")
-eqx.layer_norm_p.multiple_results = False  # Correctly set at initialization
+eqx.nn.layer_norm_p = Primitive("eqx.nn.layer_norm")
+eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
 
 
 @register_primitive(
-    jaxpr_primitive=eqx.layer_norm_p.name,
+    jaxpr_primitive=eqx.nn.layer_norm_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.LayerNorm",
     onnx=[
         {
@@ -104,7 +104,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def _layer_norm(x, scale, bias, *, epsilon):
         """Defines the primitive binding for LayerNorm."""
-        return eqx.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
+        return eqx.nn.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
 
     @staticmethod
     def get_monkey_patch(orig_fn: Callable) -> Callable:
@@ -152,11 +152,11 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
 
 
 # Register abstract evaluation function
-eqx.layer_norm_p.def_abstract_eval(LayerNormPlugin.abstract_eval)
+eqx.nn.layer_norm_p.def_abstract_eval(LayerNormPlugin.abstract_eval)
 
 
 def _eqx_layernorm_batching_rule(batched_args, batch_dims, *, epsilon):
-    """Batching rule for `eqx.layer_norm_p`."""
+    """Batching rule for `eqx.nn.layer_norm_p`."""
     x, scale, bias = batched_args
     x_bdim, scale_bdim, bias_bdim = batch_dims
 
@@ -169,11 +169,11 @@ def _eqx_layernorm_batching_rule(batched_args, batch_dims, *, epsilon):
     # The primitive is applied to the batched `x`. The `to_onnx` logic
     # will correctly infer the normalization axis based on the rank
     # difference between the batched `x` and the un-batched parameters.
-    out = eqx.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
+    out = eqx.nn.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
 
     # The output has a batch dimension at the same axis as the input.
     return out, x_bdim
 
 
 # Register the batching rule for our primitive
-batching.primitive_batchers[eqx.layer_norm_p] = _eqx_layernorm_batching_rule
+batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule

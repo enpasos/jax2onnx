@@ -1,4 +1,4 @@
-# jax2onnx/plugins/equinox/eqx/identity.py
+# jax2onnx/plugins/equinox/eqx/nn/identity.py
 """
 ONNX plugin for equinox.nn.Identity.
 
@@ -25,15 +25,15 @@ if TYPE_CHECKING:
 # -----------------------------------------------------------------------------
 # 1. Primitive Definition
 # -----------------------------------------------------------------------------
-eqx.identity_p = Primitive("eqx.identity")
-eqx.identity_p.multiple_results = False
+eqx.nn.identity_p = Primitive("eqx.nn.identity")
+eqx.nn.identity_p.multiple_results = False
 
 
 # -----------------------------------------------------------------------------
 # 2. Plugin Registration and Definition
 # -----------------------------------------------------------------------------
 @register_primitive(
-    jaxpr_primitive=eqx.identity_p.name,
+    jaxpr_primitive=eqx.nn.identity_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/linear/#equinox.nn.Identity",
     onnx=[
         {
@@ -108,7 +108,7 @@ class EqxIdentityPlugin(PrimitiveLeafPlugin):
         def patched_call(self, x, *, key=None):
             # Bind the input to our custom primitive.
             # The original __call__ signature includes an optional `key`.
-            return eqx.identity_p.bind(x)
+            return eqx.nn.identity_p.bind(x)
 
         return patched_call
 
@@ -126,7 +126,7 @@ class EqxIdentityPlugin(PrimitiveLeafPlugin):
 # 3. Register Primitive Rules
 # -----------------------------------------------------------------------------
 # Link the primitive to its abstract evaluation implementation.
-eqx.identity_p.def_abstract_eval(EqxIdentityPlugin.abstract_eval)
+eqx.nn.identity_p.def_abstract_eval(EqxIdentityPlugin.abstract_eval)
 
 
 def _eqx_identity_batching_rule(batched_args, batch_dims, **_):
@@ -140,4 +140,4 @@ def _eqx_identity_batching_rule(batched_args, batch_dims, **_):
 
 
 # Register the batching rule for the primitive.
-batching.primitive_batchers[eqx.identity_p] = _eqx_identity_batching_rule
+batching.primitive_batchers[eqx.nn.identity_p] = _eqx_identity_batching_rule

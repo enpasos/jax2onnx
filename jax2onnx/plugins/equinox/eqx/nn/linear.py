@@ -1,4 +1,4 @@
-# jax2onnx/plugins/equinox/eqx/linear.py
+# jax2onnx/plugins/equinox/eqx/nn/linear.py
 """
 ONNX plugin for **equinox.nn.Linear** that supports symbolic-batch dimensions
 and high-rank inputs.
@@ -9,27 +9,29 @@ Key differences vs. the Flax/NNX version
 * Weight has shape ``(out_features, in_features)`` so ONNX ``Gemm`` is emitted
   with ``transB = 1`` instead of transposing beforehand.
 * The monkey-patch targets **eqx.nn.Linear** and binds through
-  ``eqx.linear_p``.
+  ``eqx.nn.linear_p``.
 """
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
 import logging
-import numpy as np
-import jax
-from jax import core
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Callable
+
 import equinox as eqx
+import jax
+import numpy as np
+from jax import core
 from jax.extend.core import Primitive
+from jax.interpreters import batching
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from types import SimpleNamespace
-from jax.interpreters import batching
 
 if TYPE_CHECKING:  # only for type checkers & IDEs
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-logger = logging.getLogger("jax2onnx.plugins.equinox.eqx.linear")
+logger = logging.getLogger("jax2onnx.plugins.equinox.eqx.nn.linear")
 
 # --------------------------------------------------------------------------
 # Example modules for testcases: seed once at import time, so __init__ PRNG
@@ -41,15 +43,15 @@ _eqx_linear_highrank_mod = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
 # -----------------------------------------------------------------------------
 # 1. Primitive -----------------------------------------------------------------
 # -----------------------------------------------------------------------------
-eqx.linear_p = Primitive("eqx.linear")
-eqx.linear_p.multiple_results = False
+eqx.nn.linear_p = Primitive("eqx.nn.linear")
+eqx.nn.linear_p.multiple_results = False
 
 
 # -----------------------------------------------------------------------------
 # 2. Plugin registration -------------------------------------------------------
 # -----------------------------------------------------------------------------
 @register_primitive(
-    jaxpr_primitive=eqx.linear_p.name,
+    jaxpr_primitive=eqx.nn.linear_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/eqx/nn/linear/",
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
@@ -237,7 +239,7 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         EqxLinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
 
         def patched_call(self, x):
-            return eqx.linear_p.bind(x, self.weight, self.bias)
+            return eqx.nn.linear_p.bind(x, self.weight, self.bias)
 
         return patched_call
 
@@ -253,14 +255,14 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
 # -----------------------------------------------------------------------------
 # 3. Register abstract-eval ----------------------------------------------------
 # -----------------------------------------------------------------------------
-eqx.linear_p.def_abstract_eval(EqxLinearPlugin.abstract_eval)
+eqx.nn.linear_p.def_abstract_eval(EqxLinearPlugin.abstract_eval)
 
 
 # ------------------------------------------------------------------
 # 4.  Batching rule ------------------------------------------------
 # ------------------------------------------------------------------
 def _eqx_linear_batching_rule(batched_args, batch_dims, **_):
-    """Batching rule for `eqx.linear_p`."""
+    """Batching rule for `eqx.nn.linear_p`."""
     x, weight, bias = batched_args
     x_bdim, w_bdim, b_bdim = batch_dims
 
@@ -273,11 +275,11 @@ def _eqx_linear_batching_rule(batched_args, batch_dims, **_):
 
     # The primitive is now applied to a batched `x`. The `to_onnx` implementation
     # will see the extra dimension on `x` and handle it by flattening/unflattening.
-    out = eqx.linear_p.bind(x, weight, bias)
+    out = eqx.nn.linear_p.bind(x, weight, bias)
 
     # The output has a batch dimension at the same axis as the input.
     return out, x_bdim
 
 
 # Register the batching rule for our primitive
-batching.primitive_batchers[eqx.linear_p] = _eqx_linear_batching_rule
+batching.primitive_batchers[eqx.nn.linear_p] = _eqx_linear_batching_rule

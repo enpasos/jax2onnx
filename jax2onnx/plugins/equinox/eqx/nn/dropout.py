@@ -1,4 +1,4 @@
-# jax2onnx/plugins/equinox/eqx/dropout.py
+# jax2onnx/plugins/equinox/eqx/nn/dropout.py
 """
 ONNX plugin for equinox.nn.Dropout.
 
@@ -22,12 +22,12 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
-eqx.dropout_p = Primitive("eqx.dropout")
-eqx.dropout_p.multiple_results = False
+eqx.nn.dropout_p = Primitive("eqx.nn.dropout")
+eqx.nn.dropout_p.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=eqx.dropout_p.name,
+    jaxpr_primitive=eqx.nn.dropout_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/dropout/",
     onnx=[
         {
@@ -252,7 +252,7 @@ class EqxDropoutPlugin(PrimitiveLeafPlugin):
 
             # The JAX random key is not needed for the ONNX graph definition.
             # Bind the inputs to our custom primitive.
-            return eqx.dropout_p.bind(x, inference, p=self.p)
+            return eqx.nn.dropout_p.bind(x, inference, p=self.p)
 
         return patched_call
 
@@ -266,11 +266,11 @@ class EqxDropoutPlugin(PrimitiveLeafPlugin):
         }
 
 
-eqx.dropout_p.def_abstract_eval(EqxDropoutPlugin.abstract_eval)
+eqx.nn.dropout_p.def_abstract_eval(EqxDropoutPlugin.abstract_eval)
 
 
 def _eqx_dropout_batching_rule(batched_args, batch_dims, *, p: float):
-    """Batching rule for `eqx.dropout_p`."""
+    """Batching rule for `eqx.nn.dropout_p`."""
     x, inference = batched_args
     x_bdim, inference_bdim = batch_dims
 
@@ -282,10 +282,10 @@ def _eqx_dropout_batching_rule(batched_args, batch_dims, *, p: float):
 
     # The primitive is applied to the batched `x`. The `to_onnx` implementation
     # correctly handles inputs with leading batch dimensions.
-    out = eqx.dropout_p.bind(x, inference, p=p)
+    out = eqx.nn.dropout_p.bind(x, inference, p=p)
 
     # The output has a batch dimension at the same axis as the input.
     return out, x_bdim
 
 
-batching.primitive_batchers[eqx.dropout_p] = _eqx_dropout_batching_rule
+batching.primitive_batchers[eqx.nn.dropout_p] = _eqx_dropout_batching_rule
