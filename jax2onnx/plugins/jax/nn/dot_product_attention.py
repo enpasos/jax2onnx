@@ -375,21 +375,30 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def _dot_product_attention(q, k, v, *args, **kwargs):
         """
-        Pull out only the real mask (whether passed by position or keyword)
-        and drop any bias or None placeholders, so that we never call bind(q,k,v,None,…).
+        Pull out any `mask` or `is_causal` flag, and bind the primitive so that
+        both get propagated into eqn.params and/or eqn.inputs.
         """
-        # 1) positional args: bias at args[0], mask at args[1] if present
+        # --- 1) extract positional mask (args[1] if bias placeholder at args[0]) ---
         mask = None
         if len(args) >= 2:
             mask = args[1]
-        # 2) override by keyword
+
+        # --- 2) keyword‐mask overrides ---
         if "mask" in kwargs:
             mask = kwargs.pop("mask")
-        # 3) now bind only q,k,v or q,k,v,mask
-        if mask is None:
-            return nn.dot_product_attention_p.bind(q, k, v)
-        else:
+
+        # --- 3) extract is_causal (default False) ---
+        is_causal = bool(kwargs.pop("is_causal", False))
+
+        # --- 4) bind with the right signature ---
+        if mask is not None:
+            # explicit mask → goes in inputs[3]
             return nn.dot_product_attention_p.bind(q, k, v, mask)
+        if is_causal:
+            # no mask tensor but causal flag → goes in params
+            return nn.dot_product_attention_p.bind(q, k, v, is_causal=True)
+        # neither mask nor causal → plain attention
+        return nn.dot_product_attention_p.bind(q, k, v)
 
     @staticmethod
     def get_monkey_patch():
