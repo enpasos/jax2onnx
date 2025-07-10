@@ -6,6 +6,7 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
+import numpy as np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -57,14 +58,46 @@ class JaxMishPlugin(PrimitiveLeafPlugin):
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
+        dtype = input_var.aval.dtype
+        shape = input_var.aval.shape
 
-        mish_node = helper.make_node(
-            "Mish",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("mish"),
-        )
-        s.add_node(mish_node)
+        if dtype == np.float32:
+            # use native ONNX Mish when it's float32
+            mish_node = helper.make_node(
+                "Mish",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("mish"),
+            )
+            s.add_node(mish_node)
+            s.add_shape_info(output_name, shape, dtype)
+        else:
+            # fallback for float64: mish(x) = x * tanh( softplus(x) )
+
+            # 1) exp_x = Exp(x)
+            exp_x = s.get_unique_name("mish_exp")
+            s.add_node(helper.make_node("Exp", [input_name], [exp_x], name=s.get_unique_name("exp")))
+            s.add_shape_info(exp_x, shape, dtype)
+
+            # 2) one_plus = Add(exp_x, 1)
+            one_const = s.get_constant_name(np.array(1, dtype=dtype))
+            one_plus = s.get_unique_name("mish_one_plus")
+            s.add_node(helper.make_node("Add", [exp_x, one_const], [one_plus], name=s.get_unique_name("add")))
+            s.add_shape_info(one_plus, shape, dtype)
+
+            # 3) sp = Log(one_plus)
+            sp = s.get_unique_name("mish_softplus")
+            s.add_node(helper.make_node("Log", [one_plus], [sp], name=s.get_unique_name("log")))
+            s.add_shape_info(sp, shape, dtype)
+
+            # 4) tanh_sp = Tanh(sp)
+            tanh_sp = s.get_unique_name("mish_tanh")
+            s.add_node(helper.make_node("Tanh", [sp], [tanh_sp], name=s.get_unique_name("tanh")))
+            s.add_shape_info(tanh_sp, shape, dtype)
+
+            # 5) out = Mul(x, tanh_sp)
+            s.add_node(helper.make_node("Mul", [input_name, tanh_sp], [output_name], name=s.get_unique_name("mul")))
+            s.add_shape_info(output_name, shape, dtype)
 
     @staticmethod
     def get_monkey_patch():
