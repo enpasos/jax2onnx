@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Sequence
-import numpy as np
+
 import jax.numpy as jnp
+import numpy as np
 from jax import core, lax
 from jax.extend.core import Var
-from onnx import helper, TensorProto
+from onnx import helper
+
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
+
 
 @register_primitive(
     jaxpr_primitive="select",
@@ -32,7 +35,6 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
             "expected_output_shapes": [(3,)],
         },
         {
-            # scalar else-branch scenario (e.g., GPT attention masking)
             "testcase": "select_mask_scores_literal_else",
             "callable": lambda mask, scores: lax.select(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
@@ -54,22 +56,8 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
     ],
 )
 class SelectPlugin(PrimitiveLeafPlugin):
-    """Lower lax.select to ONNX Where, handling scalar broadcasts."""
+    """Lower lax.select to ONNX Where, handling broadcasting."""
 
-    # Abstract evaluation
-    @staticmethod
-    def abstract_eval(
-        cond_av: core.AbstractValue,
-        x_av: core.AbstractValue,
-        y_av: core.AbstractValue,
-        **kwargs,
-    ) -> core.AbstractValue:
-        promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
-        shape_xy = np.broadcast_shapes(x_av.shape, y_av.shape)
-        out_shape = np.broadcast_shapes(cond_av.shape, shape_xy)
-        return core.ShapedArray(out_shape, promoted_dtype)
-
-    # ONNX Conversion
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
@@ -77,88 +65,73 @@ class SelectPlugin(PrimitiveLeafPlugin):
         node_outputs: Sequence[Var],
         params: dict[str, Any],
     ) -> None:
-        cond_v, x_v, y_v = node_inputs
-        out_v = node_outputs[0]
+        """Converts a JAX select operation to an ONNX Where operator."""
+        # If 'y' is a literal (e.g., from `lax.select(c, x, -1e9)`),
+        # it will be in `params`. Otherwise, it's a standard input Var.
+        if "y" in params:
+            cond_v, x_v = node_inputs
+            y_literal = params["y"]
+        else:
+            cond_v, x_v, y_v = node_inputs
 
+        out_v = node_outputs[0]
+        out_aval = out_v.aval
+        out_name = s.get_name(out_v)
         cond_name = s.get_name(cond_v)
         x_name = s.get_name(x_v)
-        y_name = s.get_name(y_v)
-        out_name = s.get_name(out_v)
 
-        # Ensure BOOL condition in ONNX
-        if cond_v.aval.dtype != np.bool_:
-            cast_out = s.builder.get_unique_name("select_cond_cast")
-            s.builder.add_node(
-                helper.make_node("Cast", [cond_name], [cast_out], to=TensorProto.BOOL)
+        # Get the name for y, creating a constant if it's a literal.
+        if "y" in params:
+            y_name = s.get_constant_name(
+                np.array(y_literal, dtype=out_aval.dtype)
             )
-            s.add_shape_info(cast_out, cond_v.aval.shape, np.bool_)
-            cond_name = cast_out
+        else:
+            y_name = s.get_name(y_v)
 
-        # Scalar literal broadcasting for y
-        if "y" in params and np.isscalar(params["y"]):
-            scalar_val = params["y"]
-            shape_of_x = s.builder.get_unique_name("shape_of_x")
-            y_broadcasted = s.builder.get_unique_name("y_broadcasted")
+        # ONNX's Where operator handles broadcasting automatically.
+        # We simply provide the condition and the two branches.
+        s.add_node(
+            helper.make_node("Where", inputs=[cond_name, x_name, y_name], outputs=[out_name])
+        )
+        s.add_shape_info(out_name, out_aval.shape, out_aval.dtype)
 
-            # Shape of true branch (x)
-            s.builder.add_node(helper.make_node("Shape", [x_name], [shape_of_x]))
-
-            # Constant scalar tensor
-            scalar_tensor = helper.make_tensor(
-                name=s.builder.get_unique_name("scalar_tensor"),
-                data_type=TensorProto.FLOAT,
-                dims=[],
-                vals=[scalar_val],
-            )
-
-            # Broadcast scalar
-            s.builder.add_node(
-                helper.make_node(
-                    "ConstantOfShape",
-                    [shape_of_x],
-                    [y_broadcasted],
-                    value=scalar_tensor,
-                )
-            )
-            y_name = y_broadcasted
-
-        # Emit ONNX Where
-        s.add_node(helper.make_node("Where", [cond_name, x_name, y_name], [out_name]))
-        s.add_shape_info(out_name, out_v.aval.shape, out_v.aval.dtype)
-
-    # --------------------------------------------------------------------- #
-    # Runtime patch so that `lax.select(mask, scores, -1e9)` works even when
-    # the else-branch is a scalar.  Nothing here touches `select_n_p`.
-    # --------------------------------------------------------------------- #
     @staticmethod
     def patch_info():
         """
-        Returns the instructions that the jax-to-onnx plugin system uses to
-        monkey-patch `jax.lax.select` at import time.
+        Returns instructions to monkey-patch `jax.lax.select` to support
+        full NumPy-style broadcasting during numerical validation.
         """
+        # Capture the original function at import time to avoid recursion.
+        _orig_select = lax.select
 
-        def _to_array_if_scalar(val, dtype):
-            # Promote python / NumPy scalar or 0-D array to 0-D jax array
-            if np.isscalar(val) or (isinstance(val, jnp.ndarray) and val.ndim == 0):
-                val = jnp.asarray(val, dtype=dtype)
-            return val
-
-        def patched_select(pred, x, y):
+        def patched_select(pred, on_true, on_false):
             """
-            Drop-in replacement for `lax.select`:
-
-              • If either branch is a scalar, turn it into a 0-D array whose
-                dtype matches the other branch.
-              • Delegate to `jnp.where`, which already supports full
-                NumPy-style broadcasting, so shapes like
-                pred:(B,1,T,T)  x/y:(B,12,T,T) are handled naturally.
+            A robust, non-recursive replacement for `lax.select` that
+            explicitly broadcasts its arguments to a compatible shape
+            before calling the original, stricter primitive.
             """
-            x = _to_array_if_scalar(x, y.dtype if hasattr(y, "dtype") else None)
-            y = _to_array_if_scalar(y, x.dtype if hasattr(x, "dtype") else None)
-            return jnp.where(pred, x, y)
+            # Determine the final output shape by broadcasting all inputs together.
+            try:
+                out_shape = np.broadcast_shapes(
+                    np.shape(pred), np.shape(on_true), np.shape(on_false)
+                )
+            except ValueError as e:
+                # Re-raise with a more informative error message.
+                raise ValueError(
+                    "lax.select arguments are not broadcast-compatible: "
+                    f"pred={np.shape(pred)}, on_true={np.shape(on_true)}, on_false={np.shape(on_false)}"
+                ) from e
+
+            # Broadcast each argument to the final shape.
+            pred = jnp.broadcast_to(pred, out_shape)
+            on_true = jnp.broadcast_to(on_true, out_shape)
+            on_false = jnp.broadcast_to(on_false, out_shape)
+
+            # Call the original, non-broadcast-supporting lax.select.
+            return _orig_select(pred, on_true, on_false)
 
         return {
             "patch_targets": [lax],
             "target_attribute": "select",
-            "patch_function": lambda _orig: patched_select,
+            "patch_function": lambda _: patched_select,
         }
