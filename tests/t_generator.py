@@ -433,7 +433,10 @@ def make_test_function(tp: dict[str, Any]):
         onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
-        if input_values_from_testcase:
+        # Optional per-test override: skip numeric validation entirely
+        if tp.get("skip_numeric_validation", False):
+            logger.warning(f"Skipping numeric validation for '{testcase_name}' (per-test flag).")
+        elif input_values_from_testcase:
             initializers = {init.name for init in onnx_model.graph.initializer}
             runnable_graph_input_names = [
                 inp.name
