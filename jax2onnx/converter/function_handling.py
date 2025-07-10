@@ -9,6 +9,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 import numpy as np  # Add missing numpy import
+from typing import Any  # type: ignore
 
 import jax.numpy as jnp
 from jax.core import ShapedArray
@@ -295,40 +296,90 @@ def handle_function_parameters(
     return extra_param_inputs
 
 
-def prepare_trace_kwargs_and_example_args(params, example_args):
-    trace_kwargs = {"preserve_graph": True}
-    param_keys_to_exclude = []
+def prepare_trace_kwargs_and_example_args(
+    params: dict[str, Any] | None,
+    example_args: list[Any],
+    orig_fn: Callable,
+) -> tuple[dict[str, Any] | None, list[Any]]:
+    """
+    Strip duplicate/keyword-only parameters **and** trim superfluous positionals.
 
-    if params:
-        trace_kwargs["params"] = params
-        param_keys_to_exclude = list(params.keys())
-        logger.debug(
-            f"Will exclude these parameters from example_args: {param_keys_to_exclude}"
-        )
+    Ensures we never forward more positional arguments than the wrapped function
+    explicitly accepts (unless it defines a *\*args* catch‑all).
+    """
+    import inspect
 
-        if example_args:
-            if (
-                isinstance(example_args[-1], bool)
-                and "deterministic" in param_keys_to_exclude
-            ):
-                logger.debug(
-                    "Removing duplicated 'deterministic' parameter from example_args"
+    sig = inspect.signature(orig_fn)
+
+    # Build list of names to exclude from example_args
+    excluded_param_names: list[str] = []
+    if params is not None:
+        # 1) keyword-only or **kwargs parameters always passed via params
+        excluded_param_names.extend(
+            [
+                name
+                for name, param in sig.parameters.items()
+                if param.kind
+                in (
+                    inspect.Parameter.KEYWORD_ONLY,
+                    inspect.Parameter.VAR_KEYWORD,
                 )
-                example_args = example_args[:-1]
+                and name in params
+            ]
+        )
+        # 2) any param in both params and signature
+        excluded_param_names.extend(name for name in params if name in sig.parameters)
+        # de-duplicate
+        seen: set[str] = set()
+        unique_names: list[str] = []
+        for x in excluded_param_names:
+            if x not in seen:
+                unique_names.append(x)
+                seen.add(x)
+        excluded_param_names = unique_names
 
-            for i, param_name in enumerate(param_keys_to_exclude):
-                if param_name in [
-                    "mask",
-                    "dropout_rng",
-                    "dtype",
-                    "precision",
-                    "module",
-                ] and i < len(example_args):
-                    if example_args[i] is None:
-                        logger.debug(
-                            f"Removing duplicated '{param_name}' parameter from example_args"
-                        )
-                        example_args = example_args[:i] + example_args[i + 1 :]
+    # Remove trailing duplicates from example_args
+    for _ in range(len(example_args)):
+        if not excluded_param_names:
+            break
+        last = example_args[-1]
+        if (
+            isinstance(last, (int, float, bool))
+            and params is not None
+            and any(params.get(name) is last for name in excluded_param_names)
+        ):
+            example_args.pop()
+            continue
+        break
+
+    # Trim surplus positional args if no *args in signature
+    has_varargs = any(
+        p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+    )
+    if not has_varargs:
+        # Count explicit positional parameters
+        positional_count = sum(
+            1
+            for p in sig.parameters.values()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        )
+        if len(example_args) > positional_count:
+            logger.debug(
+                "Truncating example_args from %d → %d to match positional arity of '%s'",
+                len(example_args),
+                positional_count,
+                orig_fn.__name__,
+            )
+            del example_args[positional_count:]
+
+    # Always preserve_graph; params passed via kwargs
+    trace_kwargs: dict[str, Any] = {"preserve_graph": True}
+    if params is not None:
+        trace_kwargs["params"] = params
 
     return trace_kwargs, example_args
 
@@ -459,6 +510,7 @@ def rename_and_register_param_inputs(
     required call parameters that must be exposed as ONNX inputs.
     Any user-supplied parameter must be a graph input (variable), never a constant/initializer.
     """
+
     for internal_var, (param_name, param_value) in zip(
         remaining_internal_vars, extra_param_inputs, strict=False
     ):
@@ -625,7 +677,7 @@ def trace_function_body(
     params = params_to_use
 
     trace_kwargs, example_args = prepare_trace_kwargs_and_example_args(
-        params, example_args
+        params, example_args, orig_fn
     )
     sub_converter.trace_jaxpr(orig_fn, example_args, **trace_kwargs)
 

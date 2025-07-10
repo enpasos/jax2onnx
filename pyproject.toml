@@ -1,7 +1,7 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.6.5"
+version = "0.7.0"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
@@ -91,8 +91,4 @@ format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 [tool.jax2onnx.logging.levels]
 "jax2onnx" = "DEBUG"
-"jax2onnx.plugins.jax.numpy.arange" = "DEBUG"
-"jax2onnx.plugins.jax.lax.scatter" = "DEBUG"
-"jax2onnx.plugins.jax.lax.scatter_utils" = "DEBUG"
-"jax2onnx.plugins.jax.lax.scatter_add" = "DEBUG"
-"jax2onnx.converter.jaxpr_converter" = "DEBUG"
+ 

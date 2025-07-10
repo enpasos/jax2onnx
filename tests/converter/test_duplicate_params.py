@@ -5,6 +5,7 @@ Test script for detecting duplicate parameters in ONNX functions
 
 import jax.numpy as jnp
 import onnx
+import pytest
 from flax import nnx
 
 from jax2onnx import onnx_function, to_onnx
@@ -85,7 +86,7 @@ def check_duplicate_function_inputs(model):
 
     return duplicates
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_duplicate_parameters():
     """Test that functions don't have duplicate parameters"""
     print("Testing for duplicate parameters in ONNX functions...")

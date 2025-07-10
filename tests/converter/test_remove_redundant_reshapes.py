@@ -2,13 +2,14 @@ import numpy as np
 import onnx
 import onnx.helper as oh
 import onnx.numpy_helper as np_helper
+import pytest
 
 # Import the function under test.
 from jax2onnx.converter.optimize_onnx_graph import (
     remove_redundant_reshapes,
 )
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def create_test_model() -> onnx.ModelProto:
     # Create an input and an output value_info.
     input_tensor = oh.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [2, 3])
@@ -51,7 +52,7 @@ def create_test_model() -> onnx.ModelProto:
 
     return oh.make_model(graph)
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_remove_redundant_reshapes():
     # Create a model with the redundant reshape chain.
     model = create_test_model()

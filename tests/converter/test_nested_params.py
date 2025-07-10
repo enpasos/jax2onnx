@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy
 import onnx
 import onnxruntime as ort
+import pytest
 from flax import nnx
 
 from jax2onnx import onnx_function, to_onnx
@@ -46,7 +47,7 @@ class SuperBlock(nnx.Module):
     def __call__(self, x, deterministic: bool = True):
         return self.mlp(self.layer_norm2(x), deterministic=deterministic)
 
-
+@pytest.mark.order(-1)  # run *after* the models have been produced
 def test_parameter_passing():
     """Test parameter passing between nested ONNX functions"""
     print("Testing parameter passing between nested ONNX functions...")
