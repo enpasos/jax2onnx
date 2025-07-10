@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING, List, Dict, Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np  # Added numpy import
+import numpy as np
 from onnx import TensorProto, helper
+from jax.extend.core import Var
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-    from jax.core import Var
 
 
 @register_primitive(

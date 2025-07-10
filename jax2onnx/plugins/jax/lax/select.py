@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/jax/lax/select.py
+
 from __future__ import annotations
 
 import logging
@@ -124,47 +126,39 @@ class SelectPlugin(PrimitiveLeafPlugin):
         s.add_node(helper.make_node("Where", [cond_name, x_name, y_name], [out_name]))
         s.add_shape_info(out_name, out_v.aval.shape, out_v.aval.dtype)
 
+    # --------------------------------------------------------------------- #
+    # Runtime patch so that `lax.select(mask, scores, -1e9)` works even when
+    # the else-branch is a scalar.  Nothing here touches `select_n_p`.
+    # --------------------------------------------------------------------- #
     @staticmethod
     def patch_info():
-        """Patch lax.select for scalar broadcasting robustness."""
+        """
+        Returns the instructions that the jax-to-onnx plugin system uses to
+        monkey-patch `jax.lax.select` at import time.
+        """
 
-        def _broadcast_scalar(branch, ref):
-            if np.isscalar(branch) or (isinstance(branch, jnp.ndarray) and branch.ndim == 0):
-                branch = jnp.asarray(branch, dtype=ref.dtype)
-                branch = jnp.broadcast_to(branch, ref.shape)
-            return branch
-
-        original_select = lax.select
+        def _to_array_if_scalar(val, dtype):
+            # Promote python / NumPy scalar or 0-D array to 0-D jax array
+            if np.isscalar(val) or (isinstance(val, jnp.ndarray) and val.ndim == 0):
+                val = jnp.asarray(val, dtype=dtype)
+            return val
 
         def patched_select(pred, x, y):
             """
-            Replacement for `lax.select` that keeps the same public API
-            but delegates to our broadcasting-friendly `jnp.where_p`.
+            Drop-in replacement for `lax.select`:
 
-            * `y` may be a Python/NumPy scalar → turn it into a 0-D array
-              so that JAX sees the dtype.
-            * We don't need to broadcast shapes manually – the
-              `where` abstract rule already computes the broadcasted result
-              shape.
+              • If either branch is a scalar, turn it into a 0-D array whose
+                dtype matches the other branch.
+              • Delegate to `jnp.where`, which already supports full
+                NumPy-style broadcasting, so shapes like
+                pred:(B,1,T,T)  x/y:(B,12,T,T) are handled naturally.
             """
-            if np.isscalar(y):
-                y = jnp.asarray(y, dtype=x.dtype)
-
-            # Use our own primitive that supports full broadcasting
-            return jnp.where_p.bind(pred, x, y)
-
-        # Primitive-level patching
-        select_n_p = lax.select_n_p
-
-        def patched_select_n_impl(pred, on_false, on_true):
-            on_false = _broadcast_scalar(on_false, on_true)
-            pred_f = pred.astype(on_true.dtype)
-            return pred_f * on_true + (1 - pred_f) * on_false
-
-        select_n_p.def_impl(patched_select_n_impl)
+            x = _to_array_if_scalar(x, y.dtype if hasattr(y, "dtype") else None)
+            y = _to_array_if_scalar(y, x.dtype if hasattr(x, "dtype") else None)
+            return jnp.where(pred, x, y)
 
         return {
             "patch_targets": [lax],
             "target_attribute": "select",
-            "patch_function": lambda orig: patched_select,
+            "patch_function": lambda _orig: patched_select,
         }

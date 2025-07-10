@@ -7,7 +7,7 @@ import numpy as np
 
 from jax2onnx.plugin_system import onnx_function, register_example 
 
-
+# TODO - GPT attention with @onnx_function
 # @onnx_function
 def attention(q, k, v, mask=None):
     """
