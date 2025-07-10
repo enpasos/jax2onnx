@@ -9,3 +9,4 @@ tests/primitives
 .vscode
 python-venv
 jax2onnx.log
+*.onnx
