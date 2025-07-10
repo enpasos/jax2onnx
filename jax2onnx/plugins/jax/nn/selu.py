@@ -6,6 +6,7 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
+import numpy as np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -57,21 +58,56 @@ class JaxSeluPlugin(PrimitiveLeafPlugin):
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
+        dtype = input_var.aval.dtype
 
-        # Forcing default selu values
-        # Theoretically, they are vars according to the specs, but jax consider them as constants
-        alpha = 1.67326319217681884765625
-        gamma = 1.05070102214813232421875
+        alpha = 1.6732631921768188
+        gamma = 1.0507010221481323
 
-        selu_node = helper.make_node(
-            "Selu",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("selu"),
-            alpha=alpha,
-            gamma=gamma,
-        )
-        s.add_node(selu_node)
+        if dtype == np.float32:
+            # native ONNX Selu for float32
+            selu_node = helper.make_node(
+                "Selu",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("selu"),
+                alpha=alpha,
+                gamma=gamma,
+            )
+            s.add_node(selu_node)
+        else:
+            # 1) exp_x = Exp(x)
+            exp_x = s.get_unique_name("exp_x")
+            s.add_node(helper.make_node("Exp", [input_name], [exp_x], name=s.get_unique_name("exp")))
+            s.add_shape_info(exp_x, input_var.aval.shape, dtype)
+
+            # 2) expm1 = Sub(exp_x, 1)
+            one = np.array(1, dtype=dtype)
+            one_const = s.get_constant_name(one)
+            expm1 = s.get_unique_name("expm1")
+            s.add_node(helper.make_node("Sub", [exp_x, one_const], [expm1], name=s.get_unique_name("sub")))
+            s.add_shape_info(expm1, input_var.aval.shape, dtype)
+
+            # 3) neg_part = Mul(alpha, expm1)
+            alpha_const = s.get_constant_name(np.array(alpha, dtype=dtype))
+            neg_part = s.get_unique_name("neg_part")
+            s.add_node(helper.make_node("Mul", [alpha_const, expm1], [neg_part], name=s.get_unique_name("mul")))
+            s.add_shape_info(neg_part, input_var.aval.shape, dtype)
+
+            # 4) mask = Greater(x, 0)
+            zero_const = s.get_constant_name(np.array(0, dtype=dtype))
+            mask = s.get_unique_name("selu_mask")
+            s.add_node(helper.make_node("Greater", [input_name, zero_const], [mask], name=s.get_unique_name("gt")))
+            s.add_shape_info(mask, input_var.aval.shape, np.bool_)
+
+            # 5) inner = Where(mask, x, neg_part)
+            inner = s.get_unique_name("selu_inner")
+            s.add_node(helper.make_node("Where", [mask, input_name, neg_part], [inner], name=s.get_unique_name("where")))
+            s.add_shape_info(inner, input_var.aval.shape, dtype)
+
+            # 6) out = Mul(gamma, inner)
+            gamma_const = s.get_constant_name(np.array(gamma, dtype=dtype))
+            s.add_node(helper.make_node("Mul", [gamma_const, inner], [output_name], name=s.get_unique_name("mul")))
+            s.add_shape_info(output_name, input_var.aval.shape, dtype)
 
     @staticmethod
     def get_monkey_patch():
