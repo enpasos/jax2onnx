@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Sequence, Callable
+from typing import TYPE_CHECKING, Any, Sequence, Callable, List, Dict
 
 import jax
 import numpy as np
 from jax import core, lax
-from jax.extend.core import Primitive
+from jax.extend.core import Primitive, Literal
 from onnx import TensorProto, helper
+from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -18,7 +19,6 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
-
 
 def _while_loop_multi_state_fn(x):
     """Test helper: a two‐state while_loop."""
@@ -135,18 +135,18 @@ lax.while_loop_p.multiple_results = True
                 __import__("onnx").checker.check_model(m) or True
             ),
         },
-        # {
-        #     "testcase": "while_loop_multi_state_f32",
-        #     "callable": _while_loop_multi_state_fn,
-        #     "input_shapes": [(2,)],
-        #     "input_dtypes": [np.float32],
-        #     "expected_output_shapes": [(2,)],
-        #     "expected_output_dtypes": [np.float32],
-        #     "run_only_f32_variant": True,
-        #     "post_check_onnx_graph": lambda m: (
-        #         __import__("onnx").checker.check_model(m) or True
-        #     ),
-        # },
+        {
+            "testcase": "while_loop_multi_state_f32",
+            "callable": _while_loop_multi_state_fn,
+            "input_shapes": [(2,)],
+            "input_dtypes": [np.float32],
+            "expected_output_shapes": [(2,)],
+            "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
         {
             "testcase": "while_loop_multi_state_f64",
             "callable": _while_loop_multi_state_fn,
@@ -278,9 +278,39 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         c_jaxpr, c_consts = cond_closed.jaxpr, cond_closed.consts
         b_jaxpr, b_consts = body_closed.jaxpr, body_closed.consts
 
-        # the input‐names and output‐names for the loop state
-        state_in: list[str] = [s.get_name(v) for v in node_inputs]
-        state_out: list[str] = []
+        # -----------------------------------------------------
+        # ❶ Find any scalar int32 loop-carried inputs → promote to INT64
+        # -----------------------------------------------------
+        promoted_idxs: List[int] = []
+        def _is_int_scalar(var):
+            return (
+                var.aval.shape == ()
+                and np.issubdtype(var.aval.dtype, np.integer)
+                and var.aval.dtype != np.int64
+            )
+        for i, vin in enumerate(node_inputs):
+            if _is_int_scalar(vin):
+                promoted_idxs.append(i)
+
+        # -----------------------------------------------------
+        # ❷ Build state_in names, inserting Cast→INT64 before the Loop
+        # -----------------------------------------------------
+        state_in: List[str] = [s.get_name(v) for v in node_inputs]
+        for idx in promoted_idxs:
+            orig = state_in[idx]
+            cast64 = s.get_unique_name(f"{orig}_to_i64")
+            s.add_node(helper.make_node(
+                "Cast",
+                inputs=[orig],
+                outputs=[cast64],
+                name=s.get_unique_name("cast_to_i64"),
+                to=TensorProto.INT64,
+            ))
+            s.add_shape_info(cast64, (), np.int64)
+            state_in[idx] = cast64
+
+        # Prepare placeholder for loop outputs
+        state_out: List[str] = []
         for v in node_outputs:
             nm = s.get_name(v)
             # If the symbol is also an initializer (compile-time constant),
@@ -315,10 +345,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         body_builder.add_scalar_input(it_name, TensorProto.INT64)
         body_builder.add_scalar_input(prev_cond, TensorProto.BOOL)
 
-        # Map loop-carried state variables to inputs in the body graph
-        for var in b_jaxpr.invars:
+        # Map loop-carried state variables to inputs in the body graph,
+        # promoting counters to INT64 where needed.
+        for i, var in enumerate(b_jaxpr.invars):
             nm = body_conv.get_name(var)
-            body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
+            shp = var.aval.shape
+            # If we promoted this slot, force INT64
+            onnx_dt = np.int64 if i in promoted_idxs else var.aval.dtype
+            body_builder.add_input(nm, shp, onnx_dt)
             body_conv.var_to_name[var] = nm
 
         # ➀ Lift out only **literal** constvars; keep tracers for later.
@@ -407,12 +441,16 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             body_conv._process_eqn(eqn)
         cond_out = body_conv.get_name(c_jaxpr.outvars[0])
 
-        # Set body graph outputs: condition, then loop-carried state
+        # Set body graph outputs: condition, then loop-carried state,
+        # preserving each state's original JAX dtype.
         body_builder.outputs.clear()
         body_builder.add_output(cond_out, (), np.bool_)
-        for outp in b_jaxpr.outvars:
+        # Loop-carried outputs: promote counters to INT64
+        for i, outp in enumerate(b_jaxpr.outvars):
             nm = body_conv.get_name(outp)
-            body_builder.add_output(nm, outp.aval.shape, outp.aval.dtype)
+            shp = outp.aval.shape
+            dt = np.int64 if i in promoted_idxs else outp.aval.dtype
+            body_builder.add_output(nm, shp, dt)
 
         # ————————— Add captured‐tracer invariants here —————————
         for tracer_name in extra_body_inputs:
@@ -544,9 +582,44 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("while_loop"),
         )
         s.add_node(loop_node)
+        # -----------------------------------------------------
+        # ❸ Cast promoted INT64 outputs back to INT32 for the real JAX outputs
+        # -----------------------------------------------------
+        for idx, out_name in enumerate(state_out):
+            if idx in promoted_idxs and idx < len(node_outputs):
+                cast_back = s.get_unique_name(f"{out_name}_to_i32")
+                s.add_node(helper.make_node(
+                    "Cast",
+                    inputs=[out_name],
+                    outputs=[cast_back],
+                    name=s.get_unique_name("cast_to_i32"),
+                    to=TensorProto.INT32,
+                ))
+                s.add_shape_info(cast_back, (), np.int32)
+                # point the JAX var → this new i32 name
+                s.var_to_name[node_outputs[idx]] = cast_back
+            else:
+                # either unpromoted or an invariant tracer passthrough
+                if idx < len(node_outputs):
+                    shp = node_outputs[idx].aval.shape
+                    dt  = node_outputs[idx].aval.dtype
+                else:
+                    shp, dt = s.builder.value_info_metadata[out_name]
+                s.add_shape_info(out_name, shp, dt)
 
-        for nm, var in zip(state_out, node_outputs):
-            s.add_shape_info(nm, var.aval.shape, var.aval.dtype)
+        # And for the outer Loop node's state-outputs, record the **actual**
+        # dtype that flows out of the Loop.  If we promoted a scalar counter
+        # to INT64, the Loop produces INT64 (even though the JAX view of that
+        # variable will later use the cast-back INT32 tensor).
+        for idx, (nm, var) in enumerate(zip(state_out, node_outputs)):
+            shp = var.aval.shape
+
+            if idx in promoted_idxs:
+                # The tensor exiting the Loop is INT64 …
+                s.add_shape_info(nm, shp, np.int64)
+            else:
+                # … otherwise keep the original JAX dtype.
+                s.add_shape_info(nm, shp, var.aval.dtype)
 
         # ──────────────────────────────────────────────────────────────
         # Validate: ensure no Loop output name is also one of its inputs
@@ -632,3 +705,4 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
 lax.while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
 lax.while_loop_p.def_impl(WhileLoopPlugin._while_loop_impl)
+

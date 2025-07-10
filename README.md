@@ -379,7 +379,7 @@ If conversion doesn't work out of the box, it could be due to:
 | `JAX`         | 0.6.2    | 
 | `Flax`        | 0.10.7   | 
 | `onnx`        | 1.18.0   |  
-| `onnxruntime` | 1.22.0   |  
+| `onnxruntime` | 1.22.1   |  
 
 *Note: For more details, check `pyproject.toml`.*
 
