@@ -52,22 +52,69 @@ class JaxLeakyReluPlugin(PrimitiveLeafPlugin):
         return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
+        import numpy as np
 
+        input_var, = node_inputs
+        output_var, = node_outputs
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
 
+        # JAX default negative_slope is 0.01
         alpha = params.get("negative_slope", 0.01)
+        dtype = input_var.aval.dtype
+        shape = input_var.aval.shape
 
-        leakyrelu_node = helper.make_node(
-            "LeakyRelu",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("leakyrelu"),
-            alpha=alpha,
-        )
-        s.add_node(leakyrelu_node)
+        if dtype == np.float32:
+            # native LeakyRelu for float32
+            leaky = helper.make_node(
+                "LeakyRelu",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("leakyrelu"),
+                alpha=alpha,
+            )
+            s.add_node(leaky)
+            s.add_shape_info(output_name, shape, dtype)
+        else:
+            # fallback subgraph for float64:
+            # out = Relu(x) - alpha * Relu(-x)
+
+            # 1) pos = Relu(x)
+            pos = s.get_unique_name("leakyrelu_pos")
+            s.add_node(
+                helper.make_node("Relu", [input_name], [pos], name=s.get_unique_name("relu"))
+            )
+            s.add_shape_info(pos, shape, dtype)
+
+            # 2) neg_x = Neg(x)
+            neg_x = s.get_unique_name("leakyrelu_neg_x")
+            s.add_node(
+                helper.make_node("Neg", [input_name], [neg_x], name=s.get_unique_name("neg"))
+            )
+            s.add_shape_info(neg_x, shape, dtype)
+
+            # 3) neg_relu = Relu(neg_x)
+            neg_relu = s.get_unique_name("leakyrelu_neg_relu")
+            s.add_node(
+                helper.make_node("Relu", [neg_x], [neg_relu], name=s.get_unique_name("relu"))
+            )
+            s.add_shape_info(neg_relu, shape, dtype)
+
+            # 4) alpha_const
+            alpha_const = s.get_constant_name(np.array(alpha, dtype=dtype))
+
+            # 5) scaled = Mul(neg_relu, alpha_const)
+            scaled = s.get_unique_name("leakyrelu_scaled")
+            s.add_node(
+                helper.make_node("Mul", [neg_relu, alpha_const], [scaled], name=s.get_unique_name("mul"))
+            )
+            s.add_shape_info(scaled, shape, dtype)
+
+            # 6) out = Sub(pos, scaled)
+            s.add_node(
+                helper.make_node("Sub", [pos, scaled], [output_name], name=s.get_unique_name("sub"))
+            )
+            s.add_shape_info(output_name, shape, dtype)
 
     @staticmethod
     def get_monkey_patch():
