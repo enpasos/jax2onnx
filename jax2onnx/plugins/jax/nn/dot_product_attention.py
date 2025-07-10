@@ -241,6 +241,17 @@ nn.dot_product_attention_p.multiple_results = False
             "atol_f64": 1e-6,  # Absolute tolerance for float64
             "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
+        {
+            "testcase": "dpa_mask_none",
+            # explicit None mask should not get bound as an operand
+            "callable": lambda q, k, v: nn.dot_product_attention(q, k, v, mask=None),
+            "input_shapes": [
+                (2, 4, 8, 32),  # q
+                (2, 4, 8, 32),  # k
+                (2, 4, 8, 32),  # v
+            ],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class DotProductAttentionPlugin(PrimitiveLeafPlugin):
