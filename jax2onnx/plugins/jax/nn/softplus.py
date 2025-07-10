@@ -6,6 +6,7 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
+import numpy as np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -58,13 +59,47 @@ class JaxSoftplusPlugin(PrimitiveLeafPlugin):
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
 
-        softplus_node = helper.make_node(
-            "Softplus",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("softplus"),
-        )
-        s.add_node(softplus_node)
+        dtype = input_var.aval.dtype
+        if dtype == np.float32:
+            # use the ONNX kernel in float32
+            node = helper.make_node(
+                "Softplus",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("softplus"),
+            )
+            s.add_node(node)
+        else:
+            # Softplus(x) = Log(1 + Exp(x))
+            one = np.array(1, dtype=dtype)
+            one_const = s.get_constant_name(one)
+
+            exp_out = s.get_unique_name("exp")
+            s.add_node(helper.make_node(
+                "Exp",
+                inputs=[input_name],
+                outputs=[exp_out],
+                name=s.get_unique_name("exp"),
+            ))
+            s.add_shape_info(exp_out, input_var.aval.shape, dtype)
+
+            add_out = s.get_unique_name("add")
+            s.add_node(helper.make_node(
+                "Add",
+                inputs=[exp_out, one_const],
+                outputs=[add_out],
+                name=s.get_unique_name("add"),
+            ))
+            s.add_shape_info(add_out, input_var.aval.shape, dtype)
+
+            log_node = helper.make_node(
+                "Log",
+                inputs=[add_out],
+                outputs=[output_name],
+                name=s.get_unique_name("log"),
+            )
+            s.add_node(log_node)
+        # (shape info for output is automatically covered by the converter)
 
     @staticmethod
     def get_monkey_patch():
