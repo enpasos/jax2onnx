@@ -13,6 +13,7 @@ from jax import (
     ShapeDtypeStruct,
 )  # Ensure jax.ShapeDtypeStruct is directly imported
 from jax.lax import ScatterDimensionNumbers
+from jax.lax import GatherScatterMode
 from onnx import helper, TensorProto
 
 import logging
@@ -889,7 +890,8 @@ def _prepare_scatter_inputs_for_onnx(
     # -----------------------------------------------------------------
     #  ➤  JAX `FILL_OR_DROP` ⇒  ONNX: mask-out out-of-range rows
     # -----------------------------------------------------------------
-    if scatter_mode is not None and hasattr(scatter_mode, '__name__') and scatter_mode.__name__ == 'FILL_OR_DROP':
+    # If JAX asked for out‐of‐bounds entries to be dropped, mask them here
+    if scatter_mode == GatherScatterMode.FILL_OR_DROP:
         # ---------------- Step 1: build a boolean mask per *row* -----------
         # Create shape tensor for bounds checking
         operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
@@ -993,56 +995,80 @@ def _prepare_scatter_inputs_for_onnx(
                         keepdims=0
                     )
                 )
-                
-                # ------------- Step 2: neutral-element for this reduction ----------
-                def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
-                    if reduction_op == "add":
-                        return np.array(0, dtype=dtype)
-                    elif reduction_op == "mul":
-                        return np.array(1, dtype=dtype)
-                    elif reduction_op == "max":
-                        return np.array(np.finfo(dtype).min if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).min, dtype=dtype)
-                    elif reduction_op == "min":
-                        return np.array(np.finfo(dtype).max if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).max, dtype=dtype)
-                    else:  # For 'replace' or unknown operations, use zero
-                        return np.array(0, dtype=dtype)
-                
-                neutral_val = _get_neutral_value(reduction, original_updates_dtype_np)
-                neutral_updates_name = s.get_constant_name(neutral_val)
-                
-                # Broadcast row_ok to match updates shape and create safe updates
-                safe_updates_name = s.get_unique_name("safe_updates")
-                s.add_node(
-                    helper.make_node(
-                        "Where",
-                        [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
-                        [safe_updates_name]
+
+                # ───────────────────────────────────────────────────────────────
+                # Broadcast row_ok from shape (N,) → (N,1,1,…,1) so it lines up
+                # with the updates tensor of rank R.
+                updates_rank = len(current_expected_onnx_updates_shape)
+                if updates_rank > 1:
+                    # axes [1,2,…,R−1]
+                    axes_to_unsq = np.arange(1, updates_rank, dtype=np.int64)
+                    axes_const = s.get_constant_name(axes_to_unsq)
+                    row_ok_bc = s.get_unique_name("row_ok_bc")
+                    s.add_node(
+                        helper.make_node(
+                            "Unsqueeze",
+                            [row_ok_name, axes_const],
+                            [row_ok_bc],
+                        )
                     )
-                )
-                
-                # ------------- Step 3: replace *bad* indices with 0 ----------------
-                safe_indices_name = s.get_unique_name("safe_indices")
-                s.add_node(
-                    helper.make_node(
-                        "Where",
-                        [both_ok_name, final_indices_name_to_return, zero_tensor_name],
-                        [safe_indices_name]
+                    # Shape info: (N,1,1,…,1)
+                    bc_shape = (current_expected_onnx_updates_shape[0],) + (1,) * (updates_rank - 1)
+                    _manually_ensure_shape_env_entry(
+                        s, row_ok_bc, bc_shape, np.bool_, "RowOkBroadcast"
                     )
-                )
-                
-                # Update the return values
-                final_indices_name_to_return = safe_indices_name
-                _final_updates_name_val_to_return = safe_updates_name
-                
-                # Add shape info for the new tensors
-                _manually_ensure_shape_env_entry(
-                    s, safe_indices_name, target_indices_shape_symbolic, 
-                    final_indices_dtype_np, "SafeIndices"
-                )
-                _manually_ensure_shape_env_entry(
-                    s, safe_updates_name, current_expected_onnx_updates_shape,
-                    original_updates_dtype_np, "SafeUpdates"
-                )
+                    row_ok_name = row_ok_bc
+                # ───────────────────────────────────────────────────────────────
+
+        # ------------- Step 2: neutral-element for this reduction ----------
+        def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
+            if reduction_op == "add":
+                return np.array(0, dtype=dtype)
+            elif reduction_op == "mul":
+                return np.array(1, dtype=dtype)
+            elif reduction_op == "max":
+                return np.array(np.finfo(dtype).min if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).min, dtype=dtype)
+            elif reduction_op == "min":
+                return np.array(np.finfo(dtype).max if np.issubdtype(dtype, np.floating) else np.iinfo(dtype).max, dtype=dtype)
+            else:  # For 'replace' or unknown operations, use zero
+                return np.array(0, dtype=dtype)
+        
+        neutral_val = _get_neutral_value(reduction, original_updates_dtype_np)
+        neutral_updates_name = s.get_constant_name(neutral_val)
+        
+        # Broadcast row_ok to match updates shape and create safe updates
+        safe_updates_name = s.get_unique_name("safe_updates")
+        s.add_node(
+            helper.make_node(
+                "Where",
+                [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
+                [safe_updates_name],
+            )
+        )
+        
+        # ------------- Step 3: replace *bad* indices with 0 ----------------
+        safe_indices_name = s.get_unique_name("safe_indices")
+        s.add_node(
+            helper.make_node(
+                "Where",
+                [both_ok_name, final_indices_name_to_return, zero_tensor_name],
+                [safe_indices_name]
+            )
+        )
+        
+        # Update the return values
+        final_indices_name_to_return = safe_indices_name
+        _final_updates_name_val_to_return = safe_updates_name
+        
+        # Add shape info for the new tensors
+        _manually_ensure_shape_env_entry(
+            s, safe_indices_name, target_indices_shape_symbolic, 
+            final_indices_dtype_np, "SafeIndices"
+        )
+        _manually_ensure_shape_env_entry(
+            s, safe_updates_name, current_expected_onnx_updates_shape,
+            original_updates_dtype_np, "SafeUpdates"
+        )
 
     # -----------------------------------------------------------------
 
