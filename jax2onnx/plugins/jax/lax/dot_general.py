@@ -2,6 +2,7 @@
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import jax
 from onnx import helper
 
@@ -64,41 +65,46 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 f"dot_general with batching not supported: contract={params['dimension_numbers']}"
             )
 
-        # Standard matrix multiplication
+        # Standard matrix multiplication → use Gemm so ORT won't fuse into float-only FusedMatMul
         if lhs_contract == (1,) and rhs_contract == (0,):
-            # MatMul directly supports (N, K) @ (K, M) => (N, M)
-            matmul_node = helper.make_node(
-                "MatMul",
-                inputs=[lhs_name, rhs_name],
+            zero_const = s.get_constant_name(np.array(0, dtype=out_var.aval.dtype))
+            gemm_node = helper.make_node(
+                "Gemm",
+                inputs=[lhs_name, rhs_name, zero_const],
                 outputs=[out_name],
-                name=s.get_unique_name("dot_general_matmul"),
+                name=s.get_unique_name("dot_general_gemm"),
+                alpha=1.0,
+                beta=0.0,
             )
-            s.add_node(matmul_node)
-            s.add_shape_info(out_name, out_shape)
+            s.add_node(gemm_node)
+            s.add_shape_info(out_name, out_shape, out_var.aval.dtype)
 
-        # Contraction of the last dimension of both inputs
+        # Contraction of the last dimension of both inputs → transpose then Gemm
         elif lhs_contract == (1,) and rhs_contract == (1,):
-            # Transpose the second input to match MatMul's expectation
             transposed_rhs_name = s.get_unique_name("transposed_rhs")
-            transpose_node = helper.make_node(
+            s.add_node(helper.make_node(
                 "Transpose",
                 inputs=[rhs_name],
                 outputs=[transposed_rhs_name],
                 perm=[1, 0],
                 name=s.get_unique_name("transpose_rhs"),
-            )
-            s.add_node(transpose_node)
+            ))
             transposed_shape = (rhs_var.aval.shape[1], rhs_var.aval.shape[0])
-            s.add_shape_info(transposed_rhs_name, transposed_shape)
+            s.add_shape_info(transposed_rhs_name,
+                             transposed_shape,
+                             rhs_var.aval.dtype)
 
-            matmul_node = helper.make_node(
-                "MatMul",
-                inputs=[lhs_name, transposed_rhs_name],
+            zero_const = s.get_constant_name(np.array(0, dtype=out_var.aval.dtype))
+            gemm_node = helper.make_node(
+                "Gemm",
+                inputs=[lhs_name, transposed_rhs_name, zero_const],
                 outputs=[out_name],
-                name=s.get_unique_name("dot_general_matmul"),
+                name=s.get_unique_name("dot_general_gemm"),
+                alpha=1.0,
+                beta=0.0,
             )
-            s.add_node(matmul_node)
-            s.add_shape_info(out_name, out_shape)
+            s.add_node(gemm_node)
+            s.add_shape_info(out_name, out_shape, out_var.aval.dtype)
         else:
             raise NotImplementedError(
                 f"dot_general config not supported: contract={params['dimension_numbers']}"
