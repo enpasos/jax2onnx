@@ -374,9 +374,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         (`is_causal`, `query_seq_lengths`, …) stay as static params.
         """
         if "mask" in kwargs:
-            mask_tensor = kwargs.pop("mask")         # dynamic → operand #4
-            return nn.dot_product_attention_p.bind(q, k, v, mask_tensor,
-                                                   *args, **kwargs)
+            mask_tensor = kwargs.pop("mask")
+            # if user passed mask=None, just drop it entirely
+            if mask_tensor is None:
+                return nn.dot_product_attention_p.bind(q, k, v, *args, **kwargs)
+            else:
+                return nn.dot_product_attention_p.bind(q, k, v, mask_tensor,
+                                                       *args, **kwargs)
         return nn.dot_product_attention_p.bind(q, k, v, *args, **kwargs)
 
     @staticmethod
