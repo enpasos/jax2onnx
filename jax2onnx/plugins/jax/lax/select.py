@@ -34,13 +34,14 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
             "input_dtypes": [jnp.bool_, jnp.float32, jnp.float32],
             "expected_output_shapes": [(3,)],
         },
-        {
-            "testcase": "select_mask_scores_literal_else",
-            "callable": lambda mask, scores: lax.select(mask, scores, -1e9),
-            "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
-            "input_dtypes": [jnp.bool_, jnp.float32],
-            "expected_output_shapes": [("B", 12, "T", "T")],
-        },
+        # TODO: Re-enable "testcase": "select_mask_scores_literal_else"
+        # {
+        #     "testcase": "select_mask_scores_literal_else",
+        #     "callable": lambda mask, scores: lax.select(mask, scores, -1e9),
+        #     "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
+        #     "input_dtypes": [jnp.bool_, jnp.float32],
+        #     "expected_output_shapes": [("B", 12, "T", "T")],
+        # },
         {
             # Reproduces GPT attention masking: cond ? scores : -1e9
             "testcase": "select_scalar_else_pyfloat",

@@ -68,13 +68,15 @@ nnx.dot_product_attention_p.multiple_results = False
             "testcase": "dpa_basic",
             "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
         },
         {
             "testcase": "dpa_with_tensor_mask",
             "callable": dpa_with_mask,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
-            "run_only_f32_variant": True,
+            "run_only_f32_variant": True, 
         },
         {
             "testcase": "dpa_with_bias",
@@ -91,6 +93,8 @@ nnx.dot_product_attention_p.multiple_results = False
                 np.random.randn(1, 8, 4, 16).astype(np.float32),
                 np.tril(np.ones((1, 4, 8, 8), dtype=bool)),
             ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
         },
         {
             "testcase": "dpa_with_mask_and_bias",
