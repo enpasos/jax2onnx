@@ -16,7 +16,7 @@ nnx.gelu_p.multiple_results = False  # Correct initialization
 
 @register_primitive(
     jaxpr_primitive=nnx.gelu_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html",
+    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.gelu",
     onnx=[
         {
             "component": "Gelu",

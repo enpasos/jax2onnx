@@ -232,6 +232,27 @@ files = [
 ]
 
 [[package]]
+name = "equinox"
+version = "0.12.2"
+description = "Elegant easy-to-use neural networks in JAX."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "equinox-0.12.2-py3-none-any.whl", hash = "sha256:0d9c09c077e7895a5334930ddb9ecd7d39840c3ad252cf8262aa8ddc6bb8ae97"},
+    {file = "equinox-0.12.2.tar.gz", hash = "sha256:648e4206bbc53b228922e8f18cd3cffe543ddda1172c0002f8954e484bab0023"},
+]
+
+[package.dependencies]
+jax = ">=0.4.38"
+jaxtyping = ">=0.2.20"
+typing-extensions = ">=4.5.0"
+wadler-lindig = ">=0.1.0"
+
+[package.extras]
+docs = ["griffe (==1.7.3)", "hippogriffe (==0.2.0)", "mkdocs (==1.6.1)", "mkdocs-include-exclude-files (==0.1.0)", "mkdocs-ipynb (==0.1.0)", "mkdocs-material (==9.6.7)", "mkdocstrings[python] (==0.28.3)", "pymdown-extensions (==10.14.3)"]
+
+[[package]]
 name = "etils"
 version = "1.12.2"
 description = "Collection of common python utils"
@@ -2663,4 +2684,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "de4391efc3924a80352fc38246d5a13fab201253e5437a2668b928389c0a79a7"
+content-hash = "b476ff4cf461c50741791f1abad1418c0663cf8c76847a047f2735fcb5277f08"
