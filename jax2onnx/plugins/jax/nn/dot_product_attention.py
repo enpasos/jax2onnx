@@ -91,6 +91,12 @@ nn.dot_product_attention_p.multiple_results = False
             "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
+            "testcase": "dpa_positional_bias_mask",
+            # passes bias=None, mask=None *positionally*
+            "callable": lambda q, k, v: nn.dot_product_attention(q, k, v, None, None),
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+        },
+        {
             "testcase": "dpa_diff_heads_embed",
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v),
             "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
@@ -218,8 +224,8 @@ nn.dot_product_attention_p.multiple_results = False
             "testcase": "dpa_with_causal_mask",
             "callable": dpa_with_causal_mask,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
-            "atol_f64": 1e-6,  # Absolute tolerance for float64
-            "rtol_f64": 1e-6,  # Relative tolerance for float64
+            "atol_f64": 1e-6,          # Absolute tolerance for float64
+            "rtol_f64": 1e-6,          # Relative tolerance for float64 
         },
         {
             "testcase": "dpa_with_padding_mask",
@@ -369,19 +375,21 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def _dot_product_attention(q, k, v, *args, **kwargs):
         """
-        Convert the *tensor* mask from a keyword into a positional operand so
-        the converter sees it as `node_inputs[3]`.  All other flags
-        (`is_causal`, `query_seq_lengths`, …) stay as static params.
+        Pull out only the real mask (whether passed by position or keyword)
+        and drop any bias or None placeholders, so that we never call bind(q,k,v,None,…).
         """
+        # 1) positional args: bias at args[0], mask at args[1] if present
+        mask = None
+        if len(args) >= 2:
+            mask = args[1]
+        # 2) override by keyword
         if "mask" in kwargs:
-            mask_tensor = kwargs.pop("mask")
-            # if user passed mask=None, just drop it entirely
-            if mask_tensor is None:
-                return nn.dot_product_attention_p.bind(q, k, v, *args, **kwargs)
-            else:
-                return nn.dot_product_attention_p.bind(q, k, v, mask_tensor,
-                                                       *args, **kwargs)
-        return nn.dot_product_attention_p.bind(q, k, v, *args, **kwargs)
+            mask = kwargs.pop("mask")
+        # 3) now bind only q,k,v or q,k,v,mask
+        if mask is None:
+            return nn.dot_product_attention_p.bind(q, k, v)
+        else:
+            return nn.dot_product_attention_p.bind(q, k, v, mask)
 
     @staticmethod
     def get_monkey_patch():
