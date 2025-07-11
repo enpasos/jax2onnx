@@ -85,6 +85,53 @@ def no_loop_output_reused_as_input(model):
                 return False
     return True
 
+def _const_as_int64(builder, const_name):
+    """
+    Insert `Cast` so that the scalar constant becomes INT64 and
+    return the new tensor name.
+    """
+    new_name = builder.get_unique_name(f"{const_name}_to_i64")
+    builder.add_node(
+        helper.make_node(
+            "Cast",
+            inputs=[const_name],
+            outputs=[new_name],
+            name=builder.get_unique_name("cast_const_to_i64"),
+            to=TensorProto.INT64,
+        )
+    )
+    builder.add_shape_info(new_name, (), np.int64)
+    return new_name
+
+def while_loop_with_scalar_state_body_fun(val):
+    x, i = val
+    return x * 2, i + 1
+
+def while_loop_with_scalar_state_cond_fun(val):
+    _, i = val
+    return i < 5
+
+
+def while_loop_with_scalar_state(x, i):
+    return jax.lax.while_loop(while_loop_with_scalar_state_cond_fun, while_loop_with_scalar_state_body_fun, (x, i))
+
+
+# Add these helper functions with the others at the top of the file
+def loop_with_renamed_passthrough_state_body(state):
+    tensor_val, counter_val = state
+    return tensor_val, counter_val + 1
+
+def loop_with_renamed_passthrough_state_cond(state):
+    _, counter_val = state
+    return counter_val < 5
+
+def loop_with_renamed_passthrough_state(x, y):
+    return lax.while_loop(
+        loop_with_renamed_passthrough_state_cond,
+        loop_with_renamed_passthrough_state_body,
+        (x, y)
+    )
+
 
 # define a new primitive and give it multiple results
 lax.while_loop_p = Primitive("lax.while_loop")
@@ -194,17 +241,32 @@ lax.while_loop_p.multiple_results = True
                 __import__("onnx").checker.check_model(m) or True
             ),
         },
-        # {
-        #     "testcase": "while_loop_closure_topo",
-        #     "callable": (
-        #         lambda x: lax.while_loop(lambda s: s < 3, lambda s: s + (x * 2.0), x)
-        #     ),
-        #     "input_values": [np.float32(1.0)],
-        #     "run_only_f32_variant": True,
-        #     "post_check_onnx_graph": lambda m: (
-        #         __import__("onnx").checker.check_model(m) or True
-        #     ),
-        # },
+        {
+            "testcase": "while_loop_with_scalar_state",
+            "callable": while_loop_with_scalar_state,
+            "input_values": [np.array([1.0, 2.0], dtype=np.float32), np.array(0, dtype=np.int32)],
+            "expected_output_dtypes": [np.float32, np.int32],
+            "run_only_f32_variant": True,
+        },
+                {
+            "testcase": "while_loop_renamed_passthrough",
+            "callable": loop_with_renamed_passthrough_state,
+            "input_values": [np.array([1.0, 2.0], dtype=np.float32), np.array(0, dtype=np.int32)],
+            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_shapes": [(2,), ()],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "while_loop_closure_topo",
+            "callable": (
+                lambda x: lax.while_loop(lambda s: s < 3, lambda s: s + (x * 2.0), x)
+            ),
+            "input_values": [np.float32(1.0)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
         # {
         #     "testcase": "while_loop_closure_has_y_input",
         #     "callable": (
@@ -246,7 +308,7 @@ lax.while_loop_p.multiple_results = True
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
         },
-        # dynamic‐batch variant for the closure example
+ 
         # {
         #     "testcase": "while_loop_with_closure2",
         #     "callable": _while_loop_closure_fn,
@@ -291,6 +353,36 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         for i, vin in enumerate(node_inputs):
             if _is_int_scalar(vin):
                 promoted_idxs.append(i)
+        need_int64_consts = bool(promoted_idxs)
+
+        # --------------------------------------------------
+        # Helper: transparently upgrade scalar int constants
+        # --------------------------------------------------
+        def _wrap_get_constant_name(builder):
+            """Replace builder.get_constant_name so that any scalar
+            INT{8,16,32} literal is promoted to INT64 *before* the
+            constant initialiser is created."""
+            orig_get = builder.get_constant_name
+
+            def wrapped(val, *a, **kw):
+                # This wrapper should ONLY interfere if we are in a promotion context
+                # AND we've encountered a Literal that needs promoting.
+                if need_int64_consts and isinstance(val, Literal):
+                    # Use val.aval.dtype, which is the correct way to get a Literal's type
+                    aval = val.aval
+                    if aval.shape == () and np.issubdtype(aval.dtype, np.integer) and aval.dtype != np.int64:
+                        # It's a promotable integer literal. Promote its value and pass to the original function.
+                        promoted_val = np.int64(val.val)
+                        return orig_get(promoted_val, *a, **kw)
+                
+                # For all other cases, including non-Literal values or Literals that don't need promotion,
+                # call the original function without modifying the value.
+                return orig_get(val, *a, **kw)
+
+            builder.get_constant_name = wrapped
+
+        if need_int64_consts:          # wrap once
+            _wrap_get_constant_name(s.builder)
 
         # -----------------------------------------------------
         # ❷ Build state_in names, inserting Cast→INT64 before the Loop
@@ -336,6 +428,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         )
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
 
+        if need_int64_consts:
+            _wrap_get_constant_name(body_builder)
+
         # a *fresh* converter for the subgraph
         body_conv = s.__class__(body_builder)
 
@@ -365,7 +460,15 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 nm = body_conv.get_name(cvar)
                 body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
             else:
-                body_conv.var_to_name[cvar] = body_conv.get_constant_name(cval)
+                const_nm = body_conv.get_constant_name(cval)
+                if (
+                    'need_int64_consts' in locals() and need_int64_consts
+                    and np.issubdtype(np.asarray(cval).dtype, np.integer)
+                    and np.asarray(cval).shape == ()
+                    and np.asarray(cval).dtype != np.int64
+                ):
+                    const_nm = _const_as_int64(body_builder, const_nm)
+                body_conv.var_to_name[cvar] = const_nm
 
         for cvar, cval in zip(c_jaxpr.constvars, c_consts):
             if isinstance(cval, core.Tracer):
@@ -373,7 +476,15 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 nm = body_conv.get_name(cvar)
                 body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
             else:
-                body_conv.var_to_name[cvar] = body_conv.get_constant_name(cval)
+                const_nm = body_conv.get_constant_name(cval)
+                if (
+                    'need_int64_consts' in locals() and need_int64_consts
+                    and np.issubdtype(np.asarray(cval).dtype, np.integer)
+                    and np.asarray(cval).shape == ()
+                    and np.asarray(cval).dtype != np.int64
+                ):
+                    const_nm = _const_as_int64(body_builder, const_nm)
+                body_conv.var_to_name[cvar] = const_nm
 
         # ➁ Now do all the body‐eqns (they'll refer to those constants by name).
         for eqn in b_jaxpr.eqns:
@@ -631,6 +742,40 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 f"Loop has outputs with same names as inputs: {duplicate_names}. "
                 "This can cause validation errors in some ONNX runtimes."
             )
+
+        # ────────────────────────────────────────────────────────────────
+        # Fix up scalar-integer comparisons in the *outer* condition:
+        # make sure both inputs to Less/Greater .. are INT64 when a loop
+        # counter has been promoted.
+        # ────────────────────────────────────────────────────────────────
+        if need_int64_consts:
+            for node in s.builder.nodes[-len(c_jaxpr.eqns):]:
+                if node.op_type not in ("Less", "LessOrEqual",
+                                        "Greater", "GreaterOrEqual"):
+                    continue
+
+                in0, in1 = list(node.input)
+                dt0 = s.builder.value_info_metadata[in0][1]
+                dt1 = s.builder.value_info_metadata[in1][1]
+
+                def _promote(idx, name, dtype, other_dtype):
+                    if (dtype in (np.int8, np.int16, np.int32) and
+                            other_dtype == np.int64):
+                        cast_nm = s.get_unique_name(f"{name}_to_i64")
+                        s.add_node(
+                            helper.make_node(
+                                "Cast",
+                                inputs=[name],
+                                outputs=[cast_nm],
+                                name=s.get_unique_name("cast_to_i64"),
+                                to=TensorProto.INT64,
+                            )
+                        )
+                        s.add_shape_info(cast_nm, (), np.int64)
+                        node.input[idx] = cast_nm  # re-wire the Less node
+
+                _promote(0, in0, dt0, dt1)
+                _promote(1, in1, dt1, dt0)
 
     @staticmethod
     def get_monkey_patch(orig_fn):

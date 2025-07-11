@@ -41,7 +41,7 @@ class ComplexParentWithResidual(nnx.Module):
         self.initial_op = nnx.Linear(in_features=16, out_features=16, rngs=rngs)
         self.ffn = nnx.Sequential(
             nnx.Linear(in_features=16, out_features=32, rngs=rngs),
-            nnx.relu,
+            lambda x: nnx.relu(x),
             nnx.Linear(in_features=32, out_features=16, rngs=rngs)
         )
         self.layernorm = nnx.LayerNorm(num_features=16, rngs=rngs)
