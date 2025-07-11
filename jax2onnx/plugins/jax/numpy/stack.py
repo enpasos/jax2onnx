@@ -102,7 +102,11 @@ class StackPlugin(PrimitiveLeafPlugin):
                 msg = "all input arrays must have the same shape. Got {} and {}"
                 raise ValueError(msg.format(shape, aval.shape))
 
-        # JAX normalizes the axis to be non-negative before abstract_eval
+        # Manually normalize the axis relative to the *output* rank.
+        output_rank = len(shape) + 1
+        if axis < 0:
+            axis += output_rank
+        
         output_shape = list(shape)
         output_shape.insert(axis, len(in_avals))
 
@@ -124,10 +128,10 @@ class StackPlugin(PrimitiveLeafPlugin):
             input_name = s.get_name(var)
             unsqueezed_name = s.get_unique_name(f"{input_name}_unsqueezed")
             
+            # ONNX Unsqueeze uses the axis value directly.
             axes_val = np.array([axis], dtype=np.int64)
             axes_const = s.get_constant_name(axes_val)
 
-            # Use helper.make_node to create the NodeProto object
             node = helper.make_node(
                 "Unsqueeze",
                 inputs=[input_name, axes_const],
@@ -138,21 +142,26 @@ class StackPlugin(PrimitiveLeafPlugin):
 
             # Add shape info for the newly created intermediate tensor
             input_shape = list(var.aval.shape)
-            # JAX doesn't normalize negative axis here, so we must
-            unsqueezed_axis = axis if axis >= 0 else axis + len(input_shape) + 1
+            # Manually normalize axis to correctly calculate the unsqueezed shape
+            rank = len(input_shape) + 1
+            unsqueezed_axis = axis if axis >= 0 else axis + rank
             input_shape.insert(unsqueezed_axis, 1)
             s.add_shape_info(unsqueezed_name, tuple(input_shape), var.aval.dtype)
 
             unsqueezed_inputs.append(unsqueezed_name)
 
         output_name = s.get_name(node_outputs[0])
-        # Use helper.make_node to create the NodeProto object
+        
+        # Normalize axis for Concat to be non-negative
+        concat_rank = len(node_outputs[0].aval.shape)
+        concat_axis = axis if axis >= 0 else axis + concat_rank
+        
         node = helper.make_node(
             "Concat",
             inputs=unsqueezed_inputs,
             outputs=[output_name],
             name=s.get_unique_name("Concat"),
-            axis=axis,
+            axis=concat_axis,
         )
         s.add_node(node)
 
