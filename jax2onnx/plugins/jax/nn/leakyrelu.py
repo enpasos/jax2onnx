@@ -26,7 +26,7 @@ jax.nn.leaky_relu_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__LeakyRelu.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="leaky_relu",
     testcases=[
@@ -54,8 +54,8 @@ class JaxLeakyReluPlugin(PrimitiveLeafPlugin):
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         import numpy as np
 
-        input_var, = node_inputs
-        output_var, = node_outputs
+        (input_var,) = node_inputs
+        (output_var,) = node_outputs
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
 
@@ -82,21 +82,27 @@ class JaxLeakyReluPlugin(PrimitiveLeafPlugin):
             # 1) pos = Relu(x)
             pos = s.get_unique_name("leakyrelu_pos")
             s.add_node(
-                helper.make_node("Relu", [input_name], [pos], name=s.get_unique_name("relu"))
+                helper.make_node(
+                    "Relu", [input_name], [pos], name=s.get_unique_name("relu")
+                )
             )
             s.add_shape_info(pos, shape, dtype)
 
             # 2) neg_x = Neg(x)
             neg_x = s.get_unique_name("leakyrelu_neg_x")
             s.add_node(
-                helper.make_node("Neg", [input_name], [neg_x], name=s.get_unique_name("neg"))
+                helper.make_node(
+                    "Neg", [input_name], [neg_x], name=s.get_unique_name("neg")
+                )
             )
             s.add_shape_info(neg_x, shape, dtype)
 
             # 3) neg_relu = Relu(neg_x)
             neg_relu = s.get_unique_name("leakyrelu_neg_relu")
             s.add_node(
-                helper.make_node("Relu", [neg_x], [neg_relu], name=s.get_unique_name("relu"))
+                helper.make_node(
+                    "Relu", [neg_x], [neg_relu], name=s.get_unique_name("relu")
+                )
             )
             s.add_shape_info(neg_relu, shape, dtype)
 
@@ -106,13 +112,20 @@ class JaxLeakyReluPlugin(PrimitiveLeafPlugin):
             # 5) scaled = Mul(neg_relu, alpha_const)
             scaled = s.get_unique_name("leakyrelu_scaled")
             s.add_node(
-                helper.make_node("Mul", [neg_relu, alpha_const], [scaled], name=s.get_unique_name("mul"))
+                helper.make_node(
+                    "Mul",
+                    [neg_relu, alpha_const],
+                    [scaled],
+                    name=s.get_unique_name("mul"),
+                )
             )
             s.add_shape_info(scaled, shape, dtype)
 
             # 6) out = Sub(pos, scaled)
             s.add_node(
-                helper.make_node("Sub", [pos, scaled], [output_name], name=s.get_unique_name("sub"))
+                helper.make_node(
+                    "Sub", [pos, scaled], [output_name], name=s.get_unique_name("sub")
+                )
             )
             s.add_shape_info(output_name, shape, dtype)
 

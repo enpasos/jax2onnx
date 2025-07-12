@@ -27,7 +27,7 @@ jax.nn.soft_sign_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softsign.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="soft_sign",
     testcases=[
@@ -73,33 +73,39 @@ class JaxSoftsignPlugin(PrimitiveLeafPlugin):
             # Softsign(x) = x / (1 + |x|)
             # 1) abs_x = Abs(x)
             abs_x = s.get_unique_name("abs_x")
-            s.add_node(helper.make_node(
-                "Abs",
-                inputs=[input_name],
-                outputs=[abs_x],
-                name=s.get_unique_name("abs"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Abs",
+                    inputs=[input_name],
+                    outputs=[abs_x],
+                    name=s.get_unique_name("abs"),
+                )
+            )
             s.add_shape_info(abs_x, input_var.aval.shape, dtype)
 
             # 2) denom = Add(abs_x, 1)
             one = np.array(1, dtype=dtype)
             one_const = s.get_constant_name(one)
             denom = s.get_unique_name("denom")
-            s.add_node(helper.make_node(
-                "Add",
-                inputs=[abs_x, one_const],
-                outputs=[denom],
-                name=s.get_unique_name("add"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Add",
+                    inputs=[abs_x, one_const],
+                    outputs=[denom],
+                    name=s.get_unique_name("add"),
+                )
+            )
             s.add_shape_info(denom, input_var.aval.shape, dtype)
 
             # 3) out = Div(x, denom)
-            s.add_node(helper.make_node(
-                "Div",
-                inputs=[input_name, denom],
-                outputs=[output_name],
-                name=s.get_unique_name("div"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Div",
+                    inputs=[input_name, denom],
+                    outputs=[output_name],
+                    name=s.get_unique_name("div"),
+                )
+            )
             # shape_info for output is inferred by the converter
 
     @staticmethod

@@ -227,9 +227,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 # compute the statically-known padded shape
                 new_shape = (1,) * pad + v.aval.shape
                 # make a constant tensor [0,1,2,...] for the Unsqueeze‐axes input
-                axes_const = s.get_constant_name(
-                    np.arange(pad, dtype=np.int64)
-                )
+                axes_const = s.get_constant_name(np.arange(pad, dtype=np.int64))
                 padded = s.get_unique_name(base_name + "_pad")
                 s.add_node(
                     helper.make_node(
@@ -244,9 +242,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 s.builder.register_value_info_metadata(
                     padded, shape=new_shape, dtype=v.aval.dtype
                 )
-                s.builder.add_value_info(
-                    padded, shape=new_shape, dtype=v.aval.dtype
-                )
+                s.builder.add_value_info(padded, shape=new_shape, dtype=v.aval.dtype)
                 input_names.append(padded)
             else:
                 input_names.append(base_name)

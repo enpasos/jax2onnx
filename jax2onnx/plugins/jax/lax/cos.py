@@ -35,8 +35,8 @@ class CosPlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         """Handle JAX cos primitive."""
-        x, = node_inputs
-        out_var, = node_outputs
+        (x,) = node_inputs
+        (out_var,) = node_outputs
 
         x_name = s.get_name(x)
         out_name = s.get_name(out_var)

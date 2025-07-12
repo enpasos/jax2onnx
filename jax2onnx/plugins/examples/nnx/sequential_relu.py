@@ -2,7 +2,6 @@
 #
 # Examples that exercise support for `nnx.Sequential`.
 
-import jax
 from flax import nnx
 from jax2onnx.plugin_system import register_example
 
@@ -11,8 +10,8 @@ from jax2onnx.plugin_system import register_example
 # STATELESS EXAMPLE: Two ReLU activations in a row.
 # ---------------------------------------------------------------------------
 double_relu = nnx.Sequential(
-    nnx.relu,          # first ReLU
-    nnx.relu,          # second ReLU
+    nnx.relu,  # first ReLU
+    nnx.relu,  # second ReLU
 )
 
 register_example(
@@ -42,7 +41,7 @@ class ComplexParentWithResidual(nnx.Module):
         self.ffn = nnx.Sequential(
             nnx.Linear(in_features=16, out_features=32, rngs=rngs),
             lambda x: nnx.relu(x),
-            nnx.Linear(in_features=32, out_features=16, rngs=rngs)
+            nnx.Linear(in_features=32, out_features=16, rngs=rngs),
         )
         self.layernorm = nnx.LayerNorm(num_features=16, rngs=rngs)
 
@@ -52,6 +51,7 @@ class ComplexParentWithResidual(nnx.Module):
         # The residual connection around the nested Sequential is the key to reproducing the bug.
         output = self.layernorm(x_residual + ffn_output)
         return output
+
 
 register_example(
     component="SequentialWithResidual",

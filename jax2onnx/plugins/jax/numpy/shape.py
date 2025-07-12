@@ -9,6 +9,7 @@ from jax import numpy as jnp
 from jax.extend.core import Primitive  # If defined in this file
 from onnx import helper
 
+
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -120,8 +121,6 @@ class ShapePlugin(PrimitiveLeafPlugin):
             "target_attribute": "shape",  # The attribute name in the target module
         }
 
-# At import time, override jnp.shape globally (but keep the original around
-# in case anyone needs to restore it)
-from jax import numpy as _jnp_module
-_original_jnp_shape = _jnp_module.shape
-_jnp_module.shape = ShapePlugin._patched_jnp_shape
+
+_original_jnp_shape = jnp.shape
+jnp.shape = ShapePlugin._patched_jnp_shape

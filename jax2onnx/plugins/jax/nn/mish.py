@@ -27,7 +27,7 @@ jax.nn.mish_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Mish.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="mish",
     testcases=[
@@ -76,27 +76,48 @@ class JaxMishPlugin(PrimitiveLeafPlugin):
 
             # 1) exp_x = Exp(x)
             exp_x = s.get_unique_name("mish_exp")
-            s.add_node(helper.make_node("Exp", [input_name], [exp_x], name=s.get_unique_name("exp")))
+            s.add_node(
+                helper.make_node(
+                    "Exp", [input_name], [exp_x], name=s.get_unique_name("exp")
+                )
+            )
             s.add_shape_info(exp_x, shape, dtype)
 
             # 2) one_plus = Add(exp_x, 1)
             one_const = s.get_constant_name(np.array(1, dtype=dtype))
             one_plus = s.get_unique_name("mish_one_plus")
-            s.add_node(helper.make_node("Add", [exp_x, one_const], [one_plus], name=s.get_unique_name("add")))
+            s.add_node(
+                helper.make_node(
+                    "Add", [exp_x, one_const], [one_plus], name=s.get_unique_name("add")
+                )
+            )
             s.add_shape_info(one_plus, shape, dtype)
 
             # 3) sp = Log(one_plus)
             sp = s.get_unique_name("mish_softplus")
-            s.add_node(helper.make_node("Log", [one_plus], [sp], name=s.get_unique_name("log")))
+            s.add_node(
+                helper.make_node("Log", [one_plus], [sp], name=s.get_unique_name("log"))
+            )
             s.add_shape_info(sp, shape, dtype)
 
             # 4) tanh_sp = Tanh(sp)
             tanh_sp = s.get_unique_name("mish_tanh")
-            s.add_node(helper.make_node("Tanh", [sp], [tanh_sp], name=s.get_unique_name("tanh")))
+            s.add_node(
+                helper.make_node(
+                    "Tanh", [sp], [tanh_sp], name=s.get_unique_name("tanh")
+                )
+            )
             s.add_shape_info(tanh_sp, shape, dtype)
 
             # 5) out = Mul(x, tanh_sp)
-            s.add_node(helper.make_node("Mul", [input_name, tanh_sp], [output_name], name=s.get_unique_name("mul")))
+            s.add_node(
+                helper.make_node(
+                    "Mul",
+                    [input_name, tanh_sp],
+                    [output_name],
+                    name=s.get_unique_name("mul"),
+                )
+            )
             s.add_shape_info(output_name, shape, dtype)
 
     @staticmethod

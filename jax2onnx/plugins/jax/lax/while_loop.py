@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Sequence, Callable, List, Dict
+from typing import TYPE_CHECKING, Any, Sequence, Callable, List
 
 import jax
 import numpy as np
 from jax import core, lax
 from jax.extend.core import Primitive, Literal
 from onnx import TensorProto, helper
-from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
+
 
 def _while_loop_multi_state_fn(x):
     """Test helper: a two‐state while_loop."""
@@ -85,6 +85,7 @@ def no_loop_output_reused_as_input(model):
                 return False
     return True
 
+
 def _const_as_int64(builder, const_name):
     """
     Insert `Cast` so that the scalar constant becomes INT64 and
@@ -103,9 +104,11 @@ def _const_as_int64(builder, const_name):
     builder.add_shape_info(new_name, (), np.int64)
     return new_name
 
+
 def while_loop_with_scalar_state_body_fun(val):
     x, i = val
     return x * 2, i + 1
+
 
 def while_loop_with_scalar_state_cond_fun(val):
     _, i = val
@@ -113,7 +116,11 @@ def while_loop_with_scalar_state_cond_fun(val):
 
 
 def while_loop_with_scalar_state(x, i):
-    return jax.lax.while_loop(while_loop_with_scalar_state_cond_fun, while_loop_with_scalar_state_body_fun, (x, i))
+    return jax.lax.while_loop(
+        while_loop_with_scalar_state_cond_fun,
+        while_loop_with_scalar_state_body_fun,
+        (x, i),
+    )
 
 
 # Add these helper functions with the others at the top of the file
@@ -121,15 +128,17 @@ def loop_with_renamed_passthrough_state_body(state):
     tensor_val, counter_val = state
     return tensor_val, counter_val + 1
 
+
 def loop_with_renamed_passthrough_state_cond(state):
     _, counter_val = state
     return counter_val < 5
+
 
 def loop_with_renamed_passthrough_state(x, y):
     return lax.while_loop(
         loop_with_renamed_passthrough_state_cond,
         loop_with_renamed_passthrough_state_body,
-        (x, y)
+        (x, y),
     )
 
 
@@ -244,14 +253,20 @@ lax.while_loop_p.multiple_results = True
         {
             "testcase": "while_loop_with_scalar_state",
             "callable": while_loop_with_scalar_state,
-            "input_values": [np.array([1.0, 2.0], dtype=np.float32), np.array(0, dtype=np.int32)],
+            "input_values": [
+                np.array([1.0, 2.0], dtype=np.float32),
+                np.array(0, dtype=np.int32),
+            ],
             "expected_output_dtypes": [np.float32, np.int32],
             "run_only_f32_variant": True,
         },
-                {
+        {
             "testcase": "while_loop_renamed_passthrough",
             "callable": loop_with_renamed_passthrough_state,
-            "input_values": [np.array([1.0, 2.0], dtype=np.float32), np.array(0, dtype=np.int32)],
+            "input_values": [
+                np.array([1.0, 2.0], dtype=np.float32),
+                np.array(0, dtype=np.int32),
+            ],
             "expected_output_dtypes": [np.float32, np.int32],
             "expected_output_shapes": [(2,), ()],
             "run_only_f32_variant": True,
@@ -308,7 +323,6 @@ lax.while_loop_p.multiple_results = True
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
         },
- 
         # {
         #     "testcase": "while_loop_with_closure2",
         #     "callable": _while_loop_closure_fn,
@@ -344,12 +358,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # ❶ Find any scalar int32 loop-carried inputs → promote to INT64
         # -----------------------------------------------------
         promoted_idxs: List[int] = []
+
         def _is_int_scalar(var):
             return (
                 var.aval.shape == ()
                 and np.issubdtype(var.aval.dtype, np.integer)
                 and var.aval.dtype != np.int64
             )
+
         for i, vin in enumerate(node_inputs):
             if _is_int_scalar(vin):
                 promoted_idxs.append(i)
@@ -370,18 +386,22 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 if need_int64_consts and isinstance(val, Literal):
                     # Use val.aval.dtype, which is the correct way to get a Literal's type
                     aval = val.aval
-                    if aval.shape == () and np.issubdtype(aval.dtype, np.integer) and aval.dtype != np.int64:
+                    if (
+                        aval.shape == ()
+                        and np.issubdtype(aval.dtype, np.integer)
+                        and aval.dtype != np.int64
+                    ):
                         # It's a promotable integer literal. Promote its value and pass to the original function.
                         promoted_val = np.int64(val.val)
                         return orig_get(promoted_val, *a, **kw)
-                
+
                 # For all other cases, including non-Literal values or Literals that don't need promotion,
                 # call the original function without modifying the value.
                 return orig_get(val, *a, **kw)
 
             builder.get_constant_name = wrapped
 
-        if need_int64_consts:          # wrap once
+        if need_int64_consts:  # wrap once
             _wrap_get_constant_name(s.builder)
 
         # -----------------------------------------------------
@@ -391,13 +411,15 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         for idx in promoted_idxs:
             orig = state_in[idx]
             cast64 = s.get_unique_name(f"{orig}_to_i64")
-            s.add_node(helper.make_node(
-                "Cast",
-                inputs=[orig],
-                outputs=[cast64],
-                name=s.get_unique_name("cast_to_i64"),
-                to=TensorProto.INT64,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[orig],
+                    outputs=[cast64],
+                    name=s.get_unique_name("cast_to_i64"),
+                    to=TensorProto.INT64,
+                )
+            )
             s.add_shape_info(cast64, (), np.int64)
             state_in[idx] = cast64
 
@@ -462,7 +484,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             else:
                 const_nm = body_conv.get_constant_name(cval)
                 if (
-                    'need_int64_consts' in locals() and need_int64_consts
+                    "need_int64_consts" in locals()
+                    and need_int64_consts
                     and np.issubdtype(np.asarray(cval).dtype, np.integer)
                     and np.asarray(cval).shape == ()
                     and np.asarray(cval).dtype != np.int64
@@ -478,7 +501,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             else:
                 const_nm = body_conv.get_constant_name(cval)
                 if (
-                    'need_int64_consts' in locals() and need_int64_consts
+                    "need_int64_consts" in locals()
+                    and need_int64_consts
                     and np.issubdtype(np.asarray(cval).dtype, np.integer)
                     and np.asarray(cval).shape == ()
                     and np.asarray(cval).dtype != np.int64
@@ -699,13 +723,15 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         for idx, out_name in enumerate(state_out):
             if idx in promoted_idxs and idx < len(node_outputs):
                 cast_back = s.get_unique_name(f"{out_name}_to_i32")
-                s.add_node(helper.make_node(
-                    "Cast",
-                    inputs=[out_name],
-                    outputs=[cast_back],
-                    name=s.get_unique_name("cast_to_i32"),
-                    to=TensorProto.INT32,
-                ))
+                s.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[out_name],
+                        outputs=[cast_back],
+                        name=s.get_unique_name("cast_to_i32"),
+                        to=TensorProto.INT32,
+                    )
+                )
                 s.add_shape_info(cast_back, (), np.int32)
                 # point the JAX var → this new i32 name
                 s.var_to_name[node_outputs[idx]] = cast_back
@@ -713,7 +739,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 # either unpromoted or an invariant tracer passthrough
                 if idx < len(node_outputs):
                     shp = node_outputs[idx].aval.shape
-                    dt  = node_outputs[idx].aval.dtype
+                    dt = node_outputs[idx].aval.dtype
                 else:
                     shp, dt = s.builder.value_info_metadata[out_name]
                 s.add_shape_info(out_name, shp, dt)
@@ -749,9 +775,13 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # counter has been promoted.
         # ────────────────────────────────────────────────────────────────
         if need_int64_consts:
-            for node in s.builder.nodes[-len(c_jaxpr.eqns):]:
-                if node.op_type not in ("Less", "LessOrEqual",
-                                        "Greater", "GreaterOrEqual"):
+            for node in s.builder.nodes[-len(c_jaxpr.eqns) :]:
+                if node.op_type not in (
+                    "Less",
+                    "LessOrEqual",
+                    "Greater",
+                    "GreaterOrEqual",
+                ):
                     continue
 
                 in0, in1 = list(node.input)
@@ -759,8 +789,10 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 dt1 = s.builder.value_info_metadata[in1][1]
 
                 def _promote(idx, name, dtype, other_dtype):
-                    if (dtype in (np.int8, np.int16, np.int32) and
-                            other_dtype == np.int64):
+                    if (
+                        dtype in (np.int8, np.int16, np.int32)
+                        and other_dtype == np.int64
+                    ):
                         cast_nm = s.get_unique_name(f"{name}_to_i64")
                         s.add_node(
                             helper.make_node(
@@ -850,4 +882,3 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
 lax.while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
 lax.while_loop_p.def_impl(WhileLoopPlugin._while_loop_impl)
-

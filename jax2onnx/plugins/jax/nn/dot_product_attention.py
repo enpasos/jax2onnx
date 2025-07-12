@@ -224,8 +224,8 @@ nn.dot_product_attention_p.multiple_results = False
             "testcase": "dpa_with_causal_mask",
             "callable": dpa_with_causal_mask,
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
-            "atol_f64": 1e-6,          # Absolute tolerance for float64
-            "rtol_f64": 1e-6,          # Relative tolerance for float64 
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_with_padding_mask",
@@ -408,11 +408,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
          - Otherwise (eager numpy/jax.Array inputs), call the real JAX dot_product_attention.
         """
         from jax.core import Tracer
+
         def patched(q, k, v, *args, **kwargs):
             # Detect ONNX‐tracing: ShapeDtypeStruct or JAX Tracer
-            if hasattr(q, 'aval') or isinstance(q, Tracer):
+            if hasattr(q, "aval") or isinstance(q, Tracer):
                 # export path → primitive
-                return DotProductAttentionPlugin._dot_product_attention(q, k, v, *args, **kwargs)
+                return DotProductAttentionPlugin._dot_product_attention(
+                    q, k, v, *args, **kwargs
+                )
             # runtime path → fall back to real JAX implementation
             return DotProductAttentionPlugin._ORIG_CALL(q, k, v, *args, **kwargs)
 

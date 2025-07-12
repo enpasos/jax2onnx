@@ -28,7 +28,7 @@ jax.nn.celu_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Celu.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="celu",
     testcases=[
@@ -68,41 +68,49 @@ class JaxCeluPlugin(PrimitiveLeafPlugin):
         if np.issubdtype(dt, np.floating) and dt == np.dtype(np.float64):
             # 1) cast input down to float32
             cast_in = s.get_unique_name("celu_cast_in")
-            s.add_node(helper.make_node(
-                "Cast",
-                inputs=[input_name],
-                outputs=[cast_in],
-                to=TensorProto.FLOAT,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[input_name],
+                    outputs=[cast_in],
+                    to=TensorProto.FLOAT,
+                )
+            )
             s.add_shape_info(cast_in, shape, TensorProto.FLOAT)
 
             # 2) float32 Celu
             celu_f32 = s.get_unique_name("celu_f32")
-            s.add_node(helper.make_node(
-                "Celu",
-                inputs=[cast_in],
-                outputs=[celu_f32],
-                name=s.get_unique_name("celu"),
-                alpha=alpha,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Celu",
+                    inputs=[cast_in],
+                    outputs=[celu_f32],
+                    name=s.get_unique_name("celu"),
+                    alpha=alpha,
+                )
+            )
             s.add_shape_info(celu_f32, shape, TensorProto.FLOAT)
 
             # 3) cast result back to float64
-            s.add_node(helper.make_node(
-                "Cast",
-                inputs=[celu_f32],
-                outputs=[output_name],
-                to=TensorProto.DOUBLE,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[celu_f32],
+                    outputs=[output_name],
+                    to=TensorProto.DOUBLE,
+                )
+            )
         else:
             # float32 (or any non‐double) Celu
-            s.add_node(helper.make_node(
-                "Celu",
-                inputs=[input_name],
-                outputs=[output_name],
-                name=s.get_unique_name("celu"),
-                alpha=alpha,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Celu",
+                    inputs=[input_name],
+                    outputs=[output_name],
+                    name=s.get_unique_name("celu"),
+                    alpha=alpha,
+                )
+            )
 
     @staticmethod
     def get_monkey_patch():

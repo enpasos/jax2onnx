@@ -82,17 +82,17 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         # Contraction of the last dimension of both inputs → transpose then Gemm
         elif lhs_contract == (1,) and rhs_contract == (1,):
             transposed_rhs_name = s.get_unique_name("transposed_rhs")
-            s.add_node(helper.make_node(
-                "Transpose",
-                inputs=[rhs_name],
-                outputs=[transposed_rhs_name],
-                perm=[1, 0],
-                name=s.get_unique_name("transpose_rhs"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Transpose",
+                    inputs=[rhs_name],
+                    outputs=[transposed_rhs_name],
+                    perm=[1, 0],
+                    name=s.get_unique_name("transpose_rhs"),
+                )
+            )
             transposed_shape = (rhs_var.aval.shape[1], rhs_var.aval.shape[0])
-            s.add_shape_info(transposed_rhs_name,
-                             transposed_shape,
-                             rhs_var.aval.dtype)
+            s.add_shape_info(transposed_rhs_name, transposed_shape, rhs_var.aval.dtype)
 
             zero_const = s.get_constant_name(np.array(0, dtype=out_var.aval.dtype))
             gemm_node = helper.make_node(

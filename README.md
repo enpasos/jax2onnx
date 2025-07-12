@@ -102,23 +102,24 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
   * Expanding coverage of JAX and Flax (NNX) components
   * Enhancing support for **physics-based simulations**
-
-* **Under Evaluation**
-
-  * Integrating `onnx-ir` as a backend to improve ONNX model construction, memory efficiency, and performance
-
+ 
 * **Upcoming**
 
   * Advanced ONNX function support, including function reuse, optimized internal graph structure, and improved variable naming for clarity and readability
   * Support for `equinox` models 
+  * Integrating `onnx-ir` as a backend to improve ONNX model construction, memory efficiency, and performance
  
 ### **Current Productive Version**
-* **0.7.0** *(PyPI)*: 
+* **0.7.1** *(PyPI)*: 
+  * fixed a bug in testsystem assuring numeric equivalence with Jax
+  * New support for `...`
+
+
+### **Past Versions**
+* **0.7.0**: 
   * Added a GPT-2 model example based on [nanoGPT](https://github.com/karpathy/nanoGPT/blob/master/model.py), featuring ONNX function support and attention masking
   * New support for `jnp.concatenate`, `jnp.take`, `nnx.Embed`
   * ONNX models are now hosted on Hugging Face 
-
-### **Past Versions**
 - **0.6.5**: Improved support for `nnx.batch_norm`, `nnx.group_norm`, `nnx.layer_norm`, `nnx.rms_norm`, `lax.broadcast_in_dim`, `lax.cond`, `lax.fori_loop`,
   `lax.integer_pow`, `lax.scan`, `lax.scatter`, `lax.scatter_add`, `lax.scatter_mul` and `lax.while_loop`;
   added support for `lax.and`, `lax.rem` and `lax.remat2`.
@@ -426,7 +427,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum) and [@clementpoiret](https://github.com/clementpoiret)
 
-Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen)
+Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen) and [@clementpoiret](https://github.com/clementpoiret)
 
 Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 

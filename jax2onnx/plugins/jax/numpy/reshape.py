@@ -25,7 +25,7 @@ jnp.reshape_p = Primitive("jnp.reshape")
 jnp.reshape_p.multiple_results = False
 
 
-@register_primitive(  
+@register_primitive(
     jaxpr_primitive=jnp.reshape_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.reshape.html",
     onnx=[

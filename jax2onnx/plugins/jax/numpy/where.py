@@ -1,4 +1,4 @@
-#file: jax2onnx/plugins/jax/numpy/where.py
+# file: jax2onnx/plugins/jax/numpy/where.py
 
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ logger = logging.getLogger("jax2onnx.plugins.jax.numpy.where")
 jnp.where_p = Primitive("jnp.where")
 jnp.where_p.multiple_results = False
 
+
 # Example definition (ensure it's globally accessible for the test generator):
 def create_problematic_where_sequence(cond_input, data_input):
     scalar_true_val = jnp.array(1.0, dtype=data_input.dtype)
@@ -30,6 +31,7 @@ def create_problematic_where_sequence(cond_input, data_input):
     where_output = jnp.where(cond_input, scalar_true_val, scalar_false_val)
     processed_data = data_input * where_output
     return processed_data
+
 
 @register_primitive(
     jaxpr_primitive=jnp.where_p.name,
@@ -46,8 +48,8 @@ def create_problematic_where_sequence(cond_input, data_input):
             "testcase": "where_gpt_mask_scores_literal_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [
-                ("B", 1, "T", "T"),    # the causal mask
-                ("B", 12, "T", "T"),   # the attention scores
+                ("B", 1, "T", "T"),  # the causal mask
+                ("B", 12, "T", "T"),  # the attention scores
             ],
             "input_dtypes": [jnp.bool_, jnp.float32],
             "expected_output_shapes": [
@@ -112,7 +114,6 @@ def create_problematic_where_sequence(cond_input, data_input):
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
         },
-
         {
             "testcase": "where_literal_else_pyfloat",
             "callable": lambda cond, x: jnp.where(cond, x, -1e9),
@@ -228,6 +229,7 @@ class WherePlugin(PrimitiveLeafPlugin):
             "target_attribute": "where",
             "patch_function": lambda orig: patched_where,
         }
+
 
 # Bind abstract evaluation
 jnp.where_p.def_abstract_eval(WherePlugin.abstract_eval)

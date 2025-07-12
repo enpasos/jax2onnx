@@ -1,6 +1,5 @@
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Any
 
-import jax
 import equinox as eqx
 import jax.numpy as jnp
 from jax import core
@@ -56,12 +55,15 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):
     """
-    Plugin for converting flax.nnx.LayerNorm to ONNX.
+    Plugin for converting equinox.nn.LayerNorm to ONNX.
     """
+
+    _ORIGINAL_LAYERNORM_CALL: Callable[..., Any] | None = None
 
     @staticmethod
     def abstract_eval(x, scale, bias, *, epsilon):
         """Abstract evaluation function for LayerNorm."""
+        # LayerNorm's output shape is always the same as the input's shape.
         return core.ShapedArray(x.shape, x.dtype)
 
     def to_onnx(

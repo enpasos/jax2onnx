@@ -28,6 +28,7 @@ def square_jvp(primals, tangents):
     onnx=[{"component": "CustomJvp", "doc": ""}],
     context="primitives.core",
     component="custom_jvp_generic",
+    since="v0.7.1",
     testcases=[
         {
             "testcase": "custom_jvp_square",

@@ -45,7 +45,6 @@ if TYPE_CHECKING:
             # "expected_output_shapes": [(2, 3, 1)],  # Added expected shape
         },
         # Test case relevant to the error context
- 
         {
             "testcase": "dynamic_slice_vit_like",
             "context": "jax.lax.dynamic_slice",

@@ -14,7 +14,7 @@ import numpy as np
 from jax import core
 from jax.extend.core import Literal, Primitive, Var
 from jax.interpreters import batching
-from onnx import helper, numpy_helper
+from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 

@@ -5,7 +5,7 @@ following the standard jax2onnx pattern for `jnp` functions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -45,7 +45,7 @@ jnp_unstack_p.multiple_results = True
             "doc": "https://onnx.ai/onnx/operators/onnx__Squeeze.html",
         },
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.jnp",
     component="unstack",
     testcases=[
@@ -109,12 +109,12 @@ class UnstackPlugin(PrimitiveLeafPlugin):
         """Converts the JAX `unstack` primitive to ONNX `Split` and `Squeeze` ops."""
         axis = params["axis"]
         input_aval = node_inputs[0].aval
-        
+
         # Infer the number of outputs from the input shape
         rank = len(input_aval.shape)
         norm_axis = axis if axis >= 0 else axis + rank
         num = input_aval.shape[norm_axis]
-        
+
         input_name = s.get_name(node_inputs[0])
 
         # 1. Split the tensor into `num` chunks along the specified axis.
@@ -136,7 +136,7 @@ class UnstackPlugin(PrimitiveLeafPlugin):
         for i in range(num):
             split_chunk_name = split_output_names[i]
             final_output_name = s.get_name(node_outputs[i])
-            
+
             # Add shape info for the intermediate split tensor
             original_shape = list(input_aval.shape)
             original_shape[norm_axis] = 1

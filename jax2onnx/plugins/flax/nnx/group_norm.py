@@ -42,7 +42,7 @@ nnx.group_norm_p.multiple_results = False  # Set at initialization
             "callable": nnx.GroupNorm(num_features=64, rngs=nnx.Rngs(0)),
             "input_shapes": [(11, 2, 2, 64)],
             "run_only_f32_variant": True,
-        }, 
+        },
         {
             "testcase": "group_norm_no_bias_no_scale",
             "callable": nnx.GroupNorm(
@@ -171,16 +171,22 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             num_features = x.shape[-1]
             param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
 
-            if self.use_scale and self.scale is not None \
-               and self.scale.value.shape[-1] == num_features:
+            if (
+                self.use_scale
+                and self.scale is not None
+                and self.scale.value.shape[-1] == num_features
+            ):
                 # learned γ matches the current feature count – use it
                 scale_value = self.scale.value
             else:
                 # shape‐mismatch → fall back to "identity" γ = 1
                 scale_value = jnp.ones((num_features,), dtype=param_dtype)
 
-            if self.use_bias and self.bias is not None \
-               and self.bias.value.shape[-1] == num_features:
+            if (
+                self.use_bias
+                and self.bias is not None
+                and self.bias.value.shape[-1] == num_features
+            ):
                 beta_value = self.bias.value
             else:
                 # shape‐mismatch → β = 0

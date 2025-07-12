@@ -4,7 +4,6 @@ import logging
 from functools import reduce
 from typing import TYPE_CHECKING, Any, Sequence
 
-import jax
 import jax.numpy as jnp
 from jax import core
 from jax.extend.core import Primitive, Var
@@ -51,9 +50,7 @@ jnp_select_p.multiple_results = False
         },
         {
             "testcase": "select_gpt2_attention_mask",
-            "callable": lambda scores, mask: jnp.select(
-                [mask], [scores], default=-1e9
-            ),
+            "callable": lambda scores, mask: jnp.select([mask], [scores], default=-1e9),
             "input_shapes": [("B", 12, "T", "T"), ("B", 1, "T", "T")],
             "input_dtypes": [jnp.float32, jnp.bool_],
         },
@@ -79,7 +76,7 @@ class SelectPlugin(PrimitiveLeafPlugin):
 
         # Determine the output dtype by promoting all choices and the default
         all_dtypes = [a.dtype for a in choice_avals] + [default_aval.dtype]
-        
+
         # jnp.promote_types only takes two arguments, so we must reduce.
         output_dtype = reduce(jnp.promote_types, all_dtypes)
 
@@ -104,7 +101,11 @@ class SelectPlugin(PrimitiveLeafPlugin):
         current_else = s.get_name(default_var)
 
         # Pre-compute full broadcast shape and dtype for all branches
-        all_shapes = [v.aval.shape for v in cond_vars] + [v.aval.shape for v in choice_vars] + [default_var.aval.shape]
+        all_shapes = (
+            [v.aval.shape for v in cond_vars]
+            + [v.aval.shape for v in choice_vars]
+            + [default_var.aval.shape]
+        )
         result_shape = jnp.broadcast_shapes(*all_shapes)
         all_dtypes = [v.aval.dtype for v in choice_vars] + [default_var.aval.dtype]
         result_dtype = reduce(jnp.promote_types, all_dtypes)
@@ -124,7 +125,9 @@ class SelectPlugin(PrimitiveLeafPlugin):
             if cond_aval.dtype != np.bool_:
                 cast_name = s.builder.get_unique_name(f"cond_cast_{i}")
                 s.builder.add_node(
-                    helper.make_node("Cast", [cond_name], [cast_name], to=TensorProto.BOOL)
+                    helper.make_node(
+                        "Cast", [cond_name], [cast_name], to=TensorProto.BOOL
+                    )
                 )
                 s.add_shape_info(cast_name, cond_aval.shape, np.bool_)
                 cond_name = cast_name

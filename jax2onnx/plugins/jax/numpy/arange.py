@@ -148,7 +148,11 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
                 "Arange abstract_eval: Not all inputs are jax.extend.core.Literal instances. Defaulting to dynamic shape."
             )
             # ONNX Range will be fed int64 constants, so our dynamic arange must declare int64 output
-            dyn_dtype = np.dtype(np.int64) if np.issubdtype(final_dtype, np.integer) else final_dtype
+            dyn_dtype = (
+                np.dtype(np.int64)
+                if np.issubdtype(final_dtype, np.integer)
+                else final_dtype
+            )
             if dyn_dtype != final_dtype:
                 logger.debug(
                     f"Arange abstract_eval: Promoting dynamic integer dtype {final_dtype} → {dyn_dtype}."
@@ -209,7 +213,11 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
             exc_info=True,
         )
         # same promotion on error path
-        err_dtype = np.dtype(np.int64) if np.issubdtype(final_dtype, np.integer) else final_dtype
+        err_dtype = (
+            np.dtype(np.int64)
+            if np.issubdtype(final_dtype, np.integer)
+            else final_dtype
+        )
         return core.ShapedArray(
             (DATA_DEPENDENT_DYNAMIC_DIM,), err_dtype, weak_type=False
         )
@@ -283,7 +291,7 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
             "testcase": "arange_static_stop_only_int",
             "callable": lambda: jnp.arange(5),
             "input_values": [],
-            #"expected_output_shapes": [(5,)],
+            # "expected_output_shapes": [(5,)],
             "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
@@ -296,21 +304,21 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
         {
             "testcase": "arange_static_start_stop_int",
             "callable": lambda: jnp.arange(2, 7),
-            "input_values": [], 
+            "input_values": [],
             "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
         {
             "testcase": "arange_static_start_stop_step_int",
             "callable": lambda: jnp.arange(1, 10, 2),
-            "input_values": [], 
+            "input_values": [],
             "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
         {
             "testcase": "arange_static_empty_result_pos_step",
             "callable": lambda: jnp.arange(5, 2, 1),
-            "input_values": [], 
+            "input_values": [],
             "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
@@ -459,7 +467,11 @@ class ArangePlugin(PrimitiveLeafPlugin):
                                 "Cast",
                                 inputs=[original_name],
                                 outputs=[cast_name],
-                                to=TensorProto.INT64 if np.issubdtype(dtype_np, np.integer) else TensorProto.FLOAT,
+                                to=(
+                                    TensorProto.INT64
+                                    if np.issubdtype(dtype_np, np.integer)
+                                    else TensorProto.FLOAT
+                                ),
                             )
                         )
                         # preserve shape info on the casted tensor

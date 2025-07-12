@@ -435,7 +435,9 @@ def make_test_function(tp: dict[str, Any]):
 
         # Optional per-test override: skip numeric validation entirely
         if tp.get("skip_numeric_validation", False):
-            logger.warning(f"Skipping numeric validation for '{testcase_name}' (per-test flag).")
+            logger.warning(
+                f"Skipping numeric validation for '{testcase_name}' (per-test flag)."
+            )
         elif input_values_from_testcase:
             initializers = {init.name for init in onnx_model.graph.initializer}
             runnable_graph_input_names = [
@@ -494,7 +496,9 @@ def make_test_function(tp: dict[str, Any]):
                 default_dtype = (
                     jnp.float64 if current_enable_double_precision else jnp.float32
                 )
-                input_dtypes_from_testcase = [default_dtype] * len(input_shapes_from_testcase)
+                input_dtypes_from_testcase = [default_dtype] * len(
+                    input_shapes_from_testcase
+                )
 
             symbol_map: dict[str, int] = {}
             concrete_shapes: list[tuple[int, ...]] = []
@@ -514,15 +518,30 @@ def make_test_function(tp: dict[str, Any]):
                 if np.issubdtype(dtype, np.floating):
                     raw = np.random.randn(*shape) if shape else np.random.randn()
                 elif np.issubdtype(dtype, np.integer):
-                    raw = np.random.randint(0, 5, size=shape) if shape else np.random.randint(0, 5)
+                    raw = (
+                        np.random.randint(0, 5, size=shape)
+                        if shape
+                        else np.random.randint(0, 5)
+                    )
                 elif dtype == np.bool_ or dtype == np.dtype(bool):
-                    raw = (np.random.rand(*shape) > 0.5) if shape else (np.random.rand() > 0.5)
+                    raw = (
+                        (np.random.rand(*shape) > 0.5)
+                        if shape
+                        else (np.random.rand() > 0.5)
+                    )
                 else:
                     raw = np.random.randn(*shape) if shape else np.random.randn()
 
                 # 2) Wrap into ndarray and cast
                 arr = np.array(raw)
-                target = jnp.float64 if (current_enable_double_precision and np.issubdtype(dtype, np.floating)) else dtype
+                target = (
+                    jnp.float64
+                    if (
+                        current_enable_double_precision
+                        and np.issubdtype(dtype, np.floating)
+                    )
+                    else dtype
+                )
                 return arr.astype(target)
 
             xs_for_num_check = [

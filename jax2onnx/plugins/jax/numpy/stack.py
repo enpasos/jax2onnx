@@ -5,7 +5,7 @@ following the standard jax2onnx pattern for `jnp` functions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -45,7 +45,7 @@ jnp_stack_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.jnp",
     component="stack",
     testcases=[
@@ -79,7 +79,10 @@ jnp_stack_p.multiple_results = False
         {
             "testcase": "stack_scalars",
             "callable": lambda *args: jnp.stack(args, axis=0),
-            "input_values": [np.array(10, dtype=np.float32), np.array(20, dtype=np.float32)],
+            "input_values": [
+                np.array(10, dtype=np.float32),
+                np.array(20, dtype=np.float32),
+            ],
             "expected_output_shapes": [(2,)],
         },
     ],
@@ -106,7 +109,7 @@ class StackPlugin(PrimitiveLeafPlugin):
         output_rank = len(shape) + 1
         if axis < 0:
             axis += output_rank
-        
+
         output_shape = list(shape)
         output_shape.insert(axis, len(in_avals))
 
@@ -127,7 +130,7 @@ class StackPlugin(PrimitiveLeafPlugin):
         for var in node_inputs:
             input_name = s.get_name(var)
             unsqueezed_name = s.get_unique_name(f"{input_name}_unsqueezed")
-            
+
             # ONNX Unsqueeze uses the axis value directly.
             axes_val = np.array([axis], dtype=np.int64)
             axes_const = s.get_constant_name(axes_val)
@@ -151,11 +154,11 @@ class StackPlugin(PrimitiveLeafPlugin):
             unsqueezed_inputs.append(unsqueezed_name)
 
         output_name = s.get_name(node_outputs[0])
-        
+
         # Normalize axis for Concat to be non-negative
         concat_rank = len(node_outputs[0].aval.shape)
         concat_axis = axis if axis >= 0 else axis + concat_rank
-        
+
         node = helper.make_node(
             "Concat",
             inputs=unsqueezed_inputs,
@@ -169,7 +172,7 @@ class StackPlugin(PrimitiveLeafPlugin):
     def _stack_binding(arrays, axis=0):
         """Binds the inputs to the custom jnp.stack primitive."""
         if not isinstance(arrays, (list, tuple)):
-             raise TypeError(f"stack expects a sequence of arrays, got {type(arrays)}")
+            raise TypeError(f"stack expects a sequence of arrays, got {type(arrays)}")
 
         flat_arrays, _ = jax.tree_util.tree_flatten(arrays)
         return jnp_stack_p.bind(*flat_arrays, axis=axis)

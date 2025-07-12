@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 
 import jax.numpy as jnp
 import numpy as np
-from jax import core, lax
+from jax import lax
 from jax.extend.core import Var
 from onnx import helper
 
@@ -22,7 +22,9 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
 @register_primitive(
     jaxpr_primitive="select",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.select.html",
-    onnx=[{"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}],
+    onnx=[
+        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
+    ],
     since="v0.7.1",
     context="primitives.lax",
     component="select",
@@ -83,16 +85,16 @@ class SelectPlugin(PrimitiveLeafPlugin):
 
         # Get the name for y, creating a constant if it's a literal.
         if "y" in params:
-            y_name = s.get_constant_name(
-                np.array(y_literal, dtype=out_aval.dtype)
-            )
+            y_name = s.get_constant_name(np.array(y_literal, dtype=out_aval.dtype))
         else:
             y_name = s.get_name(y_v)
 
         # ONNX's Where operator handles broadcasting automatically.
         # We simply provide the condition and the two branches.
         s.add_node(
-            helper.make_node("Where", inputs=[cond_name, x_name, y_name], outputs=[out_name])
+            helper.make_node(
+                "Where", inputs=[cond_name, x_name, y_name], outputs=[out_name]
+            )
         )
         s.add_shape_info(out_name, out_aval.shape, out_aval.dtype)
 

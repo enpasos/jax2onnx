@@ -35,4 +35,4 @@ onnx_out = sess.run(None, {inp_name: np.array(x0)})[0]
 jax_out = np.array(fwd(x0))
 
 np.testing.assert_allclose(jax_out, onnx_out, rtol=1e-6, atol=1e-6)
-print("✅ Outputs match: ReLU-only pipeline is working!") 
+print("✅ Outputs match: ReLU-only pipeline is working!")

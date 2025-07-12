@@ -1,8 +1,8 @@
 # file: jax2onnx/plugins/jax/core/dim_as_value.py
- 
+
 from typing import TYPE_CHECKING, Any, Sequence
 import numpy as np
-from onnx import helper, TensorProto
+from onnx import helper
 from jax import core, config
 from jax.extend.core import Primitive
 
@@ -81,7 +81,7 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         dim_expr = params["dim"]
 
         # --- Static-dimension: are not hitting to_onnx in dim_as_value ---
-      
+
         # --- Dynamic-dimension: look up origin axis and extract at runtime ---
         if dim_expr not in s.symbolic_dim_to_origin:
             raise ValueError(

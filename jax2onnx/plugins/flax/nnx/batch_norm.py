@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 nnx.batch_norm_p = Primitive("nnx.batch_norm")
 nnx.batch_norm_p.multiple_results = False
 
+
 # ---------------------------------------------------------------------
 # Python implementation **mirrors the layout trick** used in the ONNX
 # graph: for rank > 2 we convert NHWC → NCHW, apply the formula, then
@@ -47,11 +48,11 @@ def _batch_norm_impl(x, scale, bias, mean, var, *, epsilon, momentum):
         x_nchw = jnp.moveaxis(x, -1, 1)
 
         # broadcast params over N, spatial dims
-        param_shape = (1, -1) + (1,) * (rank - 2)   # (1,C,1,1,…)
+        param_shape = (1, -1) + (1,) * (rank - 2)  # (1,C,1,1,…)
         scale_ = jnp.reshape(scale, param_shape).astype(x.dtype, copy=False)
-        bias_  = jnp.reshape(bias,  param_shape).astype(x.dtype, copy=False)
-        mean_  = jnp.reshape(mean,  param_shape).astype(x.dtype, copy=False)
-        var_   = jnp.reshape(var,   param_shape).astype(x.dtype, copy=False)
+        bias_ = jnp.reshape(bias, param_shape).astype(x.dtype, copy=False)
+        mean_ = jnp.reshape(mean, param_shape).astype(x.dtype, copy=False)
+        var_ = jnp.reshape(var, param_shape).astype(x.dtype, copy=False)
 
         y = (x_nchw - mean_) * scale_ / jnp.sqrt(var_ + epsilon) + bias_
 
@@ -59,16 +60,18 @@ def _batch_norm_impl(x, scale, bias, mean, var, *, epsilon, momentum):
         return jnp.moveaxis(y, 1, -1)
 
     # rank == 1 or 2  →  channel is already axis −1 == 1
-    param_shape = (1,) * (rank - 1) + (-1,)          # (1,C) or (1,C)
-    scale  = jnp.reshape(scale, param_shape).astype(x.dtype, copy=False)
-    bias   = jnp.reshape(bias,  param_shape).astype(x.dtype, copy=False)
-    mean   = jnp.reshape(mean,  param_shape).astype(x.dtype, copy=False)
-    var    = jnp.reshape(var,   param_shape).astype(x.dtype, copy=False)
+    param_shape = (1,) * (rank - 1) + (-1,)  # (1,C) or (1,C)
+    scale = jnp.reshape(scale, param_shape).astype(x.dtype, copy=False)
+    bias = jnp.reshape(bias, param_shape).astype(x.dtype, copy=False)
+    mean = jnp.reshape(mean, param_shape).astype(x.dtype, copy=False)
+    var = jnp.reshape(var, param_shape).astype(x.dtype, copy=False)
     return (x - mean) * scale / jnp.sqrt(var + epsilon) + bias
+
 
 # Register that implementation on the primitive
 nnx.batch_norm_p.def_impl(_batch_norm_impl)
 # ---------------------------------------------------------------------
+
 
 @register_primitive(
     jaxpr_primitive=nnx.batch_norm_p.name,
@@ -175,16 +178,16 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         x_var, scale_var, bias_var, mean_var, var_var = node_inputs
-        out_var, = node_outputs
+        (out_var,) = node_outputs
 
-        in_name    = s.get_name(x_var)
+        in_name = s.get_name(x_var)
         scale_name = s.get_name(scale_var)
-        bias_name  = s.get_name(bias_var)
-        mean_name  = s.get_name(mean_var)
-        var_name   = s.get_name(var_var)
-        out_name   = s.get_name(out_var)
+        bias_name = s.get_name(bias_var)
+        mean_name = s.get_name(mean_var)
+        var_name = s.get_name(var_var)
+        out_name = s.get_name(out_var)
 
-        eps      = params.get("epsilon", 1e-5)
+        eps = params.get("epsilon", 1e-5)
         momentum = params.get("momentum", 0.9)
 
         shape = x_var.aval.shape
@@ -192,7 +195,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
         # --- 1️⃣  NHWC → NCHW if needed ---------------------------------
         if rank > 2:
-            perm      = [0, rank - 1] + list(range(1, rank - 1))
+            perm = [0, rank - 1] + list(range(1, rank - 1))
             pre_trans = s.get_unique_name("bn_pre_transpose")
             s.add_node(
                 helper.make_node(
@@ -207,7 +210,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             bn_out = s.get_unique_name("bn_nchw_out")
         else:
             bn_in_name = in_name
-            bn_out     = out_name
+            bn_out = out_name
 
         # BatchNormalization itself
         bn_node = helper.make_node(
@@ -215,8 +218,8 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             inputs=[bn_in_name, scale_name, bias_name, mean_name, var_name],
             outputs=[bn_out],
             name=s.get_unique_name("batch_norm"),
-            epsilon = eps,
-            momentum = momentum,
+            epsilon=eps,
+            momentum=momentum,
         )
         s.add_node(bn_node)
 
@@ -241,8 +244,6 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         return nnx.batch_norm_p.bind(
             x, scale, bias, mean, var, epsilon=epsilon, momentum=momentum
         )
-
-
 
     @staticmethod
     def get_monkey_patch():
@@ -290,7 +291,6 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             "target_attribute": "__call__",
         }
 
-  
+
 # Register abstract evaluation function
 nnx.batch_norm_p.def_abstract_eval(BatchNormPlugin.abstract_eval)
-

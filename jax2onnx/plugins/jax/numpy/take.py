@@ -110,7 +110,10 @@ class TakePlugin(PrimitiveLeafPlugin):
         import numpy as _np
         from onnx import TensorProto
 
-        if _np.issubdtype(indices_var.aval.dtype, _np.integer) and indices_var.aval.dtype != _np.int64:
+        if (
+            _np.issubdtype(indices_var.aval.dtype, _np.integer)
+            and indices_var.aval.dtype != _np.int64
+        ):
             casted = s.get_unique_name(f"{indices_name}_cast_int64")
             cast_node = helper.make_node(
                 "Cast",

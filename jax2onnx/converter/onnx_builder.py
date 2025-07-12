@@ -1187,9 +1187,9 @@ class OnnxBuilder:
         # Also preserve any initializer that *is* a graph output
         output_names = {out.name for out in self.outputs}
         self.initializers = [
-            init for init in self.initializers
-            if init.name in used_inputs
-               or init.name in output_names
+            init
+            for init in self.initializers
+            if init.name in used_inputs or init.name in output_names
         ]
 
     def get_value_info_origins(self) -> dict[str, str]:
@@ -1412,4 +1412,3 @@ class OnnxBuilder:
         """
         logger.debug("subgraph(%s) called in stub mode – no graph emitted", name)
         return self
-

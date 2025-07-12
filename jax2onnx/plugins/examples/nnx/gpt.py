@@ -1,11 +1,11 @@
 # file: jax2onnx/plugins/examples/nnx/gpt.py
 
-import jax
 import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 
-from jax2onnx.plugin_system import onnx_function, register_example 
+from jax2onnx.plugin_system import onnx_function, register_example
+
 
 # TODO - GPT attention with @onnx_function
 # @onnx_function
@@ -15,7 +15,6 @@ def attention(q, k, v, mask=None):
     """
     return nnx.dot_product_attention(q, k, v, mask=mask)
 
- 
 
 register_example(
     component="GPT_Attention",
@@ -33,11 +32,12 @@ register_example(
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
-            ], 
+            ],
             "run_only_f32_variant": True,
         }
     ],
 )
+
 
 @onnx_function
 class CausalSelfAttention(nnx.Module):
@@ -99,7 +99,7 @@ register_example(
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
-                dropout=0.0,   
+                dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024, 768)],
@@ -117,11 +117,11 @@ class MLP(nnx.Module):
         self.c_proj = nnx.Linear(4 * n_embd, n_embd, rngs=rngs)
         self.dropout = nnx.Dropout(dropout)
 
-    def __call__(self, x: jnp.ndarray, deterministic = True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         x = self.c_fc(x)
         x = nnx.gelu(x)
         x = self.c_proj(x)
-        x = self.dropout(x, deterministic=deterministic)   
+        x = self.dropout(x, deterministic=deterministic)
         return x
 
 
@@ -164,7 +164,7 @@ class Block(nnx.Module):
             n_head=n_head,
             n_embd=n_embd,
             block_size=block_size,
-            dropout=dropout,   
+            dropout=dropout,
             rngs=rngs,
         )
 
@@ -173,8 +173,8 @@ class Block(nnx.Module):
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         # pass the top‐level `deterministic` flag into both the attention and the MLP
-        x = x + self.attn(self.ln_1(x), deterministic= deterministic)
-        x = x + self.mlp(self.ln_2(x), deterministic=deterministic) 
+        x = x + self.attn(self.ln_1(x), deterministic=deterministic)
+        x = x + self.mlp(self.ln_2(x), deterministic=deterministic)
         return x
 
 
@@ -195,8 +195,8 @@ register_example(
                 dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [("B", 1024, 768)], 
-            "input_params": {"deterministic": True}, 
+            "input_shapes": [("B", 1024, 768)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -339,20 +339,21 @@ def broadcast_add(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
     # a broadcast_in_dim + add, and then our handler (below) will catch that primitive.
     return x + y
 
+
 register_example(
-  component="broadcast_add",
-  description="Simple dynamic broadcast + add",
-  source="(your patch)",
-  since="v0.7.0",
-  context="examples.gpt",
-  testcases=[
-    {
-      "testcase": "broadcast_add_dynamic",
-      "callable": broadcast_add,
-      "input_shapes": [("B", 4, 5), (1, 4, 5)],
-      "expected_output_shape": ("B", 4, 5),
-    }
-  ],
+    component="broadcast_add",
+    description="Simple dynamic broadcast + add",
+    source="(your patch)",
+    since="v0.7.0",
+    context="examples.gpt",
+    testcases=[
+        {
+            "testcase": "broadcast_add_dynamic",
+            "callable": broadcast_add,
+            "input_shapes": [("B", 4, 5), (1, 4, 5)],
+            "expected_output_shape": ("B", 4, 5),
+        }
+    ],
 )
 
 
@@ -524,7 +525,7 @@ register_example(
                 dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),
-            "input_shapes": [("B", 1024)],  # input is a sequence of token indices 
+            "input_shapes": [("B", 1024)],  # input is a sequence of token indices
             "input_dtypes": [jnp.int32],
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),  # logits for each token

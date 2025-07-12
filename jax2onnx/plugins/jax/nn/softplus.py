@@ -27,7 +27,7 @@ jax.nn.softplus_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softplus.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="softplus",
     testcases=[
@@ -75,21 +75,25 @@ class JaxSoftplusPlugin(PrimitiveLeafPlugin):
             one_const = s.get_constant_name(one)
 
             exp_out = s.get_unique_name("exp")
-            s.add_node(helper.make_node(
-                "Exp",
-                inputs=[input_name],
-                outputs=[exp_out],
-                name=s.get_unique_name("exp"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Exp",
+                    inputs=[input_name],
+                    outputs=[exp_out],
+                    name=s.get_unique_name("exp"),
+                )
+            )
             s.add_shape_info(exp_out, input_var.aval.shape, dtype)
 
             add_out = s.get_unique_name("add")
-            s.add_node(helper.make_node(
-                "Add",
-                inputs=[exp_out, one_const],
-                outputs=[add_out],
-                name=s.get_unique_name("add"),
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Add",
+                    inputs=[exp_out, one_const],
+                    outputs=[add_out],
+                    name=s.get_unique_name("add"),
+                )
+            )
             s.add_shape_info(add_out, input_var.aval.shape, dtype)
 
             log_node = helper.make_node(
