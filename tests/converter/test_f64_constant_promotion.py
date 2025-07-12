@@ -66,7 +66,7 @@ def test_f64_promotion_for_captured_constants():
     ), "Could not find the initializer corresponding to the captured constant."
 
     # 2. Numerical check using the test generator's `allclose`
-    model_path = "f64_constant_promotion_test.onnx"
+    model_path = "docs/onnx/f64_constant_promotion_test.onnx"
     with open(model_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
 
@@ -117,7 +117,7 @@ def test_f64_promotion_for_function_with_no_inputs():
     ), f"Initializer should be DOUBLE, but got {TensorProto.DataType.Name(initializer.data_type)}"
 
     # 2. Numerical Check
-    model_path = "f64_no_inputs_test.onnx"
+    model_path = "docs/onnx/f64_no_inputs_test.onnx"
     with open(model_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
 

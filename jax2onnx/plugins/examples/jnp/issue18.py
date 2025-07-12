@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax2onnx.plugin_system import register_example
 
 # --- Model Functions from issue18_test.py ---
@@ -65,7 +66,7 @@ register_example(
         {
             "testcase": "sign_fn",
             "callable": sign_fn,
-            "input_values": [jnp.array([-2.0, 0.0, 3.0], dtype=jnp.float32)],
+            "input_values": [np.array([-2.0, 0.0, 3.0], dtype=np.float32)],
         }
     ],
 )
@@ -79,7 +80,7 @@ register_example(
         {
             "testcase": "abs_fn",
             "callable": abs_fn,
-            "input_values": [jnp.array([-2.0, 0.0, 3.0], dtype=jnp.float32)],
+            "input_values": [np.array([-2.0, 0.0, 3.0], dtype=np.float32)],
         }
     ],
 )
@@ -93,7 +94,7 @@ register_example(
         {
             "testcase": "fori_loop_fn",
             "callable": fori_loop_fn,
-            "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+            "input_values": [np.array(0.0, dtype=np.float32)],
         }
     ],
 )
@@ -107,7 +108,7 @@ register_example(
         {
             "testcase": "while_loop_fn",
             "callable": while_loop_fn,
-            "input_values": [jnp.array(0.0, dtype=jnp.float64)],
+            "input_values": [np.array(0.0, dtype=np.float64)],
             "run_only_f64_variant": True,
         }
     ],
@@ -122,7 +123,7 @@ register_example(
         {
             "testcase": "scan_fn",
             "callable": scan_fn,
-            "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+            "input_values": [np.array(0.0, dtype=np.float32)],
         }
     ],
 )
@@ -137,8 +138,8 @@ register_example(
             "testcase": "where_fn",
             "callable": where_fn,
             "input_values": [
-                jnp.array([-1.0, 1.0, 0.0], dtype=jnp.float32),
-                jnp.array([10.0, 11.0, 12.0], dtype=jnp.float32),
+                np.array([-1.0, 1.0, 0.0], dtype=np.float32),
+                np.array([10.0, 11.0, 12.0], dtype=np.float32),
             ],
         }
     ],
