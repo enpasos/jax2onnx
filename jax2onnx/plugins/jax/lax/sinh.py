@@ -11,11 +11,12 @@ if TYPE_CHECKING:
 
 
 @register_primitive(
-    jaxpr_primitive="sinh",
-    jax_doc="Lower sinh(x) to (exp(x)-exp(-x))/2 for double precision; use ONNX Sinh for float32.",
+    jaxpr_primitive=jax.lax.sinh_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sinh.html",
     onnx=[
         {"component": "Sinh", "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html"}
     ],
+    since="v0.4.4",
     context="primitives.lax",
     component="sinh",
     testcases=[
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     ],
 )
 class SinhPlugin(PrimitiveLeafPlugin):
+    """Plugin for converting jax.lax.sinh to ONNX Sinh."""
+
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         (x,) = node_inputs
         (out_var,) = node_outputs
