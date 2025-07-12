@@ -1,0 +1,167 @@
+[
+  {
+    "sequence_id": "1",
+    "primitive_name": "dot_general",
+    "plugin_file_hint": "jax2onnx.plugins.jax.lax.dot_general.DotGeneralPlugin",
+    "params": {
+      "dimension_numbers": [
+        [
+          [
+            "1"
+          ],
+          [
+            "0"
+          ]
+        ],
+        [
+          [],
+          []
+        ]
+      ],
+      "precision": "None",
+      "preferred_element_type": "float32",
+      "out_sharding": "None"
+    },
+    "params_repr": "  - dimension_numbers: (((1,), (0,)), ((), ()))\n  - precision: None\n  - preferred_element_type: dtype('float32')\n  - out_sharding: None",
+    "inputs_aval": [
+      [
+        [
+          "1",
+          "10"
+        ],
+        "float32",
+        "Var"
+      ],
+      [
+        [
+          "10",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "outputs_aval": [
+      [
+        [
+          "1",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "conversion_context_fn_name": "<lambda>",
+    "inputs_jax_vars": [
+      "Var(id=124893105090112):float32[1,10]",
+      "Var(id=124893105092928):float32[10,128]"
+    ],
+    "inputs_onnx_names": [
+      "var_0",
+      "const_0"
+    ],
+    "outputs_jax_vars": [
+      "Var(id=124893105342400):float32[1,128]"
+    ],
+    "outputs_onnx_names": [
+      "var_4"
+    ]
+  },
+  {
+    "sequence_id": "2",
+    "primitive_name": "broadcast_in_dim",
+    "plugin_file_hint": "jax2onnx.plugins.jax.lax.broadcast_in_dim.BroadcastInDimPlugin",
+    "params": {
+      "shape": [
+        "1",
+        "128"
+      ],
+      "broadcast_dimensions": [
+        "1"
+      ]
+    },
+    "params_repr": "  - shape: (1, 128)\n  - broadcast_dimensions: (1,)",
+    "inputs_aval": [
+      [
+        [
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "outputs_aval": [
+      [
+        [
+          "1",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "conversion_context_fn_name": "<lambda>",
+    "inputs_jax_vars": [
+      "Var(id=124893105342144):float32[128]"
+    ],
+    "inputs_onnx_names": [
+      "const_1"
+    ],
+    "outputs_jax_vars": [
+      "Var(id=124893105345536):float32[1,128]"
+    ],
+    "outputs_onnx_names": [
+      "var_5"
+    ]
+  },
+  {
+    "sequence_id": "3",
+    "primitive_name": "add",
+    "plugin_file_hint": "jax2onnx.plugins.jax.lax.add.AddPlugin",
+    "params": {},
+    "params_repr": "  (none)",
+    "inputs_aval": [
+      [
+        [
+          "1",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ],
+      [
+        [
+          "1",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "outputs_aval": [
+      [
+        [
+          "1",
+          "128"
+        ],
+        "float32",
+        "Var"
+      ]
+    ],
+    "conversion_context_fn_name": "<lambda>",
+    "inputs_jax_vars": [
+      "Var(id=124893105342400):float32[1,128]",
+      "Var(id=124893105345536):float32[1,128]"
+    ],
+    "inputs_onnx_names": [
+      "var_4",
+      "var_5"
+    ],
+    "outputs_jax_vars": [
+      "Var(id=124893105345792):float32[1,128]"
+    ],
+    "outputs_onnx_names": [
+      "var_6"
+    ]
+  }
+]

@@ -63,6 +63,8 @@ broadcast_in_dim_p = lax.broadcast_in_dim_p
                 x, (2, 3, 4), broadcast_dimensions=()
             ),
             "input_shapes": [()],
+            # switch to value-based numeric testing
+            "input_values": [0.5],
         },
         {
             # ------------------------------------------------------------------

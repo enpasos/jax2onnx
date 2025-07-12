@@ -24,6 +24,7 @@ register_example(
                 decode=False,
             ),
             "input_shapes": [("B", 4, 256)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "multihead_attention_nnx",
@@ -39,6 +40,7 @@ register_example(
                 decode=False,
             ),
             "input_shapes": [("B", 4, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )

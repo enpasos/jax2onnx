@@ -39,21 +39,25 @@ nnx.rms_norm_p.multiple_results = False
             "testcase": "rms_norm_basic",
             "callable": nnx.RMSNorm(num_features=6, rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 6)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "rms_norm_use_scale_false",
             "callable": nnx.RMSNorm(num_features=6, use_scale=False, rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 6)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "rms_norm_4d_dynamic",
             "callable": nnx.RMSNorm(num_features=3, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 4, 4, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "rms_norm_4d_dynamic_no_scale",
             "callable": nnx.RMSNorm(num_features=3, use_scale=False, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 4, 4, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )

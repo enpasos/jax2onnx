@@ -6,6 +6,8 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
+from onnx import TensorProto
+import numpy as _np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,7 +28,7 @@ jax.nn.gelu_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="gelu",
     testcases=[
@@ -68,14 +70,57 @@ class JaxGeluPlugin(PrimitiveLeafPlugin):
         # ONNX expects 'tanh' for approximate=True, 'none' otherwise
         approximation = "tanh" if approximate else "none"
 
-        gelu_node = helper.make_node(
-            "Gelu",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("gelu"),
-            approximate=approximation,
-        )
-        s.add_node(gelu_node)
+        # figure out dtype & shape
+        dtype = input_var.aval.dtype
+        shape = input_var.aval.shape
+
+        if dtype == _np.float32:
+            # native Gelu for float32
+            gelu_node = helper.make_node(
+                "Gelu",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("gelu"),
+                approximate=approximation,
+            )
+            s.add_node(gelu_node)
+            s.add_shape_info(output_name, shape, dtype)
+        else:
+            # fallback for float64: Cast→Gelu(f32)→Cast back
+            cast_in = s.get_unique_name("gelu_cast_in")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[input_name],
+                    outputs=[cast_in],
+                    name=s.get_unique_name("cast_in"),
+                    to=TensorProto.FLOAT,
+                )
+            )
+            s.add_shape_info(cast_in, shape, _np.float32)
+
+            gelu_f32 = s.get_unique_name("gelu_f32")
+            s.add_node(
+                helper.make_node(
+                    "Gelu",
+                    inputs=[cast_in],
+                    outputs=[gelu_f32],
+                    name=s.get_unique_name("gelu"),
+                    approximate=approximation,
+                )
+            )
+            s.add_shape_info(gelu_f32, shape, _np.float32)
+
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[gelu_f32],
+                    outputs=[output_name],
+                    name=s.get_unique_name("cast_out"),
+                    to=TensorProto.DOUBLE,
+                )
+            )
+            s.add_shape_info(output_name, shape, _np.float64)
 
     @staticmethod
     def get_monkey_patch():

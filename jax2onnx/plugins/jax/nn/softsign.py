@@ -6,6 +6,7 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 from onnx import helper
+import numpy as np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,7 +27,7 @@ jax.nn.soft_sign_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softsign.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="soft_sign",
     testcases=[
@@ -57,14 +58,55 @@ class JaxSoftsignPlugin(PrimitiveLeafPlugin):
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
+        dtype = input_var.aval.dtype
 
-        softsign_node = helper.make_node(
-            "Softsign",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("softsign"),
-        )
-        s.add_node(softsign_node)
+        if dtype == np.float32:
+            # use the native ONNX Softsign op for float32
+            node = helper.make_node(
+                "Softsign",
+                inputs=[input_name],
+                outputs=[output_name],
+                name=s.get_unique_name("softsign"),
+            )
+            s.add_node(node)
+        else:
+            # Softsign(x) = x / (1 + |x|)
+            # 1) abs_x = Abs(x)
+            abs_x = s.get_unique_name("abs_x")
+            s.add_node(
+                helper.make_node(
+                    "Abs",
+                    inputs=[input_name],
+                    outputs=[abs_x],
+                    name=s.get_unique_name("abs"),
+                )
+            )
+            s.add_shape_info(abs_x, input_var.aval.shape, dtype)
+
+            # 2) denom = Add(abs_x, 1)
+            one = np.array(1, dtype=dtype)
+            one_const = s.get_constant_name(one)
+            denom = s.get_unique_name("denom")
+            s.add_node(
+                helper.make_node(
+                    "Add",
+                    inputs=[abs_x, one_const],
+                    outputs=[denom],
+                    name=s.get_unique_name("add"),
+                )
+            )
+            s.add_shape_info(denom, input_var.aval.shape, dtype)
+
+            # 3) out = Div(x, denom)
+            s.add_node(
+                helper.make_node(
+                    "Div",
+                    inputs=[input_name, denom],
+                    outputs=[output_name],
+                    name=s.get_unique_name("div"),
+                )
+            )
+            # shape_info for output is inferred by the converter
 
     @staticmethod
     def get_monkey_patch():

@@ -26,7 +26,7 @@ jax.nn.identity_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="identity",
     testcases=[

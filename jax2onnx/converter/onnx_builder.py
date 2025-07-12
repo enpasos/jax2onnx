@@ -474,31 +474,10 @@ class OnnxBuilder:
             if isinstance(val, bool):
                 np_val = np.array(val, dtype=np.bool_)
                 # onnx_dtype = TensorProto.BOOL # Inferred by helper.make_tensor from np_val.dtype
-            elif isinstance(val, int):  # Handles Python int
-                if self.enable_double_precision:
-                    # When float64 mode is enabled, and if the original JAX literal was int64,
-                    # or generally to prefer wider types, create an INT64 ONNX constant.
-                    logger.debug(
-                        f"Builder: Converting Python int literal '{val}' to INT64 due to enable_double_precision=True."
-                    )
-                    np_val = np.array(val, dtype=np.int64)
-                else:
-                    # In float32 mode (enable_double_precision=False), default to int32 if the value fits,
-                    # otherwise use int64 (current behavior for f32 seems to be just int32).
-                    # This maintains potential compatibility with ops expecting int32 for smaller integers.
-                    if np.iinfo(np.int32).min <= val <= np.iinfo(np.int32).max:
-                        logger.debug(
-                            f"Builder: Converting Python int literal '{val}' to INT32 (fits, enable_double_precision=False)."
-                        )
-                        np_val = np.array(val, dtype=np.int32)
-                    else:
-                        logger.debug(
-                            f"Builder: Converting Python int literal '{val}' to INT64 (does not fit in INT32, enable_double_precision=False)."
-                        )
-                        np_val = np.array(
-                            val, dtype=np.int64
-                        )  # Value too large for int32
-                # dtype_enum will be correctly inferred from np_val.dtype by helper.make_tensor later
+            elif isinstance(val, int):
+                # Always emit Python integer literals as INT64 in ONNX,
+                # so that loop‐carried counters (and any other ints) match expected ONNX types.
+                np_val = np.array(val, dtype=np.int64)
             else:  # float
                 if self.enable_double_precision:
                     np_val = np.array(val, dtype=np.float64)
@@ -1205,8 +1184,12 @@ class OnnxBuilder:
             for node in func_proto.node:
                 used_inputs.update(node.input)
 
+        # Also preserve any initializer that *is* a graph output
+        output_names = {out.name for out in self.outputs}
         self.initializers = [
-            init for init in self.initializers if init.name in used_inputs
+            init
+            for init in self.initializers
+            if init.name in used_inputs or init.name in output_names
         ]
 
     def get_value_info_origins(self) -> dict[str, str]:

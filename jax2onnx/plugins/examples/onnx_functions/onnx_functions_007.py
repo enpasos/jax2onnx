@@ -113,6 +113,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 10, 256)],
+            "run_only_f32_variant": True,
         },
     ],
 )

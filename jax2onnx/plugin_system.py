@@ -60,11 +60,12 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     def get_patch_params(self):
         if not self.patch_info:
             raise ValueError("patch_info is not defined for this plugin.")
-        patch_info = self.patch_info()
-        target = patch_info["patch_targets"][0]
-        patch_func = patch_info["patch_function"]
-        attr = patch_info.get("target_attribute", "__call__")
-        return target, attr, patch_func
+        info = self.patch_info()
+        targets = info["patch_targets"]
+        patch_func = info["patch_function"]
+        attr = info.get("target_attribute", "__call__")
+        # Return a list entry per patch target
+        return [(t, attr, patch_func) for t in targets]
 
     def get_handler(self, converter: Any) -> Callable:
         return lambda converter, eqn, params: self.to_onnx(

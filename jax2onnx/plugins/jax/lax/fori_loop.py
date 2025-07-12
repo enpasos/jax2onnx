@@ -7,17 +7,26 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import config
 from jax import core, lax
 from jax.extend.core import Primitive
 from onnx import helper, TensorProto
-
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
+
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.fori_loop")
+
+# Pick 32- or 64-bit ints to match JAX's x64 mode flag:
+_USE_INT64 = bool(config.read("jax_enable_x64"))
+
+
+def _canon_int(x: int | np.integer) -> np.integer:
+    return np.int64(x) if _USE_INT64 else np.int32(x)
+
 
 # ─────────────────────────────── primitive stub ──────────────────────────────
 fori_loop_p = Primitive("lax.fori_loop")
@@ -253,7 +262,12 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         if lower != 0:
             raise NotImplementedError("fori_loop plugin supports lower==0 only")
 
+        # ── 1) Flatten PyTree and up-cast integer scalars to int64 ──────────
         leaves, treedef = jax.tree_util.tree_flatten(init_val)
+        leaves = [
+            _canon_int(leaf) if isinstance(leaf, (int, np.integer)) else leaf
+            for leaf in leaves
+        ]
 
         # ── body wrapper:   (i, *leaves)  →  *new_leaves
         def body_flat(i, *flat_state):

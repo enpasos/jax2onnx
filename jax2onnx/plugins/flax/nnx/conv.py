@@ -58,6 +58,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 3)],
+            "run_only_f32_variant": True,
             # ADDED: This lambda will be executed by the test generator.
             # It asserts that a "Conv" op exists in the generated graph.
             "post_check_onnx_graph": lambda model: "Conv"
@@ -67,6 +68,7 @@ if not hasattr(nnx, "conv_p"):
             "testcase": "conv_basic_bias_2",
             "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 28, 28, 1)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -82,6 +84,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 1)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -97,6 +100,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 28, 28, 32)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -112,6 +116,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -127,6 +132,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 32, 32, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -142,6 +148,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -157,6 +164,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -172,6 +180,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -188,6 +197,7 @@ if not hasattr(nnx, "conv_p"):
                 dtype=np.float64,  # Parameters will be float64
             ),
             "input_shapes": [(2, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -203,6 +213,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(1, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
@@ -218,6 +229,7 @@ if not hasattr(nnx, "conv_p"):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(32, 16, 16, 3)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },

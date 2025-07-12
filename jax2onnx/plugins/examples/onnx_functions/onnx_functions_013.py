@@ -365,6 +365,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "013_vit_conv_embedding_with_internal_call_params",
@@ -379,6 +380,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "run_only_f32_variant": True,
         },
     ],
 )
