@@ -111,8 +111,9 @@ save_model(model, "docs/onnx/model_with_function.onnx")
  
 ### **Current Productive Version**
 * **0.7.1** *(PyPI)*: 
-  * fixed a bug in testsystem assuring numeric equivalence with Jax
-  * New support for `...`
+  * Fixed a bug in the test system ensuring numeric equivalence with Jax.
+  * Added support for new primitives: `core.custom_jvp_generic`, `eqx.identity`, `jnp.select`, `jnp.stack`, `jnp.unstack`, `lax.select`, `nn.identiy`, `nn.celu`, `nn.elu`, `nn.gelu`, `nn.relu`, `nn.relu`, `nn.leaky_relu`, `nn.mish`, `nn.selu`, `nn.sigmoid`, `nn.soft-sign`, `nn.softmax`, `nn.softplus`, `nn.softplus`, `nn.softplus`, `nn.truncated_normal`
+ 
 
 
 ### **Past Versions**
