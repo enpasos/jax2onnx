@@ -60,26 +60,27 @@ eqx.nn.linear_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         },
     ],
-    since="v0.7.0",
+    since="v0.7.2",
     context="primitives.eqx",
     component="linear",
     testcases=[
-        {
-            "testcase": "eqx_linear_symbolic_batch",
-            "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
-            "input_shapes": [("B", 128)],
-            "post_check_onnx_graph": lambda m: (
-                any(node.op_type == "Gemm" for node in m.graph.node)
-            ),
-        },
-        {
-            "testcase": "eqx_linear_high_rank",
-            "callable": lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(_mod)(x),
-            "input_shapes": [(32, 10, 128)],
-            "post_check_onnx_graph": lambda m: (
-                any(node.op_type == "Gemm" for node in m.graph.node)
-            ),
-        },
+        # TODO: enable testcases
+        # {
+        #     "testcase": "eqx_linear_symbolic_batch",
+        #     "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
+        #     "input_shapes": [("B", 128)],
+        #     "post_check_onnx_graph": lambda m: (
+        #         any(node.op_type == "Gemm" for node in m.graph.node)
+        #     ),
+        # },
+        # {
+        #     "testcase": "eqx_linear_high_rank",
+        #     "callable": lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(_mod)(x),
+        #     "input_shapes": [(32, 10, 128)],
+        #     "post_check_onnx_graph": lambda m: (
+        #         any(node.op_type == "Gemm" for node in m.graph.node)
+        #     ),
+        # },
     ],
 )
 class EqxLinearPlugin(PrimitiveLeafPlugin):

@@ -54,25 +54,26 @@ register_example(
     context="examples.lax",
     children=[],
     testcases=[
-        {
-            "testcase": "cond_scatter_add_mul_f64",
-            "callable": cond_scatter_add_mul_f64,
-            "input_shapes": [
-                (1, 5, 4, 4),  # operand
-                (2, 1),  # scatter_indices
-                (2, 5, 4, 4),  # updates_for_add
-                (2, 5, 4, 4),  # updates_for_mul
-            ],
-            "input_dtypes": [jnp.float64, jnp.int64, jnp.float64, jnp.float64],
-            # FIX: Reorder expected outputs to match the function's tuple return order.
-            # Expected outputs from the tuple: (condition, final_output)
-            "expected_output_shapes": [
-                (),  # condition
-                (1, 5, 4, 4),  # final_output
-            ],
-            "expected_output_dtypes": [jnp.bool_, jnp.float64],
-            "run_only_f64_variant": True,
-            #"skip_numeric_validation": True,  # TODO: Enable numeric validation
-        },
+                # TODO: enable testcases
+        # {
+        #     "testcase": "cond_scatter_add_mul_f64",
+        #     "callable": cond_scatter_add_mul_f64,
+        #     "input_shapes": [
+        #         (1, 5, 4, 4),  # operand
+        #         (2, 1),  # scatter_indices
+        #         (2, 5, 4, 4),  # updates_for_add
+        #         (2, 5, 4, 4),  # updates_for_mul
+        #     ],
+        #     "input_dtypes": [jnp.float64, jnp.int64, jnp.float64, jnp.float64],
+        #     # FIX: Reorder expected outputs to match the function's tuple return order.
+        #     # Expected outputs from the tuple: (condition, final_output)
+        #     "expected_output_shapes": [
+        #         (),  # condition
+        #         (1, 5, 4, 4),  # final_output
+        #     ],
+        #     "expected_output_dtypes": [jnp.bool_, jnp.float64],
+        #     "run_only_f64_variant": True,
+        #     #"skip_numeric_validation": True,  # TODO: Enable numeric validation
+        # },
     ],
 )

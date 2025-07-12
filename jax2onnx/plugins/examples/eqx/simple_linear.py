@@ -36,7 +36,7 @@ register_example(
     component="SimpleLinearExample",
     description="A simple linear layer example using Equinox.",
     source="https://github.com/patrick-kidger/equinox",
-    since="v0.7.0",
+    since="v0.7.1",
     context="examples.eqx",
     children=["eqx.nn.Linear"],
     testcases=[
