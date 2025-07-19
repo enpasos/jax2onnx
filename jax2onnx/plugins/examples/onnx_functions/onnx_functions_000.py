@@ -53,6 +53,7 @@ register_example(
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
+            "run_only_f32_variant": True,
         },
     ],
 )

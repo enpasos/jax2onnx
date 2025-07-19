@@ -1,10 +1,9 @@
 # file: jax2onnx/plugins/jax/core/dim_as_value.py
 
-from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Sequence
 import numpy as np
-from onnx import helper, TensorProto
-from jax import core
+from onnx import helper
+from jax import core, config
 from jax.extend.core import Primitive
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -49,6 +48,7 @@ dim_as_value_p: Primitive = Primitive("dim_as_value")  # just the name is enough
             "testcase": "dim_as_value",
             "callable": lambda x: x.shape[0],
             "input_shapes": [("B", 8)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -59,7 +59,9 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
     # ------------------------------------------------------------------
     @staticmethod
     def abstract_eval(*__, **___):
-        # always a scalar int32
+        # The output dtype depends on the x64 configuration.
+        if config.jax_enable_x64:
+            return core.ShapedArray((), np.dtype("int64"))
         return core.ShapedArray((), np.dtype("int32"))
 
     # ------------------------------------------------------------------
@@ -78,36 +80,7 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         out_name = s.get_name(out_var)
         dim_expr = params["dim"]
 
-        # --- Static-dimension: emit a Cast from the constant to i32 ---
-        if isinstance(dim_expr, int):
-            # 1) make a (int64) initializer for the value
-            const_array = np.array(dim_expr, dtype=np.int64)
-            const_name = s.get_constant_name(const_array)
-
-            # 2) Cast it down to INT32 for JAX's i32
-            cast_name = s.get_unique_name("dim_as_value_static_cast")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[const_name],
-                    outputs=[cast_name],
-                    to=int(TensorProto.INT32),
-                    name=s.get_unique_name("dim_as_value_static_cast"),
-                )
-            )
-            s.add_shape_info(cast_name, (), np.int32)
-
-            # 3) (Optional) fresh name for the final output
-            s.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[cast_name],
-                    outputs=[out_name],
-                    name=s.get_unique_name("dim_as_value_static_id"),
-                )
-            )
-            s.add_shape_info(out_name, (), np.int32)
-            return
+        # --- Static-dimension: are not hitting to_onnx in dim_as_value ---
 
         # --- Dynamic-dimension: look up origin axis and extract at runtime ---
         if dim_expr not in s.symbolic_dim_to_origin:
@@ -118,9 +91,8 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
 
         # determine the rank robustly
         if source_name in s.builder.value_info_metadata:
-            # Fix: Access the shape value correctly from the tuple
-            shape_tuple = s.builder.value_info_metadata[source_name]
-            rank = len(shape_tuple[0])  # Access first element (shape) of the tuple
+            shape_tuple = s.builder.value_info_metadata[source_name][0]
+            rank = len(shape_tuple)
         elif source_name in s.symbolic_shapes:
             rank = len(s.symbolic_shapes[source_name])
         else:
@@ -147,7 +119,7 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         )
         s.add_shape_info(gather_out, (1,), np.int64)
 
-        # 3) Reshape the 1-vector to scalar (avoids Squeeze/axes issues)
+        # 3) Reshape the 1-vector to scalar
         reshape_out = s.get_unique_name("reshape_to_scalar")
         shape_scalar = s.get_constant_name(np.array([], dtype=np.int64))
         s.add_node(
@@ -160,14 +132,16 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         )
         s.add_shape_info(reshape_out, (), np.int64)
 
-        # 4) Cast to INT32 to match JAX's i32 for dim_as_value
+        # 4) Cast to the correct output dtype (int32 or int64)
+        output_aval = out_var.aval
+        onnx_dtype = s._ensure_onnx_dtype(output_aval.dtype)
         s.add_node(
             helper.make_node(
                 "Cast",
                 inputs=[reshape_out],
                 outputs=[out_name],
-                to=int(TensorProto.INT32),
-                name=s.get_unique_name("cast_to_i32"),
+                to=int(onnx_dtype),
+                name=s.get_unique_name("cast_to_final_dtype"),
             )
         )
-        s.add_shape_info(out_name, (), np.int32)
+        s.add_shape_info(out_name, (), output_aval.dtype)

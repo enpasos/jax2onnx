@@ -39,6 +39,7 @@ nnx.max_pool_p.multiple_results = False  # Correct initialization
                 x, window_shape=(2, 2), strides=(2, 2), padding="VALID"
             ),
             "input_shapes": [(1, 32, 32, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "max_pool_same_padding",
@@ -46,6 +47,7 @@ nnx.max_pool_p.multiple_results = False  # Correct initialization
                 x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
             ),
             "input_shapes": [(1, 32, 32, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )

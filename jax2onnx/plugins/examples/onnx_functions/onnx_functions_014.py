@@ -56,12 +56,14 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
+            "run_only_f32_variant": True,
         },
     ],
 )

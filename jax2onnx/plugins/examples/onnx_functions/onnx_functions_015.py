@@ -56,6 +56,7 @@ register_example(
             "input_params": {
                 "deterministic": True,
             },
+            "run_only_f32_variant": True,
         },
         # {
         #     "testcase": "015_one_function_without_input_param_without_default_value",

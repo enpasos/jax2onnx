@@ -104,6 +104,30 @@ class TakePlugin(PrimitiveLeafPlugin):
 
         arr_name = s.get_name(arr_var)
         indices_name = s.get_name(indices_var)
+
+        # ── ONNX Gather wants int64 indices ────────────────────────────────────
+        # If our JAX indices are any integer type ≠ int64, insert a Cast→INT64.
+        import numpy as _np
+        from onnx import TensorProto
+
+        if (
+            _np.issubdtype(indices_var.aval.dtype, _np.integer)
+            and indices_var.aval.dtype != _np.int64
+        ):
+            casted = s.get_unique_name(f"{indices_name}_cast_int64")
+            cast_node = helper.make_node(
+                "Cast",
+                inputs=[indices_name],
+                outputs=[casted],
+                to=TensorProto.INT64,
+                name=s.get_unique_name("Cast"),
+            )
+            s.add_node(cast_node)
+            # preserve shape info (same shape, but now int64)
+            s.add_shape_info(casted, indices_var.aval.shape, _np.int64)
+            indices_name = casted
+        # ─────────────────────────────────────────────────────────────────────
+
         output_name = s.get_name(output_var)
 
         # jnp.take with an axis corresponds directly to ONNX Gather.

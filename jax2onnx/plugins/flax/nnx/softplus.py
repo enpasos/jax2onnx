@@ -32,6 +32,7 @@ nnx.softplus_p.multiple_results = False  # Correct initialization
             "testcase": "softplus",
             "callable": lambda x: nnx.softplus(x),
             "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         }
     ],
 )

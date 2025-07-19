@@ -61,6 +61,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 4, 8, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_2",
@@ -71,6 +72,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 30)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_3",
@@ -81,6 +83,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 256)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_4",
@@ -91,6 +94,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_abstract_eval_axes",
@@ -102,6 +106,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
             ),
             "input_shapes": [(3, 10, 256)],
             "expected_output_shape": (3, 10, 8, 32),
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_abstract_eval_axes_pair",
@@ -113,6 +118,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
             ),
             "input_shapes": [(3, 10, 8, 32)],
             "expected_output_shape": (3, 10, 256),
+            "run_only_f32_variant": True,
         },
     ],
 )

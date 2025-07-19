@@ -10,7 +10,7 @@ from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.name_generator import UniqueNameGenerator
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
- 
+
 class TestConverterDoesNotPromoteIntermediates(unittest.TestCase):
     @pytest.mark.order(-1)  # run *after* the models have been produced
     def test_intermediate_not_promoted(self):

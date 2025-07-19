@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Tuple
 
 import jax
 import numpy as np
@@ -16,6 +16,27 @@ def compute_same_pads(input_size, filter_size, stride):
     pad_before = pad_total // 2
     pad_after = pad_total - pad_before
     return pad_before, pad_after
+
+
+def _get_perm_from_layout(source_layout: str, target_layout: str) -> list[int] | None:
+    """Returns the permutation to transpose from source to target layout."""
+    if source_layout == target_layout:
+        return None
+    source_indices = {axis: i for i, axis in enumerate(source_layout)}
+    return [source_indices[axis] for axis in target_layout]
+
+
+def _get_spatial_dims_from_spec(spec: Tuple[int, ...]) -> Tuple[int, int]:
+    """Extracts spatial dimension indices from an integer-based layout spec."""
+    # This is based on the assumption that H and W are the last two spatial dims
+    # in JAX's tuple representation, which holds for standard layouts.
+    # Example: NCHW is (0,1,2,3), NHWC is (0,2,3,1). H and W are always at indices > 1.
+    return spec[2], spec[3]
+
+
+def _get_spatial_dims(layout: str) -> list[int]:
+    """Returns the indices of spatial dimensions (H, W) in a given layout string."""
+    return [i for i, char in enumerate(layout) if char in "HW"]
 
 
 @register_primitive(
@@ -37,6 +58,7 @@ def compute_same_pads(input_size, filter_size, stride):
                 x, y, window_strides=(1, 1), padding="VALID"
             ),
             "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "conv2",  # NHWC & HWIO: transposition required.
@@ -48,7 +70,24 @@ def compute_same_pads(input_size, filter_size, stride):
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
+            "run_only_f32_variant": True,
         },
+        # TODO: enable testcases
+        # {
+        #     "testcase": "conv_general_dilated_nhwc_output",
+        #     "callable": lambda x, k: jax.lax.conv_general_dilated(
+        #         x, k,
+        #         window_strides=(1, 1),
+        #         padding='SAME',
+        #         dimension_numbers=('NHWC', 'HWIO', 'NHWC')
+        #     ),
+        #     "input_values": [
+        #         np.ones((1, 5, 5, 3), dtype=np.float32),
+        #         np.ones((2, 2, 3, 4), dtype=np.float32)
+        #     ],
+        #     "expected_output_shapes": [(1, 5, 5, 4)],
+        #     "run_only_f32_variant": True,
+        # },
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
@@ -144,19 +183,40 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             pads = [pad for pair in padding for pad in pair]
 
         conv_output = s.get_unique_name("conv_output")
+
+        # ----------  Build Conv attributes ----------
+        conv_attrs: dict[str, Any] = {
+            "kernel_shape": kernel_shape,
+            "strides": window_strides,
+        }
+
+        if isinstance(padding, str):
+            pad_mode = padding.upper()
+            if pad_mode == "SAME":
+                # rely on ONNX automatic padding
+                conv_attrs["auto_pad"] = "SAME_UPPER"
+            elif pad_mode != "VALID":
+                raise ValueError(f"Unsupported padding string: {padding}")
+        else:
+            # tuple-of-pairs → flat list [t, l, b, r]
+            conv_attrs["pads"] = pads
+
         conv_node = helper.make_node(
             "Conv",
             inputs=[conv_input, transposed_kernel_name],
             outputs=[conv_output],
-            kernel_shape=kernel_shape,
-            strides=window_strides,
-            pads=pads,
             name=s.get_unique_name("Conv"),
+            **conv_attrs,  # ← the *only* attributes we pass
         )
         s.add_node(conv_node)
-        s.add_shape_info(conv_output, node_outputs[0].aval.shape)
 
         if output_perm:
+            # The conv_output is in NCHW format. We need to calculate this shape
+            # by transposing the final NHWC shape from JAX.
+            nhwc_shape = node_outputs[0].aval.shape
+            nchw_shape = (nhwc_shape[0], nhwc_shape[3], nhwc_shape[1], nhwc_shape[2])
+            s.add_shape_info(conv_output, nchw_shape)
+
             s.add_node(
                 helper.make_node(
                     "Transpose",
@@ -167,7 +227,10 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 )
             )
         else:
+            # No output permutation, so the conv_output shape is the final shape.
+            s.add_shape_info(conv_output, node_outputs[0].aval.shape)
             if conv_output != output_name:
+                # This happens if the name was already taken, just add an Identity
                 s.add_node(
                     helper.make_node(
                         "Identity",

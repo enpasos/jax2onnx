@@ -1,11 +1,11 @@
 # file: jax2onnx/plugins/jax/nn/elu.py
 
 from typing import TYPE_CHECKING
-
 import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
-from onnx import helper
+from onnx import helper, TensorProto
+import numpy as np
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,7 +26,7 @@ jax.nn.elu_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Elu.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.7.1",
     context="primitives.nn",
     component="elu",
     testcases=[
@@ -44,7 +44,8 @@ jax.nn.elu_p.multiple_results = False
 )
 class JaxEluPlugin(PrimitiveLeafPlugin):
     """
-    Plugin for converting jax.nn.elu calls to the ONNX Elu operator.
+    Plugin for converting jax.nn.elu calls to the ONNX Elu operator,
+    with a float64 fallback via Cast→Elu(float32)→Cast back to float64.
     """
 
     @staticmethod
@@ -52,22 +53,65 @@ class JaxEluPlugin(PrimitiveLeafPlugin):
         return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
-
+        # unpack inputs/outputs
+        (input_var,) = node_inputs
+        (output_var,) = node_outputs
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
-
         alpha = params.get("alpha", 1.0)
 
-        elu_node = helper.make_node(
-            "Elu",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("elu"),
-            alpha=alpha,
-        )
-        s.add_node(elu_node)
+        # Grab the JAX aval for dtype/shape
+        dt = input_var.aval.dtype
+        shape = tuple(input_var.aval.shape)
+
+        # If we're in double‐precision land, do Cast→Elu→Cast
+        if np.issubdtype(dt, np.floating) and dt == np.dtype(np.float64):
+            # 1) Cast down to float32
+            cast_in = s.get_unique_name("elu_cast_in")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[input_name],
+                    outputs=[cast_in],
+                    to=TensorProto.FLOAT,
+                )
+            )
+            # register its shape/type so the builder doesn't error
+            s.add_shape_info(cast_in, shape, TensorProto.FLOAT)
+
+            # 2) The actual float32 ELU
+            elu_f32 = s.get_unique_name("elu_f32")
+            s.add_node(
+                helper.make_node(
+                    "Elu",
+                    inputs=[cast_in],
+                    outputs=[elu_f32],
+                    name=s.get_unique_name("elu"),
+                    alpha=alpha,
+                )
+            )
+            s.add_shape_info(elu_f32, shape, TensorProto.FLOAT)
+
+            # 3) Cast the result back to float64
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[elu_f32],
+                    outputs=[output_name],
+                    to=TensorProto.DOUBLE,
+                )
+            )
+        else:
+            # Standard float32 (or any non‐double‐float) ELU
+            s.add_node(
+                helper.make_node(
+                    "Elu",
+                    inputs=[input_name],
+                    outputs=[output_name],
+                    name=s.get_unique_name("elu"),
+                    alpha=alpha,
+                )
+            )
 
     @staticmethod
     def get_monkey_patch():
@@ -88,11 +132,10 @@ class JaxEluPlugin(PrimitiveLeafPlugin):
 def elu_batching_rule(batched_args, batch_dims, *, alpha):
     """
     Batching rule for jax.nn.elu.
-    Since elu is elementwise, we simply apply the primitive to the batched input.
+    Since ELU is elementwise, we simply apply the primitive to the batched input.
     """
     (x,) = batched_args
     (bdim,) = batch_dims
-
     y = jax.nn.elu_p.bind(x, alpha=alpha)
     return y, bdim
 
@@ -102,5 +145,7 @@ def elu_batching_rule(batched_args, batch_dims, *, alpha):
 # Register the abstract evaluation function
 jax.nn.elu_p.def_abstract_eval(JaxEluPlugin.abstract_eval)
 
+# Register the batching rule
+batching.primitive_batchers[jax.nn.elu_p] = elu_batching_rule
 # Register the batching rule
 batching.primitive_batchers[jax.nn.elu_p] = elu_batching_rule

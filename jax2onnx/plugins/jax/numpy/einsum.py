@@ -192,9 +192,10 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         return tuple(broadcasted_batch_shape) + tuple(output_core_shape)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
+        # Original equation and its parts
         equation = params["equation"]
-        in_specs, _ = equation.split("->")
-        in_specs = in_specs.split(",")
+        lhs, rhs = equation.split("->")
+        in_specs = lhs.split(",")
 
         ellipsis_ranks = []
         for spec, v in zip(in_specs, node_inputs):
@@ -206,16 +207,27 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 ellipsis_ranks.append(0)
 
         max_ellipsis_rank = max(ellipsis_ranks) if ellipsis_ranks else 0
+
+        # --- NEW: rewrite equation so that any spec we pad also gets '...' ---
+        new_specs = []
+        for spec, er in zip(in_specs, ellipsis_ranks):
+            if ("..." not in spec) and (er < max_ellipsis_rank):
+                # we're about to pad this operand, so give it an ellipsis
+                new_specs.append("..." + spec)
+            else:
+                new_specs.append(spec)
+        new_equation = ",".join(new_specs) + "->" + rhs
+
         input_names = []
 
         for spec, v, er in zip(in_specs, node_inputs, ellipsis_ranks):
             base_name = s.get_name(v)
             if er < max_ellipsis_rank:
                 pad = max_ellipsis_rank - er
+                # compute the statically-known padded shape
                 new_shape = (1,) * pad + v.aval.shape
-                axes_const = s.get_constant_name(
-                    np.array(list(range(pad)), dtype=np.int64)
-                )
+                # make a constant tensor [0,1,2,...] for the Unsqueeze‐axes input
+                axes_const = s.get_constant_name(np.arange(pad, dtype=np.int64))
                 padded = s.get_unique_name(base_name + "_pad")
                 s.add_node(
                     helper.make_node(
@@ -225,7 +237,12 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                         name=s.get_unique_name("unsqueeze"),
                     )
                 )
-                s.add_shape_info(padded, new_shape, v.aval.dtype)
+                # *** KEY FIX *** register both metadata & value_info so ONNX shape‐inference
+                # can see that padded has rank = max_ellipsis_rank + core_rank
+                s.builder.register_value_info_metadata(
+                    padded, shape=new_shape, dtype=v.aval.dtype
+                )
+                s.builder.add_value_info(padded, shape=new_shape, dtype=v.aval.dtype)
                 input_names.append(padded)
             else:
                 input_names.append(base_name)
@@ -233,13 +250,14 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         out_var = node_outputs[0]
         out_name = s.get_name(out_var)
 
+        # emit the Einsum with the adjusted equation
         s.add_node(
             helper.make_node(
                 "Einsum",
                 inputs=input_names,
                 outputs=[out_name],
                 name=s.get_unique_name("einsum"),
-                equation=equation,
+                equation=new_equation,
             )
         )
         inferred_shape = EinsumPlugin._checked_shape(

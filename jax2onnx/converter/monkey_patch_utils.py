@@ -25,22 +25,6 @@ def temporary_monkey_patches(
 ) -> Generator[None, None, None]:
     """
     Context manager that temporarily patches JAX functions and classes.
-
-    This function applies patches from both the primitive leaf plugins and,
-    if enabled, function primitive plugins. All patches are automatically
-    reverted when the context is exited.
-
-    Args:
-        allow_function_primitives: If True, also patch function primitives
-                                   from the ONNX function plugin registry.
-
-    Yields:
-        None: A context where the monkey patches are active.
-
-    Example:
-        with temporary_monkey_patches(allow_function_primitives=True):
-            # JAX code executed here will use the patched functions
-            result = my_jax_function(args)
     """
     with contextlib.ExitStack() as stack:
         registries: list[
@@ -48,15 +32,22 @@ def temporary_monkey_patches(
         ] = [PLUGIN_REGISTRY]
         if allow_function_primitives:
             registries.append(ONNX_FUNCTION_PLUGIN_REGISTRY)
+
         for registry in registries:
             for plugin in registry.values():
                 if not hasattr(plugin, "get_patch_params"):
                     continue
                 try:
-                    target, attr, patch_func = plugin.get_patch_params()
+                    patch_params = plugin.get_patch_params()
                 except Exception:
                     continue
-                stack.enter_context(_temporary_patch(target, attr, patch_func))
+
+                # Normalize to a list of (target, attr, patch_func) tuples
+                if isinstance(patch_params, tuple):
+                    patch_params = [patch_params]
+                for target, attr, patch_func in patch_params:
+                    stack.enter_context(_temporary_patch(target, attr, patch_func))
+
         yield
 
 

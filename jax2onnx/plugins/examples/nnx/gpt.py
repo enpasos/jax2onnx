@@ -1,18 +1,42 @@
 # file: jax2onnx/plugins/examples/nnx/gpt.py
 
-import jax
 import jax.numpy as jnp
 from flax import nnx
+import numpy as np
 
 from jax2onnx.plugin_system import onnx_function, register_example
 
 
-@onnx_function
+# TODO - GPT attention with @onnx_function
+# @onnx_function
 def attention(q, k, v, mask=None):
     """
     A thin wrapper for nnx.dot_product_attention that only exposes q, k, v and mask.
     """
     return nnx.dot_product_attention(q, k, v, mask=mask)
+
+
+register_example(
+    component="GPT_Attention",
+    description="A multi-head attention layer.",
+    source="https://github.com/karpathy/nanoGPT",
+    since="v0.7.1",
+    context="examples.gpt",
+    children=["nnx.dot_product_attention"],
+    testcases=[
+        {
+            "testcase": "gpt_attention",
+            "callable": lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
+            "input_values": [
+                np.random.randn(1, 1024, 12, 64).astype(np.float32),
+                np.random.randn(1, 1024, 12, 64).astype(np.float32),
+                np.random.randn(1, 1024, 12, 64).astype(np.float32),
+                np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
+            ],
+            "run_only_f32_variant": True,
+        }
+    ],
+)
 
 
 @onnx_function
@@ -35,7 +59,6 @@ class CausalSelfAttention(nnx.Module):
             out_features=n_embd,
             broadcast_dropout=True,
             dropout_rate=dropout,
-            # strip away all kwargs except mask and forward only mask
             attention_fn=lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
             rngs=rngs,
         )
@@ -47,7 +70,7 @@ class CausalSelfAttention(nnx.Module):
             )
         )
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         B, T, C = x.shape
         mask = self.causal_mask[:, :, :T, :T]
         # Apply MultiHeadAttention (which now does its own attn_dropout)
@@ -76,7 +99,7 @@ register_example(
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
-                dropout=0.0,  # ← new
+                dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024, 768)],
@@ -94,7 +117,7 @@ class MLP(nnx.Module):
         self.c_proj = nnx.Linear(4 * n_embd, n_embd, rngs=rngs)
         self.dropout = nnx.Dropout(dropout)
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         x = self.c_fc(x)
         x = nnx.gelu(x)
         x = self.c_proj(x)
@@ -136,19 +159,19 @@ class Block(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        super().__init__()
         self.ln_1 = nnx.LayerNorm(n_embd, rngs=rngs)
         self.attn = CausalSelfAttention(
             n_head=n_head,
             n_embd=n_embd,
             block_size=block_size,
-            dropout=dropout,  # ← pass it through
+            dropout=dropout,
             rngs=rngs,
         )
+
         self.ln_2 = nnx.LayerNorm(n_embd, rngs=rngs)
         self.mlp = MLP(n_embd, dropout, rngs=rngs)
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         # pass the top‐level `deterministic` flag into both the attention and the MLP
         x = x + self.attn(self.ln_1(x), deterministic=deterministic)
         x = x + self.mlp(self.ln_2(x), deterministic=deterministic)
@@ -191,7 +214,7 @@ class TokenEmbedding(nnx.Module):
     ):
         self.wte = nnx.Embed(vocab_size, n_embd, rngs=rngs)
 
-    def __call__(self, idx: jax.Array) -> jax.Array:
+    def __call__(self, idx: jnp.ndarray) -> jnp.ndarray:
         return self.wte(idx)
 
 
@@ -225,7 +248,7 @@ class PositionEmbedding(nnx.Module):
         self.block_size = block_size  # ① keep literal
         self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
 
-    def __call__(self) -> jax.Array:
+    def __call__(self) -> jnp.ndarray:
         # ② literal length → static shape, and reshape with explicit dim
         pos = jnp.arange(self.block_size, dtype=jnp.int32)
         pos = pos.reshape((1, self.block_size))  # shape (1, T)
@@ -278,7 +301,7 @@ class GPTTransformerStack(nnx.Module):
             for _ in range(n_layer)
         ]
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for block in self.blocks:
             x = block(x, deterministic=deterministic)
         return x
@@ -311,8 +334,27 @@ register_example(
 
 
 @onnx_function
-def broadcast_add(x: jax.Array, y: jax.Array) -> jax.Array:
+def broadcast_add(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+    # We'll never actually execute this in Python; JAX will trace it into
+    # a broadcast_in_dim + add, and then our handler (below) will catch that primitive.
     return x + y
+
+
+register_example(
+    component="broadcast_add",
+    description="Simple dynamic broadcast + add",
+    source="(your patch)",
+    since="v0.7.0",
+    context="examples.gpt",
+    testcases=[
+        {
+            "testcase": "broadcast_add_dynamic",
+            "callable": broadcast_add,
+            "input_shapes": [("B", 4, 5), (1, 4, 5)],
+            "expected_output_shape": ("B", 4, 5),
+        }
+    ],
+)
 
 
 @onnx_function
@@ -331,10 +373,11 @@ class GPTEmbeddings(nnx.Module):
         self.wpe = PositionEmbedding(block_size, n_embd, rngs=rngs)
         self.drop = nnx.Dropout(dropout)
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         pos_emb = self.wpe()
         x = self.wte(x)
-        x = self.drop(broadcast_add(x, pos_emb), deterministic=deterministic)
+        x = broadcast_add(x, pos_emb)
+        x = self.drop(x, deterministic=deterministic)
         return x
 
 
@@ -360,6 +403,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024)],
+            "input_dtypes": [jnp.int32],
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 768),
             "run_only_f32_variant": True,
@@ -381,7 +425,7 @@ class GPTHead(nnx.Module):
         self.ln_f = nnx.LayerNorm(n_embd, rngs=rngs)
         self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False, rngs=rngs)
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = self.ln_f(x)
         logits = self.lm_head(x)
         return logits
@@ -448,7 +492,7 @@ class GPT(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.embeddings(x, deterministic=deterministic)
         x = self.stack(x, deterministic=deterministic)
         x = self.head(x)
@@ -482,6 +526,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 1024)],  # input is a sequence of token indices
+            "input_dtypes": [jnp.int32],
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),  # logits for each token
             "run_only_f32_variant": True,

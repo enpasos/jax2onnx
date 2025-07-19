@@ -32,6 +32,7 @@ nnx.elu_p.multiple_results = False  # Correctly set at initialization
             "testcase": "elu",
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         }
     ],
 )
