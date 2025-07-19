@@ -62,7 +62,7 @@ register_example(
     since="v0.7.2",
     context="examples.eqx",
     children=["eqx.nn.Linear", "eqx.nn.Dropout", "jax.nn.gelu"],
-    testcases=[ 
+    testcases=[
         # -------------------------------------------------------------- #
         # training – keep dropout stochastic, so we skip numeric check   #
         # -------------------------------------------------------------- #
@@ -71,7 +71,7 @@ register_example(
             "callable": (
                 lambda x, *, model=model, _k=jax.random.PRNGKey(0): model(x, _k)
             ),
-            "input_shapes": [(30,)],          # only the data tensor is an input
+            "input_shapes": [(30,)],  # only the data tensor is an input
             "post_check_onnx_graph": lambda m: (
                 _check_dropout_training_mode(m, expected_mode=True)
             ),
@@ -83,9 +83,7 @@ register_example(
         {
             "testcase": "mlp_inference_mode",
             # key is optional when inference=True, just pass None
-            "callable": (
-                lambda x, *, model=inference_model: model(x, key=None)
-            ),
+            "callable": (lambda x, *, model=inference_model: model(x, key=None)),
             "input_shapes": [(30,)],
             "post_check_onnx_graph": lambda m: (
                 _check_dropout_training_mode(m, expected_mode=False)

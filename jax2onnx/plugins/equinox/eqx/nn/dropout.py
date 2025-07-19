@@ -81,13 +81,15 @@ eqx.nn.dropout_p.multiple_results = False
         },
         {
             "testcase": "eqx_dropout_training_mode",
-            "callable": lambda x,
-            key,
-            model=eqx.nn.Dropout(p=0.5, inference=False): model(x, key=key),
-            "input_shapes": [( 64),],
+            "callable": lambda x, key, model=eqx.nn.Dropout(
+                p=0.5, inference=False
+            ): model(x, key=key),
+            "input_shapes": [
+                (64),
+            ],
             "input_params": {
                 "key": jax.random.PRNGKey(0),
-            }, 
+            },
             "post_check_onnx_graph": lambda m: (
                 (
                     dropout_node := next(
@@ -107,17 +109,17 @@ eqx.nn.dropout_p.multiple_results = False
                 )
                 and numpy_helper.to_array(training_mode_init)
             ),
-            "skip_numeric_validation": True
+            "skip_numeric_validation": True,
         },
         {
             "testcase": "eqx_dropout_dynamic_inference",
-            "callable": lambda x, inference, key=None, model=eqx.nn.Dropout(p=0.5): model(
-                x, key=key, inference=inference
-            ),
+            "callable": lambda x, inference, key=None, model=eqx.nn.Dropout(
+                p=0.5
+            ): model(x, key=key, inference=inference),
             "input_shapes": [(64,)],
             "input_params": {
                 "inference": np.array(True, dtype=bool),
-            }, 
+            },
             "post_check_onnx_graph": lambda m: (
                 (
                     not_node := next(
@@ -145,19 +147,21 @@ eqx.nn.dropout_p.multiple_results = False
                 and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
             ),
         },
-        { 
+        {
             "testcase": "eqx_dropout_batched_inference",
             # Create one Dropout module where inference is fixed to True, then vmap it.
             "callable": (
-                lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(_mod)(xs)
+                lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(_mod)(
+                    xs
+                )
             ),
             # Symbolic batch dimension "B"
             "input_shapes": [("B", 64)],
             # Inference mode → training_mode == False must appear as a constant in ONNX
-            "post_check_onnx_graph": lambda m: ( 
-                (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None))
+            "post_check_onnx_graph": lambda m: (
+                any(n.op_type == "Dropout" for n in m.graph.node)
             ),
-         },
+        },
     ],
 )
 class EqxDropoutPlugin(PrimitiveLeafPlugin):

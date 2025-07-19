@@ -179,4 +179,4 @@ def _eqx_layernorm_batching_rule(batched_args, batch_dims, *, epsilon):
 
 
 # Register the batching rule for our primitive
-batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule 
+batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule

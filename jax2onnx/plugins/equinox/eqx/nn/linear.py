@@ -63,7 +63,7 @@ eqx.nn.linear_p.multiple_results = False
     since="v0.7.2",
     context="primitives.eqx",
     component="linear",
-    testcases=[ 
+    testcases=[
         {
             "testcase": "eqx_linear_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
@@ -188,7 +188,7 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         in_features = w_var.aval.shape[1]
         out_features = w_var.aval.shape[0]
         batch_dims = x_shape[:-1]
-        need_reshape = len(x_shape) != 2          # rank‑1  OR  rank > 2
+        need_reshape = len(x_shape) != 2  # rank‑1  OR  rank > 2
 
         # -- Step 1: bring input to 2‑D --------------------------------------
         if need_reshape:
