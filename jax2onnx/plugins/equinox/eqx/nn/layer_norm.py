@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Callable, Any
 
 import equinox as eqx
 import jax.numpy as jnp
+import jax
 from jax import core
 from jax.extend.core import Primitive
 from jax.interpreters import batching
@@ -30,27 +31,26 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
     context="primitives.eqx",
     component="layer_norm",
     testcases=[
-        # TODO: enable testcases
-        # {
-        #     "testcase": "layer_norm",
-        #     "callable": eqx.nn.LayerNorm(32, eps=1e-5),
-        #     "input_shapes": [(32)],
-        # },
-        # {
-        #     "testcase": "layer_norm_multiaxis",
-        #     "callable": eqx.nn.LayerNorm((20, 32)),
-        #     "input_shapes": [(20, 32)],
-        # },
-        # {
-        #     "testcase": "batched_layer_norm",
-        #     "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
-        #     "input_shapes": [("B", 32)],
-        # },
-        # {
-        #     "testcase": "layer_norm_no_bias_no_scale",
-        #     "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
-        #     "input_shapes": [(32)],
-        # },
+        {
+            "testcase": "layer_norm",
+            "callable": eqx.nn.LayerNorm(32, eps=1e-5),
+            "input_shapes": [(32,)],
+        },
+        {
+            "testcase": "layer_norm_multiaxis",
+            "callable": eqx.nn.LayerNorm((20, 32)),
+            "input_shapes": [(20, 32)],
+        },
+        {
+            "testcase": "batched_layer_norm",
+            "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
+            "input_shapes": [("B", 32)],
+        },
+        {
+            "testcase": "layer_norm_no_bias_no_scale",
+            "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
+            "input_shapes": [(32,)],
+        },
     ],
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):
@@ -179,4 +179,4 @@ def _eqx_layernorm_batching_rule(batched_args, batch_dims, *, epsilon):
 
 
 # Register the batching rule for our primitive
-batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule
+batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule 
