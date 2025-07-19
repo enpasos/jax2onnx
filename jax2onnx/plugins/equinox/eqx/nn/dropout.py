@@ -145,11 +145,7 @@ eqx.nn.dropout_p.multiple_results = False
                 and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
             ),
         },
-        {
-            # ──────────────────────────────────────────────────────────────
-            # Batched (symbolic‑dim) inference pass‑through:
-            #   y = x    because inference=True  → no randomness, no key needed
-            # ──────────────────────────────────────────────────────────────
+        { 
             "testcase": "eqx_dropout_batched_inference",
             # Create one Dropout module where inference is fixed to True, then vmap it.
             "callable": (
