@@ -62,28 +62,44 @@ register_example(
     since="v0.7.2",
     context="examples.eqx",
     children=["eqx.nn.Linear", "eqx.nn.Dropout", "jax.nn.gelu"],
-    testcases=[
-        # TODO: enable testcases
-        # {
-        #     "testcase": "mlp_training_mode",
-        #     "callable": lambda x, key, model=model: model(x, key),
-        #     "input_shapes": [(30,), ()],
-        #     "post_check_onnx_graph": lambda m: (
-        #         _check_dropout_training_mode(m, expected_mode=True)
-        #     ),
-        # },
-        # {
-        #     "testcase": "mlp_inference_mode",
-        #     "callable": lambda x, key, model=inference_model: model(x, key),
-        #     "input_shapes": [(30,), ()],
-        #     "post_check_onnx_graph": lambda m: (
-        #         _check_dropout_training_mode(m, expected_mode=False)
-        #     ),
-        # },
-        # {
-        #     "testcase": "mlp_batched_training_mode",
-        #     "callable": lambda x, key, model=batched_model: model(x, key),
-        #     "input_shapes": [("B", 30), ()],
-        # },
+    testcases=[ 
+        # -------------------------------------------------------------- #
+        # training – keep dropout stochastic, so we skip numeric check   #
+        # -------------------------------------------------------------- #
+        {
+            "testcase": "mlp_training_mode",
+            "callable": (
+                lambda x, *, model=model, _k=jax.random.PRNGKey(0): model(x, _k)
+            ),
+            "input_shapes": [(30,)],          # only the data tensor is an input
+            "post_check_onnx_graph": lambda m: (
+                _check_dropout_training_mode(m, expected_mode=True)
+            ),
+            # stochastic → numeric equality is meaningless
+            "skip_numeric_validation": True,
+        },
+        # inference – dropout disabled, numeric check OK
+        # -------------------------------------------------------------- #
+        {
+            "testcase": "mlp_inference_mode",
+            # key is optional when inference=True, just pass None
+            "callable": (
+                lambda x, *, model=inference_model: model(x, key=None)
+            ),
+            "input_shapes": [(30,)],
+            "post_check_onnx_graph": lambda m: (
+                _check_dropout_training_mode(m, expected_mode=False)
+            ),
+        },
+        # batched training – same idea as single‑example training
+        # -------------------------------------------------------------- #
+        {
+            "testcase": "mlp_batched_training_mode",
+            "callable": (
+                lambda x, *, model=batched_model, _k=jax.random.PRNGKey(0): model(x, _k)
+            ),
+            "input_shapes": [("B", 30)],
+            "skip_numeric_validation": True,
+        },
     ],
 )
