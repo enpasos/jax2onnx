@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax2onnx.plugin_system import register_example
 
@@ -54,26 +55,45 @@ register_example(
     context="examples.lax",
     children=[],
     testcases=[
-        # TODO: enable testcases
-        # {
-        #     "testcase": "cond_scatter_add_mul_f64",
-        #     "callable": cond_scatter_add_mul_f64,
-        #     "input_shapes": [
-        #         (1, 5, 4, 4),  # operand
-        #         (2, 1),  # scatter_indices
-        #         (2, 5, 4, 4),  # updates_for_add
-        #         (2, 5, 4, 4),  # updates_for_mul
-        #     ],
-        #     "input_dtypes": [jnp.float64, jnp.int64, jnp.float64, jnp.float64],
-        #     # FIX: Reorder expected outputs to match the function's tuple return order.
-        #     # Expected outputs from the tuple: (condition, final_output)
-        #     "expected_output_shapes": [
-        #         (),  # condition
-        #         (1, 5, 4, 4),  # final_output
-        #     ],
-        #     "expected_output_dtypes": [jnp.bool_, jnp.float64],
-        #     "run_only_f64_variant": True,
-        #     #"skip_numeric_validation": True,  # TODO: Enable numeric validation
-        # },
+        {
+            "testcase": "cond_scatter_add_mul_f64_a",
+            "callable": cond_scatter_add_mul_f64,
+            "input_values": [
+                # operand: shape (1, 5, 4, 4)
+                np.ones((1, 5, 4, 4), dtype=np.float64),
+                # scatter_indices: shape (2, 1) -> must contain only valid indices (i.e., 0)
+                np.array([[0], [0]], dtype=np.int64),
+                # updates_add: shape (2, 5, 4, 4)
+                np.full((2, 5, 4, 4), 2.0, dtype=np.float64),
+                # updates_mul: shape (2, 5, 4, 4)
+                np.full((2, 5, 4, 4), 3.0, dtype=np.float64),
+            ],
+            "expected_output_shapes": [
+                (),  # condition
+                (1, 5, 4, 4),  # final_output
+            ],
+            "expected_output_dtypes": [jnp.bool_, jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "cond_scatter_add_mul_f64_b",
+            "callable": cond_scatter_add_mul_f64,
+            "input_values": [
+                # operand: shape (4, 5, 4, 4) to allow for more indices
+                np.ones((4, 5, 4, 4), dtype=np.float64),
+                # scatter_indices: shape (2, 1) -> using indices 1 and 3
+                np.array([[1], [3]], dtype=np.int64),
+                # updates_add: shape (2, 5, 4, 4) with a different value
+                np.full((2, 5, 4, 4), 5.0, dtype=np.float64),
+                # updates_mul: shape (2, 5, 4, 4) with a different value
+                np.full((2, 5, 4, 4), 7.0, dtype=np.float64),
+            ],
+            "expected_output_shapes": [
+                (),  # condition
+                (4, 5, 4, 4),  # final_output
+            ],
+            "expected_output_dtypes": [jnp.bool_, jnp.float64],
+            "run_only_f64_variant": True,
+        },
     ],
 )
