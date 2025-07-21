@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/while_loop.py
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +22,48 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
 
+def _repro_nnx_scalar_and_captured_tensor_bug(tensor_4d, scalar_val):
+    """
+    This function reproduces the NNX CNN failure.
+
+    The key is that the while_loop's body function (`body_fun`) closes over
+    `tensor_4d` (it's used inside the function but is not part of the loop's
+    carried state `s`). The loop only carries the scalar `s`.
+
+    The bug occurs because the converter mishandles the captured `tensor_4d`,
+    incorrectly adding it to the Loop's scan outputs, which causes a
+    graph validation and inference error.
+    """
+    def body_fun(s):
+        # The body uses the captured 4D tensor but only modifies the scalar.
+        # This combination triggers the bug.
+        return s + jnp.mean(tensor_4d).astype(jnp.int32)
+
+    def cond_fun(s):
+        return s < 5
+
+    # The loop carries the scalar `scalar_val` (s) and closes over `tensor_4d`.
+    return lax.while_loop(cond_fun, body_fun, scalar_val)
+
+def _repro_cnn_bug_fn(image, counter):
+    """
+    This function reproduces the failure seen in the NNX CNN test.
+
+    It carries a 4D tensor (like a feature map) and a scalar counter through
+    the loop. The bug occurs when the plugin incorrectly defines the shape of
+    the scalar input for the loop's body graph.
+    """
+    def cond_fun(state):
+        _, i = state
+        return i < 5
+
+    def body_fun(state):
+        img, i = state
+        # Simulate a simple convolution-like operation
+        new_img = img * 0.9 + 0.1
+        return new_img, i + 1
+
+    return lax.while_loop(cond_fun, body_fun, (image, counter))
 
 def _while_loop_multi_state_fn(x):
     """Test helper: a two‐state while_loop."""
@@ -124,7 +168,24 @@ def while_loop_with_scalar_state(x, i):
     )
 
 
-# Add these helper functions with the others at the top of the file
+def while_loop_mixed_rank_4d_and_scalar(tensor, scalar_counter):
+    """
+    A while loop that carries both a 4D tensor and a scalar counter.
+    This structure mimics the scenario causing the failure in test_nnx.py.
+    """
+    def cond_fun(state):
+        _, counter = state
+        return counter < 5
+
+    def body_fun(state):
+        t, counter = state
+        # Some simple operation on the tensor
+        new_t = t * 1.1
+        return new_t, counter + 1
+
+    return lax.while_loop(cond_fun, body_fun, (tensor, scalar_counter))
+
+
 def loop_with_renamed_passthrough_state_body(state):
     tensor_val, counter_val = state
     return tensor_val, counter_val + 1
@@ -252,17 +313,6 @@ lax.while_loop_p.multiple_results = True
             ),
         },
         {
-            "testcase": "while_loop_with_scalar_state_issue",
-            "callable": while_loop_with_scalar_state,
-            "input_values": [
-                np.array([1.0, 2.0], dtype=np.float32),
-                np.array(0, dtype=np.int32), # Scalar input causes the failure
-            ],
-            "expected_output_dtypes": [np.float32, np.int32],
-            "expected_output_shapes": [(2,), ()],
-            "run_only_f32_variant": True,
-        },
-        {
             "testcase": "while_loop_with_scalar_state",
             "callable": while_loop_with_scalar_state,
             "input_values": [
@@ -328,15 +378,39 @@ lax.while_loop_p.multiple_results = True
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
+        }, 
+        {
+            "testcase": "while_loop_4d_and_scalar_state",
+            "callable": while_loop_mixed_rank_4d_and_scalar,
+            "input_values": [
+                np.random.randn(1, 16, 28, 28).astype(np.float32), # 4D Tensor
+                np.array(0, dtype=np.int32),                      # Scalar
+            ],
+            "expected_output_shapes": [(1, 16, 28, 28), ()],
+            "expected_output_dtypes": [np.float32, np.int32],
         },
-        # TODO: uncomment when the closure test is fixed
+        {
+            "testcase": "while_loop_cnn_scalar_state_bug",
+            "callable": _repro_cnn_bug_fn,
+            "input_values": [
+                # A 4D tensor, just like an image batch in a CNN
+                np.ones((1, 3, 28, 28), dtype=np.float32),
+                # The scalar integer that triggers the rank mismatch
+                np.int32(0),
+            ],
+            "expected_output_shapes": [(1, 3, 28, 28), ()],
+            "expected_output_dtypes": [np.float32, np.int32],
+        },
+        # TODO
         # {
-        #     "testcase": "while_loop_with_closure2",
-        #     "callable": _while_loop_closure_fn,
-        #     "input_shapes": [("B",)],  # symbolic batch dim
-        #     "post_check_onnx_graph": lambda m: (
-        #         __import__("onnx").checker.check_model(m) or True
-        #     ),
+        #     "testcase": "while_loop_nnx_repro",
+        #     "callable": _repro_nnx_scalar_and_captured_tensor_bug,
+        #     "input_values": [
+        #         np.ones((2, 3, 28, 28), dtype=np.float32),
+        #         np.array(0, dtype=np.int32),
+        #     ],
+        #     "expected_output_shapes": [()],
+        #     "expected_output_dtypes": [np.int32],
         # },
     ],
 )
@@ -560,7 +634,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 s.add_shape_info(nm, *meta)
 
         # -----------------------------------------------------------
-        # ➊  invariants / captured tracers must be passed through exactly once
+        # ➊   invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
         tracer_passthrough_map: dict[str, str] = {}
         for tracer_name in extra_body_inputs:
@@ -593,9 +667,11 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # preserving each state's original JAX dtype.
         body_builder.outputs.clear()
         body_builder.add_output(cond_out, (), np.bool_)
-        # Loop-carried outputs: promote counters to INT64
+        
+        body_out_names = []
         for i, outp in enumerate(b_jaxpr.outvars):
             nm = body_conv.get_name(outp)
+            body_out_names.append(nm)
             shp = outp.aval.shape
             dt = np.int64 if i in promoted_idxs else outp.aval.dtype
             body_builder.add_output(nm, shp, dt)
@@ -621,6 +697,17 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
+
+        # If we promoted any int32 state to int64, we must also promote any
+        # in-body `Cast` operations that target these state variables.
+        if need_int64_consts:
+            promoted_output_names = {body_out_names[i] for i in promoted_idxs}
+            for node in body_graph.node:
+                if node.op_type == "Cast" and node.output[0] in promoted_output_names:
+                    for attr in node.attribute:
+                        if attr.name == "to" and attr.i == TensorProto.INT32:
+                            attr.i = TensorProto.INT64
+
 
         # 2) build the initial condition check directly in the main graph
         temp_var_map = {}
