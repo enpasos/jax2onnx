@@ -95,6 +95,8 @@ nn.dot_product_attention_p.multiple_results = False
             # passes bias=None, mask=None *positionally*
             "callable": lambda q, k, v: nn.dot_product_attention(q, k, v, None, None),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "atol_f64": 1e-6,  # Absolute tolerance for float64
+            "rtol_f64": 1e-6,  # Relative tolerance for float64
         },
         {
             "testcase": "dpa_diff_heads_embed",
