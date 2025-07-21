@@ -1,5 +1,3 @@
-# jax2onnx/plugins/jax/lax/while_loop.py
-
 from __future__ import annotations
 
 import logging
@@ -10,6 +8,9 @@ import numpy as np
 from jax import core, lax
 from jax.extend.core import Primitive, Literal
 from onnx import TensorProto, helper
+
+# Corrected JAX NumPy import
+import jax.numpy as jnp
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -282,26 +283,20 @@ lax.while_loop_p.multiple_results = True
                 __import__("onnx").checker.check_model(m) or True
             ),
         },
-        # {
-        #     "testcase": "while_loop_closure_has_y_input",
-        #     "callable": (
-        #         lambda x: lax.while_loop(lambda s: s < 3, lambda s: s + (x * 2.0), x)
-        #     ),
-        #     "input_shapes": [()],
-        #     "input_dtypes": [np.float32],
-        #     "run_only_f32_variant": True,
-        #     "post_check_onnx_graph": (
-        #         lambda model: [
-        #             body
-        #             for n in model.graph.node
-        #             if n.op_type == "Loop"
-        #             for attr in n.attribute
-        #             if attr.name == "body"
-        #             for body in [attr.g]
-        #         ][0].input.__len__()
-        #         >= 4
-        #     ),
-        # },
+        {
+            "testcase": "while_loop_mixed_rank",
+            "callable": lambda: jax.lax.while_loop(
+                lambda val: val[2] < 5,
+                lambda val: (val[0] + 1.0, val[1] * 1.1, val[2] + 1),
+                (
+                    jnp.ones((1, 2, 3, 4)),
+                    jnp.ones((1, 2, 3, 4)) * 2.0,
+                    jnp.array(0, dtype=jnp.int32),
+                ),
+            ),
+            "input_shapes": [],
+            "run_only_f32_variant": True,
+        },
         {
             "testcase": "while_loop_tracer_passthrough",
             "callable": (
@@ -323,6 +318,7 @@ lax.while_loop_p.multiple_results = True
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
         },
+        # TODO: uncomment when the closure test is fixed
         # {
         #     "testcase": "while_loop_with_closure2",
         #     "callable": _while_loop_closure_fn,
@@ -541,13 +537,19 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 if meta is None:
                     # last-ditch: recover from the jax Var
                     var = next(
-                        jv for jv, onm in body_conv.var_to_name.items() if onm == nm
+                        (jv for jv, onm in body_conv.var_to_name.items() if onm == nm), None
                     )
-                    meta = (var.aval.shape, var.aval.dtype)
+                    if var is not None:
+                        meta = (var.aval.shape, var.aval.dtype)
+                    else:
+                        # This can happen if a tracer is passed but not used inside the loop body.
+                        # It becomes an input to the Loop but not the body subgraph. We can ignore it here.
+                        logger.warning(f"Could not find JAX var for ONNX name '{nm}' in loop body. It might be an unused passthrough.")
+                        continue
                 s.add_shape_info(nm, *meta)
 
         # -----------------------------------------------------------
-        # ➊  invariants / captured tracers must be passed through exactly once
+        # ➊  invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
         tracer_passthrough_map: dict[str, str] = {}
         for tracer_name in extra_body_inputs:
@@ -595,22 +597,12 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 )
                 body_builder.add_output(tracer_name, shape, dtype)
 
-        # (This second invariants‐passthrough block is redundant — we already
-        #  declared each captured tracer as an output in the tracer_passthrough_map
-        #  loop — so removing it will keep our body subgraph and Loop node
-        #  declarations in sync.)
-
         # Ensure every var we mapped in body_conv.var_to_name has a value_info.
-        # This is a robust way to prevent "Missing value_info" errors for any
-        # variable used within the subgraph, including from closures.
         existing_info = {inp.name for inp in body_builder.inputs} | {
             out.name for out in body_builder.outputs
         }
         for jax_var, onnx_name in body_conv.var_to_name.items():
             if onnx_name not in existing_info:
-                # Registering the value_info ensures that intermediate tensors,
-                # especially those from closures used in the cond/body jaxprs,
-                # are known to the graph builder.
                 body_builder.add_value_info(
                     onnx_name, jax_var.aval.shape, jax_var.aval.dtype
                 )
@@ -645,22 +637,12 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # 3) finally, emit the ONNX Loop node
         max_trip = s.get_constant_name(np.array(np.iinfo(np.int64).max, dtype=np.int64))
 
-        # Include exactly the captured-tracer inputs we lifted into the body Jaxpr
-        # (we already added them as subgraph inputs earlier, so just promote them
-        #  to the Loop's input list here)
         for cvar, cval in zip(b_jaxpr.constvars, b_consts):
             if isinstance(cval, core.Tracer):
                 tracer_name = body_conv.get_name(cvar)
                 if tracer_name not in extra_body_inputs:
                     extra_body_inputs.append(tracer_name)
 
-        # ──────────────────────────────────────────────────────────────
-        # Ensure every extra_body_input is *already* visible in the
-        # parent graph.  If it hasn't been declared yet, promote it to
-        # a new graph input so the Loop node can legally consume it.
-        # (This solves the "input 'var_X' hasn't been produced yet"
-        # topological-sort error without dropping the invariant.)
-        # ──────────────────────────────────────────────────────────────
         existing_top_level = {t.name for t in s.builder.inputs} | {
             t.name for t in s.builder.initializers
         }
@@ -672,11 +654,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
         loop_inputs = [max_trip, init_cond] + state_in + extra_body_inputs
 
-        # ────────────────────────────────────────────────────────────────
-        # Fix: Ensure no Loop output has the same name as an input
-        #      – otherwise we create invalid cyclic graphs like var_3 → var_3
-        #      This applies to loop-carried vars and passthrough tracers.
-        # ────────────────────────────────────────────────────────────────
         input_set = set(loop_inputs)
         used_names = set(loop_inputs)
         new_state_out = []
@@ -684,23 +661,19 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         for idx, name in enumerate(state_out):
             original_name = name
             if name in input_set:
-                # Rename output to avoid name collision
                 new_name = s.get_unique_name(f"{name}_loopout")
                 logger.info(
                     f"🛠️ Renaming Loop output '{name}' → '{new_name}' to avoid input collision"
                 )
                 name = new_name
 
-                # If this output corresponds to a known JAX var, update the mapping
                 if idx < len(node_outputs):
                     jax_var = node_outputs[idx]
                     s.var_to_name[jax_var] = name
 
-                # Propagate shape/type info under the new name
                 shape, dtype = s.builder.value_info_metadata[original_name]
                 s.add_shape_info(name, shape, dtype)
 
-            # Avoid duplicate output names
             while name in used_names:
                 name = s.get_unique_name(f"{name}_dup")
 
@@ -717,9 +690,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("while_loop"),
         )
         s.add_node(loop_node)
-        # -----------------------------------------------------
-        # ❸ Cast promoted INT64 outputs back to INT32 for the real JAX outputs
-        # -----------------------------------------------------
+
         for idx, out_name in enumerate(state_out):
             if idx in promoted_idxs and idx < len(node_outputs):
                 cast_back = s.get_unique_name(f"{out_name}_to_i32")
@@ -733,10 +704,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     )
                 )
                 s.add_shape_info(cast_back, (), np.int32)
-                # point the JAX var → this new i32 name
                 s.var_to_name[node_outputs[idx]] = cast_back
             else:
-                # either unpromoted or an invariant tracer passthrough
                 if idx < len(node_outputs):
                     shp = node_outputs[idx].aval.shape
                     dt = node_outputs[idx].aval.dtype
@@ -744,23 +713,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     shp, dt = s.builder.value_info_metadata[out_name]
                 s.add_shape_info(out_name, shp, dt)
 
-        # And for the outer Loop node's state-outputs, record the **actual**
-        # dtype that flows out of the Loop.  If we promoted a scalar counter
-        # to INT64, the Loop produces INT64 (even though the JAX view of that
-        # variable will later use the cast-back INT32 tensor).
         for idx, (nm, var) in enumerate(zip(state_out, node_outputs)):
             shp = var.aval.shape
 
             if idx in promoted_idxs:
-                # The tensor exiting the Loop is INT64 …
                 s.add_shape_info(nm, shp, np.int64)
             else:
-                # … otherwise keep the original JAX dtype.
                 s.add_shape_info(nm, shp, var.aval.dtype)
 
-        # ──────────────────────────────────────────────────────────────
-        # Validate: ensure no Loop output name is also one of its inputs
-        # ──────────────────────────────────────────────────────────────
         input_set = set(loop_inputs)
         duplicate_names = [name for name in state_out if name in input_set]
         if duplicate_names:
@@ -769,11 +729,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 "This can cause validation errors in some ONNX runtimes."
             )
 
-        # ────────────────────────────────────────────────────────────────
-        # Fix up scalar-integer comparisons in the *outer* condition:
-        # make sure both inputs to Less/Greater .. are INT64 when a loop
-        # counter has been promoted.
-        # ────────────────────────────────────────────────────────────────
         if need_int64_consts:
             for node in s.builder.nodes[-len(c_jaxpr.eqns) :]:
                 if node.op_type not in (
@@ -815,21 +770,10 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             WhileLoopPlugin._ORIG = orig_fn
 
         def patched(cond_fun, body_fun, init_val):
-            # Special handling for closures: We need to trace with the closed-over
-            # variables as arguments.
-            cond_flat, cond_tree = jax.tree_util.tree_flatten(cond_fun)
-            body_flat, body_tree = jax.tree_util.tree_flatten(body_fun)
-
-            # This logic is simplified; a robust implementation would inspect
-            # the functions' `.__closure__` attribute. For now, we assume that
-            # if they are closures, the traced values are available in the scope
-            # where `make_jaxpr` is called.
-
             closed_c = jax.make_jaxpr(cond_fun)(init_val)
             closed_b = jax.make_jaxpr(body_fun)(init_val)
 
             flat, tree = jax.tree_util.tree_flatten(init_val)
-            # Pass jaxprs as parameters to the primitive
             results = lax.while_loop_p.bind(
                 *flat, cond_jaxpr=closed_c, body_jaxpr=closed_b
             )
@@ -839,20 +783,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _while_loop_impl(*args, **kwargs):
-        # This is a placeholder for JAX's internal execution and not used
-        # during ONNX conversion.
         if WhileLoopPlugin._ORIG is None:
             raise RuntimeError("Original lax.while_loop not recorded")
 
         cond_jaxpr = kwargs["cond_jaxpr"]
         body_jaxpr = kwargs["body_jaxpr"]
-
-        # Separate the loop state from the other args (which are none)
-        flat_state = args
-
-        init_val_flat = list(flat_state)
-        init_val_tree = jax.tree_util.tree_structure(init_val_flat)  # A bit of a guess
-        jax.tree_util.tree_unflatten(init_val_tree, init_val_flat)
+        
+        init_val_flat = list(args)
+        init_val_tree = jax.tree_util.tree_structure(init_val_flat)
 
         def cond_f(v):
             fv, _ = jax.tree_util.tree_flatten(v)
@@ -863,10 +801,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             out = core.eval_jaxpr(body_jaxpr.jaxpr, body_jaxpr.consts, *fv)
             return jax.tree_util.tree_unflatten(vt, out)
 
-        # The tree for init_val is not available, which makes this tricky.
-        # This implementation path is for CPU execution of the patched primitive
-        # and less critical than the `to_onnx` path.
-        # For now, we assume a flat structure for simplicity.
         final = WhileLoopPlugin._ORIG(cond_f, body_f, init_val_flat)
         ff, _ = jax.tree_util.tree_flatten(final)
         return ff
