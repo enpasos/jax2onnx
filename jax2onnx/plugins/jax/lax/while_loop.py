@@ -252,6 +252,17 @@ lax.while_loop_p.multiple_results = True
             ),
         },
         {
+            "testcase": "while_loop_with_scalar_state_issue",
+            "callable": while_loop_with_scalar_state,
+            "input_values": [
+                np.array([1.0, 2.0], dtype=np.float32),
+                np.array(0, dtype=np.int32), # Scalar input causes the failure
+            ],
+            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_shapes": [(2,), ()],
+            "run_only_f32_variant": True,
+        },
+        {
             "testcase": "while_loop_with_scalar_state",
             "callable": while_loop_with_scalar_state,
             "input_values": [
@@ -549,7 +560,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 s.add_shape_info(nm, *meta)
 
         # -----------------------------------------------------------
-        # ➊  invariants / captured tracers must be passed through exactly once
+        # ➊  invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
         tracer_passthrough_map: dict[str, str] = {}
         for tracer_name in extra_body_inputs:
