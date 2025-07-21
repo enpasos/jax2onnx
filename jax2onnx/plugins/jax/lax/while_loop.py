@@ -1,5 +1,3 @@
-# jax2onnx/plugins/jax/lax/while_loop.py
-
 from __future__ import annotations
 
 import logging
@@ -146,10 +144,121 @@ def _const_as_int64(builder, const_name):
             to=TensorProto.INT64,
         )
     )
-    builder.add_shape_info(new_name, (), np.int64)
+    builder.add_value_info(new_name, (), np.int64)
     return new_name
 
+def _fix_mismatched_int_binops(builder: OnnxBuilder,
+                               promoted_scalars: set[str]) -> None:
+    must_match = {
+        "Add", "Sub", "Mul", "Div", "Mod", "Pow",
+        "And", "Or", "Xor",
+        "Max", "Min",
+        "Less", "LessOrEqual", "Greater", "GreaterOrEqual", "Equal",
+    }
 
+    # A stable, hardcoded map from ONNX TensorProto enums to numpy types
+    TENSOR_PROTO_TO_NP_TYPE = {
+        TensorProto.INT8: np.int8,
+        TensorProto.INT16: np.int16,
+        TensorProto.INT32: np.int32,
+        TensorProto.INT64: np.int64,
+        TensorProto.UINT8: np.uint8,
+        TensorProto.UINT16: np.uint16,
+        TensorProto.UINT32: np.uint32,
+        TensorProto.UINT64: np.uint64,
+        TensorProto.FLOAT: np.float32,
+        TensorProto.DOUBLE: np.float64,
+        TensorProto.BOOL: np.bool_,
+    }
+    NP_TYPE_TO_TENSOR_PROTO = {v: k for k, v in TENSOR_PROTO_TO_NP_TYPE.items()}
+
+    # A list to hold newly created cast nodes that need to be inserted
+    nodes_to_insert = []
+    
+    for node in builder.nodes:
+        if node.op_type not in must_match or len(node.input) < 2:
+            continue
+        
+        # --- ① Cast the *other* input to INT64 if needed ---
+        for slot in (0, 1):
+            a, b = node.input[slot], node.input[1 - slot]
+            if a in promoted_scalars:
+                # Ensure the other input `b` has metadata available
+                if b not in builder.value_info_metadata:
+                    continue
+                
+                shp_b, dt_b_raw = builder.value_info_metadata[b]
+                
+                # Normalize the dtype to a numpy type class for safe checking
+                dt_b_type = TENSOR_PROTO_TO_NP_TYPE.get(dt_b_raw) if isinstance(dt_b_raw, int) else dt_b_raw
+
+                # Now, safely check if it's a promotable integer
+                if dt_b_type and np.issubdtype(dt_b_type, np.integer) and dt_b_type != np.int64:
+                    cast_b = builder.get_unique_name(f"{b}_to_i64")
+                    cast_node = helper.make_node(
+                        "Cast",
+                        inputs=[b],
+                        outputs=[cast_b],
+                        name=builder.get_unique_name("cast_to_i64"),
+                        to=TensorProto.INT64,
+                    )
+                    # Use the correct method name: add_value_info
+                    builder.add_value_info(cast_b, shp_b, np.int64)
+                    # Schedule this new node for insertion before the current node
+                    nodes_to_insert.append((node, cast_node))
+                    node.input[1 - slot] = cast_b
+
+        # --- ② If inputs were upgraded, make the **output** INT64 as well ---
+        if any(inp in promoted_scalars for inp in node.input[:2]):
+            out = node.output[0]
+            if out not in builder.value_info_metadata:
+                continue
+
+            shp, original_dt_raw = builder.value_info_metadata[out]
+
+            # Normalize the output dtype
+            original_dt_type = TENSOR_PROTO_TO_NP_TYPE.get(original_dt_raw) if isinstance(original_dt_raw, int) else original_dt_raw
+
+            if not (original_dt_type and np.issubdtype(original_dt_type, np.integer)):
+                continue
+
+            # ▸ If *this* output is itself a promoted loop-carried scalar
+            if out in promoted_scalars:
+                if original_dt_type != np.int64:
+                    builder.add_value_info(out, shp, np.int64)  # upgrade in-place
+            # ▸ Otherwise, it's a temporary value that needs to be cast back
+            elif original_dt_type != np.int64:
+                out_i64 = builder.get_unique_name(f"{out}_i64")
+                node.output[0] = out_i64
+                builder.add_value_info(out_i64, shp, np.int64)
+
+                target_proto_type = NP_TYPE_TO_TENSOR_PROTO.get(original_dt_type)
+                if target_proto_type is None:
+                    raise TypeError(f"Cannot determine TensorProto type for cast-back to {original_dt_type}")
+
+                back_cast = helper.make_node(
+                    "Cast",
+                    inputs=[out_i64],
+                    outputs=[out],
+                    name=builder.get_unique_name("cast_back_from_i64"),
+                    to=target_proto_type,
+                )
+                # Schedule the cast-back node for insertion *after* the current node
+                nodes_to_insert.append((node, back_cast, True))
+
+    # --- Insert all the created cast nodes in the correct topological order ---
+    for target_node, new_node, *rest in nodes_to_insert:
+        insert_after = rest[0] if rest else False
+        try:
+            idx = builder.nodes.index(target_node)
+            builder.nodes.insert(idx + 1 if insert_after else idx, new_node)
+        except ValueError:
+            # This can happen if the target_node itself was replaced.
+            # In our simple case, prepending to the list is a safe fallback.
+            if not any(n.name == new_node.name for n in builder.nodes):
+                 builder.nodes.insert(0, new_node)
+
+  
 def while_loop_with_scalar_state_body_fun(val):
     x, i = val
     return x * 2, i + 1
@@ -378,7 +487,7 @@ lax.while_loop_p.multiple_results = True
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
-        }, 
+        },
         {
             "testcase": "while_loop_4d_and_scalar_state",
             "callable": while_loop_mixed_rank_4d_and_scalar,
@@ -401,17 +510,16 @@ lax.while_loop_p.multiple_results = True
             "expected_output_shapes": [(1, 3, 28, 28), ()],
             "expected_output_dtypes": [np.float32, np.int32],
         },
-        # TODO
-        # {
-        #     "testcase": "while_loop_nnx_repro",
-        #     "callable": _repro_nnx_scalar_and_captured_tensor_bug,
-        #     "input_values": [
-        #         np.ones((2, 3, 28, 28), dtype=np.float32),
-        #         np.array(0, dtype=np.int32),
-        #     ],
-        #     "expected_output_shapes": [()],
-        #     "expected_output_dtypes": [np.int32],
-        # },
+        {
+            "testcase": "while_loop_nnx_repro",
+            "callable": _repro_nnx_scalar_and_captured_tensor_bug,
+            "input_values": [
+                np.ones((2, 3, 28, 28), dtype=np.float32),
+                np.array(0, dtype=np.int32),
+            ], 
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.int32],
+        },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
@@ -633,6 +741,25 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                         continue
                 s.add_shape_info(nm, *meta)
 
+        # ──────────────────────────────────────────────────────────────────
+        #     Align dtypes *inside* the body for ops that mix promoted
+        #     INT64 scalars with smaller integer tensors
+        # ──────────────────────────────────────────────────────────────────
+        # Collect the **body-graph** tensor names that correspond to the
+        # loop-carried scalars we promoted to INT64. This includes both the
+        # inputs (`invars`) and outputs (`outvars`) of the body's jaxpr.
+        promoted_body_names: set[str] = {
+            body_conv.get_name(b_jaxpr.invars[i]) for i in promoted_idxs
+        }
+        for i in promoted_idxs:
+            # Ensure the corresponding outvars are also marked as promoted
+            if i < len(b_jaxpr.outvars):
+                promoted_body_names.add(body_conv.get_name(b_jaxpr.outvars[i]))
+
+        if promoted_body_names:
+            _fix_mismatched_int_binops(body_builder, promoted_body_names)
+
+
         # -----------------------------------------------------------
         # ➊   invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
@@ -667,11 +794,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # preserving each state's original JAX dtype.
         body_builder.outputs.clear()
         body_builder.add_output(cond_out, (), np.bool_)
-        
-        body_out_names = []
+
         for i, outp in enumerate(b_jaxpr.outvars):
             nm = body_conv.get_name(outp)
-            body_out_names.append(nm)
             shp = outp.aval.shape
             dt = np.int64 if i in promoted_idxs else outp.aval.dtype
             body_builder.add_output(nm, shp, dt)
@@ -697,17 +822,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
-
-        # If we promoted any int32 state to int64, we must also promote any
-        # in-body `Cast` operations that target these state variables.
-        if need_int64_consts:
-            promoted_output_names = {body_out_names[i] for i in promoted_idxs}
-            for node in body_graph.node:
-                if node.op_type == "Cast" and node.output[0] in promoted_output_names:
-                    for attr in node.attribute:
-                        if attr.name == "to" and attr.i == TensorProto.INT32:
-                            attr.i = TensorProto.INT64
-
 
         # 2) build the initial condition check directly in the main graph
         temp_var_map = {}
@@ -749,6 +863,23 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 shape, dtype = s.builder.value_info_metadata[nm]
                 s.builder.add_input(nm, shape, dtype)
                 existing_top_level.add(nm)
+
+ 
+        # ── Re-order top-level graph inputs so user parameters come first ───────────
+        # 1.  Build a mapping:  name → ValueInfoProto
+        name_to_vi = {vi.name: vi for vi in s.builder.inputs}
+
+        # 2.  Desired order = original function parameters  +  remaining inputs
+        ordered_names: list[str] = []
+        for n in [s.get_name(v) for v in node_inputs]:
+            if n in name_to_vi and n not in ordered_names:
+                ordered_names.append(n)
+        for n in name_to_vi:
+            if n not in ordered_names:
+                ordered_names.append(n)
+
+        # 3.  Re-write the .inputs list in-place
+        s.builder.inputs[:] = [name_to_vi[n] for n in ordered_names]
 
         loop_inputs = [max_trip, init_cond] + state_in + extra_body_inputs
 
@@ -886,7 +1017,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
         cond_jaxpr = kwargs["cond_jaxpr"]
         body_jaxpr = kwargs["body_jaxpr"]
-        
+
         init_val_flat = list(args)
         init_val_tree = jax.tree_util.tree_structure(init_val_flat)
 
