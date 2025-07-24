@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/conversion_api.py
+# jax2onnx/converter/conversion_api.py
 
 # Add Tuple, Union to imports if not already present
 from typing import (
@@ -190,7 +190,7 @@ def to_onnx(
         record_primitive_calls_file=record_primitive_calls_file,
         function_context_for_recording=getattr(
             fn, "__name__", model_name
-        ),  # carry top-level fn name or use model_name as fallback
+        ),
     )
     builder.converter = converter
 

@@ -148,7 +148,7 @@ def _const_as_int64(builder, const_name):
     return new_name
 
 def _fix_mismatched_int_binops(builder: OnnxBuilder,
-                               promoted_scalars: set[str]) -> None:
+                                   promoted_scalars: set[str]) -> None:
     must_match = {
         "Add", "Sub", "Mul", "Div", "Mod", "Pow",
         "And", "Or", "Xor",
@@ -256,9 +256,9 @@ def _fix_mismatched_int_binops(builder: OnnxBuilder,
             # This can happen if the target_node itself was replaced.
             # In our simple case, prepending to the list is a safe fallback.
             if not any(n.name == new_node.name for n in builder.nodes):
-                 builder.nodes.insert(0, new_node)
+               builder.nodes.insert(0, new_node)
 
-  
+    
 def while_loop_with_scalar_state_body_fun(val):
     x, i = val
     return x * 2, i + 1
@@ -560,6 +560,11 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 promoted_idxs.append(i)
         need_int64_consts = bool(promoted_idxs)
 
+
+        def _log_inputs(s: "Jaxpr2OnnxConverter") : 
+            logger.debug(f"Graph inputs: {[v.name for v in s.builder.inputs]}") 
+         
+
         # --------------------------------------------------
         # Helper: transparently upgrade scalar int constants
         # --------------------------------------------------
@@ -661,20 +666,26 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             body_builder.add_input(nm, shp, onnx_dt)
             body_conv.var_to_name[var] = nm
 
-        # ➀ Lift out only **literal** constvars; keep tracers for later.
-        captured_from_consts: list[tuple[core.Var, core.Tracer]] = []
+        # ➀ Unify handling of captured variables (constvars) from both body and cond.
+        # This prevents incorrectly typing a captured variable with the loop state's type.
+        captured_from_consts_map: dict[str, tuple[core.Var, Any]] = {}
+        all_const_vars = list(zip(b_jaxpr.constvars, b_consts)) + list(zip(c_jaxpr.constvars, c_consts))
 
-        for cvar, cval in zip(b_jaxpr.constvars, b_consts):
+        for cvar, cval in all_const_vars:
+            # The name in the sub-graph is what matters for de-duplication
+            nm = body_conv.get_name(cvar)
+            if nm in captured_from_consts_map:
+                continue
+
             if isinstance(cval, core.Tracer):
-                captured_from_consts.append((cvar, cval))
-                # Make the captured tracer a real input of the body graph
-                nm = body_conv.get_name(cvar)
+                captured_from_consts_map[nm] = (cvar, cval)
+                # Make the captured tracer a real input of the body graph with its correct type.
                 body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
             else:
+                # It's a literal constant, process it as before.
                 const_nm = body_conv.get_constant_name(cval)
                 if (
-                    "need_int64_consts" in locals()
-                    and need_int64_consts
+                    need_int64_consts
                     and np.issubdtype(np.asarray(cval).dtype, np.integer)
                     and np.asarray(cval).shape == ()
                     and np.asarray(cval).dtype != np.int64
@@ -682,22 +693,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     const_nm = _const_as_int64(body_builder, const_nm)
                 body_conv.var_to_name[cvar] = const_nm
 
-        for cvar, cval in zip(c_jaxpr.constvars, c_consts):
-            if isinstance(cval, core.Tracer):
-                captured_from_consts.append((cvar, cval))
-                nm = body_conv.get_name(cvar)
-                body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
-            else:
-                const_nm = body_conv.get_constant_name(cval)
-                if (
-                    "need_int64_consts" in locals()
-                    and need_int64_consts
-                    and np.issubdtype(np.asarray(cval).dtype, np.integer)
-                    and np.asarray(cval).shape == ()
-                    and np.asarray(cval).dtype != np.int64
-                ):
-                    const_nm = _const_as_int64(body_builder, const_nm)
-                body_conv.var_to_name[cvar] = const_nm
+        captured_from_consts = list(captured_from_consts_map.values())
 
         # ➁ Now do all the body‐eqns (they'll refer to those constants by name).
         for eqn in b_jaxpr.eqns:
@@ -763,20 +759,28 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # -----------------------------------------------------------
         # ➊   invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
+        tracer_outer2inner: dict[str, str] = {}   # <─ add this
+
         tracer_passthrough_map: dict[str, str] = {}
         for tracer_name in extra_body_inputs:
-            # if the tracer was already in state_in, give it a fresh name
-            if tracer_name in state_in:
-                out_name = s.get_unique_name(f"{tracer_name}_loop")
-            else:
-                out_name = tracer_name
+            # ALWAYS create a new, unique output symbol so we never
+            # re-define a graph input (ONNX forbids that).
+            out_name = s.get_unique_name(f"{tracer_name}_loop")
             tracer_passthrough_map[tracer_name] = out_name
 
-            # declare the output in the subgraph
+            # ▸ declare passthrough **and** emit an `Identity` so the value is
+            #   *produced* inside the body (required by ONNX checker)
             if out_name not in {o.name for o in body_builder.outputs}:
                 shape, dtype = s.builder.value_info_metadata[tracer_name]
                 body_builder.add_output(out_name, shape, dtype)
-
+                body_builder.add_node(
+                    helper.make_node(
+                        "Identity",
+                        inputs=[tracer_outer2inner.get(tracer_name, tracer_name)],
+                        outputs=[out_name],
+                        name=body_builder.get_unique_name("identity_passthrough"),
+                    )
+                )
             # expose to the outer graph
             state_out.append(out_name)
             s.add_shape_info(out_name, *s.builder.value_info_metadata[tracer_name])
@@ -808,6 +812,16 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     tracer_name, s.builder.value_info_metadata[tracer_name]
                 )
                 body_builder.add_output(tracer_name, shape, dtype)
+
+        # ————————— Ensure passthrough tensors still have value_info —————————
+        for tracer_name in extra_body_inputs:
+            out_name = tracer_passthrough_map[tracer_name]
+            if out_name not in body_builder.value_info_metadata:
+                shape, dtype = body_builder.value_info_metadata.get(
+                    tracer_name,
+                    s.builder.value_info_metadata[tracer_name],
+                )
+                body_builder.add_value_info(out_name, shape, dtype)
 
         # Ensure every var we mapped in body_conv.var_to_name has a value_info.
         existing_info = {inp.name for inp in body_builder.inputs} | {
@@ -858,30 +872,65 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         existing_top_level = {t.name for t in s.builder.inputs} | {
             t.name for t in s.builder.initializers
         }
+        _log_inputs(s)
+        # ── add captured‐tracer inputs to the *outer* graph ──────────────────────────
         for nm in extra_body_inputs:
-            if nm not in existing_top_level:
+            if nm in state_in:                 # already a loop‑carried input → nothing to do
+                continue
+
+            if nm not in existing_top_level:   # need to expose it somehow
                 shape, dtype = s.builder.value_info_metadata[nm]
-                s.builder.add_input(nm, shape, dtype)
+
+                # Re‑use an existing graph input with identical shape & dtype, if any
+                alias_src = next(
+                    (
+                        inp.name
+                        for inp in s.builder.inputs
+                        if s.builder.value_info_metadata.get(inp.name) == (shape, dtype)
+                    ),
+                    None,
+                )
+                if alias_src is None:
+                    # no alias possible → make it a *real* new graph input
+                    s.builder.add_input(nm, shape, dtype)
+                else:
+                    # alias via Identity so `nm` becomes a view of the same tensor
+                    s.add_node(
+                        helper.make_node(
+                            "Identity",
+                            inputs=[alias_src],
+                            outputs=[nm],
+                            name=s.get_unique_name("alias_captured_tracer"),
+                        )
+                    )
+                    s.add_shape_info(nm, shape, dtype)
+
                 existing_top_level.add(nm)
 
- 
-        # ── Re-order top-level graph inputs so user parameters come first ───────────
-        # 1.  Build a mapping:  name → ValueInfoProto
-        name_to_vi = {vi.name: vi for vi in s.builder.inputs}
 
-        # 2.  Desired order = original function parameters  +  remaining inputs
-        ordered_names: list[str] = []
-        for n in [s.get_name(v) for v in node_inputs]:
-            if n in name_to_vi and n not in ordered_names:
-                ordered_names.append(n)
-        for n in name_to_vi:
-            if n not in ordered_names:
-                ordered_names.append(n)
+            # ------------------------------------------------------------------
+            #  🔀  Keep original callable’s input order
+            #      – move every captured‑tracer input **in front of** the
+            #        loop‑carried state inputs.  We iterate in reverse so that
+            #        the left‑to‑right order of extra_body_inputs is preserved.
+            # ------------------------------------------------------------------
+            for tracer_name in reversed(extra_body_inputs):
+                for idx, vi in enumerate(s.builder.inputs):
+                    if vi.name == tracer_name:
+                        # pop() and insert() modify the list in‑place
+                        s.builder.inputs.insert(0, s.builder.inputs.pop(idx))
+                        break
 
-        # 3.  Re-write the .inputs list in-place
-        s.builder.inputs[:] = [name_to_vi[n] for n in ordered_names]
+         
 
-        loop_inputs = [max_trip, init_cond] + state_in + extra_body_inputs
+
+        _log_inputs(s)
+        # Filter scan inputs to remove any that are already part of the loop-carried state.
+        # This prevents duplicate inputs when a var is both a captured tracer and state.
+        filtered_scan_inputs = [name for name in extra_body_inputs if name not in state_in]
+        _log_inputs(s)
+        loop_inputs = [max_trip, init_cond] + state_in + filtered_scan_inputs
+        _log_inputs(s)
 
         input_set = set(loop_inputs)
         used_names = set(loop_inputs)
@@ -910,6 +959,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             new_state_out.append(name)
 
         state_out = new_state_out
+        _log_inputs(s)
 
         loop_node = helper.make_node(
             "Loop",
@@ -919,6 +969,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("while_loop"),
         )
         s.add_node(loop_node)
+        _log_inputs(s)
 
         for idx, out_name in enumerate(state_out):
             if idx in promoted_idxs and idx < len(node_outputs):
@@ -941,7 +992,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 else:
                     shp, dt = s.builder.value_info_metadata[out_name]
                 s.add_shape_info(out_name, shp, dt)
-
+        _log_inputs(s)
+        
         for idx, (nm, var) in enumerate(zip(state_out, node_outputs)):
             shp = var.aval.shape
 
@@ -950,6 +1002,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             else:
                 s.add_shape_info(nm, shp, var.aval.dtype)
 
+        _log_inputs(s)
         input_set = set(loop_inputs)
         duplicate_names = [name for name in state_out if name in input_set]
         if duplicate_names:
@@ -992,6 +1045,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
                 _promote(0, in0, dt0, dt1)
                 _promote(1, in1, dt1, dt0)
+
+        _log_inputs(s)
 
     @staticmethod
     def get_monkey_patch(orig_fn):
