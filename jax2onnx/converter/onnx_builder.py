@@ -299,12 +299,6 @@ class OnnxBuilder:
             else ONNX_DTYPE_MAP.get(dtype, TensorProto.FLOAT)
         )
 
-        if (name == 'var_0' or name == 'var_4') :
-            logger.debug(f"🔍 make_value_info for '{name}'")
-
-         
-
-
         logger.debug(
             f"🔍 make_value_info for '{name}' with shape={shape_tuple}, dtype={dtype}"
         )
@@ -355,11 +349,6 @@ class OnnxBuilder:
         logger.debug(
             f"🔍 [register_value_info_metadata] name={name}, shape={shape_tuple} (type={type(shape_tuple).__name__}), dtype={dtype}"
         )
-
-        if name in self.value_info_metadata:
-            logger.debug("🛑 overwriting %s: %s ➜ %s",
-                        name, self.value_info_metadata[name], (shape, dtype))
-
 
         # Log each dimension's type to help identify problematic dimensions
         if shape_tuple:

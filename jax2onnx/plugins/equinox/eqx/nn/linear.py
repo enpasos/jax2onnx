@@ -176,10 +176,10 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         in_features = w_var.aval.shape[1]
         out_features = w_var.aval.shape[0]
         batch_dims = x_shape[:-1]
-        need_flatten = len(x_shape) > 2
+        need_reshape = len(x_shape) != 2  # rank‑1  OR  rank > 2
 
-        # -- Step 1: flatten input if needed ---------------------------------
-        if need_flatten:
+        # -- Step 1: bring input to 2‑D --------------------------------------
+        if need_reshape:
             flat_name = s.get_unique_name("x2d")
             reshape_shape = [-1, in_features]
             shape_const = s.get_constant_name(np.array(reshape_shape, np.int64))
@@ -208,8 +208,8 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         )
         s.add_shape_info(gemm_out, (-1, out_features), dtype)
 
-        # -- Step 3: restore original shape if we flattened ------------------
-        if need_flatten:
+        # -- Step 3: restore the original shape ------------------------------
+        if need_reshape:
             target_shape = [
                 (-1 if not isinstance(d, int) else d) for d in batch_dims
             ] + [out_features]

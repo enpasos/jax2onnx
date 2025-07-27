@@ -188,9 +188,7 @@ def to_onnx(
     converter = Jaxpr2OnnxConverter(
         builder,
         record_primitive_calls_file=record_primitive_calls_file,
-        function_context_for_recording=getattr(
-            fn, "__name__", model_name
-        ),
+        function_context_for_recording=getattr(fn, "__name__", model_name),
     )
     builder.converter = converter
 
