@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/scatter_utils.py
+
 from __future__ import annotations
 
 from typing import (
@@ -417,38 +419,17 @@ def _prepare_scatter_inputs_for_onnx(
     # `processed_indices_shape_for_default_path` is `target_indices_shape_symbolic` (the (N,K) shape of final_indices_name_to_return)
     processed_indices_shape_for_default_path = target_indices_shape_symbolic
 
-    onnx_updates_N_dim_list_default = list(
-        processed_indices_shape_for_default_path[:-1]
-    )
-    onnx_indices_K_depth_val_default = (
-        processed_indices_shape_for_default_path[-1]
-        if processed_indices_shape_for_default_path
-        and len(processed_indices_shape_for_default_path) > 0
-        else 0
+    # ------------------------------------------------------------------
+    #  Expected shape for the ONNX `updates` input  – **spec‑exact**
+    # ------------------------------------------------------------------
+    current_expected_onnx_updates_shape = compute_expected_updates_shape(
+        dimension_numbers,               # ScatterDimensionNumbers
+        operand_shape_symbolic,          # operand.shape
+        processed_indices_shape_for_default_path,  # indices.shape
     )
 
-    data_slice_dims_list_default = []
-    if isinstance(onnx_indices_K_depth_val_default, int):
-        if onnx_indices_K_depth_val_default < 0:
-            raise ValueError(
-                f"Indices depth K ({onnx_indices_K_depth_val_default}) must be non-negative."
-            )
-        if onnx_indices_K_depth_val_default <= len(operand_shape_symbolic):
-            data_slice_dims_list_default.extend(
-                list(operand_shape_symbolic[onnx_indices_K_depth_val_default:])
-            )
-        elif onnx_indices_K_depth_val_default > len(operand_shape_symbolic):
-            raise ValueError(
-                f"Indices depth K ({onnx_indices_K_depth_val_default}) cannot exceed operand rank ({len(operand_shape_symbolic)})."
-            )
-    else:
-        raise ValueError(
-            f"Indices depth K ({onnx_indices_K_depth_val_default}) must be concrete for updates shape calculation."
-        )
-
-    current_expected_onnx_updates_shape = tuple(
-        onnx_updates_N_dim_list_default + data_slice_dims_list_default
-    )
+    # (No second assignment of `current_expected_onnx_updates_shape` below –
+    #  it is already correct and kept consistent throughout.)
 
     # --- New logic for batched window scatter ---
     use_depth2_for_batched_window_scatter = False
@@ -700,6 +681,170 @@ def _prepare_scatter_inputs_for_onnx(
         current_expected_onnx_updates_shape = original_updates_shape_symbolic
 
     else:
+        # ────────────────────────────────────────────────────────────────
+        #  📐  depth‑3 strategy  (|sdod| == 2, window update on H×W patch)
+        # ────────────────────────────────────────────────────────────────
+        use_depth3_for_batched_hw_scatter = (
+            len(sdod) == 2                    # we are indexing two axes
+            and not iwd and not obd           # no inserted / batching dims
+            and len(uwd) == upd_rank          # every upd‑axis is a window‑axis
+            and op_rank == upd_rank           # operand & updates ranks match
+            and _are_shapes_equal(jax_indices_shape_symbolic, (1, 2), s)
+        )
+
+        if use_depth3_for_batched_hw_scatter:
+            logger.info("Applying depth‑3 indices strategy for H×W window scatter.")
+            # Operand axes: 0:B, 1:H_total, 2:W_total, 3:C
+            B_val = _make_shape_concrete_for_prod(
+                (operand_shape_symbolic[0],), s, "d3_B"
+            )[0]
+            H_val = _make_shape_concrete_for_prod(
+                (original_updates_shape_symbolic[2],), s, "d3_H"
+            )[0]
+            W_val = _make_shape_concrete_for_prod(
+                (original_updates_shape_symbolic[3],), s, "d3_W"
+            )[0]
+
+            # ---- 1️⃣  row0 / col0 scalars ---------------------------------
+            squeeze_idx = s.get_unique_name(f"{current_indices_name}_squeezed_d3")
+            s.add_node(
+                helper.make_node(
+                    "Squeeze",
+                    [current_indices_name,
+                    s.get_constant_name(np.array([0], dtype=np.int64))],
+                    [squeeze_idx],
+                )
+            )
+            # gather(0) → row0   ;   gather(1) → col0
+            row0_name = s.get_unique_name("row0_d3")
+            col0_name = s.get_unique_name("col0_d3")
+            s.add_node(
+                helper.make_node(
+                    "Gather",
+                    [squeeze_idx,
+                    s.get_constant_name(np.array([0], dtype=np.int64))],
+                    [row0_name],
+                    axis=0,
+                )
+            )
+            s.add_node(
+                helper.make_node(
+                    "Gather",
+                    [squeeze_idx,
+                    s.get_constant_name(np.array([1], dtype=np.int64))],
+                    [col0_name],
+                    axis=0,
+                )
+            )
+            _manually_ensure_shape_env_entry(s, row0_name, (), np.int64, "Row0Scalar")
+            _manually_ensure_shape_env_entry(s, col0_name, (), np.int64, "Col0Scalar")
+
+            # ---- 2️⃣  build B×H×W grids for each coordinate ---------------
+            #
+            #   b : 0‥B‑1         shape (B,1,1)
+            #   i : 0‥H‑1         shape (1,H,1)  + row0
+            #   j : 0‥W‑1         shape (1,1,W)  + col0
+            #
+            arange_b = s.get_unique_name("arange_B_d3")
+            s.add_node(helper.make_node(
+                "Range",
+                [s.get_constant_name(np.array(0, dtype=np.int64)),
+                s.get_constant_name(np.array(B_val, dtype=np.int64)),
+                s.get_constant_name(np.array(1, dtype=np.int64))],
+                [arange_b],
+            ))
+            unsq_b = s.get_unique_name("unsq_B_d3")
+            s.add_node(helper.make_node(
+                "Unsqueeze",
+                [arange_b,
+                s.get_constant_name(np.array([1, 2], dtype=np.int64))],
+                [unsq_b],
+            ))                      # (B,1,1)
+            arange_h = s.get_unique_name("arange_H_d3")
+            s.add_node(helper.make_node(
+                "Range",
+                [s.get_constant_name(np.array(0, dtype=np.int64)),
+                s.get_constant_name(np.array(H_val, dtype=np.int64)),
+                s.get_constant_name(np.array(1, dtype=np.int64))],
+                [arange_h],
+            ))
+            add_h = s.get_unique_name("row_plus_start_d3")
+            s.add_node(helper.make_node("Add", [arange_h, row0_name], [add_h]))
+            unsq_h = s.get_unique_name("unsq_H_d3")
+            s.add_node(helper.make_node(
+                "Unsqueeze",
+                [add_h,
+                s.get_constant_name(np.array([0, 2], dtype=np.int64))],
+                [unsq_h],
+            ))                      # (1,H,1)
+            arange_w = s.get_unique_name("arange_W_d3")
+            s.add_node(helper.make_node(
+                "Range",
+                [s.get_constant_name(np.array(0, dtype=np.int64)),
+                s.get_constant_name(np.array(W_val, dtype=np.int64)),
+                s.get_constant_name(np.array(1, dtype=np.int64))],
+                [arange_w],
+            ))
+            add_w = s.get_unique_name("col_plus_start_d3")
+            s.add_node(helper.make_node("Add", [arange_w, col0_name], [add_w]))
+            unsq_w = s.get_unique_name("unsq_W_d3")
+            s.add_node(helper.make_node(
+                "Unsqueeze",
+                [add_w,
+                s.get_constant_name(np.array([0, 1], dtype=np.int64))],
+                [unsq_w],
+            ))                      # (1,1,W)
+
+            # Expand each to (B,H,W)
+            target_shape_const = s.get_constant_name(
+                np.array([B_val, H_val, W_val], dtype=np.int64)
+            )
+            b_grid = s.get_unique_name("Bgrid_d3")
+            h_grid = s.get_unique_name("Hgrid_d3")
+            w_grid = s.get_unique_name("Wgrid_d3")
+            s.add_node(helper.make_node("Expand", [unsq_b, target_shape_const], [b_grid]))
+            s.add_node(helper.make_node("Expand", [unsq_h, target_shape_const], [h_grid]))
+            s.add_node(helper.make_node("Expand", [unsq_w, target_shape_const], [w_grid]))
+
+            # ---- 3️⃣  stack  →  (B,H,W,3)  →  reshape (N,3) ---------------
+            cat3 = s.get_unique_name("indices_BHW3_d3")
+            s.add_node(helper.make_node(
+                "Concat",
+                [b_grid, h_grid, w_grid],
+                [cat3],
+                axis=3,
+            ))
+            flat_idx = s.get_unique_name("flat_indices_d3")
+            s.add_node(helper.make_node(
+                "Reshape",
+                [cat3,
+                s.get_constant_name(
+                    np.array([-1, 3], dtype=np.int64)
+                )],
+                [flat_idx],
+            ))
+            _manually_ensure_shape_env_entry(
+                s, flat_idx, (-1, 3), np.int64, "FinalDepth3Idx"
+            )
+
+            # ---- 4️⃣  reshape updates to (N,1) ----------------------------
+            flat_upd = s.get_unique_name("flat_updates_d3")
+            s.add_node(helper.make_node(
+                "Reshape",
+                [original_updates_name_val,
+                s.get_constant_name(
+                    np.array([-1, 1], dtype=np.int64)
+                )],
+                [flat_upd],
+            ))
+            _manually_ensure_shape_env_entry(
+                s, flat_upd, (-1, 1), original_updates_dtype_np, "FlatDepth3Upd"
+            )
+
+            final_indices_name_to_return = flat_idx
+            _final_updates_name_val_to_return = flat_upd
+            current_expected_onnx_updates_shape = (-1, 1)
+
         if not _are_shapes_equal(
             original_updates_shape_symbolic, current_expected_onnx_updates_shape, s
         ):
@@ -853,16 +998,38 @@ def _prepare_scatter_inputs_for_onnx(
                         _final_updates_name_val_to_return = reshaped_updates_name
                     # END of modification
                 else:  # Element count mismatch
-                    err_msg = (
-                        f"Default path: Updates element count mismatch for ScatterND. "
-                        f"Original JAX updates shape {original_updates_shape_symbolic} ({original_nelem} elements) "
-                        f"cannot be reshaped to expected ONNX ScatterND updates shape {current_expected_onnx_updates_shape} ({expected_nelem} elements). "
-                        f"Operand: {final_operand_name}{operand_shape_symbolic}, "
-                        f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
-                        f"Jax DimensionNumbers: {dimension_numbers}"
+                    # ---- add these two lines ----
+                    neutral_val_pad = _get_neutral_value(reduction, original_updates_dtype_np)
+                    neutral_updates_name_pad = s.get_constant_name(neutral_val_pad)
+                    # -----------------------------
+                    (
+                        maybe_padded_name,
+                        maybe_padded_shape,
+                    ) = _auto_pad_updates_if_smaller(
+                        s,
+                        _final_updates_name_val_to_return,
+                        original_updates_shape_symbolic,
+                        current_expected_onnx_updates_shape,
+                        neutral_updates_name_pad,   # <- now always defined
+                        original_updates_dtype_np,
+                        "DefaultUpdates",
                     )
-                    logger.error(err_msg)
-                    raise ValueError(err_msg)
+                    if maybe_padded_name != _final_updates_name_val_to_return:
+                        _final_updates_name_val_to_return = maybe_padded_name
+                        original_updates_shape_symbolic = maybe_padded_shape
+                        original_nelem = expected_nelem   # padding fixed the size
+                    else:
+                        err_msg = (
+                            f"Default path: Updates element count mismatch for ScatterND. "
+                            f"Original JAX updates shape {original_updates_shape_symbolic} "
+                            f"cannot be reshaped/padded to expected ONNX shape "
+                            f"{current_expected_onnx_updates_shape}. "
+                            f"Operand: {final_operand_name}{operand_shape_symbolic}, "
+                            f"Indices: {final_indices_name_to_return}{processed_indices_shape_for_default_path}. "
+                            f"Jax DimensionNumbers: {dimension_numbers}"
+                        )
+                        logger.error(err_msg)
+                        raise ValueError(err_msg)
             except ValueError as ve:
                 if "Updates element count mismatch" in str(
                     ve
@@ -885,6 +1052,17 @@ def _prepare_scatter_inputs_for_onnx(
                 original_updates_dtype_np,
                 "DefaultUpdates_ShapeOK",
             )
+
+    # --- Expected ONNX updates shape ------------------------------------
+    #   👇 NEW – spec‑exact calculation
+    # ------------------------------------------------------------------
+    #  Expected shape – use the spec‑exact helper
+    # ------------------------------------------------------------------
+    current_expected_onnx_updates_shape = compute_expected_updates_shape(
+        dimension_numbers,
+        operand_shape_symbolic,
+        processed_indices_shape_for_default_path,
+    )
 
     # -----------------------------------------------------------------
     #  ➤  JAX `FILL_OR_DROP` ⇒   ONNX: mask-out out-of-range rows
@@ -1027,32 +1205,6 @@ def _prepare_scatter_inputs_for_onnx(
                 # ───────────────────────────────────────────────────────────────
 
         # ------------- Step 2: neutral-element for this reduction ----------
-        def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
-            if reduction_op == "add":
-                return np.array(0, dtype=dtype)
-            elif reduction_op == "mul":
-                return np.array(1, dtype=dtype)
-            elif reduction_op == "max":
-                return np.array(
-                    (
-                        np.finfo(dtype).min
-                        if np.issubdtype(dtype, np.floating)
-                        else np.iinfo(dtype).min
-                    ),
-                    dtype=dtype,
-                )
-            elif reduction_op == "min":
-                return np.array(
-                    (
-                        np.finfo(dtype).max
-                        if np.issubdtype(dtype, np.floating)
-                        else np.iinfo(dtype).max
-                    ),
-                    dtype=dtype,
-                )
-            else:  # For 'replace' or unknown operations, use zero
-                return np.array(0, dtype=dtype)
-
         neutral_val = _get_neutral_value(reduction, original_updates_dtype_np)
         neutral_updates_name = s.get_constant_name(neutral_val)
 
@@ -1138,3 +1290,81 @@ def _prepare_scatter_inputs_for_onnx(
         final_indices_name_to_return,
         _final_updates_name_val_to_return,
     )
+
+
+def _auto_pad_updates_if_smaller(
+    s: "Jaxpr2OnnxConverter",
+    upd_name: str,
+    orig_shape: Tuple[Any, ...],
+    target_shape: Tuple[Any, ...],
+    neutral_val_const_name: str,
+    dtype_np: np.dtype,
+    context: str,
+) -> Tuple[str, Tuple[Any, ...]]:
+    """
+    If every dimension in `orig_shape` is <= its counterpart in
+    `target_shape`, create an ONNX Pad node that right‑pads to the
+    target; returns (new_name, new_shape).  Otherwise returns the
+    original tuple untouched.
+    """
+    if len(orig_shape) != len(target_shape):
+        return upd_name, orig_shape
+
+    pad_after: list[int] = []
+    can_pad = True
+    for o, t in zip(orig_shape, target_shape):
+        # Only handle concrete ints (symbolic -> bail out)
+        if not isinstance(o, (int, np.integer)) or not isinstance(t, (int, np.integer)):
+            can_pad = False
+            break
+        if o > t:
+            can_pad = False
+            break
+        pad_after.append(int(t) - int(o))
+
+    if not can_pad or all(p == 0 for p in pad_after):
+        return upd_name, orig_shape   # nothing to do
+
+    rank = len(orig_shape)
+    pads_list = [0] * rank + pad_after          # pad at the *end* of each dim
+    pads_const = s.get_constant_name(np.array(pads_list, dtype=np.int64))
+
+    padded_name = s.get_unique_name(f"{upd_name}_pad_to_target")
+    s.add_node(
+        helper.make_node(
+            "Pad",
+            [upd_name, pads_const, neutral_val_const_name],
+            [padded_name],
+            mode="constant",
+        )
+    )
+    _manually_ensure_shape_env_entry(
+        s, padded_name, target_shape, dtype_np, f"{context}_AutoPad"
+    )
+    return padded_name, target_shape
+
+
+def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
+    """
+    Return the neutral element for the given reduction and dtype.
+    """
+    if reduction_op == "add":
+        return np.array(0, dtype=dtype)
+    if reduction_op == "mul":
+        return np.array(1, dtype=dtype)
+    if reduction_op == "max":
+        return np.array(
+            np.finfo(dtype).min if np.issubdtype(dtype, np.floating)
+            else np.iinfo(dtype).min,
+            dtype=dtype,
+        )
+    if reduction_op == "min":
+        return np.array(
+            np.finfo(dtype).max if np.issubdtype(dtype, np.floating)
+            else np.iinfo(dtype).max,
+            dtype=dtype,
+        )
+    # For “replace”, “none”, or anything unknown → 0
+    return np.array(0, dtype=dtype)
+
+
