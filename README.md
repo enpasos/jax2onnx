@@ -111,11 +111,10 @@ save_model(model, "docs/onnx/model_with_function.onnx")
  
 
 ### **Current Productive Version**
-* **0.7.2** *(PyPI)*: 
-  * ....
-  * Added support for new primitives: `core.custom_jvp_generic`, 
- 
-
+* **0.7.2** *(PyPI)*:
+  * Added support for new primitives: `jnp.split`, `lax.split`, `lax.logistic`.
+  * Added examples for `nnx.GRUCell`
+  * Improved support for `lax.scatter`, and `lax.while_loop`.
 
 ### **Past Versions**
 * **0.7.1**:
@@ -220,7 +219,7 @@ If conversion doesn't work out of the box, it could be due to:
 | [lax.integer_pow](https://docs.jax.dev/en/latest/_autosummary/jax.lax.integer_pow.html) | [Pow](https://onnx.ai/onnx/operators/onnx__Pow.html) | [`integer_pow`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/integer_pow.onnx) ✅<br>[`integer_pow_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/integer_pow_f64.onnx) ✅ | v0.2.0 |
 | [lax.iota](https://docs.jax.dev/en/latest/_autosummary/jax.lax.iota.html) | [Range](https://onnx.ai/onnx/operators/onnx__Range.html) | [`iota_int32`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/iota_int32.onnx) ✅<br>[`iota_int32_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/iota_int32_f64.onnx) ✅<br>[`iota_float32`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/iota_float32.onnx) ✅<br>[`iota_float32_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/iota_float32_f64.onnx) ✅<br>[`broadcasted_iota`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/broadcasted_iota.onnx) ✅<br>[`broadcasted_iota_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/broadcasted_iota_f64.onnx) ✅ | v0.5.0 |
 | [lax.log](https://docs.jax.dev/en/latest/_autosummary/jax.lax.log.html) | [Log](https://onnx.ai/onnx/operators/onnx__Log.html) | [`log`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/log.onnx) ✅<br>[`log_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/log_f64.onnx) ✅ | v0.2.0 |
-| [lax.logistic](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.logistic.html) | [Sigmoid](https://onnx.ai/onnx/operators/onnx__Sigmoid.html) | [`lax_logistic_basic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lax_logistic_basic.onnx) ✅<br>[`lax_logistic_basic_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lax_logistic_basic_f64.onnx) ✅ | v0.7.4 |
+| [lax.logistic](https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.logistic.html) | [Sigmoid](https://onnx.ai/onnx/operators/onnx__Sigmoid.html) | [`lax_logistic_basic`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lax_logistic_basic.onnx) ✅<br>[`lax_logistic_basic_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lax_logistic_basic_f64.onnx) ✅ | v0.7.2 |
 | [lax.lt](https://docs.jax.dev/en/latest/_autosummary/jax.lax.lt.html) | [Less](https://onnx.ai/onnx/operators/onnx__Less.html) | [`lt`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lt.onnx) ✅<br>[`lt_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/lt_f64.onnx) ✅ | v0.2.0 |
 | [lax.max](https://docs.jax.dev/en/latest/_autosummary/jax.lax.max.html) | [Max](https://onnx.ai/onnx/operators/onnx__Max.html) | [`max`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/max.onnx) ✅<br>[`max_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/max_f64.onnx) ✅ | v0.2.0 |
 | [lax.min](https://docs.jax.dev/en/latest/_autosummary/jax.lax.min.html) | [Min](https://onnx.ai/onnx/operators/onnx__Min.html) | [`min_test1`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/min_test1.onnx) ✅<br>[`min_test1_f64`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/primitives/lax/min_test1_f64.onnx) ✅ | v0.1.0 |
