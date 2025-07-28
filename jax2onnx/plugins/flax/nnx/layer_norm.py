@@ -78,20 +78,19 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
             "input_shapes": [("B", 3, 3, 64)],
             "run_only_f32_variant": True,
         },
-        # TODO: enable testcases
-        # {
-        #     "testcase": "layer_norm_symbolic_batch",
-        #     # one LayerNorm, no other ops
-        #     "callable": lambda x: nnx.LayerNorm(num_features=16, rngs=nnx.Rngs(0))(x),
-        #     #     └─ dynamic batch ─┬─ sequence length ─┬─ feature dim
-        #     "input_shapes": [("B", 8, 16)],
-        #     "run_only_f32_variant": True,
-        #     # ── sanity-check the generated graph ───────────────────────────
-        #     "post_check_onnx_graph": lambda m: all(
-        #         n.op_type != "Unsqueeze" and n.op_type != "Reshape"
-        #         for n in m.graph.node
-        #     ),
-        # }
+        {
+            "testcase": "layer_norm_symbolic_batch",
+            # one LayerNorm, no other ops
+            "callable": nnx.LayerNorm(num_features=16, rngs=nnx.Rngs(0)),
+            #   └─ dynamic batch ─┬─ sequence length ─┬─ feature dim
+            "input_shapes": [("B", 8, 16)],
+            "run_only_f32_variant": True,
+            # ── sanity-check the generated graph ───────────────────────────
+            "post_check_onnx_graph": lambda m: all(
+                n.op_type != "Unsqueeze" and n.op_type != "Reshape"
+                for n in m.graph.node
+            ),
+        },
     ],
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):

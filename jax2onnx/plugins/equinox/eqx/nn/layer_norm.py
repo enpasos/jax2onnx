@@ -26,7 +26,7 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
             "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
         }
     ],
-    since="v0.7.2",
+    since="v0.7.3",
     context="primitives.eqx",
     component="layer_norm",
     testcases=[
@@ -34,7 +34,7 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
         # {
         #     "testcase": "layer_norm",
         #     "callable": eqx.nn.LayerNorm(32, eps=1e-5),
-        #     "input_shapes": [(32)],
+        #     "input_shapes": [(32,)],
         # },
         # {
         #     "testcase": "layer_norm_multiaxis",
@@ -49,7 +49,7 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
         # {
         #     "testcase": "layer_norm_no_bias_no_scale",
         #     "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
-        #     "input_shapes": [(32)],
+        #     "input_shapes": [(32,)],
         # },
     ],
 )

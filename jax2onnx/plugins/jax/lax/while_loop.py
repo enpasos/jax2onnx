@@ -1,5 +1,3 @@
-# jax2onnx/plugins/jax/lax/while_loop.py
-
 from __future__ import annotations
 
 import logging
@@ -11,6 +9,9 @@ from jax import core, lax
 from jax.extend.core import Primitive, Literal
 from onnx import TensorProto, helper
 
+# Corrected JAX NumPy import
+import jax.numpy as jnp
+
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -18,6 +19,53 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.while_loop")
+
+
+def _repro_nnx_scalar_and_captured_tensor_bug(tensor_4d, scalar_val):
+    """
+    This function reproduces the NNX CNN failure.
+
+    The key is that the while_loop's body function (`body_fun`) closes over
+    `tensor_4d` (it's used inside the function but is not part of the loop's
+    carried state `s`). The loop only carries the scalar `s`.
+
+    The bug occurs because the converter mishandles the captured `tensor_4d`,
+    incorrectly adding it to the Loop's scan outputs, which causes a
+    graph validation and inference error.
+    """
+
+    def body_fun(s):
+        # The body uses the captured 4D tensor but only modifies the scalar.
+        # This combination triggers the bug.
+        return s + jnp.mean(tensor_4d).astype(jnp.int32)
+
+    def cond_fun(s):
+        return s < 5
+
+    # The loop carries the scalar `scalar_val` (s) and closes over `tensor_4d`.
+    return lax.while_loop(cond_fun, body_fun, scalar_val)
+
+
+def _repro_cnn_bug_fn(image, counter):
+    """
+    This function reproduces the failure seen in the NNX CNN test.
+
+    It carries a 4D tensor (like a feature map) and a scalar counter through
+    the loop. The bug occurs when the plugin incorrectly defines the shape of
+    the scalar input for the loop's body graph.
+    """
+
+    def cond_fun(state):
+        _, i = state
+        return i < 5
+
+    def body_fun(state):
+        img, i = state
+        # Simulate a simple convolution-like operation
+        new_img = img * 0.9 + 0.1
+        return new_img, i + 1
+
+    return lax.while_loop(cond_fun, body_fun, (image, counter))
 
 
 def _while_loop_multi_state_fn(x):
@@ -101,8 +149,147 @@ def _const_as_int64(builder, const_name):
             to=TensorProto.INT64,
         )
     )
-    builder.add_shape_info(new_name, (), np.int64)
+    builder.add_value_info(new_name, (), np.int64)
     return new_name
+
+
+def _fix_mismatched_int_binops(
+    builder: OnnxBuilder, promoted_scalars: set[str]
+) -> None:
+    must_match = {
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Mod",
+        "Pow",
+        "And",
+        "Or",
+        "Xor",
+        "Max",
+        "Min",
+        "Less",
+        "LessOrEqual",
+        "Greater",
+        "GreaterOrEqual",
+        "Equal",
+    }
+
+    # A stable, hardcoded map from ONNX TensorProto enums to numpy types
+    TENSOR_PROTO_TO_NP_TYPE = {
+        TensorProto.INT8: np.int8,
+        TensorProto.INT16: np.int16,
+        TensorProto.INT32: np.int32,
+        TensorProto.INT64: np.int64,
+        TensorProto.UINT8: np.uint8,
+        TensorProto.UINT16: np.uint16,
+        TensorProto.UINT32: np.uint32,
+        TensorProto.UINT64: np.uint64,
+        TensorProto.FLOAT: np.float32,
+        TensorProto.DOUBLE: np.float64,
+        TensorProto.BOOL: np.bool_,
+    }
+    NP_TYPE_TO_TENSOR_PROTO = {v: k for k, v in TENSOR_PROTO_TO_NP_TYPE.items()}
+
+    # A list to hold newly created cast nodes that need to be inserted
+    # (target_node, new_node, insert_after)
+    nodes_to_insert: list[tuple[Any, Any, bool]] = []
+
+    for node in builder.nodes:
+        if node.op_type not in must_match or len(node.input) < 2:
+            continue
+
+        # --- ① Cast the *other* input to INT64 if needed ---
+        for slot in (0, 1):
+            a, b = node.input[slot], node.input[1 - slot]
+            if a in promoted_scalars:
+                # Ensure the other input `b` has metadata available
+                if b not in builder.value_info_metadata:
+                    continue
+
+                shp_b, dt_b_raw = builder.value_info_metadata[b]
+
+                # Normalize the dtype to a numpy type class for safe checking
+                dt_b_type = (
+                    TENSOR_PROTO_TO_NP_TYPE.get(dt_b_raw)
+                    if isinstance(dt_b_raw, int)
+                    else dt_b_raw
+                )
+
+                # Now, safely check if it's a promotable integer
+                if (
+                    dt_b_type
+                    and np.issubdtype(dt_b_type, np.integer)
+                    and dt_b_type != np.int64
+                ):
+                    cast_b = builder.get_unique_name(f"{b}_to_i64")
+                    cast_node = helper.make_node(
+                        "Cast",
+                        inputs=[b],
+                        outputs=[cast_b],
+                        name=builder.get_unique_name("cast_to_i64"),
+                        to=TensorProto.INT64,
+                    )
+                    # Use the correct method name: add_value_info
+                    builder.add_value_info(cast_b, shp_b, np.int64)
+                    # insert *before* current node
+                    nodes_to_insert.append((node, cast_node, False))
+                    node.input[1 - slot] = cast_b
+
+        # --- ② If inputs were upgraded, make the **output** INT64 as well ---
+        if any(inp in promoted_scalars for inp in node.input[:2]):
+            out = node.output[0]
+            if out not in builder.value_info_metadata:
+                continue
+
+            shp, original_dt_raw = builder.value_info_metadata[out]
+
+            # Normalize the output dtype
+            original_dt_type = (
+                TENSOR_PROTO_TO_NP_TYPE.get(original_dt_raw)
+                if isinstance(original_dt_raw, int)
+                else original_dt_raw
+            )
+
+            if not (original_dt_type and np.issubdtype(original_dt_type, np.integer)):
+                continue
+
+            # ▸ If *this* output is itself a promoted loop-carried scalar
+            if out in promoted_scalars:
+                if original_dt_type != np.int64:
+                    builder.add_value_info(out, shp, np.int64)  # upgrade in-place
+            # ▸ Otherwise, it's a temporary value that needs to be cast back
+            elif original_dt_type != np.int64:
+                out_i64 = builder.get_unique_name(f"{out}_i64")
+                node.output[0] = out_i64
+                builder.add_value_info(out_i64, shp, np.int64)
+
+                target_proto_type = NP_TYPE_TO_TENSOR_PROTO.get(original_dt_type)
+                if target_proto_type is None:
+                    raise TypeError(
+                        f"Cannot determine TensorProto type for cast-back to {original_dt_type}"
+                    )
+
+                back_cast = helper.make_node(
+                    "Cast",
+                    inputs=[out_i64],
+                    outputs=[out],
+                    name=builder.get_unique_name("cast_back_from_i64"),
+                    to=target_proto_type,
+                )
+                # insert *after* current node
+                nodes_to_insert.append((node, back_cast, True))
+
+    # --- Insert all the created cast nodes in the correct topological order ---
+    for target_node, new_node, insert_after in nodes_to_insert:
+        try:
+            idx = builder.nodes.index(target_node)
+            builder.nodes.insert(idx + 1 if insert_after else idx, new_node)
+        except ValueError:
+            # This can happen if the target_node itself was replaced.
+            # In our simple case, prepending to the list is a safe fallback.
+            if not any(n.name == new_node.name for n in builder.nodes):
+                builder.nodes.insert(0, new_node)
 
 
 def while_loop_with_scalar_state_body_fun(val):
@@ -123,7 +310,25 @@ def while_loop_with_scalar_state(x, i):
     )
 
 
-# Add these helper functions with the others at the top of the file
+def while_loop_mixed_rank_4d_and_scalar(tensor, scalar_counter):
+    """
+    A while loop that carries both a 4D tensor and a scalar counter.
+    This structure mimics the scenario causing the failure in test_nnx.py.
+    """
+
+    def cond_fun(state):
+        _, counter = state
+        return counter < 5
+
+    def body_fun(state):
+        t, counter = state
+        # Some simple operation on the tensor
+        new_t = t * 1.1
+        return new_t, counter + 1
+
+    return lax.while_loop(cond_fun, body_fun, (tensor, scalar_counter))
+
+
 def loop_with_renamed_passthrough_state_body(state):
     tensor_val, counter_val = state
     return tensor_val, counter_val + 1
@@ -282,26 +487,20 @@ lax.while_loop_p.multiple_results = True
                 __import__("onnx").checker.check_model(m) or True
             ),
         },
-        # {
-        #     "testcase": "while_loop_closure_has_y_input",
-        #     "callable": (
-        #         lambda x: lax.while_loop(lambda s: s < 3, lambda s: s + (x * 2.0), x)
-        #     ),
-        #     "input_shapes": [()],
-        #     "input_dtypes": [np.float32],
-        #     "run_only_f32_variant": True,
-        #     "post_check_onnx_graph": (
-        #         lambda model: [
-        #             body
-        #             for n in model.graph.node
-        #             if n.op_type == "Loop"
-        #             for attr in n.attribute
-        #             if attr.name == "body"
-        #             for body in [attr.g]
-        #         ][0].input.__len__()
-        #         >= 4
-        #     ),
-        # },
+        {
+            "testcase": "while_loop_mixed_rank",
+            "callable": lambda: jax.lax.while_loop(
+                lambda val: val[2] < 5,
+                lambda val: (val[0] + 1.0, val[1] * 1.1, val[2] + 1),
+                (
+                    jnp.ones((1, 2, 3, 4)),
+                    jnp.ones((1, 2, 3, 4)) * 2.0,
+                    jnp.array(0, dtype=jnp.int32),
+                ),
+            ),
+            "input_shapes": [],
+            "run_only_f32_variant": True,
+        },
         {
             "testcase": "while_loop_tracer_passthrough",
             "callable": (
@@ -323,14 +522,38 @@ lax.while_loop_p.multiple_results = True
             "run_only_f32_variant": True,
             "post_check_onnx_graph": no_loop_output_reused_as_input,
         },
-        # {
-        #     "testcase": "while_loop_with_closure2",
-        #     "callable": _while_loop_closure_fn,
-        #     "input_shapes": [("B",)],  # symbolic batch dim
-        #     "post_check_onnx_graph": lambda m: (
-        #         __import__("onnx").checker.check_model(m) or True
-        #     ),
-        # },
+        {
+            "testcase": "while_loop_4d_and_scalar_state",
+            "callable": while_loop_mixed_rank_4d_and_scalar,
+            "input_values": [
+                np.random.randn(1, 16, 28, 28).astype(np.float32),  # 4D Tensor
+                np.array(0, dtype=np.int32),  # Scalar
+            ],
+            "expected_output_shapes": [(1, 16, 28, 28), ()],
+            "expected_output_dtypes": [np.float32, np.int32],
+        },
+        {
+            "testcase": "while_loop_cnn_scalar_state_bug",
+            "callable": _repro_cnn_bug_fn,
+            "input_values": [
+                # A 4D tensor, just like an image batch in a CNN
+                np.ones((1, 3, 28, 28), dtype=np.float32),
+                # The scalar integer that triggers the rank mismatch
+                np.int32(0),
+            ],
+            "expected_output_shapes": [(1, 3, 28, 28), ()],
+            "expected_output_dtypes": [np.float32, np.int32],
+        },
+        {
+            "testcase": "while_loop_nnx_repro",
+            "callable": _repro_nnx_scalar_and_captured_tensor_bug,
+            "input_values": [
+                np.ones((2, 3, 28, 28), dtype=np.float32),
+                np.array(0, dtype=np.int32),
+            ],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.int32],
+        },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
@@ -370,6 +593,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             if _is_int_scalar(vin):
                 promoted_idxs.append(i)
         need_int64_consts = bool(promoted_idxs)
+
+        def _log_inputs(s: "Jaxpr2OnnxConverter"):
+            logger.debug(f"Graph inputs: {[v.name for v in s.builder.inputs]}")
 
         # --------------------------------------------------
         # Helper: transparently upgrade scalar int constants
@@ -472,20 +698,28 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             body_builder.add_input(nm, shp, onnx_dt)
             body_conv.var_to_name[var] = nm
 
-        # ➀ Lift out only **literal** constvars; keep tracers for later.
-        captured_from_consts: list[tuple[core.Var, core.Tracer]] = []
+        # ➀ Unify handling of captured variables (constvars) from both body and cond.
+        # This prevents incorrectly typing a captured variable with the loop state's type.
+        captured_from_consts_map: dict[str, tuple[core.Var, Any]] = {}
+        all_const_vars = list(zip(b_jaxpr.constvars, b_consts)) + list(
+            zip(c_jaxpr.constvars, c_consts)
+        )
 
-        for cvar, cval in zip(b_jaxpr.constvars, b_consts):
+        for cvar, cval in all_const_vars:
+            # The name in the sub-graph is what matters for de-duplication
+            nm = body_conv.get_name(cvar)
+            if nm in captured_from_consts_map:
+                continue
+
             if isinstance(cval, core.Tracer):
-                captured_from_consts.append((cvar, cval))
-                # Make the captured tracer a real input of the body graph
-                nm = body_conv.get_name(cvar)
+                captured_from_consts_map[nm] = (cvar, cval)
+                # Make the captured tracer a real input of the body graph with its correct type.
                 body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
             else:
+                # It's a literal constant, process it as before.
                 const_nm = body_conv.get_constant_name(cval)
                 if (
-                    "need_int64_consts" in locals()
-                    and need_int64_consts
+                    need_int64_consts
                     and np.issubdtype(np.asarray(cval).dtype, np.integer)
                     and np.asarray(cval).shape == ()
                     and np.asarray(cval).dtype != np.int64
@@ -493,22 +727,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     const_nm = _const_as_int64(body_builder, const_nm)
                 body_conv.var_to_name[cvar] = const_nm
 
-        for cvar, cval in zip(c_jaxpr.constvars, c_consts):
-            if isinstance(cval, core.Tracer):
-                captured_from_consts.append((cvar, cval))
-                nm = body_conv.get_name(cvar)
-                body_builder.add_input(nm, cval.aval.shape, cval.aval.dtype)
-            else:
-                const_nm = body_conv.get_constant_name(cval)
-                if (
-                    "need_int64_consts" in locals()
-                    and need_int64_consts
-                    and np.issubdtype(np.asarray(cval).dtype, np.integer)
-                    and np.asarray(cval).shape == ()
-                    and np.asarray(cval).dtype != np.int64
-                ):
-                    const_nm = _const_as_int64(body_builder, const_nm)
-                body_conv.var_to_name[cvar] = const_nm
+        captured_from_consts = list(captured_from_consts_map.values())
 
         # ➁ Now do all the body‐eqns (they'll refer to those constants by name).
         for eqn in b_jaxpr.eqns:
@@ -541,28 +760,63 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 if meta is None:
                     # last-ditch: recover from the jax Var
                     var = next(
-                        jv for jv, onm in body_conv.var_to_name.items() if onm == nm
+                        (jv for jv, onm in body_conv.var_to_name.items() if onm == nm),
+                        None,
                     )
-                    meta = (var.aval.shape, var.aval.dtype)
+                    if var is not None:
+                        meta = (var.aval.shape, var.aval.dtype)
+                    else:
+                        # This can happen if a tracer is passed but not used inside the loop body.
+                        # It becomes an input to the Loop but not the body subgraph. We can ignore it here.
+                        logger.warning(
+                            f"Could not find JAX var for ONNX name '{nm}' in loop body. It might be an unused passthrough."
+                        )
+                        continue
                 s.add_shape_info(nm, *meta)
 
+        # ──────────────────────────────────────────────────────────────────
+        #     Align dtypes *inside* the body for ops that mix promoted
+        #     INT64 scalars with smaller integer tensors
+        # ──────────────────────────────────────────────────────────────────
+        # Collect the **body-graph** tensor names that correspond to the
+        # loop-carried scalars we promoted to INT64. This includes both the
+        # inputs (`invars`) and outputs (`outvars`) of the body's jaxpr.
+        promoted_body_names: set[str] = {
+            body_conv.get_name(b_jaxpr.invars[i]) for i in promoted_idxs
+        }
+        for i in promoted_idxs:
+            # Ensure the corresponding outvars are also marked as promoted
+            if i < len(b_jaxpr.outvars):
+                promoted_body_names.add(body_conv.get_name(b_jaxpr.outvars[i]))
+
+        if promoted_body_names:
+            _fix_mismatched_int_binops(body_builder, promoted_body_names)
+
         # -----------------------------------------------------------
-        # ➊  invariants / captured tracers must be passed through exactly once
+        # ➊   invariants / captured tracers must be passed through exactly once
         # -----------------------------------------------------------
+        tracer_outer2inner: dict[str, str] = {}  # <─ add this
+
         tracer_passthrough_map: dict[str, str] = {}
         for tracer_name in extra_body_inputs:
-            # if the tracer was already in state_in, give it a fresh name
-            if tracer_name in state_in:
-                out_name = s.get_unique_name(f"{tracer_name}_loop")
-            else:
-                out_name = tracer_name
+            # ALWAYS create a new, unique output symbol so we never
+            # re-define a graph input (ONNX forbids that).
+            out_name = s.get_unique_name(f"{tracer_name}_loop")
             tracer_passthrough_map[tracer_name] = out_name
 
-            # declare the output in the subgraph
+            # ▸ declare passthrough **and** emit an `Identity` so the value is
+            #   *produced* inside the body (required by ONNX checker)
             if out_name not in {o.name for o in body_builder.outputs}:
                 shape, dtype = s.builder.value_info_metadata[tracer_name]
                 body_builder.add_output(out_name, shape, dtype)
-
+                body_builder.add_node(
+                    helper.make_node(
+                        "Identity",
+                        inputs=[tracer_outer2inner.get(tracer_name, tracer_name)],
+                        outputs=[out_name],
+                        name=body_builder.get_unique_name("identity_passthrough"),
+                    )
+                )
             # expose to the outer graph
             state_out.append(out_name)
             s.add_shape_info(out_name, *s.builder.value_info_metadata[tracer_name])
@@ -580,7 +834,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # preserving each state's original JAX dtype.
         body_builder.outputs.clear()
         body_builder.add_output(cond_out, (), np.bool_)
-        # Loop-carried outputs: promote counters to INT64
+
         for i, outp in enumerate(b_jaxpr.outvars):
             nm = body_conv.get_name(outp)
             shp = outp.aval.shape
@@ -595,22 +849,22 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 )
                 body_builder.add_output(tracer_name, shape, dtype)
 
-        # (This second invariants‐passthrough block is redundant — we already
-        #  declared each captured tracer as an output in the tracer_passthrough_map
-        #  loop — so removing it will keep our body subgraph and Loop node
-        #  declarations in sync.)
+        # ————————— Ensure passthrough tensors still have value_info —————————
+        for tracer_name in extra_body_inputs:
+            out_name = tracer_passthrough_map[tracer_name]
+            if out_name not in body_builder.value_info_metadata:
+                shape, dtype = body_builder.value_info_metadata.get(
+                    tracer_name,
+                    s.builder.value_info_metadata[tracer_name],
+                )
+                body_builder.add_value_info(out_name, shape, dtype)
 
         # Ensure every var we mapped in body_conv.var_to_name has a value_info.
-        # This is a robust way to prevent "Missing value_info" errors for any
-        # variable used within the subgraph, including from closures.
         existing_info = {inp.name for inp in body_builder.inputs} | {
             out.name for out in body_builder.outputs
         }
         for jax_var, onnx_name in body_conv.var_to_name.items():
             if onnx_name not in existing_info:
-                # Registering the value_info ensures that intermediate tensors,
-                # especially those from closures used in the cond/body jaxprs,
-                # are known to the graph builder.
                 body_builder.add_value_info(
                     onnx_name, jax_var.aval.shape, jax_var.aval.dtype
                 )
@@ -645,38 +899,73 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         # 3) finally, emit the ONNX Loop node
         max_trip = s.get_constant_name(np.array(np.iinfo(np.int64).max, dtype=np.int64))
 
-        # Include exactly the captured-tracer inputs we lifted into the body Jaxpr
-        # (we already added them as subgraph inputs earlier, so just promote them
-        #  to the Loop's input list here)
         for cvar, cval in zip(b_jaxpr.constvars, b_consts):
             if isinstance(cval, core.Tracer):
                 tracer_name = body_conv.get_name(cvar)
                 if tracer_name not in extra_body_inputs:
                     extra_body_inputs.append(tracer_name)
 
-        # ──────────────────────────────────────────────────────────────
-        # Ensure every extra_body_input is *already* visible in the
-        # parent graph.  If it hasn't been declared yet, promote it to
-        # a new graph input so the Loop node can legally consume it.
-        # (This solves the "input 'var_X' hasn't been produced yet"
-        # topological-sort error without dropping the invariant.)
-        # ──────────────────────────────────────────────────────────────
         existing_top_level = {t.name for t in s.builder.inputs} | {
             t.name for t in s.builder.initializers
         }
+        _log_inputs(s)
+        # ── add captured‐tracer inputs to the *outer* graph ──────────────────────────
         for nm in extra_body_inputs:
-            if nm not in existing_top_level:
+            if nm in state_in:  # already a loop‑carried input → nothing to do
+                continue
+
+            if nm not in existing_top_level:  # need to expose it somehow
                 shape, dtype = s.builder.value_info_metadata[nm]
-                s.builder.add_input(nm, shape, dtype)
+
+                # Re‑use an existing graph input with identical shape & dtype, if any
+                alias_src = next(
+                    (
+                        inp.name
+                        for inp in s.builder.inputs
+                        if s.builder.value_info_metadata.get(inp.name) == (shape, dtype)
+                    ),
+                    None,
+                )
+                if alias_src is None:
+                    # no alias possible → make it a *real* new graph input
+                    s.builder.add_input(nm, shape, dtype)
+                else:
+                    # alias via Identity so `nm` becomes a view of the same tensor
+                    s.add_node(
+                        helper.make_node(
+                            "Identity",
+                            inputs=[alias_src],
+                            outputs=[nm],
+                            name=s.get_unique_name("alias_captured_tracer"),
+                        )
+                    )
+                    s.add_shape_info(nm, shape, dtype)
+
                 existing_top_level.add(nm)
 
-        loop_inputs = [max_trip, init_cond] + state_in + extra_body_inputs
+            # ------------------------------------------------------------------
+            #  🔀  Keep original callable’s input order
+            #      – move every captured‑tracer input **in front of** the
+            #        loop‑carried state inputs.  We iterate in reverse so that
+            #        the left‑to‑right order of extra_body_inputs is preserved.
+            # ------------------------------------------------------------------
+            for tracer_name in reversed(extra_body_inputs):
+                for idx, vi in enumerate(s.builder.inputs):
+                    if vi.name == tracer_name:
+                        # pop() and insert() modify the list in‑place
+                        s.builder.inputs.insert(0, s.builder.inputs.pop(idx))
+                        break
 
-        # ────────────────────────────────────────────────────────────────
-        # Fix: Ensure no Loop output has the same name as an input
-        #      – otherwise we create invalid cyclic graphs like var_3 → var_3
-        #      This applies to loop-carried vars and passthrough tracers.
-        # ────────────────────────────────────────────────────────────────
+        _log_inputs(s)
+        # Filter scan inputs to remove any that are already part of the loop-carried state.
+        # This prevents duplicate inputs when a var is both a captured tracer and state.
+        filtered_scan_inputs = [
+            name for name in extra_body_inputs if name not in state_in
+        ]
+        _log_inputs(s)
+        loop_inputs = [max_trip, init_cond] + state_in + filtered_scan_inputs
+        _log_inputs(s)
+
         input_set = set(loop_inputs)
         used_names = set(loop_inputs)
         new_state_out = []
@@ -684,23 +973,19 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         for idx, name in enumerate(state_out):
             original_name = name
             if name in input_set:
-                # Rename output to avoid name collision
                 new_name = s.get_unique_name(f"{name}_loopout")
                 logger.info(
                     f"🛠️ Renaming Loop output '{name}' → '{new_name}' to avoid input collision"
                 )
                 name = new_name
 
-                # If this output corresponds to a known JAX var, update the mapping
                 if idx < len(node_outputs):
                     jax_var = node_outputs[idx]
                     s.var_to_name[jax_var] = name
 
-                # Propagate shape/type info under the new name
                 shape, dtype = s.builder.value_info_metadata[original_name]
                 s.add_shape_info(name, shape, dtype)
 
-            # Avoid duplicate output names
             while name in used_names:
                 name = s.get_unique_name(f"{name}_dup")
 
@@ -708,6 +993,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             new_state_out.append(name)
 
         state_out = new_state_out
+        _log_inputs(s)
 
         loop_node = helper.make_node(
             "Loop",
@@ -717,9 +1003,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("while_loop"),
         )
         s.add_node(loop_node)
-        # -----------------------------------------------------
-        # ❸ Cast promoted INT64 outputs back to INT32 for the real JAX outputs
-        # -----------------------------------------------------
+        _log_inputs(s)
+
         for idx, out_name in enumerate(state_out):
             if idx in promoted_idxs and idx < len(node_outputs):
                 cast_back = s.get_unique_name(f"{out_name}_to_i32")
@@ -733,34 +1018,25 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     )
                 )
                 s.add_shape_info(cast_back, (), np.int32)
-                # point the JAX var → this new i32 name
                 s.var_to_name[node_outputs[idx]] = cast_back
             else:
-                # either unpromoted or an invariant tracer passthrough
                 if idx < len(node_outputs):
                     shp = node_outputs[idx].aval.shape
                     dt = node_outputs[idx].aval.dtype
                 else:
                     shp, dt = s.builder.value_info_metadata[out_name]
                 s.add_shape_info(out_name, shp, dt)
+        _log_inputs(s)
 
-        # And for the outer Loop node's state-outputs, record the **actual**
-        # dtype that flows out of the Loop.  If we promoted a scalar counter
-        # to INT64, the Loop produces INT64 (even though the JAX view of that
-        # variable will later use the cast-back INT32 tensor).
         for idx, (nm, var) in enumerate(zip(state_out, node_outputs)):
             shp = var.aval.shape
 
             if idx in promoted_idxs:
-                # The tensor exiting the Loop is INT64 …
                 s.add_shape_info(nm, shp, np.int64)
             else:
-                # … otherwise keep the original JAX dtype.
                 s.add_shape_info(nm, shp, var.aval.dtype)
 
-        # ──────────────────────────────────────────────────────────────
-        # Validate: ensure no Loop output name is also one of its inputs
-        # ──────────────────────────────────────────────────────────────
+        _log_inputs(s)
         input_set = set(loop_inputs)
         duplicate_names = [name for name in state_out if name in input_set]
         if duplicate_names:
@@ -769,11 +1045,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 "This can cause validation errors in some ONNX runtimes."
             )
 
-        # ────────────────────────────────────────────────────────────────
-        # Fix up scalar-integer comparisons in the *outer* condition:
-        # make sure both inputs to Less/Greater .. are INT64 when a loop
-        # counter has been promoted.
-        # ────────────────────────────────────────────────────────────────
         if need_int64_consts:
             for node in s.builder.nodes[-len(c_jaxpr.eqns) :]:
                 if node.op_type not in (
@@ -809,27 +1080,18 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 _promote(0, in0, dt0, dt1)
                 _promote(1, in1, dt1, dt0)
 
+        _log_inputs(s)
+
     @staticmethod
     def get_monkey_patch(orig_fn):
         if WhileLoopPlugin._ORIG is None:
             WhileLoopPlugin._ORIG = orig_fn
 
         def patched(cond_fun, body_fun, init_val):
-            # Special handling for closures: We need to trace with the closed-over
-            # variables as arguments.
-            cond_flat, cond_tree = jax.tree_util.tree_flatten(cond_fun)
-            body_flat, body_tree = jax.tree_util.tree_flatten(body_fun)
-
-            # This logic is simplified; a robust implementation would inspect
-            # the functions' `.__closure__` attribute. For now, we assume that
-            # if they are closures, the traced values are available in the scope
-            # where `make_jaxpr` is called.
-
             closed_c = jax.make_jaxpr(cond_fun)(init_val)
             closed_b = jax.make_jaxpr(body_fun)(init_val)
 
             flat, tree = jax.tree_util.tree_flatten(init_val)
-            # Pass jaxprs as parameters to the primitive
             results = lax.while_loop_p.bind(
                 *flat, cond_jaxpr=closed_c, body_jaxpr=closed_b
             )
@@ -839,20 +1101,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _while_loop_impl(*args, **kwargs):
-        # This is a placeholder for JAX's internal execution and not used
-        # during ONNX conversion.
         if WhileLoopPlugin._ORIG is None:
             raise RuntimeError("Original lax.while_loop not recorded")
 
         cond_jaxpr = kwargs["cond_jaxpr"]
         body_jaxpr = kwargs["body_jaxpr"]
 
-        # Separate the loop state from the other args (which are none)
-        flat_state = args
-
-        init_val_flat = list(flat_state)
-        init_val_tree = jax.tree_util.tree_structure(init_val_flat)  # A bit of a guess
-        jax.tree_util.tree_unflatten(init_val_tree, init_val_flat)
+        init_val_flat = list(args)
+        jax.tree_util.tree_structure(init_val_flat)
 
         def cond_f(v):
             fv, _ = jax.tree_util.tree_flatten(v)
@@ -863,10 +1119,6 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             out = core.eval_jaxpr(body_jaxpr.jaxpr, body_jaxpr.consts, *fv)
             return jax.tree_util.tree_unflatten(vt, out)
 
-        # The tree for init_val is not available, which makes this tricky.
-        # This implementation path is for CPU execution of the patched primitive
-        # and less critical than the `to_onnx` path.
-        # For now, we assume a flat structure for simplicity.
         final = WhileLoopPlugin._ORIG(cond_f, body_f, init_val_flat)
         ff, _ = jax.tree_util.tree_flatten(final)
         return ff

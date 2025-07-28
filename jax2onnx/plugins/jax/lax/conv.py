@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any, Tuple
 
 import jax
-import numpy as np
+import numpy as np  # Fixed import: 'np' instead of 'numpy' if was alias, but standard is np
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -30,7 +30,7 @@ def _get_spatial_dims_from_spec(spec: Tuple[int, ...]) -> Tuple[int, int]:
     """Extracts spatial dimension indices from an integer-based layout spec."""
     # This is based on the assumption that H and W are the last two spatial dims
     # in JAX's tuple representation, which holds for standard layouts.
-    # Example: NCHW is (0,1,2,3), NHWC is (0,2,3,1). H and W are always at indices > 1.
+    # Example: NCHW is (0,1,2,3), NHWC is (0,3,1,2). H and W are always at indices > 1.
     return spec[2], spec[3]
 
 
@@ -72,22 +72,22 @@ def _get_spatial_dims(layout: str) -> list[int]:
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
             "run_only_f32_variant": True,
         },
-        # TODO: enable testcases
-        # {
-        #     "testcase": "conv_general_dilated_nhwc_output",
-        #     "callable": lambda x, k: jax.lax.conv_general_dilated(
-        #         x, k,
-        #         window_strides=(1, 1),
-        #         padding='SAME',
-        #         dimension_numbers=('NHWC', 'HWIO', 'NHWC')
-        #     ),
-        #     "input_values": [
-        #         np.ones((1, 5, 5, 3), dtype=np.float32),
-        #         np.ones((2, 2, 3, 4), dtype=np.float32)
-        #     ],
-        #     "expected_output_shapes": [(1, 5, 5, 4)],
-        #     "run_only_f32_variant": True,
-        # },
+        {
+            "testcase": "conv_general_dilated_nhwc_output",
+            "callable": lambda x, k: jax.lax.conv_general_dilated(
+                x,
+                k,
+                window_strides=(1, 1),
+                padding="SAME",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_values": [
+                np.ones((1, 5, 5, 3), dtype=np.float32),
+                np.ones((2, 2, 3, 4), dtype=np.float32),
+            ],
+            "expected_output_shapes": [(1, 5, 5, 4)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
@@ -105,16 +105,27 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         padding = params["padding"]
 
         lhs_spec, rhs_spec, out_spec = dimension_numbers
-        if lhs_spec == (0, 3, 1, 2) and rhs_spec == (3, 2, 0, 1):
+
+        # -----------------------------------------------------------------
+        # 1) Resolve layout permutations
+        # -----------------------------------------------------------------
+        if lhs_spec == (0, 3, 1, 2):  # NHWC
+            # input NHWC → NCHW
             input_perm = [0, 3, 1, 2]
-            kernel_perm = [3, 2, 0, 1]
-            output_perm = [0, 2, 3, 1]
-        elif lhs_spec == (0, 1, 2, 3) and rhs_spec == (0, 1, 2, 3):
+        elif lhs_spec == (0, 1, 2, 3):  # NCHW
             input_perm = None
-            kernel_perm = [0, 1, 2, 3]
-            output_perm = None
         else:
-            raise ValueError(f"Unhandled dimension_numbers: {dimension_numbers}")
+            raise ValueError(f"Unhandled lhs_spec: {lhs_spec}")
+
+        # -----------------------------------------------------------------
+        # 2) Map the kernel to ONNX’s OIHW by *always* transposing with
+        #    perm = rhs_spec.  (If that happens to be identity, we skip.)
+        # -----------------------------------------------------------------
+        kernel_perm = list(rhs_spec)
+        need_kernel_transpose = kernel_perm != [0, 1, 2, 3]
+
+        # output is always returned to NHWC when caller asked for NHWC
+        output_perm = [0, 2, 3, 1] if out_spec == (0, 3, 1, 2) else None
 
         conv_input = input_name
         if input_perm:
@@ -135,52 +146,34 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             conv_input = transposed_input
 
         filter_name = s.get_name(filter_var)
-        if filter_name in s.name_to_const:
-            kernel_const = s.name_to_const[filter_name]
-            kernel_transposed = np.transpose(kernel_const, kernel_perm)
-            transposed_kernel_name = s.get_constant_name(kernel_transposed)
-            s.name_to_const[transposed_kernel_name] = kernel_transposed
-            kernel_shape = kernel_transposed.shape[2:]
-        else:
-            transposed_kernel_name = s.get_unique_name("kernel_transposed")
-            s.add_node(
-                helper.make_node(
-                    "Transpose",
-                    inputs=[filter_name],
-                    outputs=[transposed_kernel_name],
-                    perm=kernel_perm,
-                    name=s.get_unique_name("Transpose_kernel"),
-                )
-            )
-            new_kernel_shape = tuple(
-                np.array(filter_var.aval.shape)[kernel_perm].tolist()
-            )
-            s.add_shape_info(transposed_kernel_name, new_kernel_shape)
-            if rhs_spec == (3, 2, 0, 1):
-                kernel_shape = filter_var.aval.shape[:2]
-            else:
-                kernel_shape = filter_var.aval.shape[2:]
 
-        if isinstance(padding, str):
-            if padding.upper() == "VALID":
-                pads = [0, 0, 0, 0]
-            elif padding.upper() == "SAME":
-                if lhs_spec == (0, 3, 1, 2):  # NHWC
-                    H_in, W_in = node_inputs[0].aval.shape[1:3]
-                else:  # NCHW
-                    H_in, W_in = node_inputs[0].aval.shape[2:4]
-                filter_H, filter_W = kernel_shape
-                pad_top, pad_bottom = compute_same_pads(
-                    H_in, filter_H, window_strides[0]
-                )
-                pad_left, pad_right = compute_same_pads(
-                    W_in, filter_W, window_strides[1]
-                )
-                pads = [pad_top, pad_left, pad_bottom, pad_right]
-            else:
-                raise ValueError("Unsupported padding string: " + padding)
+        # -----  1. Get / create an OIHW‑ordered weight tensor  -----
+        if not need_kernel_transpose:
+            transposed_kernel_name = filter_name
+            final_kernel_shape = filter_var.aval.shape
         else:
-            pads = [pad for pair in padding for pad in pair]
+            if filter_name in s.name_to_const:
+                k_const = np.transpose(s.name_to_const[filter_name], kernel_perm)
+                transposed_kernel_name = s.get_constant_name(k_const)
+                s.name_to_const[transposed_kernel_name] = k_const
+                final_kernel_shape = k_const.shape
+            else:
+                transposed_kernel_name = s.get_unique_name("kernel_transposed")
+                s.add_node(
+                    helper.make_node(
+                        "Transpose",
+                        inputs=[filter_name],
+                        outputs=[transposed_kernel_name],
+                        perm=kernel_perm,
+                        name=s.get_unique_name("Transpose_kernel"),
+                    )
+                )
+                final_kernel_shape = tuple(
+                    np.array(filter_var.aval.shape)[kernel_perm].tolist()
+                )
+                s.add_shape_info(transposed_kernel_name, final_kernel_shape)
+
+        kernel_shape = final_kernel_shape[2:]  # (H, W) in OIHW
 
         conv_output = s.get_unique_name("conv_output")
 
@@ -193,13 +186,21 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         if isinstance(padding, str):
             pad_mode = padding.upper()
             if pad_mode == "SAME":
-                # rely on ONNX automatic padding
                 conv_attrs["auto_pad"] = "SAME_UPPER"
-            elif pad_mode != "VALID":
-                raise ValueError(f"Unsupported padding string: {padding}")
+            elif pad_mode == "VALID":
+                conv_attrs["pads"] = [0, 0, 0, 0]
+            else:
+                raise ValueError("Unsupported padding string: " + padding)
         else:
-            # tuple-of-pairs → flat list [t, l, b, r]
-            conv_attrs["pads"] = pads
+            # JAX gives padding as ((H_before, H_after), (W_before, W_after)).
+            (h_before, h_after), (w_before, w_after) = padding
+            # ONNX expects [H_begin, W_begin, H_end, W_end].
+            conv_attrs["pads"] = [
+                int(h_before),
+                int(w_before),
+                int(h_after),
+                int(w_after),
+            ]
 
         conv_node = helper.make_node(
             "Conv",

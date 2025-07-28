@@ -28,8 +28,6 @@ sort_p.multiple_results = False  # only the sorted values
 # 2.  Plugin registration                                                #
 # ---------------------------------------------------------------------- #
 @register_primitive(
-    primitive_obj=sort_p,
-    binding_factory=lambda: jnp.sort,  # the function we monkey-patch
     jaxpr_primitive=sort_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.sort.html",
     onnx=[

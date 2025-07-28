@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/scatter.py
+# jax2onnx/plugins/jax/lax/scatter.py
 
 from __future__ import annotations
 
@@ -112,6 +112,34 @@ if TYPE_CHECKING:
             "input_shapes": [(5, 201, 1, 1), (2, 1), (2, 201, 1, 1)],
             "input_dtypes": [np.float32, np.int32, np.float32],
         },
+        # ────────────────────────────────────────────────────────────────
+        #  Window‑scatter (moved from examples/lax/scatter_window.py)
+        # ────────────────────────────────────────────────────────────────
+        # TODO: enable testcases
+        # {
+        #     "testcase": "scatter_window_update_f64",
+        #     # identical to the old `scatter_window_function`
+        #     "callable": lambda operand, indices, updates: lax.scatter(
+        #         operand=operand,
+        #         scatter_indices=indices,
+        #         updates=updates,
+        #         dimension_numbers=ScatterDimensionNumbers(
+        #             update_window_dims=(1, 2, 3, 4),
+        #             inserted_window_dims=(),
+        #             scatter_dims_to_operand_dims=(1, 2),
+        #         ),
+        #         indices_are_sorted=True,
+        #         unique_indices=True,
+        #         mode=GatherScatterMode.FILL_OR_DROP,
+        #     ),
+        #     "input_values": [
+        #         np.zeros((5, 266, 266, 1), dtype=np.float64),
+        #         np.array([[10, 10]], dtype=np.int32),
+        #         np.ones((1, 5, 256, 256, 1), dtype=np.float64),
+        #     ],
+        #     # keep the original flag so we only run the double‑precision variant
+        #     "run_only_f64_variant": True,
+        # },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):

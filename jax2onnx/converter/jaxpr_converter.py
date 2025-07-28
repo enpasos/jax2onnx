@@ -1,3 +1,5 @@
+# jax2onnx/converter/jaxpr_converter.py
+
 """
 JAXPR to ONNX Converter Module
 
@@ -55,6 +57,9 @@ class Jaxpr2OnnxConverter:
         self.builder = builder
         self.record_primitive_calls_file = record_primitive_calls_file
         self.function_context_for_recording = function_context_for_recording
+        # --- Step 1: we’ll capture the user’s declared parameter order and keep it here
+        # (filled in by conversion_api.py before any actual tracing)
+        self.user_param_vars: Optional[Sequence[core.Var]] = None
 
         if self.record_primitive_calls_file:
             self.recorded_calls_log: List[RecordedPrimitiveCallLog] = []
@@ -518,11 +523,13 @@ class Jaxpr2OnnxConverter:
         # We *should not* need abstracted_axes if symbolic shapes are explicit in avals
         # JAX handles polymorphism based on the symbolic objects in the input avals.
         with temporary_monkey_patches(allow_function_primitives=True):
-            # Remove abstracted_axes argument if it was previously used
-            mk = jax.make_jaxpr(fn)
             try:
-                # Pass symbolic avals directly as arguments
-                closed = mk(*tracing_args, **(params or {}))
+                # One single abstract trace is enough
+                closed = jax.make_jaxpr(fn)(*tracing_args, **(params or {}))
+
+                # Capture the canonical parameter order
+                if self.user_param_vars is None:
+                    self.user_param_vars = closed.jaxpr.invars
             except Exception as e:
                 self.logger.error(
                     f"jax.make_jaxpr failed with symbolic avals. Error: {e}",
