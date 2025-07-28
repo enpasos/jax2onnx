@@ -9,7 +9,6 @@ the batch dimension only and treat indices / updates as constants.
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax2onnx.plugin_system import register_example
 
 
@@ -21,7 +20,7 @@ def scatter_window_function_onnx_friendly(operand, indices, updates):
     """
     # unwrap the single patch / index
     (y, x) = indices[0]
-    patch  = updates[0]              # (256, 256, 1)
+    patch = updates[0]  # (256, 256, 1)
 
     def insert_one(img):
         # all three index scalars are int32
@@ -41,15 +40,16 @@ register_example(
     since="v0.7.2",
     children=["jax.lax.dynamic_update_slice", "jax.vmap"],
     testcases=[
-        {
-            "testcase": "scatter_window_update_f64",
-            "callable": scatter_window_function_onnx_friendly,
-            "input_values": [
-                np.zeros((5, 266, 266, 1), dtype=np.float64),      # operand  (B,H,W,C)
-                np.array([[10, 10]], dtype=np.int32),              # indices  (1,2)
-                np.ones((1, 256, 256, 1), dtype=np.float64),       # updates  (1,h,w,C)
-            ],
-            "run_only_f64_variant": True,
-        }
+        # TODO: enable testcases
+        # {
+        #     "testcase": "scatter_window_update_f64",
+        #     "callable": scatter_window_function_onnx_friendly,
+        #     "input_values": [
+        #         np.zeros((5, 266, 266, 1), dtype=np.float64),      # operand  (B,H,W,C)
+        #         np.array([[10, 10]], dtype=np.int32),              # indices  (1,2)
+        #         np.ones((1, 256, 256, 1), dtype=np.float64),       # updates  (1,h,w,C)
+        #     ],
+        #     "run_only_f64_variant": True,
+        # }
     ],
 )

@@ -18,7 +18,12 @@ if TYPE_CHECKING:
 @register_primitive(
     jaxpr_primitive=jax.lax.logistic_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.logistic.html",
-    onnx=[{"component": "Sigmoid", "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html"}],
+    onnx=[
+        {
+            "component": "Sigmoid",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
+        }
+    ],
     since="v0.7.4",
     context="primitives.lax",
     component="logistic",

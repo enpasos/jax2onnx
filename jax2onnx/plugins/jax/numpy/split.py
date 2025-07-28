@@ -1,7 +1,5 @@
 # jax2onnx/plugins/jax/numpy/split.py
 
-"""ONNX plugin for JAX `split` primitive (used by jnp.split / lax.split)."""
-
 from __future__ import annotations
 
 from typing import Sequence, Union, Tuple
@@ -50,7 +48,9 @@ def _get_split_sizes(
 @register_primitive(
     jaxpr_primitive=split_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.split.html",
-    onnx=[{"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}],
+    onnx=[
+        {"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}
+    ],
     since="v0.7.2",
     context="primitives.jnp",
     component="split",
@@ -91,19 +91,27 @@ class SplitPlugin(PrimitiveLeafPlugin):
         # For abstract eval, if a dimension is symbolic, we can't know the size.
         # We rely on JAX's shape polymorphism for symbolic dimension handling.
         if isinstance(x.shape[axis], int):
-             sizes = _get_split_sizes(x.shape[axis], indices_or_sections)
+            sizes = _get_split_sizes(x.shape[axis], indices_or_sections)
         else:
             # When the axis dimension is symbolic, we cannot compute concrete sizes.
             # We must create symbolic output shapes.
             if isinstance(indices_or_sections, int):
-                 # Cannot split a symbolic dim into equal sections without knowing its size.
-                 # Let JAX handle this, or it will raise a TypeError during tracing.
-                 raise TypeError(f"Cannot split symbolic dimension {x.shape[axis]} into {indices_or_sections} sections.")
+                # Cannot split a symbolic dim into equal sections without knowing its size.
+                # Let JAX handle this, or it will raise a TypeError during tracing.
+                raise TypeError(
+                    f"Cannot split symbolic dimension {x.shape[axis]} into {indices_or_sections} sections."
+                )
             indices = [0] + list(indices_or_sections)
-            sizes = [indices[i+1] - indices[i] for i in range(len(indices)-1)]
-            # The last split size is the symbolic dim minus the last index.
-            sizes.append(core.DimExpr.make_sum(x.shape[axis], -indices[-1]))
 
+            # First build a *list* of concrete lengths between split points …
+            sizes_list: list[int] = [
+                indices[i + 1] - indices[i] for i in range(len(indices) - 1)
+            ]
+
+            # … then turn it into the final *tuple* that may end with a symbolic size.
+            sizes = tuple(sizes_list) + (
+                core.DimExpr.make_sum(x.shape[axis], -indices[-1]),
+            )
 
         out_specs = []
         for sz in sizes:
@@ -145,9 +153,5 @@ class SplitPlugin(PrimitiveLeafPlugin):
         )
         s.add_node(split_node)
 
-        # Let the converter propagate shapes and types for the outputs.
-        # This is typically handled by the main conversion loop.
 
-
-# Register JAX side abstract‑eval so tracing still works if needed.
 split_p.def_abstract_eval(SplitPlugin.abstract_eval)

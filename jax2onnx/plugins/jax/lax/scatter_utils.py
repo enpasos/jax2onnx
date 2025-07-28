@@ -423,8 +423,8 @@ def _prepare_scatter_inputs_for_onnx(
     #  Expected shape for the ONNX `updates` input  – **spec‑exact**
     # ------------------------------------------------------------------
     current_expected_onnx_updates_shape = compute_expected_updates_shape(
-        dimension_numbers,               # ScatterDimensionNumbers
-        operand_shape_symbolic,          # operand.shape
+        dimension_numbers,  # ScatterDimensionNumbers
+        operand_shape_symbolic,  # operand.shape
         processed_indices_shape_for_default_path,  # indices.shape
     )
 
@@ -684,11 +684,13 @@ def _prepare_scatter_inputs_for_onnx(
         # ────────────────────────────────────────────────────────────────
         #  📐  depth‑3 strategy  (|sdod| == 2, window update on H×W patch)
         # ────────────────────────────────────────────────────────────────
+        # depth‑3 pattern: 2 indexed axes (H,W) + *implicit* batch axis
         use_depth3_for_batched_hw_scatter = (
-            len(sdod) == 2                    # we are indexing two axes
-            and not iwd and not obd           # no inserted / batching dims
-            and len(uwd) == upd_rank          # every upd‑axis is a window‑axis
-            and op_rank == upd_rank           # operand & updates ranks match
+            len(sdod) == 2
+            and not iwd
+            and not obd
+            and len(uwd) == op_rank  # every *operand* axis is a window‑axis
+            and upd_rank == op_rank + 1  # updates has the leading batch dim
             and _are_shapes_equal(jax_indices_shape_symbolic, (1, 2), s)
         )
 
@@ -710,8 +712,10 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(
                 helper.make_node(
                     "Squeeze",
-                    [current_indices_name,
-                    s.get_constant_name(np.array([0], dtype=np.int64))],
+                    [
+                        current_indices_name,
+                        s.get_constant_name(np.array([0], dtype=np.int64)),
+                    ],
                     [squeeze_idx],
                 )
             )
@@ -721,8 +725,7 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(
                 helper.make_node(
                     "Gather",
-                    [squeeze_idx,
-                    s.get_constant_name(np.array([0], dtype=np.int64))],
+                    [squeeze_idx, s.get_constant_name(np.array([0], dtype=np.int64))],
                     [row0_name],
                     axis=0,
                 )
@@ -730,8 +733,7 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(
                 helper.make_node(
                     "Gather",
-                    [squeeze_idx,
-                    s.get_constant_name(np.array([1], dtype=np.int64))],
+                    [squeeze_idx, s.get_constant_name(np.array([1], dtype=np.int64))],
                     [col0_name],
                     axis=0,
                 )
@@ -746,54 +748,69 @@ def _prepare_scatter_inputs_for_onnx(
             #   j : 0‥W‑1         shape (1,1,W)  + col0
             #
             arange_b = s.get_unique_name("arange_B_d3")
-            s.add_node(helper.make_node(
-                "Range",
-                [s.get_constant_name(np.array(0, dtype=np.int64)),
-                s.get_constant_name(np.array(B_val, dtype=np.int64)),
-                s.get_constant_name(np.array(1, dtype=np.int64))],
-                [arange_b],
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Range",
+                    [
+                        s.get_constant_name(np.array(0, dtype=np.int64)),
+                        s.get_constant_name(np.array(B_val, dtype=np.int64)),
+                        s.get_constant_name(np.array(1, dtype=np.int64)),
+                    ],
+                    [arange_b],
+                )
+            )
             unsq_b = s.get_unique_name("unsq_B_d3")
-            s.add_node(helper.make_node(
-                "Unsqueeze",
-                [arange_b,
-                s.get_constant_name(np.array([1, 2], dtype=np.int64))],
-                [unsq_b],
-            ))                      # (B,1,1)
+            s.add_node(
+                helper.make_node(
+                    "Unsqueeze",
+                    [arange_b, s.get_constant_name(np.array([1, 2], dtype=np.int64))],
+                    [unsq_b],
+                )
+            )  # (B,1,1)
             arange_h = s.get_unique_name("arange_H_d3")
-            s.add_node(helper.make_node(
-                "Range",
-                [s.get_constant_name(np.array(0, dtype=np.int64)),
-                s.get_constant_name(np.array(H_val, dtype=np.int64)),
-                s.get_constant_name(np.array(1, dtype=np.int64))],
-                [arange_h],
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Range",
+                    [
+                        s.get_constant_name(np.array(0, dtype=np.int64)),
+                        s.get_constant_name(np.array(H_val, dtype=np.int64)),
+                        s.get_constant_name(np.array(1, dtype=np.int64)),
+                    ],
+                    [arange_h],
+                )
+            )
             add_h = s.get_unique_name("row_plus_start_d3")
             s.add_node(helper.make_node("Add", [arange_h, row0_name], [add_h]))
             unsq_h = s.get_unique_name("unsq_H_d3")
-            s.add_node(helper.make_node(
-                "Unsqueeze",
-                [add_h,
-                s.get_constant_name(np.array([0, 2], dtype=np.int64))],
-                [unsq_h],
-            ))                      # (1,H,1)
+            s.add_node(
+                helper.make_node(
+                    "Unsqueeze",
+                    [add_h, s.get_constant_name(np.array([0, 2], dtype=np.int64))],
+                    [unsq_h],
+                )
+            )  # (1,H,1)
             arange_w = s.get_unique_name("arange_W_d3")
-            s.add_node(helper.make_node(
-                "Range",
-                [s.get_constant_name(np.array(0, dtype=np.int64)),
-                s.get_constant_name(np.array(W_val, dtype=np.int64)),
-                s.get_constant_name(np.array(1, dtype=np.int64))],
-                [arange_w],
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Range",
+                    [
+                        s.get_constant_name(np.array(0, dtype=np.int64)),
+                        s.get_constant_name(np.array(W_val, dtype=np.int64)),
+                        s.get_constant_name(np.array(1, dtype=np.int64)),
+                    ],
+                    [arange_w],
+                )
+            )
             add_w = s.get_unique_name("col_plus_start_d3")
             s.add_node(helper.make_node("Add", [arange_w, col0_name], [add_w]))
             unsq_w = s.get_unique_name("unsq_W_d3")
-            s.add_node(helper.make_node(
-                "Unsqueeze",
-                [add_w,
-                s.get_constant_name(np.array([0, 1], dtype=np.int64))],
-                [unsq_w],
-            ))                      # (1,1,W)
+            s.add_node(
+                helper.make_node(
+                    "Unsqueeze",
+                    [add_w, s.get_constant_name(np.array([0, 1], dtype=np.int64))],
+                    [unsq_w],
+                )
+            )  # (1,1,W)
 
             # Expand each to (B,H,W)
             target_shape_const = s.get_constant_name(
@@ -802,41 +819,54 @@ def _prepare_scatter_inputs_for_onnx(
             b_grid = s.get_unique_name("Bgrid_d3")
             h_grid = s.get_unique_name("Hgrid_d3")
             w_grid = s.get_unique_name("Wgrid_d3")
-            s.add_node(helper.make_node("Expand", [unsq_b, target_shape_const], [b_grid]))
-            s.add_node(helper.make_node("Expand", [unsq_h, target_shape_const], [h_grid]))
-            s.add_node(helper.make_node("Expand", [unsq_w, target_shape_const], [w_grid]))
+            s.add_node(
+                helper.make_node("Expand", [unsq_b, target_shape_const], [b_grid])
+            )
+            s.add_node(
+                helper.make_node("Expand", [unsq_h, target_shape_const], [h_grid])
+            )
+            s.add_node(
+                helper.make_node("Expand", [unsq_w, target_shape_const], [w_grid])
+            )
 
             # ---- 3️⃣  stack  →  (B,H,W,3)  →  reshape (N,3) ---------------
             cat3 = s.get_unique_name("indices_BHW3_d3")
-            s.add_node(helper.make_node(
-                "Concat",
-                [b_grid, h_grid, w_grid],
-                [cat3],
-                axis=3,
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Concat",
+                    [b_grid, h_grid, w_grid],
+                    [cat3],
+                    axis=3,
+                )
+            )
             flat_idx = s.get_unique_name("flat_indices_d3")
-            s.add_node(helper.make_node(
-                "Reshape",
-                [cat3,
-                s.get_constant_name(
-                    np.array([-1, 3], dtype=np.int64)
-                )],
-                [flat_idx],
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    [cat3, s.get_constant_name(np.array([-1, 3], dtype=np.int64))],
+                    [flat_idx],
+                )
+            )
             _manually_ensure_shape_env_entry(
                 s, flat_idx, (-1, 3), np.int64, "FinalDepth3Idx"
             )
 
+            # tell the later “spec‑exact” re‑compute that
+            #   indices.shape == (-1,3)
+            processed_indices_shape_for_default_path = (-1, 3)
+
             # ---- 4️⃣  reshape updates to (N,1) ----------------------------
             flat_upd = s.get_unique_name("flat_updates_d3")
-            s.add_node(helper.make_node(
-                "Reshape",
-                [original_updates_name_val,
-                s.get_constant_name(
-                    np.array([-1, 1], dtype=np.int64)
-                )],
-                [flat_upd],
-            ))
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    [
+                        original_updates_name_val,
+                        s.get_constant_name(np.array([-1, 1], dtype=np.int64)),
+                    ],
+                    [flat_upd],
+                )
+            )
             _manually_ensure_shape_env_entry(
                 s, flat_upd, (-1, 1), original_updates_dtype_np, "FlatDepth3Upd"
             )
@@ -999,7 +1029,9 @@ def _prepare_scatter_inputs_for_onnx(
                     # END of modification
                 else:  # Element count mismatch
                     # ---- add these two lines ----
-                    neutral_val_pad = _get_neutral_value(reduction, original_updates_dtype_np)
+                    neutral_val_pad = _get_neutral_value(
+                        reduction, original_updates_dtype_np
+                    )
                     neutral_updates_name_pad = s.get_constant_name(neutral_val_pad)
                     # -----------------------------
                     (
@@ -1010,14 +1042,14 @@ def _prepare_scatter_inputs_for_onnx(
                         _final_updates_name_val_to_return,
                         original_updates_shape_symbolic,
                         current_expected_onnx_updates_shape,
-                        neutral_updates_name_pad,   # <- now always defined
+                        neutral_updates_name_pad,  # <- now always defined
                         original_updates_dtype_np,
                         "DefaultUpdates",
                     )
                     if maybe_padded_name != _final_updates_name_val_to_return:
                         _final_updates_name_val_to_return = maybe_padded_name
                         original_updates_shape_symbolic = maybe_padded_shape
-                        original_nelem = expected_nelem   # padding fixed the size
+                        original_nelem = expected_nelem  # padding fixed the size
                     else:
                         err_msg = (
                             f"Default path: Updates element count mismatch for ScatterND. "
@@ -1323,10 +1355,10 @@ def _auto_pad_updates_if_smaller(
         pad_after.append(int(t) - int(o))
 
     if not can_pad or all(p == 0 for p in pad_after):
-        return upd_name, orig_shape   # nothing to do
+        return upd_name, orig_shape  # nothing to do
 
     rank = len(orig_shape)
-    pads_list = [0] * rank + pad_after          # pad at the *end* of each dim
+    pads_list = [0] * rank + pad_after  # pad at the *end* of each dim
     pads_const = s.get_constant_name(np.array(pads_list, dtype=np.int64))
 
     padded_name = s.get_unique_name(f"{upd_name}_pad_to_target")
@@ -1354,17 +1386,21 @@ def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
         return np.array(1, dtype=dtype)
     if reduction_op == "max":
         return np.array(
-            np.finfo(dtype).min if np.issubdtype(dtype, np.floating)
-            else np.iinfo(dtype).min,
+            (
+                np.finfo(dtype).min
+                if np.issubdtype(dtype, np.floating)
+                else np.iinfo(dtype).min
+            ),
             dtype=dtype,
         )
     if reduction_op == "min":
         return np.array(
-            np.finfo(dtype).max if np.issubdtype(dtype, np.floating)
-            else np.iinfo(dtype).max,
+            (
+                np.finfo(dtype).max
+                if np.issubdtype(dtype, np.floating)
+                else np.iinfo(dtype).max
+            ),
             dtype=dtype,
         )
     # For “replace”, “none”, or anything unknown → 0
     return np.array(0, dtype=dtype)
-
-

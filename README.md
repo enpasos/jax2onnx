@@ -109,14 +109,18 @@ save_model(model, "docs/onnx/model_with_function.onnx")
   * Support for `equinox` models 
   * Integrating `onnx-ir` as a backend to improve ONNX model construction, memory efficiency, and performance
  
+
 ### **Current Productive Version**
-* **0.7.1** *(PyPI)*: 
-  * Fixed a bug in the test system ensuring numeric equivalence with Jax.
-  * Added support for new primitives: `core.custom_jvp_generic`, `eqx.identity`, `jnp.select`, `jnp.stack`, `jnp.unstack`, `lax.select`, `nn.identiy`, `nn.celu`, `nn.elu`, `nn.gelu`, `nn.relu`, `nn.leaky_relu`, `nn.mish`, `nn.selu`, `nn.sigmoid`, `nn.soft-sign`, `nn.softmax`, `nn.truncated_normal`
+* **0.7.2** *(PyPI)*: 
+  * ....
+  * Added support for new primitives: `core.custom_jvp_generic`, 
  
 
 
 ### **Past Versions**
+* **0.7.1**:
+  * Fixed a bug in the test system ensuring numeric equivalence with Jax.
+  * Added support for new primitives: `core.custom_jvp_generic`, `eqx.identity`, `jnp.select`, `jnp.stack`, `jnp.unstack`, `lax.select`, `nn.identiy`, `nn.celu`, `nn.elu`, `nn.gelu`, `nn.relu`, `nn.leaky_relu`, `nn.mish`, `nn.selu`, `nn.sigmoid`, `nn.soft-sign`, `nn.softmax`, `nn.truncated_normal`
 * **0.7.0**: 
   * Added a GPT-2 model example based on [nanoGPT](https://github.com/karpathy/nanoGPT/blob/master/model.py), featuring ONNX function support and attention masking
   * New support for `jnp.concatenate`, `jnp.take`, `nnx.Embed`

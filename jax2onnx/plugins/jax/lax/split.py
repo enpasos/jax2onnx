@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 @register_primitive(
     jaxpr_primitive=jax.lax.split_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.split.html",
-    onnx=[{"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}],
+    onnx=[
+        {"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}
+    ],
     since="v0.7.2",
     context="primitives.lax",
     component="split",
