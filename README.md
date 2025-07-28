@@ -113,7 +113,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 ### **Current Productive Version**
 * **0.7.2** *(PyPI)*:
   * Added support for new primitives: `jnp.split`, `lax.split`, `lax.logistic`.
-  * Added examples for `nnx.GRUCell`
+  * Added example for `nnx.GRUCell`
   * Improved support for `lax.scatter`, and `lax.while_loop`.
 
 ### **Past Versions**
