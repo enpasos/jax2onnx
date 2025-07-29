@@ -1,5 +1,3 @@
-# jax2onnx/converter/jaxpr_converter.py
-
 """
 JAXPR to ONNX Converter Module
 
@@ -19,7 +17,7 @@ from jax.extend.core import Var, Literal, ClosedJaxpr
 from onnx import helper
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.monkey_patch_utils import temporary_monkey_patches
-from jax2onnx.utils.debug import RecordedPrimitiveCallLog  # Ensure correct import
+from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax2onnx.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
@@ -129,7 +127,7 @@ class Jaxpr2OnnxConverter:
         sym: str,
     ):
         """Make *sym* a formal graph input **iff** it is not
-             already created inside the builder**.
+                 already created inside the builder**.
 
         That is the case when *sym* is produced by a node that
         was added to ``self.builder`` **before** this converter
@@ -307,15 +305,15 @@ class Jaxpr2OnnxConverter:
         )
 
         # ③ Map the inputs for the subgraph. The inputs to the pjit call (eqn.invars)
-        #    already have names in the parent converter. We tell the sub-converter
-        #    to use these same names for the subgraph's input variables (inner_jaxpr.invars).
+        #   already have names in the parent converter. We tell the sub-converter
+        #   to use these same names for the subgraph's input variables (inner_jaxpr.invars).
         for outer_invar, inner_invar in zip(eqn.invars, inner_jaxpr.invars):
             outer_name = parent_converter.get_name(outer_invar)
             sub_converter.set_var_name(inner_invar, outer_name)
 
         # ④ Process the subgraph using the new converter. This will generate all the
-        #    necessary ONNX nodes, but any new variable names will be created in the
-        #    isolated sub_converter and won't clash with the parent.
+        #   necessary ONNX nodes, but any new variable names will be created in the
+        #   isolated sub_converter and won't clash with the parent.
         sub_converter._process_jaxpr(inner_jaxpr, consts)
 
         # ── remove any outputs that the subgraph mistakenly added ────────────
@@ -325,8 +323,8 @@ class Jaxpr2OnnxConverter:
         ]
 
         # ⑤ Wire the outputs. The output variables of the subgraph (inner_jaxpr.outvars)
-        #    now have unique names within the subgraph's context. We need to alias the
-        #    pjit's output variables (eqn.outvars) to these names in the parent converter.
+        #   now have unique names within the subgraph's context. We need to alias the
+        #   pjit's output variables (eqn.outvars) to these names in the parent converter.
         for outer_outvar, inner_outvar in zip(eqn.outvars, inner_jaxpr.outvars):
             inner_name = sub_converter.get_name(inner_outvar)
             parent_converter.set_var_name(outer_outvar, inner_name)
@@ -438,13 +436,13 @@ class Jaxpr2OnnxConverter:
         logger.debug("[dim_to_symbol] %s (%s)  →  %s", d, type(d).__name__, sym)
         return sym  # <— now make_value_info gets "B" (or '__sym0')
 
-        # Step	Description	Dynamic Dim Handling
-        # -	User provides symbolic dimensions ("B")	User-level symbolic dimension
-        # -	Map symbolic dimensions to concrete ints	Temporary numeric placeholders
-        # -	Create concrete zero-arrays for JAX tracer	Concrete numeric array
-        # -	Trace with abstracted_axes	JAX records symbolic shapes (DimVar)
-        # -	Extract symbolic shapes post-tracing	Explicit symbolic shapes recorded
-        # -	Export symbolic shapes into ONNX	ONNX dynamic shape (dim_param)
+        # Step  Description Dynamic Dim Handling
+        # - User provides symbolic dimensions ("B") User-level symbolic dimension
+        # - Map symbolic dimensions to concrete ints     Temporary numeric placeholders
+        # - Create concrete zero-arrays for JAX tracer  Concrete numeric array
+        # - Trace with abstracted_axes  JAX records symbolic shapes (DimVar)
+        # - Extract symbolic shapes post-tracing     Explicit symbolic shapes recorded
+        # - Export symbolic shapes into ONNX    ONNX dynamic shape (dim_param)
 
     ###############################################################################
     # NOTE: this *replaces* the old trace_jaxpr implementation
@@ -676,8 +674,35 @@ class Jaxpr2OnnxConverter:
                     self.builder.add_output(name, (), np.int32)
 
     def add_shape_info(self, name: str, shape: tuple, dtype: Any = np.float32) -> str:
-        # Note: shape passed here might already be symbolic strings from _dim_to_symbol_safe
-        self.builder.add_value_info(name, shape, dtype)
+        """
+        Register a ValueInfo for `name` with the given `shape` and `dtype`.
+
+        Any dimension equal to None is emitted as an anonymous dynamic dimension
+        (neither dim_value nor dim_param set), which Netron will show as “?”.
+        """
+        # sanitize each dim
+        sanitized: List[Optional[Union[int, str]]] = []
+        for d in shape:
+            # 1) anonymous dynamic
+            if d is None:
+                sanitized.append(None)  # → “?” in Netron
+                continue
+
+            # 2) concrete integer
+            if isinstance(d, int):
+                sanitized.append(int(d))
+                continue
+
+            # 3) every other object (DimExpr, numpy int64, etc.)
+            sym = str(d)
+            if sym.lower() == "none":
+                # treat accidental “None” string like a real anonymous dim
+                sanitized.append(None)
+            else:
+                sanitized.append(sym)  # → symbolic dim_param
+
+        # delegate to the builder
+        self.builder.add_value_info(name, tuple(sanitized), dtype)
         return name
 
     def _create_identity_node(
@@ -891,28 +916,49 @@ class Jaxpr2OnnxConverter:
             )
             raise RuntimeError(f"Failed processing primitive '{name}'") from e
 
-        # --- Handle output shapes for non-function primitives ---
-        # (This logic might need refinement based on how function plugin outputs are handled)
-        # Register shape info for the output variables of this equation
-        # Use the safe dim-to-symbol conversion
-        if not is_function_handler:  # Only for leaf primitives?
+        # ==============================================================================
+        # == SMART SHAPE PROPAGATION (THE FIX) =========================================
+        # ==============================================================================
+        # After a plugin runs, ensure output shapes are registered, but be smart
+        # about it. Do NOT overwrite detailed symbolic info that the plugin may
+        # have already set.
+        if not is_function_handler:
             for outvar in eqn.outvars:
                 if (
                     outvar is not None
                     and hasattr(outvar, "aval")
                     and hasattr(outvar.aval, "shape")
                 ):
-                    output_name = self.get_name(outvar)  # Get ONNX name
-                    # Use the potentially symbolic shape from the aval
+                    output_name = self.get_name(outvar)
+
+                    # Check if the builder *already* has complete shape info for this tensor.
+                    # This requires iterating through the value_info list.
+                    existing_vi = next(
+                        (
+                            vi
+                            for vi in self.builder.value_info
+                            if vi.name == output_name
+                        ),
+                        None,
+                    )
+
+                    if existing_vi and existing_vi.type.tensor_type.HasField("shape"):
+                        # The plugin has already registered a complete shape. Trust it and skip.
+                        self.logger.debug(
+                            f"Skipping shape registration for '{output_name}'; already exists."
+                        )
+                        continue
+
+                    # If we are here, the plugin did NOT register a complete shape.
+                    # Fallback to the generic logic.
+                    self.logger.debug(
+                        f"Plugin for '{name}' did not register shape for '{output_name}'. Applying generic shape."
+                    )
                     shape_tuple = tuple(
                         self._dim_to_symbol_safe(d) for d in outvar.aval.shape
                     )
                     dtype = outvar.aval.dtype
-                    # Add shape info to the builder
                     self.add_shape_info(output_name, shape_tuple, dtype)
-                else:
-                    # Handle literals or vars without shape info if necessary
-                    pass
 
     def _handle_cond(self, eqn, params):
         # ─── register all cond inputs so they get value_info ────────────────

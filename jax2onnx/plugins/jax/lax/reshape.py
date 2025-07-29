@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Callable, Any
 from functools import reduce
 import operator
+from typing import TYPE_CHECKING, Any, Callable, List, Union
 import jax
 import numpy as np
 from onnx import helper
@@ -63,6 +63,16 @@ reshape_p = lax.reshape_p
             "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
             "input_shapes": [(3, 10, 10)],
         },
+        {
+            "testcase": "reshape_merge_symbolic_with_static_and_check_name",
+            "callable": lambda x: jax.lax.reshape(x, new_sizes=(-1, x.shape[2])),
+            "input_shapes": [("B", 4, 16)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: (
+                m.graph.output[0].type.tensor_type.shape.dim[0].dim_param != "B"
+                and m.graph.output[0].type.tensor_type.shape.dim[1].dim_value == 16
+            ),
+        },
     ],
 )
 class ReshapePlugin(PrimitiveLeafPlugin):
@@ -75,7 +85,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         """
         Manually compute the output shape for reshape, handling -1 for inferred dimensions.
         """
-        # Calculate the total number of elements. Use reduce for robust symbolic multiplication.
         if not operand_aval.shape:
             input_nelem = 1
         else:
@@ -95,7 +104,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         output_shape_list = list(new_sizes)
         if neg_one_idx != -1:
-            # Calculate the inferred dimension
             inferred_dim = input_nelem // known_dims_prod
             output_shape_list[neg_one_idx] = inferred_dim
 
@@ -104,7 +112,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         data_input = node_inputs[0]
         data_input_name = s.get_name(data_input)
-        output_name = s.get_var_name(node_outputs[0])
+        output_var = node_outputs[0]
+        output_name = s.get_var_name(output_var)
 
         new_sizes = params["new_sizes"]
         dynamic_dims_iter = iter(node_inputs[1:])
@@ -125,14 +134,12 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     s.add_shape_info(
                         data_shape_name, (len(data_input.aval.shape),), np.int64
                     )
-
                 try:
                     axis_index = data_input.aval.shape.index(dim)
                 except ValueError:
                     raise ValueError(
                         f"Could not find symbolic dimension {dim} in input shape {data_input.aval.shape}"
                     )
-
                 axis_const = s.get_constant_name(np.array(axis_index, dtype=np.int64))
                 gathered_dim_scalar = s.get_unique_name(
                     f"{data_input_name}_dim{axis_index}"
@@ -146,7 +153,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     )
                 )
                 s.add_shape_info(gathered_dim_scalar, (), np.int64)
-
                 unsqueezed_dim = s.get_unique_name(f"{gathered_dim_scalar}_unsqueezed")
                 unsqueeze_axes = s.get_constant_name(np.array([0], dtype=np.int64))
                 s.add_node(
@@ -163,7 +169,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             ):
                 dynamic_dim_var = next(dynamic_dims_iter)
                 dynamic_dim_name = s.get_name(dynamic_dim_var)
-
                 unsqueezed_dim_name = s.get_unique_name(
                     f"{dynamic_dim_name}_unsqueezed"
                 )
@@ -205,6 +210,31 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 name=s.get_unique_name("reshape"),
             )
         )
+
+        # --- THE FIX ---
+        # Manually construct the correct symbolic output shape, creating new
+        # symbols for derived dimensions.
+        output_aval = output_var.aval
+        input_dims = {d for d in data_input.aval.shape if not isinstance(d, int)}
+
+        final_shape: List[Union[int, str]] = []
+        for dim in output_aval.shape:
+            if isinstance(dim, int):
+                final_shape.append(dim)
+            elif dim in input_dims:
+                # This dimension is identical to an input dimension, reuse its symbol.
+                final_shape.append(s._dim_to_symbol_safe(dim))
+            else:
+                # This is a new, derived dimension (e.g., B*4).
+                # We must create a new symbolic name for it.
+                new_symbol = s.get_unique_name("dim")
+                final_shape.append(new_symbol)
+                # Update the converter's mapping so this new symbol is consistently used
+                # if the same derived dimension object appears again.
+                s.builder.var_to_symbol_map[dim] = new_symbol
+                s.builder.var_to_symbol_map[str(dim)] = new_symbol
+
+        s.add_shape_info(output_name, tuple(final_shape), output_aval.dtype)
 
     @staticmethod
     def patch_info():

@@ -306,14 +306,27 @@ class OnnxBuilder:
         tensor_shape = TensorShapeProto()
         for i, dim in enumerate(shape_tuple):
             dim_proto = TensorShapeProto.Dimension()
+            # ── 1) concrete integer dimension ──────────────────────────────
             if isinstance(dim, int):
                 dim_proto.dim_value = dim
                 logger.debug(f"  - dim[{i}] = {dim} (int value)")
+
+            # ── 2) unknown / dynamic dimension → leave fields unset ────────
+            #     Treat JAX `_UnknownDim` strings like "unk__0", "unk__1", … the
+            #     same way we treat None/‑1/"" so Netron renders them as “?”.
+            elif dim in (None, -1) or (
+                isinstance(dim, str) and (dim == "" or dim.startswith("unk__"))
+            ):
+                logger.debug(f"  - dim[{i}] = {dim} (dynamic → '?')")
+
+            # ── 3) symbolic dimension (e.g. 'B') ───────────────────────────
             else:
                 friendly = _resolve_symbol(self, dim)
-                if friendly is None:
-                    friendly = _symbol_name(self, dim)  # ← current fallback
-                dim_proto.dim_param = friendly
+                if friendly in ("None", "none", ""):
+                    # Treat stray literal 'None' the same as dynamic
+                    logger.debug("    » treating literal 'None' as dynamic")
+                else:
+                    dim_proto.dim_param = friendly
                 logger.debug(f"  - dim[{i}] = {dim} (type={type(dim).__name__})")
                 logger.debug(f"    → final dim_param = '{friendly}'")
 
@@ -321,6 +334,10 @@ class OnnxBuilder:
 
         tensor_type.shape.CopyFrom(tensor_shape)
         vi.type.tensor_type.CopyFrom(tensor_type)
+
+        #  ⚠  DO NOT add dims a second time here – they are already
+        #     fully populated in the loop above.
+        self.value_info.append(vi)
         return vi
 
     def register_value_info_metadata(
@@ -839,23 +856,21 @@ class OnnxBuilder:
                 missing = sub_builder.find_missing_value_info()
 
         # Raise error if there are still missing items
-        if missing:  # Existing code
-            raise RuntimeError(  # Existing code
-                f"Missing value_info in function '{name}': {missing}\n\nFix the corresponding plugin using `register_value_info_metadata(...)`"
+        if missing:
+            raise RuntimeError(
+                f"Missing value_info in function '{name}': {missing}\n\n"
+                "Fix the corresponding plugin using `register_value_info_metadata(...)`"
             )
 
-        function_graph = sub_builder.create_graph(name + "_graph")  # Existing code
-        # These are the internal names used for function outputs
-        internal_output_names = [
-            vi.name for vi in function_graph.output
-        ]  # Modified variable name for clarity
+        function_graph = sub_builder.create_graph(name + "_graph")
+        # Internal outputs for the function proto
+        internal_output_names = [vi.name for vi in function_graph.output]
 
         # --- START REFINED CHANGE ---
-        # Construct the final input names list, handling both generic and descriptive names
-        final_input_names = []
-        seen_names = set()
+        # 1) Compute `final_input_names`, deduplicating via sub_converter if available
+        final_input_names: list[str] = []
+        seen_names: set[str] = set()
 
-        # If we have access to the sub_converter, use it to resolve descriptive names
         if (
             sub_converter is not None
             and hasattr(sub_converter, "jaxpr")
@@ -865,26 +880,18 @@ class OnnxBuilder:
                 f"Using sub_converter to deduplicate function inputs for '{name}'"
             )
 
-            # Get the original input variables from the sub_converter's jaxpr
-            original_internal_input_vars = sub_converter.jaxpr.invars
-
-            # Map all original input variables to their FINAL descriptive names
-            for var in original_internal_input_vars:
-                # Use the sub_converter's map to get the potentially renamed final name
-                final_name = sub_converter.var_to_name.get(var, None)
+            # Use the jaxpr invars to preserve original ordering
+            for var in sub_converter.jaxpr.invars:
+                final_name = sub_converter.var_to_name.get(var)
                 if final_name is None:
-                    # Handle cases where a var might not be in the map
                     logging.warning(
                         f"Could not find final name for input var: {var}. Skipping."
                     )
                     continue
-
-                # Ensure uniqueness in the final list
                 if final_name not in seen_names:
                     final_input_names.append(final_name)
                     seen_names.add(final_name)
-
-                    # Always ensure deterministic parameter is registered with BOOL
+                    # Force BOOL for deterministic parameters
                     if final_name == "deterministic":
                         from onnx import TensorProto
 
@@ -903,21 +910,16 @@ class OnnxBuilder:
                 else:
                     logging.debug(f"Deduplicating function input name: {final_name}")
 
-            # Add any extra parameter inputs (like weights/constants)
+            # Append any user-supplied scalar or tensor parameters
             for param_name in param_input_names:
                 if param_name not in seen_names:
-                    # Generalize: always register user-supplied scalar parameters as scalar inputs
-                    # Check if we have metadata for this parameter
                     try:
                         shape, dtype_enum = self.get_shape_dtype(param_name)
-                        # If scalar (shape == ()), register as scalar input
                         if shape == ():
                             sub_builder.add_scalar_input(param_name, dtype_enum)
                         else:
-                            # For non-scalars, add as normal input
                             sub_builder.add_input(param_name, shape, dtype_enum)
-                    except Exception:
-                        # If metadata is missing, fallback to add as scalar input with default float32
+                    except ValueError:
                         from onnx import TensorProto
 
                         sub_builder.add_scalar_input(param_name, TensorProto.FLOAT)
@@ -928,54 +930,50 @@ class OnnxBuilder:
                 f"Final computed input names for function '{name}': {final_input_names}"
             )
         else:
-            # Fallback to the original approach if sub_converter is not available
+            # Fallback: use the function_graph inputs + parameters
             internal_data_input_names = [vi.name for vi in function_graph.input]
             final_input_names = internal_data_input_names + param_input_names
 
-        # 1. Get ValueInfo for intermediate/output tensors from the sub-builder
-        intermediate_and_output_value_info = sub_builder.value_info
+        # 2) Gather intermediate/output ValueInfoProto from sub_builder
+        intermediate_value_info = sub_builder.value_info
 
-        # 2. Create ValueInfo for the function's inputs
-        input_value_infos = []
-
-        for input_name in final_input_names:
+        # 3) Build ValueInfoProto for each final input
+        input_value_infos: list[ValueInfoProto] = []
+        for in_name in final_input_names:
             try:
-                # Look up shape/dtype in the main builder's metadata
-                shape, dtype_enum = self.get_shape_dtype(input_name)
-
-                # If this is the deterministic parameter, always use BOOL
-                if input_name == "deterministic":
+                shape, dtype_enum = self.get_shape_dtype(in_name)
+                # Ensure deterministic is always BOOL
+                if in_name == "deterministic":
                     from onnx import TensorProto
 
                     dtype_enum = TensorProto.BOOL
-
-                # Create ValueInfoProto for this input
-                vi = helper.make_tensor_value_info(input_name, dtype_enum, shape)
+                vi = helper.make_tensor_value_info(in_name, dtype_enum, shape)
                 input_value_infos.append(vi)
             except ValueError:
-                pass
+                # Skip names without metadata
+                continue
 
-        # 3. Combine input ValueInfo with intermediate/output ValueInfo
-        combined_value_info_dict = {vi.name: vi for vi in input_value_infos}
-        for vi in intermediate_and_output_value_info:
-            if vi.name not in combined_value_info_dict:
-                combined_value_info_dict[vi.name] = vi
+        # 4) Merge all ValueInfoProto, overriding deterministic if needed
+        combined_vi: dict[str, ValueInfoProto] = {
+            vi.name: vi for vi in input_value_infos
+        }
+        for vi in intermediate_value_info:
+            combined_vi.setdefault(vi.name, vi)
 
-        # Special handling for 'deterministic' parameter - CRITICAL FIX
-        # Override any existing deterministic ValueInfo to ensure it uses BOOL
-        if "deterministic" in combined_value_info_dict:
+        if "deterministic" in combined_vi:
             from onnx import TensorProto
 
-            deterministic_vi = helper.make_tensor_value_info(
+            det_vi = helper.make_tensor_value_info(
                 "deterministic", TensorProto.BOOL, ()
             )
-            combined_value_info_dict["deterministic"] = deterministic_vi
+            combined_vi["deterministic"] = det_vi
             logging.debug(
                 f"Forced deterministic parameter to BOOL type in function '{name}'"
             )
 
-        final_function_value_info = list(combined_value_info_dict.values())
+        final_value_info = list(combined_vi.values())
 
+        # 5) Create and register the refined function proto
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
@@ -986,12 +984,12 @@ class OnnxBuilder:
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
-            value_info=final_function_value_info,
+            value_info=final_value_info,
         )
 
         self.functions[name] = function_proto
-
         return name
+        # --- END REFINED CHANGE ---
 
     def _get_shape(self, vi):
         if hasattr(vi, "type") and hasattr(vi.type, "tensor_type"):

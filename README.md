@@ -393,7 +393,7 @@ If conversion doesn't work out of the box, it could be due to:
 | Library       | Versions |  
 |:--------------|:---------| 
 | `JAX`         | 0.6.2    | 
-| `Flax`        | 0.10.7   | 
+| `Flax`        | 0.11.0   | 
 | `onnx`        | 1.18.0   |  
 | `onnxruntime` | 1.22.1   |  
 

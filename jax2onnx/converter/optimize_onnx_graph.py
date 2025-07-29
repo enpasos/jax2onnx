@@ -27,8 +27,8 @@ def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
     # Perform shape inference again to ensure consistency after optimizations.
     onnx_model = shape_inference.infer_shapes(onnx_model)
 
-    # Uncomment the following line to strip unknown dimension names if needed.
-    # onnx_model = strip_unk_dim_names(onnx_model)
+    # strip unknown dimension names if needed.
+    onnx_model = strip_unk_dim_names(onnx_model)
 
     return onnx_model
 
