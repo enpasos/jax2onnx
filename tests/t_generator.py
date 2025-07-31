@@ -123,6 +123,8 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 has_dynamic_dim = True
                 break
 
+    run_only_dynamic = entry.get("run_only_dynamic", False)
+
     if has_dynamic_dim:
         # Create dynamic variant
         dynamic_param_set = entry.copy()
@@ -130,36 +132,39 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         # input_shapes for dynamic remains as is (e.g., [("B", 28, 28, 3)])
         intermediate_params_list.append(dynamic_param_set)
 
-        # Create concrete variant
-        concrete_param_set = entry.copy()
-        # The testcase name for the concrete version usually doesn't get a special suffix
-        # if the dynamic one is already explicitly named.
+        # 👉  Skip the concrete branch when the testcase opts‑in
+        if not run_only_dynamic:
+            concrete_param_set = entry.copy()
+            # The testcase name for the concrete version usually doesn't get a special suffix
+            # if the dynamic one is already explicitly named.
 
-        # Convert input_shapes for concrete version
-        concrete_input_s = []
-        for shape_spec in entry_input_shapes:  # e.g., shape_spec is ("B", 28, 28, 3)
-            if isinstance(shape_spec, (list, tuple)):
-                concrete_input_s.append(
-                    tuple(3 if dim == "B" else dim for dim in shape_spec)
-                )
-            else:
-                # This case should ideally not happen with well-formed metadata
-                concrete_input_s.append(shape_spec)
-        concrete_param_set["input_shapes"] = concrete_input_s
-
-        # Convert expected_output_shapes if they exist for concrete version
-        if "expected_output_shapes" in entry:
-            concrete_output_s = []
-            entry_expected_output_shapes = entry.get("expected_output_shapes", [])
-            for shape_spec in entry_expected_output_shapes:
+            # Convert input_shapes for concrete version
+            concrete_input_s = []
+            for (
+                shape_spec
+            ) in entry_input_shapes:  # e.g., shape_spec is ("B", 28, 28, 3)
                 if isinstance(shape_spec, (list, tuple)):
-                    concrete_output_s.append(
+                    concrete_input_s.append(
                         tuple(3 if dim == "B" else dim for dim in shape_spec)
                     )
                 else:
-                    concrete_output_s.append(shape_spec)
-            concrete_param_set["expected_output_shapes"] = concrete_output_s
-        intermediate_params_list.append(concrete_param_set)
+                    # This case should ideally not happen with well-formed metadata
+                    concrete_input_s.append(shape_spec)
+            concrete_param_set["input_shapes"] = concrete_input_s
+
+            # Convert expected_output_shapes if they exist for concrete version
+            if "expected_output_shapes" in entry:
+                concrete_output_s = []
+                entry_expected_output_shapes = entry.get("expected_output_shapes", [])
+                for shape_spec in entry_expected_output_shapes:
+                    if isinstance(shape_spec, (list, tuple)):
+                        concrete_output_s.append(
+                            tuple(3 if dim == "B" else dim for dim in shape_spec)
+                        )
+                    else:
+                        concrete_output_s.append(shape_spec)
+                concrete_param_set["expected_output_shapes"] = concrete_output_s
+            intermediate_params_list.append(concrete_param_set)
     else:
         # No dynamic "B" dimension, just use the entry as is (it's effectively concrete)
         intermediate_params_list.append(entry.copy())

@@ -1,13 +1,13 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.7.2"
+version = "0.7.3"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "jax (>=0.6.0,<0.7.0)",
+    "jax (>=0.6.0,<0.7.0)", # TODO switch to 0.7.0 when dependencies live with it 
     "flax>=0.10.6",
     "ml_dtypes==0.5.1",
     "optax>=0.2.4",

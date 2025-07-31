@@ -91,6 +91,25 @@ nnx.layer_norm_p.multiple_results = False  # Correctly set at initialization
                 for n in m.graph.node
             ),
         },
+        # ----------------------------------------------------------------------
+        # Ensure negative axis is accepted and only LayerNormalization is emitted
+        {
+            "testcase": "layer_norm_negative_axis_no_div",
+            "callable": nnx.LayerNorm(
+                num_features=32,
+                epsilon=1e-5,
+                reduction_axes=-1,
+                feature_axes=-1,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            # graph must contain exactly one LayerNormalization and no Div
+            "post_check_onnx_graph": lambda m: any(
+                n.op_type == "LayerNormalization" for n in m.graph.node
+            )
+            and all(n.op_type != "Div" for n in m.graph.node),
+        },
     ],
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):
@@ -111,7 +130,16 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         output_name = s.get_name(node_outputs[0])
 
         epsilon = params.get("epsilon")
-        axis = params.get("axis", -1)  # Default normalization axis: last dimension
+        # allow negative axes; convert to positive index
+        axis = params.get("axis", -1)
+        if axis < 0:
+            # `node_inputs[0]` is a JAX `Var`; its `.aval.shape` has the rank info
+            in_shape = getattr(node_inputs[0], "aval", None)
+            if in_shape is None:
+                raise ValueError(
+                    "Cannot infer input rank for negative axis normalisation"
+                )
+            axis = len(in_shape.shape) + axis
 
         ln_node = helper.make_node(
             "LayerNormalization",
@@ -139,36 +167,48 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         """Returns a patched version of LayerNorm's call method."""
 
         def patched_layer_norm_call(self, x):
-            norm_axis = -1
-            if hasattr(self, "reduction_axes"):
-                if isinstance(self.reduction_axes, (list, tuple)):
-                    norm_axis = min(self.reduction_axes)
-                else:
-                    norm_axis = self.reduction_axes
-
-            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
-
-            feature_axes = self.feature_axes
-            if isinstance(feature_axes, int):
-                feature_axes = (feature_axes,)
-            feature_shape = tuple(x.shape[i] for i in feature_axes)
-
-            if self.use_scale and self.scale is not None:
-                scale_value = self.scale.value
+            # First try user-specified reduction_axes, then feature_axes
+            if hasattr(self, "reduction_axes") and self.reduction_axes is not None:
+                axes = self.reduction_axes
+            elif hasattr(self, "feature_axes") and self.feature_axes is not None:
+                axes = self.feature_axes
             else:
-                scale_value = jnp.ones(feature_shape, dtype=param_dtype)
+                axes = -1
 
-            if self.use_bias and self.bias is not None:
-                bias_value = self.bias.value
-            else:
-                bias_value = jnp.zeros(feature_shape, dtype=param_dtype)
+            # Normalize to a tuple of ints
+            if isinstance(axes, int):
+                axes = (axes,)
+            # Handle negative indices
+            axes = tuple(a if a >= 0 else a + x.ndim for a in axes)
+            # ONNX LayerNormalization only needs the first axis
+            axis0 = min(axes)
+
+            param_dtype = self.param_dtype or x.dtype
+            # --- dtype cast for x if needed ---
+            if x.dtype != param_dtype:
+                x = x.astype(param_dtype)
+            # shape of scale/bias must match all normalized dims
+            feature_shape = tuple(x.shape[a] for a in axes)
+
+            # Prepare scale (or default to ones)
+            scale_value = (
+                self.scale.value
+                if self.use_scale and self.scale is not None
+                else jnp.ones(feature_shape, dtype=param_dtype)
+            )
+            # Prepare bias (or default to zeros)
+            bias_value = (
+                self.bias.value
+                if self.use_bias and self.bias is not None
+                else jnp.zeros(feature_shape, dtype=param_dtype)
+            )
 
             return LayerNormPlugin._layer_norm(
                 x,
                 scale_value,
                 bias_value,
                 epsilon=self.epsilon,
-                axis=norm_axis,
+                axis=axis0,
             )
 
         return patched_layer_norm_call

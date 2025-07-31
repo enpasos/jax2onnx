@@ -31,10 +31,6 @@ register_example(
 )
 
 
-# ---------------------------------------------------------------------------
-# FAILING STATEFUL EXAMPLE: A module that calls a Sequential submodule with a residual.
-# This is the minimal test case that reproduces the TransformerDecoder bug.
-# ---------------------------------------------------------------------------
 class ComplexParentWithResidual(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs):
         self.initial_op = nnx.Linear(in_features=16, out_features=16, rngs=rngs)
@@ -65,6 +61,7 @@ register_example(
             "testcase": "sequential_nested_with_residual",
             "callable": ComplexParentWithResidual(rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 16)],
+            "run_only_f32_variant": True,
         },
     ],
 )

@@ -1,4 +1,4 @@
-# file: jax2onnx/examples/transformer_decoder.py
+# file: jax2onnx/examples/nnx/transformer_decoder2.py
 
 import jax
 from flax import nnx
@@ -37,11 +37,8 @@ class TransformerDecoderLayer(nnx.Module):
             decode=False,
             rngs=rngs,
         )
-        self.ffn = nnx.Sequential(
-            nnx.Linear(in_features=embed_dim, out_features=ff_dim, rngs=rngs),
-            lambda x: nnx.relu(x),
-            nnx.Linear(in_features=ff_dim, out_features=embed_dim, rngs=rngs),
-        )
+        self.lin1 = nnx.Linear(in_features=embed_dim, out_features=ff_dim, rngs=rngs)
+        self.lin2 = nnx.Linear(in_features=ff_dim, out_features=embed_dim, rngs=rngs)
         self.layernorm1 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
         self.layernorm2 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
         self.layernorm3 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
@@ -80,7 +77,7 @@ class TransformerDecoderLayer(nnx.Module):
         )
 
         # Feed-forward block
-        ffn_output = self.ffn(x)
+        ffn_output = self.lin2(nnx.relu(self.lin1(x)))
         x = self.layernorm3(x + self.dropout3(ffn_output, deterministic=deterministic))
         return x
 
@@ -136,7 +133,7 @@ class TransformerDecoder(nnx.Module):
 
 
 register_example(
-    component="TransformerDecoder",
+    component="TransformerDecoderWithoutSequential",
     description="A single-layer Transformer decoder built with nnx primitives (MHA, LayerNorm, Feed-Forward, Dropout).",
     source="https://github.com/google/flax/tree/main/flax/nnx",
     since="v0.7.1",
@@ -150,7 +147,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "tiny_decoder",
+            "testcase": "tiny_decoder_without_sequential",
             "callable": TransformerDecoder(
                 num_layers=1,
                 embed_dim=16,
@@ -160,9 +157,7 @@ register_example(
                 attention_dropout=0.5,
                 encoder_attention_dropout=0.5,
             ),
-            # TODO: enable testcases
-            # "input_shapes": [("B", 8, 16), ("B", 4, 16)],
-            "input_shapes": [(1, 8, 16), (1, 4, 16)],
+            "input_shapes": [("B", 8, 16), ("B", 4, 16)],
             "run_only_f32_variant": True,
         }
     ],
