@@ -42,5 +42,21 @@ register_example(
             "input_shapes": [("B", 4, 256)],
             "run_only_f32_variant": True,
         },
+        # ---------------------------------------------------------------
+        # Symbolic‑batch attention: ensure √dₖ constant is scalar (rank‑0)
+        {
+            "testcase": "multihead_attention_2_nnx",
+            "callable": nnx.MultiHeadAttention(
+                num_heads=4,
+                in_features=16,
+                qkv_features=16,
+                out_features=16,
+                rngs=nnx.Rngs(0),
+                decode=False,
+            ),
+            # q and kv identical shapes
+            "input_shapes": [("B", 5, 16)],
+            "run_only_f32_variant": True,
+        },
     ],
 )

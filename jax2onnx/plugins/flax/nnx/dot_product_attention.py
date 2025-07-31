@@ -1,5 +1,3 @@
-# file: jax2onnx/plugins/flax/nnx/dot_product_attention.py
-
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
@@ -124,9 +122,18 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         out_var = node_outputs[0]
         q_name, k_name, v_name = map(s.get_name, (q, k, v))
         out_name = s.get_name(out_var)
-        B, T, N, H = q.aval.shape
-        _, S, _, _ = k.aval.shape
+
+        # Handle both static and symbolic shapes
+        q_shape = q.aval.shape
+        k_shape = k.aval.shape
         np_dtype = q.aval.dtype
+
+        # Extract dimensions, handling symbolic shapes
+        B = q_shape[0]  # Batch size
+        T = q_shape[1]  # Sequence length for queries
+        N = q_shape[2]  # Number of heads
+        H = q_shape[3]  # Head dimension
+        S = k_shape[1]  # Sequence length for keys/values
 
         q_t = s.get_unique_name("q_T")
         s.add_node(helper.make_node("Transpose", [q_name], [q_t], perm=[0, 2, 1, 3]))
@@ -140,7 +147,22 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         s.add_node(helper.make_node("MatMul", [q_t, k_t], [logits]))
         s.add_shape_info(logits, (B, N, T, S), np_dtype)
 
-        scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
+        # Use a more robust way to get the scale factor
+        if isinstance(H, (int, float)):
+            scale = 1.0 / np.sqrt(H)
+        else:
+            # Handle symbolic head dimension
+            head_dim_float = s.get_unique_name("head_dim_float")
+            s.add_node(
+                helper.make_node("Cast", [H], [head_dim_float], to=TensorProto.FLOAT)
+            )
+            sqrt_head_dim = s.get_unique_name("sqrt_head_dim")
+            s.add_node(helper.make_node("Sqrt", [head_dim_float], [sqrt_head_dim]))
+            one_const = s.get_constant_name(np.array(1.0, dtype=np_dtype))
+            scale = s.get_unique_name("scale")
+            s.add_node(helper.make_node("Div", [one_const, sqrt_head_dim], [scale]))
+
+        scale_const = s.get_constant_name(np.array(scale, dtype=np_dtype))
         scaled_scores = s.get_unique_name("scaled_scores")
         s.add_node(helper.make_node("Mul", [logits, scale_const], [scaled_scores]))
         s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
