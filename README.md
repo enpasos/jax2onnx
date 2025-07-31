@@ -442,7 +442,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ## 🌟 Special Thanks
 
-Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum) and [@clementpoiret](https://github.com/clementpoiret)
+Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
 Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen) and [@clementpoiret](https://github.com/clementpoiret)
 
