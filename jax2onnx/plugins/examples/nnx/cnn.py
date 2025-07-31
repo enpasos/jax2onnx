@@ -1,4 +1,5 @@
-# file: jax2onnx/examples/cnn.py
+# file: jax2onnx/plugins/examples/nnx/cnn.py
+
 import jax
 from flax import nnx
 

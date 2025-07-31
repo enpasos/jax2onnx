@@ -1,4 +1,5 @@
-# file: jax2onnx/examples/autoencoder.py
+# jax2onnx/plugins/examples/nnx/autoencoder.py
+
 import jax
 from flax import nnx
 
