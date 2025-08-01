@@ -1,92 +1,101 @@
-# Proposal: Robust and Maintainable Conversion of Flax Linen Modules via the NNX Bridge in `jax2onnx`
+# Converting Flax Linen → ONNX via the NNX Bridge in `jax2onnx` (Flax ≥ 0.11)
 
-Direct tracing of `flax.nnx.bridge.ToNNX` fails due to a fundamental conflict between stateful wrapper objects and stateless JAX tracing. Rather than fragile monkey-patching `ToNNX`, this document proposes enhancing `jax2onnx` with a specialized handler that explicitly detects the `ToNNX` wrapper, extracts its state into a stateless representation, and traces a pure function using these parameters.
+`jax2onnx` now includes **first-class support** for models wrapped with `flax.nnx.bridge.ToNNX`.
+
+The new handler automatically transforms a wrapped, _stateful_ object into a **pure, stateless function** that can be symbolically traced and exported to ONNX without shape-mismatch errors.
 
 ---
 
-## 1. Background
+## 1. Why a Dedicated Handler?
 
-Converting Flax Linen models to ONNX using `jax2onnx` involves symbolic tracing via `jax.make_jaxpr`. Flax's `nnx.bridge.ToNNX` wrapper introduces stateful handling of parameters and RNG streams, causing conflicts during symbolic tracing.
+- **`nnx.bridge.ToNNX` is stateful** – it stores parameters, RNG streams, and other mutable data.
 
-## 2. The Problem: State Pollution During Symbolic Tracing
+- **Symbolic tracing** (e.g. `jax.make_jaxpr`) must be stateless – only pure functions whose outputs depend solely on their inputs can be safely traced.
 
-Tracing stateful modules directly fails because:
+Exporting a `ToNNX` object as-is mixes these two worlds and previously led to `flax.errors.ScopeParamShapeError`.
 
-* **Stateful initialization** creates concrete parameters (e.g., kernel shapes).
-* **Symbolic tracing** later tries to mix symbolic input shapes with previously stored concrete parameters.
+The dedicated handler resolves this by _isolating_ the stored variables and tracing a fresh, stateless `apply` function instead.
 
-This mismatch leads to shape validation errors during tracing:
+---
 
-```text
-ScopeParamShapeError: Initializer expected to generate shape (10, 128) but got shape (Var(id=...):int64[], 128) instead...
-```
+## 2. What the Handler Does
 
-## 3. Why Monkey-Patching `ToNNX` is Insufficient
+| Step | Action                                                                                                   | Effect                                              |
+|------|----------------------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| 1    | **Detect** `isinstance(model, flax.nnx.bridge.ToNNX)`                                                    | Opt-in only when the wrapper is present             |
+| 2    | **Select variable leaves** (`params`, `batch_stats`, …) with a small utility                             | Ignores anything that is _not_ a `nnx.Variable`     |
+| 3    | **Convert** NNX variables → Linen variables via `flax.nnx.bridge.variables.nnx_attrs_to_linen_vars`      | Produces a canonical Flax “variables” dict          |
+| 4    | **Suspend Flax’s shape check** (when symbolic dims appear) for the duration of tracing                   | Prevents `ScopeParamShapeError` in dynamic-batch    |
+| 5    | **Create** a pure function                                                                               | `def pure_apply(*args):`<br>`    fresh = linen_cls(**ctor_kwargs)`<br>`    return fresh.apply({"params": params}, *args)`<br>No stateful closure; ready for `jax.make_jaxpr` |
+| 6    | **Trace & export** with the existing `jax2onnx` pipeline                                                 | Works for static **and** dynamic shapes             |
 
-Experiments with monkey-patching `ToNNX.__call__` show:
+---
 
-* The method remains in a stateful trace context, thus always polluted by concrete state.
-* Symbolic tracers inevitably conflict with existing concrete parameters.
+## 3. User Workflow
 
-This approach cannot fundamentally solve the issue.
+1. **Keep your model code unchanged** – define normal Linen modules and wrap them once:
 
-## 4. Proposed Solution: Explicit Special Handling in `jax2onnx`
+   ```python
+   linen_model = MyModule(**cfg)
+   bridged     = nnx.bridge.ToNNX(linen_model, rngs=nnx.Rngs(0))
+   bridged     = nnx.bridge.lazy_init(bridged, dummy_input)
+   ```
 
-### Concept
+2. **Call `jax2onnx.to_onnx(..)`** directly on `bridged`:
 
-`jax2onnx` should directly recognize and handle `nnx.bridge.ToNNX` instances by:
+   ```python
+   onnx_model = jax2onnx.to_onnx(
+       bridged,
+       input_specs=[jax.ShapeDtypeStruct(("B", 10), jnp.float32)],
+       model_name="my_model",
+       opset=21,
+   )
+   ```
 
-1. Detecting if the provided model is a `ToNNX` wrapper.
-2. Extracting internal state (parameters, optionally mutable states) into a clean dictionary.
-3. Creating and tracing a pure, stateless function with extracted parameters passed explicitly.
+3. **Done!** Dynamic batch dimensions (`"B"`) and other symbolic shapes are now supported.
 
-### Detailed Conceptual Implementation
+---
 
-```python
-def to_onnx(model, inputs, ...):
-    from flax import nnx
+## 4. Supported Patterns
 
-    if isinstance(model, nnx.bridge.ToNNX):
-        # Step 1: Extract parameters and mutable state
-        nnx_attrs = {
-            k: v for k, v in vars(model).items()
-            if k not in ['module', 'rngs'] and not k.startswith('_object__')
-        }
-        linen_variables = nnx.bridge.variables.nnx_attrs_to_linen_vars(nnx_attrs)
+| Layer / Pattern                  | Status |
+|----------------------------------|--------|
+| `nn.Dense`, `nn.Conv`, `nn.LayerNorm`, … | ✅     |
+| Nested Linen sub-modules         | ✅     |
+| Dynamic batch dim `"B"`          | ✅     |
+| Multiple inputs / outputs        | ✅     |
 
-        params = linen_variables.get('params', {})
-        other_vars = {k: v for k, v in linen_variables.items() if k != 'params'}
+> *Note*: Additional variable collections (e.g. `batch_stats`) will be forwarded exactly as they appear in the NNX wrapper. If you add new collections, no change inside `jax2onnx` is required.
 
-        # Step 2: Define a pure function wrapper explicitly
-        def pure_apply(params, *args):
-            variables = {'params': params, **other_vars}
-            return model.module.apply(variables, *args)
+---
 
-        # Step 3: Perform stateless symbolic tracing
-        return to_onnx_internal(
-            pure_apply,
-            [params, *inputs],
-            ...
-        )
-    else:
-        # Standard tracing logic
-        ...
-```
+## 5. Examples
 
-### Advantages
+See the **`jax2onnx/plugins/examples/linen_bridge/`** directory:
 
-* **Robustness**: Avoids tracing stateful objects directly, eliminating shape conflicts.
-* **Minimal Maintenance**: Clearly defined, minimal changes to `jax2onnx`.
-* **Official Abstraction**: Leverages official Flax bridge APIs, ensuring compatibility.
-* **Future-Proof**: Easily extendable to more complex stateful modules (BatchNorm, etc.).
+- `dense.py` – single Dense → ReLU
+- `conv.py` – 2-D Conv with dynamic height/width
+- `mlp.py` – two-layer MLP
 
-## 5. Next Steps
+(All examples are registered automatically in the test-suite.)
 
-* **Prototype**: Develop and test this specialized handler in `jax2onnx`.
-* **Validate**: Confirm compatibility with standard Linen layers (Dense, Conv, LayerNorm, etc.).
-* **Document**: Clearly document this special handling behavior within `jax2onnx`.
-* **Review**: Discuss with maintainers for approval and refinement.
+---
 
-## 6. Conclusion
+## 6. Extending the Handler
 
-This proposal provides a robust, explicit, and future-proof solution for converting Flax Linen modules via the NNX bridge, significantly simplifying and stabilizing the ONNX conversion process.
+The implementation is intentionally **minimal**:
+
+- ~100 LOC (`jax2onnx/converter/linen_handler.py`)
+- No monkey-patching of Flax internals (except a short, scoped suspension of the parameter-shape check)
+- Relies only on **public** Flax ≥ 0.11 APIs
+
+If future Flax/NNX releases add new bridge types or variable kinds, you can extend the handler with a few extra `isinstance` checks—**no changes** to the core conversion pipeline are required.
+
+---
+
+## 7. Takeaways
+
+- You can now export **any** Flax Linen model wrapped with `nnx.bridge.ToNNX` to ONNX using `jax2onnx` – with *dynamic shapes* and *without* brittle hacks.
+- The solution leverages Flax’s official conversion utilities, making it both **robust** and **forward-compatible**.
+
+Happy converting! 🎉

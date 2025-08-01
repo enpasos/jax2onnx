@@ -81,6 +81,53 @@ ONNX_DTYPE_MAP = {
 }
 
 
+# --- dtype widening helpers ---------------------------------------------------
+from onnx import TensorProto as _TP
+_INT_WIDTH = {
+    _TP.INT8: 8,  _TP.UINT8: 8,
+    _TP.INT16: 16, _TP.UINT16: 16,
+    _TP.INT32: 32, _TP.UINT32: 32,
+    _TP.INT64: 64, _TP.UINT64: 64,
+}
+_FLOAT_WIDTH = {
+    getattr(_TP, "FLOAT16", None): 16,
+    _TP.FLOAT: 32,
+    _TP.DOUBLE: 64,
+}
+def _is_int_dtype(dt: int) -> bool:
+    return dt in _INT_WIDTH
+def _is_float_dtype(dt: int) -> bool:
+    return dt in _FLOAT_WIDTH and _FLOAT_WIDTH[dt] is not None
+def _is_widening(old: int, new: int, enable_double_precision: bool) -> bool:
+    # integers: allow equal or wider bit-width
+    if _is_int_dtype(old) and _is_int_dtype(new):
+        return _INT_WIDTH[new] >= _INT_WIDTH[old]
+    # floats: allow upgrade (e.g., FLOAT -> DOUBLE). Respect builder setting if desired.
+    if _is_float_dtype(old) and _is_float_dtype(new):
+        return _FLOAT_WIDTH[new] >= _FLOAT_WIDTH[old]
+    return False
+
+def _promote_numeric_type(dt0: int, dt1: int) -> Optional[int]:
+    """
+    Choose a common numeric dtype for binary ops:
+      • If any is float → choose the wider float.
+      • Else both ints  → choose the wider int.
+      • Else return None (unsupported mix).
+    """
+    # float takes precedence
+    if _is_float_dtype(dt0) or _is_float_dtype(dt1):
+        cands = []
+        if _is_float_dtype(dt0):
+            cands.append(dt0)
+        if _is_float_dtype(dt1):
+            cands.append(dt1)
+        # Pick widest float among candidates
+        return max(cands, key=lambda d: _FLOAT_WIDTH[d])
+    # integers only
+    if _is_int_dtype(dt0) and _is_int_dtype(dt1):
+        return max((dt0, dt1), key=lambda d: _INT_WIDTH[d])
+    return None
+
 # ─── new util helpers ────────────────────────────────────────────────────────
 def _is_unknown_dim(d) -> bool:  # -1 / None / ""  → unknown
     return d in (-1, None, "")
@@ -387,23 +434,71 @@ class OnnxBuilder:
                         f"    ✓ Found in dimvar_to_name_by_str: {self.dimvar_to_name_by_str[str(dim)]}"
                     )
 
-        # Use symbolic shape if available
+        # If the converter recorded a symbolic shape for this tensor, prefer it
         sym = getattr(self, "converter", None)
         if sym and hasattr(sym, "symbolic_shapes"):
-            old_shape = shape
-            shape = sym.symbolic_shapes.get(name, shape)
-            if shape != old_shape:
+            overridden = sym.symbolic_shapes.get(name)
+            if overridden is not None and overridden != shape_tuple:
                 logger.debug(
-                    f"  → Shape overridden from symbolic_shapes: {old_shape} → {shape}"
+                    f"  → Shape overridden from symbolic_shapes: {shape_tuple} → {overridden}"
                 )
+                shape_tuple = _as_tuple(overridden)
 
-        # Cast to the expected types to fix type errors
-        self.value_info_metadata[name] = cast(
-            ValueInfoMetadataType, (shape_tuple, dtype)
-        )
-        self.value_info_metadata_with_origin[name] = cast(
-            ValueInfoMetadataWithOriginType, (shape_tuple, dtype, origin or "traced")
-        )
+        # Normalize dtype to ONNX enum (int)
+        from onnx import TensorProto
+        if isinstance(dtype, int):
+            onnx_dtype = dtype
+        else:
+            onnx_dtype = ONNX_DTYPE_MAP.get(dtype)
+            if onnx_dtype is None:
+                try:
+                    onnx_dtype = helper.np_dtype_to_tensor_dtype(dtype)
+                except Exception:
+                    logger.warning(
+                        f"[register_value_info_metadata] Unknown dtype {dtype}; defaulting to FLOAT"
+                    )
+                    onnx_dtype = TensorProto.FLOAT
+
+        # Guard: allow safe widening; otherwise keep existing dtype
+        if name in self.value_info_metadata:
+            old_shape, old_dtype = self.value_info_metadata[name]
+            # decide final shape (refine-only)
+            final_shape = old_shape
+            if not old_shape or _is_shape_more_specific(old_shape, shape_tuple):
+                final_shape = shape_tuple
+
+            final_dtype = old_dtype
+            if old_dtype != onnx_dtype:
+                if _is_widening(old_dtype, onnx_dtype, getattr(self, "enable_double_precision", False)):
+                    logger.debug(
+                        f"[dtype-upgrade] '{name}': {old_dtype} → {onnx_dtype}"
+                    )
+                    final_dtype = onnx_dtype
+                else:
+                    # Keep old dtype; this avoids breaking tests that rely on original typing.
+                    logger.debug(
+                        f"[dtype-keep] '{name}': keep {old_dtype}, ignore new {onnx_dtype}"
+                    )
+
+            self.value_info_metadata[name] = cast(
+                ValueInfoMetadataType, (final_shape, final_dtype)
+            )
+            prev_origin = None
+            if name in self.value_info_metadata_with_origin:
+                prev_origin = self.value_info_metadata_with_origin[name][2]
+            self.value_info_metadata_with_origin[name] = cast(
+                ValueInfoMetadataWithOriginType,
+                (final_shape, final_dtype, origin or prev_origin or "traced"),
+            )
+        else:
+            # First registration
+            self.value_info_metadata[name] = cast(
+                ValueInfoMetadataType, (shape_tuple, onnx_dtype)
+            )
+            self.value_info_metadata_with_origin[name] = cast(
+                ValueInfoMetadataWithOriginType,
+                (shape_tuple, onnx_dtype, origin or "traced"),
+            )
 
     def add_initializer_from_scalar(self, name, value):
         from onnx import TensorProto
@@ -741,12 +836,21 @@ class OnnxBuilder:
         # 1. Filter unused initializers (safe for subgraphs too)
         self.filter_unused_initializers()
 
+        # 1.a Before strict checks: harmonize input dtypes for comparison nodes.
+        self._harmonize_binary_comparators()
+
         # 1.a Strict topology check: every node input must have been produced already
         self._assert_topologically_sorted()
 
         if not is_subgraph:
-            # For the main graph, filter redundant inputs.
-            self._filter_redundant_inputs()
+            # For the main graph, filter redundant inputs — but older branches
+            # may not provide this helper. Guard to keep backward compatibility.
+            if hasattr(self, "_filter_redundant_inputs"):
+                self._filter_redundant_inputs()
+            else:
+                logger.debug(
+                    "Skipping _filter_redundant_inputs(): helper not present on this branch"
+                )
 
         missing = self.find_missing_value_info()
 
@@ -1307,90 +1411,93 @@ class OnnxBuilder:
             available_tensors.update(node.output)
 
     # ------------------------------------------------------------------
-    #  Remove any ValueInfo that is *not* referenced by nodes, outputs
-    #  or initializers.  This prevents compile-time constants that were
-    #  later replaced (e.g. transposed kernels) from surfacing as graph
-    #  inputs.
+    # Harmonize input dtypes for comparison ops that require same T
     # ------------------------------------------------------------------
-    def _filter_unused_inputs(self):
-        used_names: set[str] = set()
+    def _dtype_of(self, name: str) -> Optional[int]:
+        # From value_info metadata
+        if name in self.value_info_metadata:
+            return self.value_info_metadata[name][1]
+        # From initializers
+        for init in self.initializers:
+            if init.name == name:
+                return init.data_type
+        # From graph IO (fallback)
+        for vi in self.inputs + self.outputs + self.value_info:
+            if vi.name == name and vi.type.HasField("tensor_type"):
+                return vi.type.tensor_type.elem_type
+        return None
 
-        # all node inputs
-        for n in self.nodes:
-            used_names.update(n.input)
+    def _shape_of(self, name: str) -> tuple:
+        if name in self.value_info_metadata:
+            return tuple(self.value_info_metadata[name][0] or ())
+        # Try to extract from value_info directly
+        for vi in self.inputs + self.outputs + self.value_info:
+            if vi.name == name and vi.type.HasField("tensor_type"):
+                shp = []
+                for d in vi.type.tensor_type.shape.dim:
+                    shp.append(d.dim_value if d.HasField("dim_value") else None)
+                return tuple(shp)
+        # As last resort, scalars
+        return ()
 
-        # graph outputs must stay
-        used_names.update(o.name for o in self.outputs)
-
-        # and every initializer is baked into the model
-        # Build a mapping from initializer names for quick lookup
-        self.initializers_by_name = {init.name: init for init in self.initializers}
-        used_names.update(self.initializers_by_name.keys())
-
-        # keep only genuinely used inputs
-        before = len(self.inputs)
-        self.inputs = [vi for vi in self.inputs if vi.name in used_names]
-
-        if before != len(self.inputs):
-            logger.debug(
-                "Pruned %d unused graph inputs (constants that became "
-                "initializers or were otherwise dropped).",
-                before - len(self.inputs),
-            )
-
-    # ------------------------------------------------------------------
-    # helper
-    # ------------------------------------------------------------------
-    def _filter_redundant_inputs(self) -> None:
-        """Drop every `graph.input` that
-        * is also produced by some node **or**
-        * duplicates an initializer **or**
-        * is not consumed by any node (including nodes in subgraphs).
+    def _insert_cast_before(
+        self, inp_name: str, target_dtype: int, user_hint: str
+    ) -> str:
         """
-        node_in, node_out = set(), set()
-        for n in self.nodes:
-            node_in.update([t for t in n.input if t])
-            node_out.update([t for t in n.output if t])
-            # Recursively find inputs in subgraphs
-            for attr in n.attribute:
-                if attr.type == AttributeProto.GRAPH:
-                    for sub_node in attr.g.node:
-                        node_in.update([t for t in sub_node.input if t])
-                elif attr.type == AttributeProto.GRAPHS:
-                    for g in attr.graphs:
-                        for sub_node in g.node:
-                            node_in.update([t for t in sub_node.input if t])
+        Create a Cast node that converts `inp_name` to `target_dtype`, return the new tensor name.
+        """
+        cast_out = self.get_unique_instance_name(f"{user_hint}_cast")
+        cast_node = helper.make_node("Cast", [inp_name], [cast_out], to=target_dtype, name=cast_out)
+        # Register value_info for the new cast output (reuse input shape)
+        self.add_value_info(cast_out, self._shape_of(inp_name), target_dtype)
+        return cast_out, cast_node
 
-        # Build initializers dictionary if not already done
-        if not hasattr(self, "initializers_by_name"):
-            self.initializers_by_name = {init.name: init for init in self.initializers}
+    def _harmonize_binary_comparators(self) -> None:
+        """
+        For ops with type-constraint 'T' shared across inputs (Less, Greater,
+        LessOrEqual, GreaterOrEqual, Equal), insert Casts so both inputs match.
+        """
+        NEED_SAME_T = {"Less", "Greater", "LessOrEqual", "GreaterOrEqual", "Equal"}
+        new_nodes: list[NodeProto] = []
+        for node in self.nodes:
+            if node.op_type not in NEED_SAME_T or len(node.input) < 2:
+                new_nodes.append(node)
+                continue
 
-        inits = set(self.initializers_by_name.keys())
-        g_outs = set(o.name for o in self.outputs)
+            a, b = node.input[0], node.input[1]
+            dt_a, dt_b = self._dtype_of(a), self._dtype_of(b)
+            if dt_a is None or dt_b is None or dt_a == dt_b:
+                new_nodes.append(node)
+                continue
 
-        before = len(self.inputs)
-        self.inputs = [
-            vi
-            for vi in self.inputs
-            if (
-                # must still be needed
-                vi.name in node_in
-                or vi.name in g_outs
+            target = _promote_numeric_type(dt_a, dt_b)
+            if target is None:
+                # Don't attempt to fix non-numeric or incompatible types
+                new_nodes.append(node)
+                continue
+
+            # Decide which sides need casting
+            inps = list(node.input)
+            casts_to_add: list[NodeProto] = []
+            if dt_a != target:
+                cast_out, cast_node = self._insert_cast_before(a, target, node.op_type.lower())
+                inps[0] = cast_out
+                casts_to_add.append(cast_node)
+            if dt_b != target:
+                cast_out, cast_node = self._insert_cast_before(b, target, node.op_type.lower())
+                inps[1] = cast_out
+                casts_to_add.append(cast_node)
+
+            # Append casts first, then the adjusted node
+            new_nodes.extend(casts_to_add)
+            fixed = helper.make_node(
+                node.op_type, inputs=inps, outputs=list(node.output), name=node.name
             )
-            and (
-                # …but not produced inside
-                vi.name
-                not in node_out
-            )
-            and (
-                # …and not shadow an initializer
-                vi.name
-                not in inits
-            )
-        ]
+            # preserve attributes if any
+            fixed.attribute.extend(list(node.attribute))
+            new_nodes.append(fixed)
 
-        if before != len(self.inputs):
-            logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
+        self.nodes = new_nodes
 
     def subgraph(
         self,

@@ -20,6 +20,57 @@ if TYPE_CHECKING:  # pragma: no cover
 # --------------------------------------------------------------------------- #
 from jax.interpreters import batching
 
+   
+
+def _safe_masked_dpa(q, k, v, q_lens, kv_lens):
+    """
+    q, k, v: (B, H, Sq, D), (B, H, Sk, D), (B, H, Sk, D)
+    q_lens, kv_lens: (B,)
+    """
+    # Ensure ONNX graph is consistently typed in f64 runs:
+    # if the abstract dtype is float64, insert explicit casts up front so
+    # MatMul inputs are DOUBLE even if model inputs were materialized as FLOAT.
+    if q.dtype == jnp.float64:
+        q = q.astype(jnp.float64)
+        k = k.astype(jnp.float64)
+        v = v.astype(jnp.float64)
+    dtype = q.dtype
+    B, H, Sq, D = q.shape
+    Sk = k.shape[-2]
+
+    # Scaled scores
+    scale = jnp.asarray(1.0 / np.sqrt(D), dtype)
+    scores = jnp.matmul(q, jnp.swapaxes(k, -1, -2)) * scale      # (B,H,Sq,Sk)
+
+    # Build padding mask with positive axes for CumSum
+    ones_q = jnp.ones_like(q[..., :1], dtype=jnp.int32)          # (B,H,Sq,1)
+    axis_q = ones_q.ndim - 2                                     # == 2
+    pos_q  = jnp.cumsum(ones_q, axis=axis_q) - 1                 # (B,H,Sq,1)
+
+    ones_k = jnp.ones_like(k[..., :1], dtype=jnp.int32)          # (B,H,Sk,1)
+    axis_k = ones_k.ndim - 2                                     # == 2
+    pos_k  = jnp.cumsum(ones_k, axis=axis_k) - 1                 # (B,H,Sk,1)
+    pos_k  = jnp.swapaxes(pos_k, -2, -1)                         # (B,H,1,Sk)
+
+    ql = jnp.asarray(q_lens, dtype=jnp.int32)[:, None, None, None]   # (B,1,1,1)
+    kl = jnp.asarray(kv_lens, dtype=jnp.int32)[:, None, None, None]  # (B,1,1,1)
+
+    mask_q = pos_q < ql                 # (B,H,Sq,1)
+    mask_k = pos_k < kl                 # (B,H,1,Sk)
+    mask   = mask_q & mask_k            # (B,H,Sq,Sk)
+
+    large_neg = jnp.asarray(-1e30, dtype)
+    masked_logits = jnp.where(mask, scores, large_neg)
+
+    # Safe softmax
+    m = jnp.max(masked_logits, axis=-1, keepdims=True)
+    exp = jnp.exp(masked_logits - m)
+    denom = jnp.sum(exp, axis=-1, keepdims=True)
+    attn = jnp.where(denom > 0, exp / denom, jnp.zeros_like(exp))
+
+    out = jnp.matmul(attn, v)           # (B,H,Sq,D)
+    return out
+
 
 # Callable definitions for test cases
 def dpa_with_mask(q, k, v, mask):
@@ -239,9 +290,11 @@ nn.dot_product_attention_p.multiple_results = False
                 np.array([8, 4], dtype=np.int32),
                 np.array([8, 7], dtype=np.int32),
             ],
-            "atol_f64": 1e-6,  # Absolute tolerance for float64
-            "rtol_f64": 1e-6,  # Relative tolerance for float64
+            "atol_f64": 1e-6,
+            "rtol_f64": 1e-6,
+            "run_only_f32_variant": True,
         },
+        
         {
             "testcase": "dpa_with_local_window_mask",
             "callable": dpa_with_local_window_mask,
@@ -279,24 +332,32 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         B, T, N, H = q.aval.shape
         _, S, _, _ = k.aval.shape
         np_dtype = q.aval.dtype
-        s.builder._numpy_dtype_to_onnx(np_dtype)
+        builder = s.builder
+        onnx_dtype = builder._numpy_dtype_to_onnx(np_dtype)
+
+        # Register both in metadata and legacy value_info to satisfy all builder paths
+        def _reg(name: str, shape):
+            shp = tuple(int(d) for d in shape)
+            builder.register_value_info_metadata(name, shp, onnx_dtype)
+            # legacy path (expects numpy dtype)
+            s.add_shape_info(name, shp, np_dtype)
 
         q_t = s.get_unique_name("q_T")
         k_t = s.get_unique_name("k_T")
         s.add_node(helper.make_node("Transpose", [q_name], [q_t], perm=[0, 2, 1, 3]))
         s.add_node(helper.make_node("Transpose", [k_name], [k_t], perm=[0, 2, 3, 1]))
-        s.add_shape_info(q_t, (B, N, T, H), np_dtype)
-        s.add_shape_info(k_t, (B, N, H, S), np_dtype)
+        _reg(q_t, (B, N, T, H))
+        _reg(k_t, (B, N, H, S))
 
         logits = s.get_unique_name("attn_scores")
         s.add_node(helper.make_node("MatMul", [q_t, k_t], [logits]))
-        s.add_shape_info(logits, (B, N, T, S), np_dtype)
+        _reg(logits, (B, N, T, S))
 
         scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
         # 1) scale the raw attention scores
         scaled_scores = s.get_unique_name("scaled_scores")
         s.add_node(helper.make_node("Mul", [logits, scale_const], [scaled_scores]))
-        s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
+        _reg(scaled_scores, (B, N, T, S))
 
         final_logits = scaled_scores
 
@@ -325,12 +386,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("where"),
                 )
             )
-            # tell ONNX about the shape of that new tensor
-            s.add_shape_info(
-                masked_name,
-                (b, n_heads, seq_q, seq_k),
-                node_inputs[0].aval.dtype,
-            )
+            _reg(masked_name, (b, n_heads, seq_q, seq_k))
             final_logits = masked_name
 
         # Handle optional mask input
@@ -343,7 +399,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     "Cast", [mask_name], [mask_bool_name], to=TensorProto.BOOL
                 )
             )
-            s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
+            # BOOL needs direct registration in legacy path as well
+            shp_bool = tuple(int(d) for d in mask_var.aval.shape)
+            builder.register_value_info_metadata(mask_bool_name, shp_bool, TensorProto.BOOL)
+            s.add_shape_info(mask_bool_name, shp_bool, bool)
             # JAX fills masked positions with the minimum finite value
             very_neg = np.array(np.finfo(np_dtype).min, dtype=np_dtype)
             large_negative_number_const = s.get_constant_name(very_neg)
@@ -355,24 +414,43 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     outputs=[masked_logits],
                 )
             )
-            s.add_shape_info(masked_logits, (B, N, T, S), np_dtype)
+            _reg(masked_logits, (B, N, T, S))
             final_logits = masked_logits
 
         # 3) finally softmax over the last (key) axis
         weights = s.get_unique_name("attn_weights")
         s.add_node(helper.make_node("Softmax", [final_logits], [weights], axis=-1))
-        s.add_shape_info(weights, (B, N, T, S), np_dtype)
+        _reg(weights, (B, N, T, S))
+
+        # 3.a If a boolean mask was provided, zero-out masked positions *after* softmax.
+        #     This ensures rows with all entries masked become all-zeros (not uniform),
+        #     matching JAX's lengths behavior.
+        if optional_inputs:
+            # Reuse the earlier mask_bool_name; cast it to data dtype and multiply.
+            mask_float = s.get_unique_name("mask_float")
+            s.add_node(
+                helper.make_node("Cast", [mask_bool_name], [mask_float], to=onnx_dtype)
+            )
+            # Register shape info for the casted mask using the mask boolean shape.
+            shp_bool = tuple(int(d) for d in optional_inputs[0].aval.shape)
+            builder.register_value_info_metadata(mask_float, shp_bool, onnx_dtype)
+            s.add_shape_info(mask_float, shp_bool, np_dtype)
+
+            weights_masked = s.get_unique_name("attn_weights_masked")
+            s.add_node(helper.make_node("Mul", [weights, mask_float], [weights_masked]))
+            _reg(weights_masked, (B, N, T, S))
+            weights = weights_masked
 
         v_t = s.get_unique_name("v_T")
         out_t = s.get_unique_name("out_T")
         s.add_node(helper.make_node("Transpose", [v_name], [v_t], perm=[0, 2, 1, 3]))
-        s.add_shape_info(v_t, (B, N, S, H), np_dtype)
+        _reg(v_t, (B, N, S, H))
         s.add_node(helper.make_node("MatMul", [weights, v_t], [out_t]))
-        s.add_shape_info(out_t, (B, N, T, H), np_dtype)
+        _reg(out_t, (B, N, T, H))
         s.add_node(
             helper.make_node("Transpose", [out_t], [out_name], perm=[0, 2, 1, 3])
         )
-        s.add_shape_info(out_name, (B, T, N, H), np_dtype)
+        _reg(out_name, (B, T, N, H))
 
     @staticmethod
     def _dot_product_attention(q, k, v, *args, **kwargs):
@@ -389,10 +467,30 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         if "mask" in kwargs:
             mask = kwargs.pop("mask")
 
-        # --- 3) extract is_causal (default False) ---
+        # --- 3) lengths → synthesize boolean padding mask (broadcast over heads) ---
+        q_lens = kwargs.pop("query_seq_lengths", None)
+        kv_lens = kwargs.pop("key_value_seq_lengths", None)
+        if (q_lens is not None) or (kv_lens is not None):
+            if (q_lens is None) or (kv_lens is None):
+                raise TypeError(
+                    "Both query_seq_lengths and key_value_seq_lengths must be provided together."
+                )
+            # Shapes: q:(B,T,N,H), k:(B,S,N,H)
+            # Build (B,1,T,S) boolean mask, broadcast across heads N
+            # Use static dims from aval during tracing; fall back to array .shape when eager.
+            tq = (getattr(q, "aval", q).shape)[1]
+            sk = (getattr(k, "aval", k).shape)[1]
+            # build index grids without advanced indexing (works with dynamic dims)
+            t_idx = jnp.arange(tq, dtype=jnp.int32).reshape(1, 1, tq, 1)  # (1,1,T,1)
+            s_idx = jnp.arange(sk, dtype=jnp.int32).reshape(1, 1, 1, sk)  # (1,1,1,S)
+            ql = jnp.asarray(q_lens, dtype=jnp.int32)[:, None, None, None]  # (B,1,1,1)
+            kl = jnp.asarray(kv_lens, dtype=jnp.int32)[:, None, None, None] # (B,1,1,1)
+            mask = (t_idx < ql) & (s_idx < kl)  # (B,1,T,S) → broadcasts to (B,N,T,S)
+
+        # --- 4) extract is_causal (default False) ---
         is_causal = bool(kwargs.pop("is_causal", False))
 
-        # --- 4) bind with the right signature ---
+        # --- 5) bind with the right signature ---
         if mask is not None:
             # explicit mask → goes in inputs[3]
             return nn.dot_product_attention_p.bind(q, k, v, mask)

@@ -73,6 +73,8 @@ class Jaxpr2OnnxConverter:
         self.primitive_handlers: dict[str, Any] = {}
         self.shape_env: dict[str, tuple[int, ...]] = {}
         self.name_to_const: dict[str, Any] = {}
+        # Track nested conversion depth; only depth==1 emits graph outputs
+        self._graph_depth: int = 0
         # ------------------------------------------------------------------
         # Mapping: symbolic dimension expression -> (tensor_name, axis)
         # ------------------------------------------------------------------
@@ -87,6 +89,29 @@ class Jaxpr2OnnxConverter:
         }
         # Note: dim_to_symbol might need access to the builder's map directly later
         # self.dim_to_symbol = lambda d: _canonical_symbol(self.builder, d) # Maybe pass builder?
+
+    # ───────────────────────────────────────────────────────────────────────────────
+    # Centralized shape/dtype extractor: SINGLE source of truth
+    # ───────────────────────────────────────────────────────────────────────────────
+    def _shape_dtype_of(self, v) -> tuple[tuple, np.dtype]:
+        """
+        Return (shape, dtype) for JAX Var / Tracer / Literal / Python number.
+        Never coerces dtype; returns the actual one.
+        """
+        from numbers import Number
+        if isinstance(v, extend_core.Literal):
+            arr = np.asarray(v.val)
+            return tuple(arr.shape), arr.dtype
+        if isinstance(v, core.Tracer):
+            return tuple(v.aval.shape), v.aval.dtype
+        if isinstance(v, Var):
+            return tuple(v.aval.shape), v.aval.dtype
+        if isinstance(v, Number) and not hasattr(v, "aval"):
+            arr = np.asarray(v)
+            return tuple(arr.shape), arr.dtype
+        # Fallback – treat unknown as scalar int64 to be safe for indices,
+        # but this path should be rare.
+        return (), np.dtype(np.int64)
 
     def new_var(self, dtype: np.dtype, shape: tuple[int, ...]) -> Var:
         """Create a new JAX variable with the given dtype and shape."""
@@ -164,31 +189,17 @@ class Jaxpr2OnnxConverter:
         from numbers import Number
 
         if isinstance(var, Number) and not hasattr(var, "aval"):
-            value = np.array(var, dtype=np.int32)
+            value = np.asarray(var)  # keep actual dtype (e.g., int64 on most platforms)
             const_name = self.get_constant_name(value)
-            wanted_dtype = self._ensure_onnx_dtype(value.dtype)
-
-            # Cast to ensure dtype matches int32 exactly
-            cast_name = self.get_unique_name("lit_cast_to_i32")
-            self.builder.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[const_name],
-                    outputs=[cast_name],
-                    to=int(wanted_dtype),
-                    name=cast_name,
-                )
-            )
-            self.add_shape_info(cast_name, (), value.dtype)
-            return cast_name
+            # Register correct scalar shape/dtype metadata
+            self.add_shape_info(const_name, value.shape, value.dtype)
+            return const_name
 
         # ────────────────────────────────────────────────────────────────
         # Handle Literal (JAX constant-folded literals)
         # ────────────────────────────────────────────────────────────────
         if isinstance(var, Literal):
-            value = np.asarray(var.val)
-            if np.issubdtype(value.dtype, np.integer):
-                value = value.astype(np.int32)
+            value = np.asarray(var.val)  # preserve original dtype
             const_name = self.get_constant_name(value)
             self.add_shape_info(const_name, value.shape, value.dtype)
             return const_name
@@ -371,7 +382,8 @@ class Jaxpr2OnnxConverter:
             # and used as keys in the var_to_name map.
             return self.get_var_name(var)
         if isinstance(var, extend_core.Literal):
-            return self.get_constant_name(var)
+            # Name by the constant VALUE, not the Literal object
+            return self.get_constant_name(np.asarray(var.val))
         raise NotImplementedError(f"get_name not yet implemented for type: {type(var)}")
 
     def _extract_symbolic_axes(self, example_args):
@@ -470,8 +482,7 @@ class Jaxpr2OnnxConverter:
     def trace_jaxpr(
         self,
         fn: Any,
-        # Change signature: Now expects the list of symbolic ShapeDtypeStruct avals
-        symbolic_avals: List[ShapeDtypeStruct],  # Changed name and type hint
+        symbolic_avals: List[ShapeDtypeStruct],
         preserve_graph: bool = False,
         params: dict[str, Any] | None = None,
     ) -> None:
@@ -589,11 +600,14 @@ class Jaxpr2OnnxConverter:
 
         # --- Step 4: Convert JAXPR to ONNX Graph ---
         self.logger.info("Processing generated jaxpr...")
-        # Pass the map explicitly or ensure _process_jaxpr uses self.builder.var_to_symbol_map
+        # Convert JAXPR to ONNX graph
         self._process_jaxpr(self.jaxpr, closed.consts)
         self.logger.info("Jaxpr processing complete.")
 
-        # Write the full primitive calls log if recording was enabled
+        # Prune graph outputs to match only top-level outvars
+        self._prune_outputs_to_top_level(closed.jaxpr.outvars)
+
+        # Write primitive calls log if enabled
         if (
             self.record_primitive_calls_file
             and hasattr(self, "recorded_calls_log")
@@ -614,66 +628,88 @@ class Jaxpr2OnnxConverter:
                 )
 
     def _process_jaxpr(self, jaxpr: Any, consts: list[Any]) -> None:
-        # Process equations
-        for i, const in enumerate(consts):
-            # register initializer-name → value
-            const_name = self.get_constant_name(const)
-            const_var = jaxpr.constvars[i]
-            self.var_to_name[const_var] = const_name
-            self.name_to_var[const_name] = const_var
-            self.name_to_const[const_name] = const
-            # also register the "logical var name" (in case it differs)
-            var_name = self.get_var_name(const_var)
-            if var_name != const_name:
-                self.name_to_const[var_name] = const
+        # Track depth
+        self._graph_depth += 1
+        try:
+            # Process constants
+            for i, const in enumerate(consts):
+                # register initializer-name → value
+                const_name = self.get_constant_name(const)
+                const_var = jaxpr.constvars[i]
+                self.var_to_name[const_var] = const_name
+                self.name_to_var[const_name] = const_var
+                self.name_to_const[const_name] = const
+                # also register the "logical var name" (in case it differs)
+                var_name = self.get_var_name(const_var)
+                if var_name != const_name:
+                    self.name_to_const[var_name] = const
 
-        # Add input variables with symbolic shapes
-        for var in jaxpr.invars:
-            if var is None:
-                continue
-            var_name = self.get_var_name(var)
-            if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
-                continue
-            shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
-            dtype = var.aval.dtype
-            if not any(inp.name == var_name for inp in self.builder.inputs):
-                self.add_input(var, shape, dtype)
-        for eqn in jaxpr.eqns:
-            self._process_eqn(eqn)
-
-        # Explicitly handle outputs
-        for var in jaxpr.outvars:
-            if var is None:
-                continue
-            name = self.get_var_name(var)
-
-            if name in self.name_to_const:
-                # Explicitly wrap initializer in Identity for valid ONNX output
-                identity_output_name = self.get_unique_name("const_output")
-                dtype = np.asarray(self.name_to_const[name]).dtype
-                shape = ()
-
-                identity_node = helper.make_node(
-                    "Identity",
-                    inputs=[name],
-                    outputs=[identity_output_name],
-                    name=self.get_unique_name("identity_const_out"),
-                )
-                self.builder.add_node(identity_node)
-
-                # Set the output explicitly to the Identity node's output
-                self.builder.add_output(identity_output_name, shape, dtype)
-                self.add_shape_info(identity_output_name, shape, dtype)
-            elif hasattr(var, "aval") and hasattr(var.aval, "shape"):
-                # if the plugin already emitted this output, skip it
-                if any(o.name == name for o in self.builder.outputs):
+            # Add inputs
+            for var in jaxpr.invars:
+                if var is None:
                     continue
-                shape = tuple(self._dim_to_symbol_safe(d) for d in var.aval.shape)
-                dtype = var.aval.dtype
-                self.add_output(var, shape, dtype)
-            else:
-                if not any(o.name == name for o in self.builder.outputs):
-                    self.builder.add_output(name, (), np.int32)
+                if not hasattr(var, "aval") or not hasattr(var.aval, "shape"):
+                    continue
+                var_name = self.get_var_name(var)
+                shape, dtype = self._shape_dtype_of(var)
+                shape = tuple(self._dim_to_symbol_safe(d) for d in shape)
+                if not any(inp.name == var_name for inp in self.builder.inputs):
+                    self.add_input(var, shape, dtype)
+
+            # Process equations
+            for eqn in jaxpr.eqns:
+                self._process_eqn(eqn)
+
+            # Emit outputs only at top level
+            if self._graph_depth == 1:
+                for var in jaxpr.outvars:
+                    if var is None:
+                        continue
+                    name = self.get_var_name(var)
+                    if any(o.name == name for o in self.builder.outputs):
+                        continue
+                    shape, dtype = self._shape_dtype_of(var)
+                    shape = tuple(self._dim_to_symbol_safe(d) for d in shape)
+                    self.add_output(var, shape, dtype)
+        finally:
+            self._graph_depth -= 1
+
+    def _prune_outputs_to_top_level(self, outvars):
+        """
+        Keep graph outputs exactly equal (by name and order) to the top-level jaxpr outvars.
+        """
+        # Map names → (shape,dtype) to enable correct re-add when missing
+        wanted_meta = []
+        for v in outvars:
+            if v is None:
+                continue
+            name = self.get_var_name(v)
+            shape, dtype = self._shape_dtype_of(v)
+            shape = tuple(self._dim_to_symbol_safe(d) for d in shape)
+            wanted_meta.append((name, shape, dtype))
+
+        wanted = [name for (name, _, _) in wanted_meta]
+        if not wanted:
+            return
+        current = {o.name: o for o in self.builder.outputs}
+        new_outputs = [current[name] for name in wanted if name in current]
+        for (name, shape, dtype) in wanted_meta:
+            if name not in current:
+                self.builder.add_output(name, shape, dtype)
+                current = {o.name: o for o in self.builder.outputs}
+                new_outputs.append(current[name])
+        self.builder.outputs = new_outputs
+
+    def _create_isolated_context(self, reason: str) -> "Jaxpr2OnnxConverter":
+        self.logger.debug(f"Creating isolated context for {reason}")
+        sub = Jaxpr2OnnxConverter(
+            self.builder,
+            self.record_primitive_calls_file,
+            self.function_context_for_recording,
+        )
+        # Inherit depth so subgraphs don't emit outputs
+        sub._graph_depth = max(self._graph_depth, 1)
+        return sub
 
     def add_shape_info(self, name: str, shape: tuple, dtype: Any = np.float32) -> str:
         """
@@ -956,11 +992,10 @@ class Jaxpr2OnnxConverter:
                     self.logger.debug(
                         f"Plugin for '{name}' did not register shape for '{output_name}'. Applying generic shape."
                     )
-                    shape_tuple = tuple(
-                        self._dim_to_symbol_safe(d) for d in outvar.aval.shape
-                    )
-                    dtype = outvar.aval.dtype
+                    shape_raw, dtype = self._shape_dtype_of(outvar)
+                    shape_tuple = tuple(self._dim_to_symbol_safe(d) for d in shape_raw)
                     self.add_shape_info(output_name, shape_tuple, dtype)
+        # ...existing code...
 
     def _handle_cond(self, eqn, params):
         # ─── register all cond inputs so they get value_info ────────────────
