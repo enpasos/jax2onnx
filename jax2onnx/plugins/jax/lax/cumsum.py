@@ -24,6 +24,13 @@ def _cumsum_last_axis_reverse(x):
 
 @register_primitive(
     jaxpr_primitive=lax.cumsum_p.name,  # primitive name: "cumsum"
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cumsum.html#jax.lax.cumsum",
+    onnx=[
+        {
+            "component": "CumSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
+        }
+    ],
     context="primitives.lax",
     component="cumsum",
     since="v0.7.4",
