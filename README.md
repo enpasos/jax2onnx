@@ -108,13 +108,17 @@ save_model(model, "docs/onnx/model_with_function.onnx")
   * Advanced ONNX function support, including function reuse, optimized internal graph structure, and improved variable naming for clarity and readability
   * Support for `equinox` models 
   * Integrating `onnx-ir` as a backend to improve ONNX model construction, memory efficiency, and performance
- 
+
 
 ### **Current Productive Version**
-* **0.7.3** *(PyPI)*:
-  * Improved polymorphism handling for transformers.
+* **0.7.4** *(PyPI)*:
+  * Added support for new primitives: `lax.cumsum`, `jnp.cumsum`
+  * Improved support for `lax.scatter`
+
 
 ### **Past Versions**
+* **0.7.3**:
+  * Improved polymorphism handling for transformers.
 * **0.7.2**:
   * Added support for new primitives: `jnp.split`, `lax.split`, `lax.logistic`.
   * Added example for `nnx.GRUCell`
