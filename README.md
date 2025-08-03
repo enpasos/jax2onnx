@@ -111,12 +111,14 @@ save_model(model, "docs/onnx/model_with_function.onnx")
  
 
 ### **Current Productive Version**
-* **0.7.2** *(PyPI)*:
+* **0.7.3** *(PyPI)*:
+  * Improved polymorphism handling for transformers.
+
+### **Past Versions**
+* **0.7.2**:
   * Added support for new primitives: `jnp.split`, `lax.split`, `lax.logistic`.
   * Added example for `nnx.GRUCell`
   * Improved support for `lax.scatter`, and `lax.while_loop`.
-
-### **Past Versions**
 * **0.7.1**:
   * Fixed a bug in the test system ensuring numeric equivalence with Jax.
   * Added support for new primitives: `core.custom_jvp_generic`, `eqx.identity`, `jnp.select`, `jnp.stack`, `jnp.unstack`, `lax.select`, `nn.identiy`, `nn.celu`, `nn.elu`, `nn.gelu`, `nn.relu`, `nn.leaky_relu`, `nn.mish`, `nn.selu`, `nn.sigmoid`, `nn.soft-sign`, `nn.softmax`, `nn.truncated_normal`
@@ -440,7 +442,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ## 🌟 Special Thanks
 
-Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum) and [@clementpoiret](https://github.com/clementpoiret)
+Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
 Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen) and [@clementpoiret](https://github.com/clementpoiret)
 
