@@ -40,6 +40,13 @@ def _cumsum_axis2_reverse_i32_direct(x):
 
 @register_primitive(
     jaxpr_primitive="jnp.cumsum",
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cumsum.html#jax.numpy.cumsum",
+    onnx=[
+        {
+            "component": "CumSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
+        }
+    ],
     context="primitives.jnp",
     component="cumsum",
     since="v0.7.4",
