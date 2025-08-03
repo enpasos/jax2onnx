@@ -12,6 +12,8 @@ from jax.lax import (
     GatherScatterMode,
 )
 from onnx import helper
+import onnx
+from onnx import numpy_helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_utils import _prepare_scatter_inputs_for_onnx
@@ -22,6 +24,35 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter")
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+
+def _count_reshape_to_shape_in_model(model: onnx.ModelProto, target_shape: Sequence[int]) -> int:
+    """Count Reshape nodes whose 2nd input is a constant equal to target_shape."""
+    # Gather constant tensors by name from initializers and Constant nodes
+    const_map = {}
+    for init in model.graph.initializer:
+        const_map[init.name] = numpy_helper.to_array(init)
+    for node in model.graph.node:
+        if node.op_type == "Constant":
+            for attr in node.attribute:
+                if attr.name == "value" and getattr(attr, "t", None) is not None and attr.t.name:
+                    const_map[attr.t.name] = numpy_helper.to_array(attr.t)
+
+    def as_tuple(a):
+        try:
+            return tuple(int(x) for x in a.tolist())
+        except Exception:
+            return None
+
+    count = 0
+    tgt = tuple(target_shape)
+    for node in model.graph.node:
+        if node.op_type != "Reshape" or len(node.input) < 2:
+            continue
+        shp_name = node.input[1]
+        if shp_name in const_map and as_tuple(const_map[shp_name]) == tgt:
+            count += 1
+    return count
 
 
 @register_primitive(
@@ -115,31 +146,67 @@ if TYPE_CHECKING:
         # ────────────────────────────────────────────────────────────────
         #  Window‑scatter (moved from examples/lax/scatter_window.py)
         # ────────────────────────────────────────────────────────────────
-        # TODO: enable testcases
-        # {
-        #     "testcase": "scatter_window_update_f64",
-        #     # identical to the old `scatter_window_function`
-        #     "callable": lambda operand, indices, updates: lax.scatter(
-        #         operand=operand,
-        #         scatter_indices=indices,
-        #         updates=updates,
-        #         dimension_numbers=ScatterDimensionNumbers(
-        #             update_window_dims=(1, 2, 3, 4),
-        #             inserted_window_dims=(),
-        #             scatter_dims_to_operand_dims=(1, 2),
-        #         ),
-        #         indices_are_sorted=True,
-        #         unique_indices=True,
-        #         mode=GatherScatterMode.FILL_OR_DROP,
-        #     ),
-        #     "input_values": [
-        #         np.zeros((5, 266, 266, 1), dtype=np.float64),
-        #         np.array([[10, 10]], dtype=np.int32),
-        #         np.ones((1, 5, 256, 256, 1), dtype=np.float64),
-        #     ],
-        #     # keep the original flag so we only run the double‑precision variant
-        #     "run_only_f64_variant": True,
-        # },
+        {
+            "testcase": "scatter_window_update_f64",
+            # identical to the old `scatter_window_function`
+            "callable": lambda operand, indices, updates: lax.scatter(
+                operand=operand,
+                scatter_indices=indices,
+                updates=updates,
+                dimension_numbers=ScatterDimensionNumbers(
+                    update_window_dims=(1, 2, 3, 4),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1, 2),
+                ),
+                indices_are_sorted=True,
+                unique_indices=True,
+                mode=GatherScatterMode.FILL_OR_DROP,
+            ),
+            "input_values": [
+                np.zeros((5, 266, 266, 1), dtype=np.float64),
+                np.array([[10, 10]], dtype=np.int32),
+                np.ones((1, 5, 256, 256, 1), dtype=np.float64),
+            ],
+            # keep the original flag so we only run the double‑precision variant
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scatter_window_update_depth3_shapes_ok",
+            "callable": lambda operand, indices, updates: lax.scatter(
+                operand=operand,
+                scatter_indices=indices,
+                updates=updates,
+                dimension_numbers=ScatterDimensionNumbers(
+                    update_window_dims=(1, 2, 3, 4),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1, 2),
+                ),
+                indices_are_sorted=True,
+                unique_indices=True,
+                mode=GatherScatterMode.FILL_OR_DROP,
+            ),
+            "input_values": [
+                np.zeros((5, 266, 266, 1), dtype=np.float64),
+                np.array([[10, 10]], dtype=np.int32),
+                np.ones((1, 5, 256, 256, 1), dtype=np.float64),
+            ],
+            "run_only_f64_variant": True,
+            # ONNX graph sanity checks: exactly one [-1,3] and one [-1,1] Reshape.
+            "post_check_onnx_graph": lambda model: (
+                (lambda n_idx, n_upd:
+                    True
+                    if (n_idx == 1 and n_upd == 1)
+                    else (_ for _ in ()).throw(
+                        AssertionError(
+                            f"Expected exactly one Reshape to [-1,3] and [-1,1]; got n_idx={n_idx}, n_upd={n_upd}"
+                        )
+                    )
+                )(
+                    _count_reshape_to_shape_in_model(model, [-1, 3]),
+                    _count_reshape_to_shape_in_model(model, [-1, 1]),
+                )
+            ),
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):
@@ -199,4 +266,4 @@ class ScatterPlugin(PrimitiveLeafPlugin):
         # register output
         s.shape_env[out_name] = ShapeDtypeStruct(op_shape, op_dtype)
         s.add_shape_info(out_name, op_shape, op_dtype)
-        logger.debug(f"[ScatterPlugin] '{out_name}' -> {op_shape}/{op_dtype}")
+        logger.debug(f"[ScatterPlugin] '{out_name}' -> {op_shape}/{op_dtype}") 
