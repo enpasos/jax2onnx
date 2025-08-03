@@ -215,6 +215,25 @@ def _count_reshape_to_shape_in_model(
                 )
             ),
         },
+        # ────────────────────────────────────────────────────────────────
+        #  Static-slice assignment: x.at[:, 5:261, 5:261, :].set(updates)
+        #  Repro for user report where updates is (B, H, W, C) without a
+        #  leading "N" batch axis for indices rows.
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_static_slice_set_f64",
+            "callable": lambda operand, indices, updates: operand.at[
+                :, 5:261, 5:261, :
+            ].set(updates),
+            "input_values": [
+                np.zeros((5, 266, 266, 1), dtype=np.float64),  # operand
+                np.array(
+                    [[5, 5]], dtype=np.int32
+                ),  # indices (not used by JAX here, but kept for signature parity)
+                np.ones((5, 256, 256, 1), dtype=np.float64),  # updates
+            ],
+            "run_only_f64_variant": True,
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):
