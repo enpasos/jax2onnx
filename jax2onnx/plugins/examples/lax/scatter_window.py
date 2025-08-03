@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import jax
-import jax.numpy as jnp
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
 
 from jax2onnx.plugin_system import register_example
@@ -48,9 +47,9 @@ register_example(
             ),
             # Use concrete inputs to exactly match the repro:
             "input_values": [
-                np.zeros((5, 266, 266, 1), dtype=np.float64),     # operand
-                np.array([[10, 10]], dtype=np.int32),             # indices (1,2)
-                np.ones((1, 5, 256, 256, 1), dtype=np.float64),   # updates
+                np.zeros((5, 266, 266, 1), dtype=np.float64),  # operand
+                np.array([[10, 10]], dtype=np.int32),  # indices (1,2)
+                np.ones((1, 5, 256, 256, 1), dtype=np.float64),  # updates
             ],
             # Output is the updated operand; shape/dtype remain the same
             "expected_output_shapes": [(5, 266, 266, 1)],

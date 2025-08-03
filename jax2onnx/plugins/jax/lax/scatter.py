@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
-def _count_reshape_to_shape_in_model(model: onnx.ModelProto, target_shape: Sequence[int]) -> int:
+def _count_reshape_to_shape_in_model(
+    model: onnx.ModelProto, target_shape: Sequence[int]
+) -> int:
     """Count Reshape nodes whose 2nd input is a constant equal to target_shape."""
     # Gather constant tensors by name from initializers and Constant nodes
     const_map = {}
@@ -35,7 +37,11 @@ def _count_reshape_to_shape_in_model(model: onnx.ModelProto, target_shape: Seque
     for node in model.graph.node:
         if node.op_type == "Constant":
             for attr in node.attribute:
-                if attr.name == "value" and getattr(attr, "t", None) is not None and attr.t.name:
+                if (
+                    attr.name == "value"
+                    and getattr(attr, "t", None) is not None
+                    and attr.t.name
+                ):
                     const_map[attr.t.name] = numpy_helper.to_array(attr.t)
 
     def as_tuple(a):
@@ -193,12 +199,14 @@ def _count_reshape_to_shape_in_model(model: onnx.ModelProto, target_shape: Seque
             "run_only_f64_variant": True,
             # ONNX graph sanity checks: exactly one [-1,3] and one [-1,1] Reshape.
             "post_check_onnx_graph": lambda model: (
-                (lambda n_idx, n_upd:
-                    True
-                    if (n_idx == 1 and n_upd == 1)
-                    else (_ for _ in ()).throw(
-                        AssertionError(
-                            f"Expected exactly one Reshape to [-1,3] and [-1,1]; got n_idx={n_idx}, n_upd={n_upd}"
+                (
+                    lambda n_idx, n_upd: (
+                        True
+                        if (n_idx == 1 and n_upd == 1)
+                        else (_ for _ in ()).throw(
+                            AssertionError(
+                                f"Expected exactly one Reshape to [-1,3] and [-1,1]; got n_idx={n_idx}, n_upd={n_upd}"
+                            )
                         )
                     )
                 )(
@@ -266,4 +274,4 @@ class ScatterPlugin(PrimitiveLeafPlugin):
         # register output
         s.shape_env[out_name] = ShapeDtypeStruct(op_shape, op_dtype)
         s.add_shape_info(out_name, op_shape, op_dtype)
-        logger.debug(f"[ScatterPlugin] '{out_name}' -> {op_shape}/{op_dtype}") 
+        logger.debug(f"[ScatterPlugin] '{out_name}' -> {op_shape}/{op_dtype}")

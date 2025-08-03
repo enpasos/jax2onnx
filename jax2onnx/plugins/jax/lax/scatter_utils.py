@@ -721,7 +721,9 @@ def _prepare_scatter_inputs_for_onnx(
                 )
             )
             # (1,2) --squeeze[0]--> (2,)
-            _manually_ensure_shape_env_entry(s, squeeze_idx, (2,), np.int64, "SqueezedIdxD3")
+            _manually_ensure_shape_env_entry(
+                s, squeeze_idx, (2,), np.int64, "SqueezedIdxD3"
+            )
             # gather(0) → row0   ;   gather(1) → col0
             row0_name = s.get_unique_name("row0_d3")
             col0_name = s.get_unique_name("col0_d3")
@@ -762,7 +764,9 @@ def _prepare_scatter_inputs_for_onnx(
                     [arange_b],
                 )
             )
-            _manually_ensure_shape_env_entry(s, arange_b, (B_val,), np.int64, "ArangeBD3")
+            _manually_ensure_shape_env_entry(
+                s, arange_b, (B_val,), np.int64, "ArangeBD3"
+            )
             unsq_b = s.get_unique_name("unsq_B_d3")
             s.add_node(
                 helper.make_node(
@@ -771,7 +775,9 @@ def _prepare_scatter_inputs_for_onnx(
                     [unsq_b],
                 )
             )  # (B,1,1)
-            _manually_ensure_shape_env_entry(s, unsq_b, (B_val, 1, 1), np.int64, "UnsqBD3")
+            _manually_ensure_shape_env_entry(
+                s, unsq_b, (B_val, 1, 1), np.int64, "UnsqBD3"
+            )
             arange_h = s.get_unique_name("arange_H_d3")
             s.add_node(
                 helper.make_node(
@@ -784,10 +790,14 @@ def _prepare_scatter_inputs_for_onnx(
                     [arange_h],
                 )
             )
-            _manually_ensure_shape_env_entry(s, arange_h, (H_val,), np.int64, "ArangeHD3")
+            _manually_ensure_shape_env_entry(
+                s, arange_h, (H_val,), np.int64, "ArangeHD3"
+            )
             add_h = s.get_unique_name("row_plus_start_d3")
             s.add_node(helper.make_node("Add", [arange_h, row0_name], [add_h]))
-            _manually_ensure_shape_env_entry(s, add_h, (H_val,), np.int64, "RowPlusStartD3")
+            _manually_ensure_shape_env_entry(
+                s, add_h, (H_val,), np.int64, "RowPlusStartD3"
+            )
             unsq_h = s.get_unique_name("unsq_H_d3")
             s.add_node(
                 helper.make_node(
@@ -796,7 +806,9 @@ def _prepare_scatter_inputs_for_onnx(
                     [unsq_h],
                 )
             )  # (1,H,1)
-            _manually_ensure_shape_env_entry(s, unsq_h, (1, H_val, 1), np.int64, "UnsqHD3")
+            _manually_ensure_shape_env_entry(
+                s, unsq_h, (1, H_val, 1), np.int64, "UnsqHD3"
+            )
             arange_w = s.get_unique_name("arange_W_d3")
             s.add_node(
                 helper.make_node(
@@ -809,10 +821,14 @@ def _prepare_scatter_inputs_for_onnx(
                     [arange_w],
                 )
             )
-            _manually_ensure_shape_env_entry(s, arange_w, (W_val,), np.int64, "ArangeWD3")
+            _manually_ensure_shape_env_entry(
+                s, arange_w, (W_val,), np.int64, "ArangeWD3"
+            )
             add_w = s.get_unique_name("col_plus_start_d3")
             s.add_node(helper.make_node("Add", [arange_w, col0_name], [add_w]))
-            _manually_ensure_shape_env_entry(s, add_w, (W_val,), np.int64, "ColPlusStartD3")
+            _manually_ensure_shape_env_entry(
+                s, add_w, (W_val,), np.int64, "ColPlusStartD3"
+            )
             unsq_w = s.get_unique_name("unsq_W_d3")
             s.add_node(
                 helper.make_node(
@@ -821,7 +837,9 @@ def _prepare_scatter_inputs_for_onnx(
                     [unsq_w],
                 )
             )  # (1,1,W)
-            _manually_ensure_shape_env_entry(s, unsq_w, (1, 1, W_val), np.int64, "UnsqWD3")
+            _manually_ensure_shape_env_entry(
+                s, unsq_w, (1, 1, W_val), np.int64, "UnsqWD3"
+            )
 
             # Expand each to (B,H,W)
             target_shape_const = s.get_constant_name(
@@ -839,9 +857,15 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(
                 helper.make_node("Expand", [unsq_w, target_shape_const], [w_grid])
             )
-            _manually_ensure_shape_env_entry(s, b_grid, (B_val, H_val, W_val), np.int64, "BgridD3")
-            _manually_ensure_shape_env_entry(s, h_grid, (B_val, H_val, W_val), np.int64, "HgridD3")
-            _manually_ensure_shape_env_entry(s, w_grid, (B_val, H_val, W_val), np.int64, "WgridD3")
+            _manually_ensure_shape_env_entry(
+                s, b_grid, (B_val, H_val, W_val), np.int64, "BgridD3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, h_grid, (B_val, H_val, W_val), np.int64, "HgridD3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, w_grid, (B_val, H_val, W_val), np.int64, "WgridD3"
+            )
 
             # Each grid is (B,H,W). Unsqueeze to (B,H,W,1) so we can concat on axis=3.
             b_grid_u = s.get_unique_name("Bgrid_u_d3")
@@ -868,9 +892,15 @@ def _prepare_scatter_inputs_for_onnx(
                     [w_grid_u],
                 )
             )
-            _manually_ensure_shape_env_entry(s, b_grid_u, (B_val, H_val, W_val, 1), np.int64, "BgridUnsqD3")
-            _manually_ensure_shape_env_entry(s, h_grid_u, (B_val, H_val, W_val, 1), np.int64, "HgridUnsqD3")
-            _manually_ensure_shape_env_entry(s, w_grid_u, (B_val, H_val, W_val, 1), np.int64, "WgridUnsqD3")
+            _manually_ensure_shape_env_entry(
+                s, b_grid_u, (B_val, H_val, W_val, 1), np.int64, "BgridUnsqD3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, h_grid_u, (B_val, H_val, W_val, 1), np.int64, "HgridUnsqD3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, w_grid_u, (B_val, H_val, W_val, 1), np.int64, "WgridUnsqD3"
+            )
 
             # Concat last to (B,H,W,3)
             cat3 = s.get_unique_name("indices_BHW3_d3")
@@ -943,7 +973,11 @@ def _prepare_scatter_inputs_for_onnx(
                 )
             )
             _manually_ensure_shape_env_entry(
-                s, reshaped_upd_name, (-1, 1), original_updates_dtype_np, "FlatDepth3Upd"
+                s,
+                reshaped_upd_name,
+                (-1, 1),
+                original_updates_dtype_np,
+                "FlatDepth3Upd",
             )
 
             # Return flat tensors and keep bookkeeping consistent
@@ -1486,10 +1520,11 @@ def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
     return np.array(0, dtype=dtype)
 
 
-def _onnx_expected_updates_shape(operand_shape: Sequence[Any], indices_shape: Sequence[Any]) -> Tuple[Any, ...]:
+def _onnx_expected_updates_shape(
+    operand_shape: Sequence[Any], indices_shape: Sequence[Any]
+) -> Tuple[Any, ...]:
     if len(indices_shape) == 0:
         # K == 0
         return tuple(operand_shape)
     k = indices_shape[-1]
     return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
-
