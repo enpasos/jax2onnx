@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250803-d3-batched-shapes"
+SCATTER_UTILS_VERSION = "DEBUG-V20250803-d4-batched-shapes-fixes"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -1141,14 +1141,58 @@ def _prepare_scatter_inputs_for_onnx(
                             "DefaultReshapedUpdates",
                         )
                         _final_updates_name_val_to_return = reshaped_updates_name
-                    # END of modification
                 else:  # Element count mismatch
-                    # ---- add these two lines ----
+                    # We may be missing a trailing singleton (e.g. expected rank = orig_rank+1 with last dim 1).
+                    # Try an Unsqueeze at the end *before* padding.
+                    try:
+                        if (
+                            len(current_expected_onnx_updates_shape)
+                            == len(original_updates_shape_symbolic) + 1
+                            and isinstance(
+                                current_expected_onnx_updates_shape[-1],
+                                (int, np.integer),
+                            )
+                            and int(current_expected_onnx_updates_shape[-1]) == 1
+                        ):
+                            unsq_axis = len(
+                                original_updates_shape_symbolic
+                            )  # append at the end
+                            unsqueezed_updates_name = s.get_unique_name(
+                                f"{_final_updates_name_val_to_return}_unsq_lastdim"
+                            )
+                            s.add_node(
+                                helper.make_node(
+                                    "Unsqueeze",
+                                    [
+                                        _final_updates_name_val_to_return,
+                                        s.get_constant_name(
+                                            np.array([unsq_axis], dtype=np.int64)
+                                        ),
+                                    ],
+                                    [unsqueezed_updates_name],
+                                )
+                            )
+                            _manually_ensure_shape_env_entry(
+                                s,
+                                unsqueezed_updates_name,
+                                tuple(list(original_updates_shape_symbolic) + [1]),
+                                original_updates_dtype_np,
+                                "DefaultUnsqueezeUpdates",
+                            )
+                            _final_updates_name_val_to_return = unsqueezed_updates_name
+                            original_updates_shape_symbolic = tuple(
+                                list(original_updates_shape_symbolic) + [1]
+                            )
+                    except Exception:
+                        # best-effort; if this fails we'll still try padding below
+                        pass
+
+                    # ---- ensure we have a neutral pad value available ----
                     neutral_val_pad = _get_neutral_value(
                         reduction, original_updates_dtype_np
                     )
                     neutral_updates_name_pad = s.get_constant_name(neutral_val_pad)
-                    # -----------------------------
+                    # ------------------------------------------------------
                     (
                         maybe_padded_name,
                         maybe_padded_shape,
@@ -1157,7 +1201,7 @@ def _prepare_scatter_inputs_for_onnx(
                         _final_updates_name_val_to_return,
                         original_updates_shape_symbolic,
                         current_expected_onnx_updates_shape,
-                        neutral_updates_name_pad,  # <- now always defined
+                        neutral_updates_name_pad,
                         original_updates_dtype_np,
                         "DefaultUpdates",
                     )
@@ -1201,14 +1245,13 @@ def _prepare_scatter_inputs_for_onnx(
             )
 
     # --- Expected ONNX updates shape ------------------------------------
-    #   👇 NEW – spec‑exact calculation
-    # ------------------------------------------------------------------
-    #  Expected shape – use ONNX semantics for updates shape
-    # ------------------------------------------------------------------
-    current_expected_onnx_updates_shape = _onnx_expected_updates_shape(
-        operand_shape_symbolic,
-        processed_indices_shape_for_default_path,
-    )
+    # IMPORTANT:
+    # Do *not* override `current_expected_onnx_updates_shape` here.
+    # It already reflects the path taken above (including window-scatter and custom
+    # flattening strategies). Recomputing it with the plain ONNX ScatterND formula
+    # can desynchronize shapes for cases like windowed updates (e.g. 2D H×W slices).
+    # If a future path truly produces pure ScatterND semantics, set the value explicitly
+    # in that path instead.
 
     # -----------------------------------------------------------------
     #  ➤  JAX `FILL_OR_DROP` ⇒   ONNX: mask-out out-of-range rows
