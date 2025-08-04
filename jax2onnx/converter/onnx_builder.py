@@ -619,15 +619,28 @@ class OnnxBuilder:
         if any(name in n.output for n in self.nodes):
             # internal tensor – only record shape information if missing
             self.add_value_info(name, shape, dtype)
+            if name not in self.value_info_metadata:
+                self.register_value_info_metadata(name, shape, dtype)
             return
 
         if any(vi.name == name for vi in self.inputs):
             # already a formal input – keep first declaration
+            if name not in self.value_info_metadata:
+                self.register_value_info_metadata(name, shape, dtype)
             return
 
+        # ❶ add the actual input
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
-        # ─── register any symbolic dims on this new input ───────────────
+
+        # ❷ guarantee metadata registration for this input
+        try:
+            # dtype may be a numpy dtype or ONNX enum; register as-is
+            self.register_value_info_metadata(name, shape, dtype)
+        except Exception as e:
+            logger.debug(f"[add_input] could not register metadata for '{name}': {e}")
+
+        # ❸ still record any symbolic dims so we can track their origin
         if shape is not None:
             for axis, dim in enumerate(shape):
                 if not isinstance(dim, int):
@@ -1392,21 +1405,61 @@ class OnnxBuilder:
         if before != len(self.inputs):
             logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
 
+    # ------------------------------------------------------------------
+    #  🔍  Utility: find an already-existing graph.input that is “compatible”
+    #               with the requested (shape, dtype) tuple.
+    # ------------------------------------------------------------------
+    def find_compatible_input(
+        self, shape: tuple[Any, ...] | None, dtype: Any
+    ) -> str | None:
+        """
+        Return the name of a *graph input* that can safely be aliased instead
+        of creating a brand-new one, or **None** if no such input exists.
+
+        Two tensors are considered *compatible* when:
+          • they have the same rank;
+          • each dimension matches *or* one side is dynamic/-1/None/""/symbolic;
+          • dtypes match exactly (after mapping NumPy→ONNX enum if needed).
+        """
+        if shape is None:
+            shape = ()
+        shape = _as_tuple(shape)
+
+        # Normalise dtype to ONNX enum for stable comparison
+        dtype_enum = dtype if isinstance(dtype, int) else self._numpy_dtype_to_onnx(dtype)
+
+        def _dims_match(a, b):
+            return a == b or _is_unknown_dim(a) or _is_unknown_dim(b)
+
+        for inp in self.inputs:
+            meta = self.value_info_metadata.get(inp.name)
+            if meta is None:
+                continue
+            shp_meta, dt_meta = meta
+            if dtype_enum != (dt_meta if isinstance(dt_meta, int) else self._numpy_dtype_to_onnx(dt_meta)):
+                continue
+            if len(shp_meta) != len(shape):
+                continue
+            if all(_dims_match(sa, sb) for sa, sb in zip(shp_meta, shape)):
+                return inp.name
+        return None
+
+    # ------------------------------------------------------------------
+    #  Experimental stub so older plugins (fori_loop, if, scan, …) that
+    #  still call builder.subgraph() don’t explode.  Until we land full
+    #  nested-graph support it just returns `self`.
+    # ------------------------------------------------------------------
+    from typing import Sequence  # add with other imports
+
     def subgraph(
         self,
         name: str,
         invars: Sequence[str],
-        jaxpr: "ClosedJaxpr",
+        jaxpr: "ClosedJaxpr",          # noqa: F821  (forward reference)
     ) -> "OnnxBuilder":
         """
-        Lightweight stub so that experimental control-flow code can call
-        `builder.subgraph()` without breaking the current stable path.
-
-        * Returns **self** for now – i.e. the caller keeps using the parent
-          builder context.
-        * Adds **no** nodes, **no** IO, **no** metadata.
-        * Logs a DEBUG line so we know if it ever gets hit in production
-          before the real implementation lands.
+        Temporary no-op: lets callers keep emitting nodes into the parent
+        graph while we refactor.  Logs once so we can spot mis-uses later.
         """
-        logger.debug("subgraph(%s) called in stub mode – no graph emitted", name)
+        logger.debug("[subgraph-stub] requested ‘%s’ → passthrough", name)
         return self
