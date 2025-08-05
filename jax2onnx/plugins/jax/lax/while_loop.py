@@ -68,6 +68,37 @@ def _repro_cnn_bug_fn(image, counter):
     return lax.while_loop(cond_fun, body_fun, (image, counter))
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# CNN-2 - style reproducer
+#   * 28×28×1 image → down-sample to 9×9×32-ish feature map (here 9×9×4 to
+#     keep it tiny) **before** the loop.
+#   * The feature map is *captured* by the loop body but NOT part of the
+#     loop-carried state.
+#   * Current exporter re-declares that captured tensor as a graph input,
+#     so runtime receives the 28×28×1 image batch instead of 9×9×4,
+#     triggering a dimension mismatch.
+# ────────────────────────────────────────────────────────────────────────────
+
+def _repro_cnn2_shape_mismatch(img: jax.Array) -> jax.Array:
+    """
+    Minimal scalar-counter while_loop that closes over a 4-D feature map
+    of different spatial shape than *img*.
+    """
+
+    # crude "conv+pool": slice & tile so shape = (B, 9, 9, 4)
+    feat = jnp.tile(img[:, ::3, ::3, :1], (1, 1, 1, 4))
+
+    def cond_fun(counter):
+        return counter < 3
+
+    def body_fun(counter):
+        # use the captured feature map
+        _ = jnp.sum(feat)  # dummy op so JAX keeps the dependency
+        return counter + 1
+
+    return lax.while_loop(cond_fun, body_fun, jnp.array(0, dtype=jnp.int32))
+
+
 def _while_loop_multi_state_fn(x):
     """Test helper: a two‐state while_loop."""
     steps = 5
@@ -554,6 +585,18 @@ lax.while_loop_p.multiple_results = True
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int32],
         },
+        # ------------------------------------------------------------------
+        # 🔴  CNN-2 shape-mismatch reproducer (fails until exporter bug fixed)
+        # ------------------------------------------------------------------
+        {
+            "testcase": "while_loop_cnn2_shape_mismatch",
+            "callable": _repro_cnn2_shape_mismatch,
+            "input_shapes": [("B", 28, 28, 1)],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.int32],
+            "xfail": True,
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
@@ -909,46 +952,45 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             t.name for t in s.builder.initializers
         }
         _log_inputs(s)
-        # ── add captured‐tracer inputs to the *outer* graph ──────────────────────────
+        # ── add captured-tracer inputs to the *outer* graph ───────────────
         for nm in extra_body_inputs:
-            if nm in state_in:  # already a loop‑carried input → nothing to do
+            if nm in state_in:            # already a loop-carried input
                 continue
 
-            if nm not in existing_top_level:  # need to expose it somehow
-                shape, dtype = s.builder.value_info_metadata[nm]
+            want_shape, want_dtype = s.builder.value_info_metadata[nm]
 
-                # Re‑use an existing graph input with identical shape & dtype, if any
-                alias_src = next(
-                    (
-                        inp.name
-                        for inp in s.builder.inputs
-                        if s.builder.value_info_metadata.get(inp.name) == (shape, dtype)
-                    ),
-                    None,
-                )
-                if alias_src is None:
-                    # no alias possible → make it a *real* new graph input
-                    s.builder.add_input(nm, shape, dtype)
-                else:
-                    # alias via Identity so `nm` becomes a view of the same tensor
-                    s.add_node(
-                        helper.make_node(
-                            "Identity",
-                            inputs=[alias_src],
-                            outputs=[nm],
-                            name=s.get_unique_name("alias_captured_tracer"),
-                        )
+
+            # helper lives *inside* the loop so it can capture want_shape / want_dtype
+            def _same_sig(meta):
+                if meta is None:
+                    return False
+                shp, dt = meta
+                return shp == want_shape and dt == want_dtype
+
+
+            # ① If the recorded type/shape does not match what the Loop expects,
+            #    create a **new** alias first …
+            if not _same_sig(s.builder.value_info_metadata.get(nm)):
+                alias_nm = s.get_unique_name(f"{nm}_loopin")
+                s.add_node(
+                    helper.make_node(
+                        "Identity",
+                        inputs=[nm],
+                        outputs=[alias_nm],
+                        name=s.get_unique_name("alias_captured_tracer"),
                     )
-                    s.add_shape_info(nm, shape, dtype)
+                )
+                s.add_shape_info(alias_nm, want_shape, want_dtype)
+                nm = alias_nm                       # ← use the alias from now on
 
+            # ② … *then* ensure the (possibly aliased) tensor is available as a
+            #    graph input if no producer exists.
+            if not _has_producer(s.builder, nm):
+                s.builder.add_input(nm, want_shape, want_dtype)
                 existing_top_level.add(nm)
 
-            # ------------------------------------------------------------------
-            #  🔀  Keep original callable’s input order
-            #      – move every captured‑tracer input **in front of** the
-            #        loop‑carried state inputs.  We iterate in reverse so that
-            #        the left‑to‑right order of extra_body_inputs is preserved.
-            # ------------------------------------------------------------------
+            # (the remainder of the original block – re-ordering inputs –
+            #  stays unchanged)
             for tracer_name in reversed(extra_body_inputs):
                 for idx, vi in enumerate(s.builder.inputs):
                     if vi.name == tracer_name:
@@ -966,28 +1008,33 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         loop_inputs = [max_trip, init_cond] + state_in + filtered_scan_inputs
         _log_inputs(s)
 
+        produced_so_far = (
+            {t.name for t in s.builder.inputs}
+            | {t.name for t in s.builder.initializers}
+            | {o for n in s.builder.nodes for o in n.output}
+        )
         input_set = set(loop_inputs)
-        used_names = set(loop_inputs)
+        used_names = produced_so_far | input_set
+
         new_state_out = []
 
         for idx, name in enumerate(state_out):
             original_name = name
-            if name in input_set:
-                new_name = s.get_unique_name(f"{name}_loopout")
-                logger.info(
-                    f"🛠️ Renaming Loop output '{name}' → '{new_name}' to avoid input collision"
-                )
-                name = new_name
+            # unconditionally pick a fresh, globally unique symbol
+            name = s.get_unique_name(f"{name}_loopout")
 
-                if idx < len(node_outputs):
-                    jax_var = node_outputs[idx]
-                    s.var_to_name[jax_var] = name
+            # keep JAX→ONNX mapping in sync
+            if idx < len(node_outputs):
+                s.var_to_name[node_outputs[idx]] = name
+                shp = node_outputs[idx].aval.shape
+                dt  = node_outputs[idx].aval.dtype
+            else:
+                # extra outputs (e.g. captured tracers) – re-use meta from the
+                # placeholder we just replaced
+                shp, dt = s.builder.value_info_metadata[original_name]
 
-                shape, dtype = s.builder.value_info_metadata[original_name]
-                s.add_shape_info(name, shape, dtype)
-
-            while name in used_names:
-                name = s.get_unique_name(f"{name}_dup")
+            # ★ make the metadata for the new symbol available right away
+            s.add_shape_info(name, shp, dt)
 
             used_names.add(name)
             new_state_out.append(name)
@@ -1134,3 +1181,28 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
 lax.while_loop_p.def_abstract_eval(WhileLoopPlugin.abstract_eval)
 lax.while_loop_p.def_impl(WhileLoopPlugin._while_loop_impl)
+
+# ----------------------------------------------------------------------
+# Utility: does *this* graph already produce a tensor named `name`?
+# ----------------------------------------------------------------------
+def _has_producer(builder, name: str) -> bool:
+    """Return True if `name` is the output of some node or an initializer
+    in the current builder graph."""
+    if name in {init.name for init in builder.initializers}:
+        return True
+    for n in builder.nodes:
+        if name in n.output:
+            return True
+    return False
+# ----------------------------------------------------------------------
+def _has_producer(builder, name: str) -> bool:
+    """Return True if `name` is the output of some node or an initializer
+    in the current builder graph."""
+    if name in {init.name for init in builder.initializers}:
+        return True
+    for n in builder.nodes:
+        if name in n.output:
+            return True
+    return False
+ 
+
