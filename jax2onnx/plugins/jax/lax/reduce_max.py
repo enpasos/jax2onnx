@@ -13,6 +13,7 @@ from ._reduce_utils import add_reduce_node  # shared helper
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
+
 # --------------------------------------------------------------------------- #
 # 🧪 regression helper: verify ReduceMax axes handling for opset ≥ 18
 # --------------------------------------------------------------------------- #
@@ -32,6 +33,7 @@ def _check_reduce_max_axes_input(onnx_model) -> bool:
         if has_axes_attr or not correct_input_count:
             return False
     return True
+
 
 reduce_max_p = lax.reduce_max_p
 
@@ -63,7 +65,7 @@ reduce_max_p = lax.reduce_max_p
             "testcase": "reduce_max_keepdims",
             "callable": lambda x: jnp.max(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
-        }, 
+        },
         {
             "testcase": "reduce_max_axes_input",
             "callable": lambda x: jnp.max(x, axis=(1,)),

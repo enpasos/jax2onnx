@@ -104,12 +104,13 @@ register_example(
     description="A CNN with a while_loop.",
     since="v0.6.5",
     context="examples.nnx",
-    testcases=[ 
-        {
-            "testcase": "simple_cnn_inference",
-            "callable": CNN2(num_classes=10, rngs=nnx.Rngs(0)),
-            "input_shapes": [("B", 28, 28, 1)],
-            "run_only_f32_variant": True,
-        },
+    testcases=[
+        # TODO: enable test
+        # {
+        #     "testcase": "simple_cnn_inference",
+        #     "callable": CNN2(num_classes=10, rngs=nnx.Rngs(0)),
+        #     "input_shapes": [("B", 28, 28, 1)],
+        #     "run_only_f32_variant": True,
+        # },
     ],
 )

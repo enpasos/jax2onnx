@@ -23,7 +23,12 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.bitwise_not")
 @register_primitive(
     jaxpr_primitive=lax.not_p.name,  # ▶  primitive is literally called "not"
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.bitwise_not.html",
-    onnx=[{"component": "BitwiseNot", "doc": "https://onnx.ai/onnx/operators/onnx__BitwiseNot.html"}],
+    onnx=[
+        {
+            "component": "BitwiseNot",
+            "doc": "https://onnx.ai/onnx/operators/onnx__BitwiseNot.html",
+        }
+    ],
     since="v0.7.5",
     context="primitives.lax",
     component="bitwise_not",
@@ -54,13 +59,13 @@ class BitwiseNotPlugin(PrimitiveLeafPlugin):
     # ② lowering
     def to_onnx(
         self,
-        s,                       # Jaxpr2OnnxConverter
+        s,  # Jaxpr2OnnxConverter
         node_inputs: Sequence[Any],
         node_outputs: Sequence[Any],
         params: dict[str, Any],
     ):
-        inp_name  = s.get_name(node_inputs[0])
-        out_name  = s.get_name(node_outputs[0])
+        inp_name = s.get_name(node_inputs[0])
+        out_name = s.get_name(node_outputs[0])
         dtype = node_inputs[0].aval.dtype
 
         # ONNX rule:  bool → Not,  ints → BitwiseNot
@@ -77,6 +82,8 @@ class BitwiseNotPlugin(PrimitiveLeafPlugin):
         )
 
         aval = node_inputs[0].aval
-        s.add_shape_info(out_name, aval.shape, aval.dtype) 
+        s.add_shape_info(out_name, aval.shape, aval.dtype)
 
-        logger.debug("Lowered lax.not_p  →  ONNX %s  (%s → %s)", op_type, inp_name, out_name)
+        logger.debug(
+            "Lowered lax.not_p  →  ONNX %s  (%s → %s)", op_type, inp_name, out_name
+        )

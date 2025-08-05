@@ -1421,12 +1421,13 @@ class OnnxBuilder:
           • each dimension matches *or* one side is dynamic/-1/None/""/symbolic;
           • dtypes match exactly (after mapping NumPy→ONNX enum if needed).
         """
-        if shape is None:
-            shape = ()
-        shape = _as_tuple(shape)
+        # Ensure shape is always a tuple, never None
+        shape_tuple = () if shape is None else _as_tuple(shape)
 
         # Normalise dtype to ONNX enum for stable comparison
-        dtype_enum = dtype if isinstance(dtype, int) else self._numpy_dtype_to_onnx(dtype)
+        dtype_enum = (
+            dtype if isinstance(dtype, int) else self._numpy_dtype_to_onnx(dtype)
+        )
 
         def _dims_match(a, b):
             return a == b or _is_unknown_dim(a) or _is_unknown_dim(b)
@@ -1436,11 +1437,15 @@ class OnnxBuilder:
             if meta is None:
                 continue
             shp_meta, dt_meta = meta
-            if dtype_enum != (dt_meta if isinstance(dt_meta, int) else self._numpy_dtype_to_onnx(dt_meta)):
+            if dtype_enum != (
+                dt_meta
+                if isinstance(dt_meta, int)
+                else self._numpy_dtype_to_onnx(dt_meta)
+            ):
                 continue
-            if len(shp_meta) != len(shape):
+            if len(shp_meta) != len(shape_tuple):
                 continue
-            if all(_dims_match(sa, sb) for sa, sb in zip(shp_meta, shape)):
+            if all(_dims_match(sa, sb) for sa, sb in zip(shp_meta, shape_tuple)):
                 return inp.name
         return None
 
@@ -1449,17 +1454,17 @@ class OnnxBuilder:
     #  still call builder.subgraph() don’t explode.  Until we land full
     #  nested-graph support it just returns `self`.
     # ------------------------------------------------------------------
-    from typing import Sequence  # add with other imports
 
     def subgraph(
         self,
         name: str,
         invars: Sequence[str],
-        jaxpr: "ClosedJaxpr",          # noqa: F821  (forward reference)
+        jaxpr: "ClosedJaxpr",  # noqa: F821  (forward reference)
     ) -> "OnnxBuilder":
         """
         Temporary no-op: lets callers keep emitting nodes into the parent
         graph while we refactor.  Logs once so we can spot mis-uses later.
         """
         logger.debug("[subgraph-stub] requested ‘%s’ → passthrough", name)
+        return self
         return self
