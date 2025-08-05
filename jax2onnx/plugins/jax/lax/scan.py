@@ -44,7 +44,7 @@ def _scan_jit_no_xs() -> jax.Array:
 
 
 # ----------------------------------------------------------------------
-# NEW regression helpers – two scans with different trip-counts
+# regression helpers – two scans with different trip-counts
 # ----------------------------------------------------------------------
 def _two_scans_diff_len_f32():
     # use NumPy constants to avoid data-dependent dynamic shapes
@@ -64,6 +64,43 @@ def _two_scans_diff_len_f32():
         xs=(xs_big, fill_big),
     )
     return y1, y2
+
+
+# ----------------------------------------------------------------------
+# regression -- nested scan: inner length 5, outer length 100
+# ----------------------------------------------------------------------
+def _nested_scan_len_mismatch_f32():
+    xs_outer = jnp.asarray(_np.arange(100, dtype=_np.float32))  # length 100
+    xs_inner = jnp.asarray(_np.arange(5, dtype=_np.float32))  # length 5
+    fill_inn = jnp.broadcast_to(0.1, xs_inner.shape)  # ← broadcast_to !
+
+    def inner(c, xs):  # trip-count = 5
+        c = c + xs[0] + xs[1]
+        return c, c
+
+    def outer(c, x):  # trip-count = 100
+        _, ys = lax.scan(inner, c, xs=(xs_inner, fill_inn))
+        return c + x, ys[-1]  # use something from the inner scan
+
+    _, ys_out = lax.scan(outer, 0.0, xs_outer)
+    return ys_out  # shape == (100,)
+
+
+def _nested_scan_len_mismatch_f64():
+    xs_outer = jnp.asarray(_np.arange(100, dtype=_np.float64))
+    xs_inner = jnp.asarray(_np.arange(5, dtype=_np.float64))
+    fill_inn = jnp.broadcast_to(0.1, xs_inner.shape)
+
+    def inner(c, xs):
+        c = c + xs[0] + xs[1]
+        return c, c
+
+    def outer(c, x):
+        _, ys = lax.scan(inner, c, xs=(xs_inner, fill_inn))
+        return c + x, ys[-1]
+
+    _, ys_out = lax.scan(outer, 0.0, xs_outer)
+    return ys_out
 
 
 def _two_scans_diff_len_f64():
@@ -86,9 +123,40 @@ def _two_scans_diff_len_f64():
     return y1, y2
 
 
-# ----------------------------------------------------------------------
-# plugin registration (unchanged apart from the two new tests)
-# ----------------------------------------------------------------------
+# helpers.py  (snippet)
+
+
+def _two_scans_len_mismatch_broadcast_f32():
+    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))  # len = 5
+    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))  # len = 100
+
+    fill_small = jnp.asarray(_np.full(5, 0.1, dtype=_np.float32))
+    fill_big = jnp.asarray(_np.full(100, 0.1, dtype=_np.float32))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    return y1, y2
+
+
+def _two_scans_len_mismatch_broadcast_f64():
+    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float64))
+    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float64))
+
+    fill_small = jnp.asarray(_np.full(5, 0.1, dtype=_np.float64))
+    fill_big = jnp.asarray(_np.full(100, 0.1, dtype=_np.float64))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    return y1, y2
+
+
+# ----------------------
+# plugin registration
+# ----------------------
 @register_primitive(
     jaxpr_primitive=lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
@@ -99,7 +167,6 @@ def _two_scans_diff_len_f64():
     context="primitives.lax",
     component="scan",
     testcases=[
-        # ── all preexisting tests ─────────────────────────────────────────
         {
             "testcase": "scan_cumsum",
             "callable": lambda xs: lax.scan(lambda c, x: (c + x, c + x), 0.0, xs)[1],
@@ -170,7 +237,6 @@ def _two_scans_diff_len_f64():
             "expected_output_dtypes": [jnp.int64],
             "run_only_f64_variant": True,
         },
-        # ── regression for captured scalar ──────────────────────────────────
         {
             "testcase": "scan_captured_scalar",
             "callable": (
@@ -205,7 +271,6 @@ def _two_scans_diff_len_f64():
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
         },
-        # ── vectorised rank-0 broadcast in xs ──────────────────────────────
         {
             "testcase": "scan_rank0_sequence_vectorized",
             "callable": (
@@ -234,7 +299,6 @@ def _two_scans_diff_len_f64():
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
         },
-        # ── NEW regression: two scans with *different* trip-counts ──────────
         {
             "testcase": "scan_two_diff_lengths",
             "callable": _two_scans_diff_len_f32,
@@ -246,6 +310,54 @@ def _two_scans_diff_len_f64():
         {
             "testcase": "scan_two_diff_lengths_f64",
             "callable": _two_scans_diff_len_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float64, jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths",
+            "callable": _two_scans_diff_len_f32,  # defined a few lines above
+            "input_shapes": [],  # <- no inputs, everything is static
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,  # do **not** run in “double” mode
+        },
+        {
+            "testcase": "scan_two_diff_lengths_f64",
+            "callable": _two_scans_diff_len_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float64, jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_nested_len_mismatch",
+            "callable": _nested_scan_len_mismatch_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [(100,)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_nested_len_mismatch_f64",
+            "callable": _nested_scan_len_mismatch_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [(100,)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_broadcast",
+            "callable": _two_scans_len_mismatch_broadcast_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_broadcast_f64",
+            "callable": _two_scans_len_mismatch_broadcast_f64,
             "input_shapes": [],
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
