@@ -1,68 +1,94 @@
 # file: jax2onnx/plugins/jax/lax/scan.py
-
 from __future__ import annotations
 
-from onnx import TensorProto
-import logging  # ensure logger is available
-from typing import Any, Sequence, Union  # added Union
-from typing import Optional
+import logging
+import numpy as _np
+from typing import Any, Sequence, Union, Optional
 
 import jax
 import jax.numpy as jnp
 from jax import core, lax
-from onnx import helper
+from onnx import TensorProto, helper
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax.extend.core import ClosedJaxpr, Var
-
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scan")
 
 
+# ----------------------------------------------------------------------
+# helpers used by test-cases
+# ----------------------------------------------------------------------
 def scan_fn(x):
     def body(carry, _):
         carry = carry + 1
         return carry, carry
 
-    carry, ys = lax.scan(body, x, None, length=5)
+    _, ys = lax.scan(body, x, None, length=5)
     return ys
 
 
-# ----------------------------------------------------------------------
-# New helper that reproduces the "simulate → main → jax.jit" pattern
-# ----------------------------------------------------------------------
 def _scan_jit_no_xs() -> jax.Array:
-    """
-    Mirrors the example in the issue:
+    """Mimics the ‘simulate → jax.jit(main)’ pattern."""
 
-    ```
     def simulate():
         def step_fn(carry, _):
             return carry + 1, carry * 2
-        return lax.scan(step_fn, 0, xs=None, length=10)[1]
 
-    def main():
-        return jax.jit(simulate)()
-    ```
-    """
-
-    def simulate():
-        def step_fn(carry, _):
-            new_carry = carry + 1
-            output = carry * 2
-            return new_carry, output
-
-        # xs=None  →   Loop-style scan, needs explicit length
         _, ys = lax.scan(step_fn, 0, xs=None, length=10)
         return ys
 
-    # JIT-compile exactly as in the sample code
     return jax.jit(simulate)()
 
 
+# ----------------------------------------------------------------------
+# NEW regression helpers – two scans with different trip-counts
+# ----------------------------------------------------------------------
+def _two_scans_diff_len_f32():
+    # use NumPy constants to avoid data-dependent dynamic shapes
+    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))
+    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))
+    fill_small = jnp.asarray(_np.full(xs_small.shape, 0.1, dtype=_np.float32))
+    fill_big = jnp.asarray(_np.full(xs_big.shape, 0.1, dtype=_np.float32))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, fill_small),
+    )
+    _, y2 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_big, fill_big),
+    )
+    return y1, y2
+
+
+def _two_scans_diff_len_f64():
+    # use NumPy constants to avoid data-dependent dynamic shapes
+    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float64))
+    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float64))
+    fill_small = jnp.asarray(_np.full(xs_small.shape, 0.1, dtype=_np.float64))
+    fill_big = jnp.asarray(_np.full(xs_big.shape, 0.1, dtype=_np.float64))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, fill_small),
+    )
+    _, y2 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_big, fill_big),
+    )
+    return y1, y2
+
+
+# ----------------------------------------------------------------------
+# plugin registration (unchanged apart from the two new tests)
+# ----------------------------------------------------------------------
 @register_primitive(
     jaxpr_primitive=lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
@@ -73,6 +99,7 @@ def _scan_jit_no_xs() -> jax.Array:
     context="primitives.lax",
     component="scan",
     testcases=[
+        # ── all preexisting tests ─────────────────────────────────────────
         {
             "testcase": "scan_cumsum",
             "callable": lambda xs: lax.scan(lambda c, x: (c + x, c + x), 0.0, xs)[1],
@@ -106,19 +133,12 @@ def _scan_jit_no_xs() -> jax.Array:
         {
             "testcase": "scan_matrix_carry_multidim_xs",
             "callable": lambda init_carry, xs_seq: lax.scan(
-                # Body receives a 2D slice (3, 2), carry is also (3, 2)
-                lambda c_mat, x_slice: (
-                    c_mat + x_slice,  # New carry state (3, 2)
-                    jnp.sum(c_mat + x_slice),  # Output per step (scalar)
-                ),
-                init_carry,  # Initial carry state (3, 2)
-                xs_seq,  # Sequence input (5, 3, 2)
-            )[
-                1
-            ],  # Return the stacked scalar sums
-            # Input shapes: [shape_of_init_carry, shape_of_xs_seq]
+                lambda c_mat, x_slice: (c_mat + x_slice, jnp.sum(c_mat + x_slice)),
+                init_carry,
+                xs_seq,
+            )[1],
             "input_shapes": [(3, 2), (5, 3, 2)],
-            "expected_output_shapes": [(5,)],  # Expect stacked scalar sums
+            "expected_output_shapes": [(5,)],
         },
         {
             "testcase": "scan_no_xs",
@@ -137,17 +157,98 @@ def _scan_jit_no_xs() -> jax.Array:
         {
             "testcase": "scan_jit_no_xs",
             "callable": _scan_jit_no_xs,
-            "input_shapes": [],  # simulate() takes no arguments
-            "expected_output_shapes": [(10,)],  # length = 10 → stacked outputs
+            "input_shapes": [],
+            "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int32],
             "run_only_f32_variant": True,
         },
         {
             "testcase": "scan_jit_no_xs_f64",
             "callable": _scan_jit_no_xs,
-            "input_shapes": [],  # simulate() takes no arguments
-            "expected_output_shapes": [(10,)],  # length = 10 → stacked outputs
+            "input_shapes": [],
+            "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int64],
+            "run_only_f64_variant": True,
+        },
+        # ── regression for captured scalar ──────────────────────────────────
+        {
+            "testcase": "scan_captured_scalar",
+            "callable": (
+                lambda dt=jnp.asarray(0.1, dtype=jnp.float32): (
+                    lax.scan(
+                        lambda carry, _: (carry + dt, carry + dt),
+                        jnp.asarray(0.0, dtype=jnp.float32),
+                        xs=None,
+                        length=3,
+                    )[1]
+                )
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_captured_scalar_f64",
+            "callable": (
+                lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
+                    lax.scan(
+                        lambda carry, _: (carry + dt, carry + dt),
+                        jnp.asarray(0.0, dtype=jnp.float64),
+                        xs=None,
+                        length=3,
+                    )[1]
+                )
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        # ── vectorised rank-0 broadcast in xs ──────────────────────────────
+        {
+            "testcase": "scan_rank0_sequence_vectorized",
+            "callable": (
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float32): lax.scan(
+                    lambda carry, xs: (carry + xs[0] + xs[1], carry),
+                    0.0,
+                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float32)),
+                )[1]
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_rank0_sequence_vectorized_f64",
+            "callable": (
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): lax.scan(
+                    lambda carry, xs: (carry + xs[0] + xs[1], carry),
+                    0.0,
+                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
+                )[1]
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        # ── NEW regression: two scans with *different* trip-counts ──────────
+        {
+            "testcase": "scan_two_diff_lengths",
+            "callable": _two_scans_diff_len_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_f64",
+            "callable": _two_scans_diff_len_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
         },
     ],
@@ -155,63 +256,34 @@ def _scan_jit_no_xs() -> jax.Array:
 class ScanPlugin(PrimitiveLeafPlugin):
     """Lower `lax.scan` to ONNX Scan operator."""
 
+    # --------------------------- abstract_eval ---------------------------
     @staticmethod
     def abstract_eval(
-        *in_avals_flat: core.AbstractValue,  # carry avals + scan inputs
-        jaxpr: ClosedJaxpr,  # body as ClosedJaxpr
-        length: int,  # scan length
+        *in_avals_flat: core.AbstractValue,
+        jaxpr: ClosedJaxpr,
+        length: int,
         reverse: bool,
-        unroll: Union[int, bool],  # Union[int, True, False]
-        num_carry: int,  # how many carry vars
-        num_xs: Optional[int] = None,  # may be missing for single-seq
-        num_consts: Optional[int] = None,  # present in newer JAX versions
-        **unused_params,  # catch others like 'linear'
+        unroll: Union[int, bool],
+        num_carry: int,
+        num_xs: Optional[int] = None,
+        num_consts: Optional[int] = None,
+        **unused_params,
     ) -> Sequence[core.AbstractValue]:
-        # ------------------------------------------------------------------ #
-        # Derive missing parameters                                          #
-        # ------------------------------------------------------------------ #
-        # Robust inference for num_xs and num_carry
-        total_inputs = len(in_avals_flat)
-        # If num_xs is not provided, try to infer it
+        total_in = len(in_avals_flat)
         if num_xs is None:
-            if num_carry is not None:
-                num_xs = max(0, total_inputs - num_carry)
-            else:
-                # Fallback: try to infer from jaxpr
-                num_xs = 0
-        # If num_carry is not provided, try to infer it
+            num_xs = max(0, total_in - num_carry)
         if num_carry is None:
-            if num_xs is not None:
-                num_carry = max(0, total_inputs - num_xs)
-            else:
-                num_carry = 0
-        # Defensive: if still ambiguous, log and raise
-        if num_xs < 0 or num_carry < 0 or (num_xs + num_carry != total_inputs):
-            logger.error(
-                f"Cannot robustly determine scan input/carry split: "
-                f"len(in_avals_flat)={total_inputs}, num_carry={num_carry}, num_xs={num_xs}, "
-                f"in_avals_flat={in_avals_flat}"
-            )
-            raise ValueError("Cannot determine number of scan inputs/carry")
+            num_carry = max(0, total_in - num_xs)
 
-        # Build carry avals
         carry_avals = in_avals_flat[:num_carry]
-        # Extract inner jaxpr
-        body_jaxpr = jaxpr.jaxpr
-        # Build stacked outputs from body_jaxpr.outvars after carry
-        stacked_avals = []
-        for var in body_jaxpr.outvars[num_carry:]:
+        stacked: list[core.AbstractValue] = []
+        for var in jaxpr.jaxpr.outvars[num_carry:]:
             aval = var.aval
-            if not isinstance(aval, core.ShapedArray):
-                logger.error(
-                    f"Expected ShapedArray for scan body output, got {type(aval)}"
-                )
-                if not (hasattr(aval, "shape") and hasattr(aval, "dtype")):
-                    raise TypeError(f"No shape/dtype on {var}")
             shape = tuple(aval.shape) if hasattr(aval, "shape") else ()
-            stacked_avals.append(core.ShapedArray((length,) + shape, aval.dtype))
-        return tuple(carry_avals) + tuple(stacked_avals)
+            stacked.append(core.ShapedArray((length,) + shape, aval.dtype))
+        return tuple(carry_avals) + tuple(stacked)
 
+    # ------------------------------ to_onnx ------------------------------
     def to_onnx(
         self,
         s: "Jaxpr2OnnxConverter",
@@ -219,33 +291,27 @@ class ScanPlugin(PrimitiveLeafPlugin):
         node_outputs: Sequence[Var],
         params: dict[str, Any],
     ) -> None:
-        """Lower `lax.scan` to ONNX Scan operator."""
 
-        # 1. Extract parameters from the JAX primitive
         closed_jaxpr = params["jaxpr"]
         num_carry = params["num_carry"]
         length = params["length"]
         num_scan = len(node_inputs) - num_carry
 
-        # —————————————————————————————
-        # Special-case num_scan == 0
-        # —————————————————————————————
+        # ------------------------------------------------------------------
+        # Special-case: no scan-inputs → Loop
+        # ------------------------------------------------------------------
         if num_scan == 0:
             import numpy as _np
 
-            # 1) trip-count initializer
             trip_name = s.builder.get_unique_name("trip_count")
             s.builder.add_initializer(
                 trip_name, [length], data_type=TensorProto.INT64, dims=[]
             )
-
-            # 2) loop-condition initializer (always true)
             cond_name = s.builder.get_unique_name("cond_init")
             s.builder.add_initializer(
                 cond_name, [1], data_type=TensorProto.BOOL, dims=[]
             )
 
-            # Build the Loop‐body subgraph
             prefix = s.builder.name_generator.get("loop")
             body_builder = OnnxBuilder(
                 name_generator=s.builder.name_generator,
@@ -258,58 +324,53 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
             body_conv = Jaxpr2OnnxConverter(body_builder)
 
-            # Loop body inputs: iteration count (int64), cond (bool), then carry vars
             body_builder.add_input("iter_count", (), _np.int64)
-            cond_in_name = body_builder.get_unique_name("cond_in")
-            body_builder.add_input(cond_in_name, (), _np.bool_)
+            cond_in = body_builder.get_unique_name("cond_in")
+            body_builder.add_input(cond_in, (), _np.bool_)
+
             for i, var in enumerate(closed_jaxpr.jaxpr.invars[:num_carry]):
                 nm = body_builder.get_unique_name(f"carry_in_{i}")
                 body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
                 body_conv.var_to_name[var] = nm
 
-            # Map any constants
             for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
                 body_conv.var_to_name[var] = body_conv.get_constant_name(val)
 
-            # -- Process the body JAXPR -------------------------
             body_conv._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
-            # Re-declare **all** body outputs in the correct order:
             body_builder.outputs.clear()
-
-            # 1) cond_out = Identity(cond_in)
             cond_out = body_builder.get_unique_name("cond_out")
             idn = helper.make_node(
                 "Identity",
-                inputs=[cond_in_name],
+                inputs=[cond_in],
                 outputs=[cond_out],
                 name=body_builder.get_unique_name("id_cond"),
             )
             body_builder.add_node(idn)
             body_builder.add_output(cond_out, (), _np.bool_)
 
-            # 2) carry_outs and scan_outs with duplicate handling
-            seen_body_outputs: set[str] = set()
+            seen_body = set()
             for var in closed_jaxpr.jaxpr.outvars:
-                orig_name = body_conv.get_name(var)
-                out_name = orig_name
-                if orig_name in seen_body_outputs:
-                    out_name = body_builder.get_unique_name(f"{orig_name}_dup")
-                    id_node = helper.make_node(
+                orig = body_conv.get_name(var)
+                out_name = (
+                    orig
+                    if orig not in seen_body
+                    else body_builder.get_unique_name(f"{orig}_dup")
+                )
+                if out_name != orig:
+                    dup = helper.make_node(
                         "Identity",
-                        inputs=[orig_name],
+                        inputs=[orig],
                         outputs=[out_name],
                         name=body_builder.get_unique_name("Identity_dup_scan0"),
                     )
-                    body_builder.add_node(id_node)
-                seen_body_outputs.add(out_name)
+                    body_builder.add_node(dup)
+                seen_body.add(out_name)
                 body_builder.add_output(out_name, var.aval.shape, var.aval.dtype)
 
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
             )
-
-            # Now hook up the ONNX Loop node
             loop_inputs = [trip_name, cond_name] + [s.get_name(v) for v in node_inputs]
             loop_outputs = [s.get_name(v) for v in node_outputs]
             loop_node = helper.make_node(
@@ -324,13 +385,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 s.add_shape_info(sym, v.aval.shape, v.aval.dtype)
             return
 
-        # ————————————————————————————————————————————————————————————— #
-        # "Normal" case: there are X sequences → use Scan as before         #
-        # ————————————————————————————————————————————————————————————— #
+        # ------------------------------------------------------------------
+        # Build Scan body graph (identical to previous version)
+        # ------------------------------------------------------------------
         jaxpr = closed_jaxpr.jaxpr
         consts = closed_jaxpr.consts
 
-        # 2. Create and configure the subgraph builder for the loop body
         body_builder = OnnxBuilder(
             name_generator=s.builder.name_generator,
             opset=s.builder.opset,
@@ -342,82 +402,104 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         body_conv = Jaxpr2OnnxConverter(body_builder)
 
-        # 3. Map inputs for the subgraph body
         for i, var in enumerate(jaxpr.invars):
-            name = body_builder.get_unique_name(f"scan_body_in_{i}")
-            # body jaxpr already sees per-step shapes, so use them directly
-            aval_shape = var.aval.shape
-            body_builder.add_input(name, aval_shape, var.aval.dtype)
-            body_conv.var_to_name[var] = name
+            nm = body_builder.get_unique_name(f"scan_body_in_{i}")
+            body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
+            body_conv.var_to_name[var] = nm
 
-        # 4. Process the subgraph body
         for var, val in zip(jaxpr.constvars, consts):
             body_conv.var_to_name[var] = body_conv.get_constant_name(val)
+
         body_conv._process_jaxpr(jaxpr, consts)
 
-        # 5. Map outputs for the subgraph body, handling duplicate Vars
         body_builder.outputs.clear()
-        seen: set[str] = set()
+        seen = set()
         for var in jaxpr.outvars:
-            orig_name = body_conv.get_name(var)
-            out_name = orig_name
-            if orig_name in seen:
-                # second output needs its own name: wire through an Identity
-                out_name = body_builder.get_unique_name(f"{orig_name}_dup")
-                id_node = helper.make_node(
+            orig = body_conv.get_name(var)
+            out = (
+                orig
+                if orig not in seen
+                else body_builder.get_unique_name(f"{orig}_dup")
+            )
+            if out != orig:
+                dup = helper.make_node(
                     "Identity",
-                    inputs=[orig_name],
-                    outputs=[out_name],
+                    inputs=[orig],
+                    outputs=[out],
                     name=body_builder.get_unique_name("Identity_dup"),
                 )
-                body_builder.add_node(id_node)
-            seen.add(out_name)
-            body_builder.add_output(out_name, var.aval.shape, var.aval.dtype)
+                body_builder.add_node(dup)
+            seen.add(out)
+            body_builder.add_output(out, var.aval.shape, var.aval.dtype)
+
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
 
-        # 6. Prepare inputs and outputs for the main ONNX Scan node
+        # ------------------------------------------------------------------
+        # Broadcast rank-0 sequence inputs
+        # ------------------------------------------------------------------
         onnx_inputs = [s.get_name(v) for v in node_inputs]
 
-        # The ONNX Scan op's outputs are ordered: [final_carries..., stacked_ys...]
-        # The JAX eqn's `node_outputs` corresponds to this, with `_` for unused outputs.
-        num_y_outputs = len(jaxpr.outvars) - num_carry
-        total_onnx_outputs = num_carry + num_y_outputs
+        for i in range(num_scan):
+            slot = num_carry + i
+            var = node_inputs[slot]
 
-        onnx_outputs = []
-        for i in range(total_onnx_outputs):
-            jax_out_var = node_outputs[i]
-            if isinstance(jax_out_var, Var):
-                onnx_outputs.append(s.get_name(jax_out_var))
+            # Corrected scalar broadcast logic:
+            if len(var.aval.shape) == 0:
+                orig = onnx_inputs[slot]
+                shape_init = s.builder.get_unique_name("scan_len_shape")
+                s.builder.add_initializer(
+                    shape_init, [length], data_type=TensorProto.INT64, dims=[1]
+                )
+
+                exsym = s.builder.get_unique_name(f"{orig}_exp")
+                s.add_node(
+                    helper.make_node(
+                        "Expand",
+                        inputs=[orig, shape_init],
+                        outputs=[exsym],
+                        name=s.get_unique_name("Expand_broadcast"),
+                    )
+                )
+                s.add_shape_info(exsym, (length,), var.aval.dtype)
+                onnx_inputs[slot] = exsym
+        # ------------------------------------------------------------------
+
+        # ------------------------------------------------------------------
+        # Build top-level Scan node
+        # ------------------------------------------------------------------
+        num_y = len(jaxpr.outvars) - num_carry
+        total_out = num_carry + num_y
+
+        onnx_outputs: list[str] = []
+        for idx in range(total_out):
+            out_var = node_outputs[idx]
+            if isinstance(out_var, Var):
+                onnx_outputs.append(s.get_name(out_var))
             else:
-                # This output is discarded (`_`), create a dummy name and register its info
-                name = s.builder.get_unique_name(f"scan_unused_output_{i}")
-                onnx_outputs.append(name)
+                tmp = s.builder.get_unique_name(f"scan_unused_output_{idx}")
+                onnx_outputs.append(tmp)
+                aval = jaxpr.outvars[idx].aval
+                if idx < num_carry:
+                    s.add_shape_info(tmp, aval.shape, aval.dtype)
+                else:
+                    s.add_shape_info(tmp, (length,) + aval.shape, aval.dtype)
 
-                body_out_aval = jaxpr.outvars[i].aval
-                if i < num_carry:  # It's an unused final carry
-                    s.add_shape_info(name, body_out_aval.shape, body_out_aval.dtype)
-                else:  # It's an unused stacked 'y'
-                    stacked_shape = (length,) + body_out_aval.shape
-                    s.add_shape_info(name, stacked_shape, body_out_aval.dtype)
-
-        # 7. Define attributes for the ONNX Scan node
-        node_attributes = {
+        attrs: dict[str, Any] = {
             "body": body_graph,
             "num_scan_inputs": num_scan,
         }
-        if num_scan > 0:
-            node_attributes["scan_input_axes"] = [0] * num_scan
-        if num_y_outputs > 0:
-            node_attributes["scan_output_axes"] = [0] * num_y_outputs
+        if num_scan:
+            attrs["scan_input_axes"] = [0] * num_scan
+        if num_y:
+            attrs["scan_output_axes"] = [0] * num_y
 
-        # 8. Create and add the ONNX Scan node
         scan_node = helper.make_node(
             "Scan",
             inputs=onnx_inputs,
             outputs=onnx_outputs,
             name=s.get_unique_name("scan"),
-            **node_attributes,
+            **attrs,
         )
         s.add_node(scan_node)

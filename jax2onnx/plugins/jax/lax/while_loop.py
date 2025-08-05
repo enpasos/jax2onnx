@@ -596,7 +596,6 @@ lax.while_loop_p.multiple_results = True
         #     "input_shapes": [("B", 28, 28, 1)],
         #     "expected_output_shapes": [()],
         #     "expected_output_dtypes": [np.int32],
-        #     "xfail": True,
         #     "run_only_f32_variant": True,
         # },
     ],

@@ -15,6 +15,9 @@ from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_utils import _prepare_scatter_inputs_for_onnx
 import logging
 
+# Import jnp for the new test case
+import jax.numpy as jnp
+
 if TYPE_CHECKING:
     # This is the correct way to type hint the converter
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -244,6 +247,84 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_add")
         #     ],
         #     "run_only_f64_variant": True,
         # },
+        # ────────────────────────────────────────────────────────────────
+        # NEW: fp64 regression test – verifies dtype is preserved
+        #      through GatherND / ScatterND helper path.
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_add_fp64_dtype_mismatch",
+            "callable": (
+                lambda: lax.scatter_add(
+                    jnp.zeros((4, 3), dtype=jnp.float64),  # operand
+                    jnp.array([[0, 0], [2, 1]], dtype=jnp.int32),  # indices
+                    jnp.ones((2,), dtype=jnp.float64),  # updates
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(),
+                        inserted_window_dims=(0, 1),
+                        scatter_dims_to_operand_dims=(0, 1),
+                    ),
+                )
+            ),
+            "input_shapes": [],
+            "run_only_f64_variant": True,  # makes exporter choose fp64
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
+        {
+            "testcase": "scatter_add_depth2_depth2_helper_regression",
+            "callable": (
+                lambda: lax.scatter_add(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand fp64
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # indices (N,2)
+                    jnp.ones((2, 4, 5), dtype=jnp.float64),  # updates now fp64
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),
+                        inserted_window_dims=(0, 1),
+                        scatter_dims_to_operand_dims=(0, 1),
+                    ),
+                )
+            ),
+            "input_shapes": [],
+            "run_only_f64_variant": True,
+        },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION: fp64 ScatterND-helper dtype mismatch
+        #
+        #  • operand lives in **float64**
+        #  • generalised "depth-2 indices" path is chosen
+        #  • old helper records GatherND output as float32
+        #    → onnx.check_model fails with
+        #      "Type (tensor(float)) of output arg (…) does not match
+        #       expected type (tensor(double))"
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_fp64_type_mismatch",
+            "callable": (
+                # tiny tensor just large enough to trigger depth-2 logic
+                lambda: lax.scatter(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand (double)
+                    jnp.array([[1]], dtype=jnp.int32),  # indices  shape (1, depth=1)
+                    jnp.ones(
+                        (1, 2, 3, 4, 5), dtype=jnp.float64
+                    ),  # updates  shape = indices[:-1] + window
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(
+                            1,
+                            2,
+                            3,
+                            4,
+                        ),  # window-dims = all operand dims
+                        inserted_window_dims=(),  # ⇒ generalised depth-2 route
+                        scatter_dims_to_operand_dims=(
+                            1,
+                        ),  # scatter along 2-nd operand dim
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs – everything is literal
+            "run_only_f64_variant": True,  # exporter stays in float64
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

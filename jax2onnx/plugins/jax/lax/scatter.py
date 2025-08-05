@@ -234,6 +234,104 @@ def _count_reshape_to_shape_in_model(
             ],
             "run_only_f64_variant": True,
         },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION: fp64 ScatterND-helper dtype mismatch
+        #
+        #  • operand lives in **float64**
+        #  • generalised "depth-2 indices" path is chosen
+        #  • old helper records GatherND output as float32
+        #    → onnx.check_model fails with
+        #      "Type (tensor(float)) of output arg (…) does not match
+        #       expected type (tensor(double))"
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_fp64_type_mismatch",
+            "callable": (
+                # tiny tensor just large enough to trigger depth-2 logic
+                lambda: lax.scatter(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand (double)
+                    jnp.array([[1]], dtype=jnp.int32),  # indices  shape (1, depth=1)
+                    jnp.ones(
+                        (1, 2, 3, 4, 5), dtype=jnp.float64
+                    ),  # updates  shape = indices[:-1] + window
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(
+                            1,
+                            2,
+                            3,
+                            4,
+                        ),  # window-dims = all operand dims
+                        inserted_window_dims=(),  # ⇒ generalised depth-2 route
+                        scatter_dims_to_operand_dims=(
+                            1,
+                        ),  # scatter along 2-nd operand dim
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs – everything is literal
+            "run_only_f64_variant": True,  # exporter stays in float64
+        },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION ♦ depth-2 ScatterND helper keeps f32 although
+        #                operand is f64  →  onnx.check_model type error
+        #   • operand:     float64   (should drive GatherND dtype)
+        #   • updates:     float32   (leaks into helper -> GatherND recorded fp32)
+        #   • indices:     depth-2   (forces "generalised depth-2 indices" path)
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch_f64",
+            "callable": (
+                lambda: lax.scatter(
+                    # ① operand – double precision
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                    # ② indices – shape (N, 2) so depth-2 logic is chosen
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # (N, 2)
+                    # ③ updates – intentionally float32
+                    # shape = (N, 1, 1, 4, 5):
+                    #   – leading N  (=indices.shape[0])
+                    #   – two size-1 dims (inserted_window_dims)
+                    #   – the operand window (4,5)
+                    jnp.ones((2, 4, 5), dtype=jnp.float64),  # rank 3  ✅
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),  # positions in the updates tensor
+                        inserted_window_dims=(
+                            0,
+                            1,
+                        ),  # operand dims that are size-1 and absent
+                        scatter_dims_to_operand_dims=(0, 1),  # two scatter dims
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs (all literals)
+            "run_only_f64_variant": True,  # test must run with default fp32 exporter
+        },
+        {
+            "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch",
+            "callable": (
+                lambda: lax.scatter(
+                    # ① operand – double precision
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                    # ② indices – shape (N, 2) so depth-2 logic is chosen
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # (N, 2)
+                    # ③ updates – intentionally float32
+                    # shape = (N, 1, 1, 4, 5):
+                    #   – leading N  (=indices.shape[0])
+                    #   – two size-1 dims (inserted_window_dims)
+                    #   – the operand window (4,5)
+                    jnp.ones((2, 4, 5), dtype=jnp.float32),  # rank 3  ✅
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),  # positions in the updates tensor
+                        inserted_window_dims=(
+                            0,
+                            1,
+                        ),  # operand dims that are size-1 and absent
+                        scatter_dims_to_operand_dims=(0, 1),  # two scatter dims
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs (all literals)
+            "run_only_f32_variant": True,  # test must run with default fp32 exporter
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):

@@ -415,6 +415,34 @@ def _prepare_scatter_inputs_for_onnx(
 
     _final_updates_name_val_to_return = original_updates_name_val
 
+    # Ensure updates datatype matches operand datatype
+    if operand_dtype_np != original_updates_dtype_np:
+        logger.debug(
+            f"Casting updates from {original_updates_dtype_np} to {operand_dtype_np} to match operand dtype"
+        )
+        cast_updates_name = s.get_unique_name(
+            f"{original_updates_name_val}_cast_to_{operand_dtype_np.__name__}"
+        )
+        s.add_node(
+            helper.make_node(
+                "Cast",
+                [original_updates_name_val],
+                [cast_updates_name],
+                to=int(s.builder._numpy_dtype_to_onnx(operand_dtype_np)),
+                name=s.get_unique_name("scatter_cast_updates"),
+            )
+        )
+        _manually_ensure_shape_env_entry(
+            s,
+            cast_updates_name,
+            original_updates_shape_symbolic,
+            operand_dtype_np,
+            "CastUpdates",
+        )
+        _final_updates_name_val_to_return = cast_updates_name
+        # Update the dtype for downstream operations
+        original_updates_dtype_np = operand_dtype_np
+
     # --- Calculate expected ONNX updates shape based on the *final processed* indices for the general path ---
     # `processed_indices_shape_for_default_path` is `target_indices_shape_symbolic` (the (N,K) shape of final_indices_name_to_return)
     processed_indices_shape_for_default_path = target_indices_shape_symbolic
