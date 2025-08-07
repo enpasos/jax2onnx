@@ -6,14 +6,16 @@ from jax2onnx import to_onnx
 import onnxruntime as ort
 import onnx
 
+
 def _two_scans_shared_scalar():
-    xs5   = jnp.arange(5,   dtype=jnp.float32)
+    xs5 = jnp.arange(5, dtype=jnp.float32)
     xs100 = jnp.arange(100, dtype=jnp.float32)
-    dt    = jnp.asarray(0.1, dtype=jnp.float32)   # rank-0 scalar, *captured* in the body
+    dt = jnp.asarray(0.1, dtype=jnp.float32)  # rank-0 scalar, *captured* in the body
 
-    body = lambda c, x: (c + x + dt, c)           # dt is closed over – no second xs needed
+    def body(c, x):
+        return (c + x + dt, c)  # dt is closed over – no second xs needed
 
-    _, y5   = lax.scan(body, 0.0, xs5)
+    _, y5 = lax.scan(body, 0.0, xs5)
     _, y100 = lax.scan(body, 0.0, xs100)
     return y5, y100
 
@@ -23,7 +25,7 @@ def test_shared_scalar_two_lengths(tmp_path: pathlib.Path):
 
     model = to_onnx(
         _two_scans_shared_scalar,
-        inputs=[],                       # no run-time inputs
+        inputs=[],  # no run-time inputs
         model_name="two_scans_shared_scalar",
         opset=21,
     )

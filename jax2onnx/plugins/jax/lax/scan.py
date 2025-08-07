@@ -18,10 +18,11 @@ from jax.extend.core import ClosedJaxpr, Var
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scan")
 
 
-INT64  = TensorProto.INT64
-i64    = _np.int64
+INT64 = TensorProto.INT64
+i64 = _np.int64
 # unique id for every Scan node – used when generating helper names
 _SCAN_INSTANCE_COUNTER: int = 0
+
 
 # ----------------------------------------------------------------------
 # helpers used by test-cases
@@ -159,9 +160,9 @@ def _two_scans_len_mismatch_broadcast_f64():
     return y1, y2
 
 
-def _two_scans_diff_len_f32():
-    xs_small = jnp.asarray(_np.arange(5,   dtype=_np.float32))
-    xs_big   = jnp.asarray(_np.arange(100, dtype=_np.float32))
+def _two_scans_diff_len_with_broadcast_f32():  # Renamed from _two_scans_diff_len_f32
+    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))
+    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))
 
     # 1️⃣ scan length = 5  – uses  jnp.broadcast_to  (⇒ scalar expand)
     _, y1 = lax.scan(
@@ -177,7 +178,6 @@ def _two_scans_diff_len_f32():
         xs=(xs_big, jnp.full_like(xs_big, 0.1)),
     )
     return y1, y2
-
 
 
 # ----------------------
@@ -310,7 +310,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(4,)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
@@ -325,7 +325,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(4,)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths",
@@ -334,7 +334,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths_f64",
@@ -343,16 +343,16 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths",
-            "callable": _two_scans_diff_len_f32,   
+            "callable": _two_scans_diff_len_f32,
             "input_shapes": [],  # <- no inputs, everything is static
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True,   
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths_f64",
@@ -361,7 +361,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_nested_len_mismatch",
@@ -370,7 +370,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(100,)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_nested_len_mismatch_f64",
@@ -379,7 +379,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(100,)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths_broadcast",
@@ -388,7 +388,7 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths_broadcast_f64",
@@ -397,16 +397,16 @@ def _two_scans_diff_len_f32():
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True, 
+            "check_onnx_load": True,
         },
         # ── regression: scalar-broadcast + two different scan lengths ───────────
         {
-            "testcase": "scan_two_diff_lengths",
-            "callable": _two_scans_diff_len_f32,  # defined a few lines above
-            "input_shapes": [],                   # <- no inputs, everything is static
+            "testcase": "scan_two_diff_lengths_with_broadcast",
+            "callable": _two_scans_diff_len_with_broadcast_f32,  # Updated to the new function name
+            "input_shapes": [],  # <- no inputs, everything is static
             "expected_output_shapes": [(5,), (100,)],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
-            "run_only_f32_variant": True,         # do **not** run in “double” mode
+            "run_only_f32_variant": True,  # do **not** run in "double" mode
         },
         {
             "testcase": "scan_two_diff_lengths_f64",
@@ -417,7 +417,6 @@ def _two_scans_diff_len_f32():
             "run_only_f64_variant": True,
         },
         # ────────────────────────────────────────────────────────────────────────
-
     ],
 )
 class ScanPlugin(PrimitiveLeafPlugin):
@@ -609,22 +608,23 @@ class ScanPlugin(PrimitiveLeafPlugin):
         # Broadcast rank-0 sequence inputs
         # ------------------------------------------------------------------
         onnx_inputs = [s.get_name(v) for v in node_inputs]
+        trip_shape_sym: str | None = None  # will hold a 1-D [trip] tensor
 
         for i in range(num_scan):
             slot = num_carry + i
-            var  = node_inputs[slot]
+            var = node_inputs[slot]
 
             # rank-0 scan-input → needs broadcast
             if len(var.aval.shape) == 0:
                 ref_var = None
                 for cand in node_inputs[num_carry : num_carry + num_scan]:
-                    if len(cand.aval.shape) > 0:            # first non-scalar xs
+                    if len(cand.aval.shape) > 0:  # first non-scalar xs
                         ref_var = cand
                         break
 
                 if ref_var is not None:
                     # ── path A: we *do* have a true vector xs ──────────────────
-                    ref_sym   = s.get_name(ref_var)
+                    ref_sym = s.get_name(ref_var)
                     shape_sym = s.builder.get_unique_name(f"shape_scan{scan_id}_{i}")
                     s.add_node(
                         helper.make_node(
@@ -636,12 +636,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                     s.add_shape_info(shape_sym, (None,), i64)
 
-                    # constant ‘0’ for Gather
+                    # constant '0' for Gather
                     trip_dim = s.builder.get_unique_name(f"trip_dim_scan{scan_id}_{i}")
                     s.builder.add_initializer(trip_dim, [0], data_type=INT64, dims=[])
 
                     # Gather gives a scalar trip-length
-                    gather_sym = s.builder.get_unique_name(f"trip_len_scan{scan_id}_{i}")
+                    gather_sym = s.builder.get_unique_name(
+                        f"trip_len_scan{scan_id}_{i}"
+                    )
                     s.add_node(
                         helper.make_node(
                             "Gather",
@@ -651,23 +653,27 @@ class ScanPlugin(PrimitiveLeafPlugin):
                             axis=0,
                         )
                     )
-                    s.add_shape_info(gather_sym, (), i64)     #   correct
+                    s.add_shape_info(gather_sym, (), i64)  #   correct
 
                     # --- Unsqueeze scalar → 1-D [trip_len] ---------------------------------
                     axes_sym = s.builder.get_unique_name(f"axes_scan{scan_id}_{i}")
                     s.builder.add_initializer(axes_sym, [0], data_type=INT64, dims=[1])
-                    unsq_sym = s.builder.get_unique_name(f"trip_len_vec_scan{scan_id}_{i}")
+                    unsq_sym = s.builder.get_unique_name(
+                        f"trip_len_vec_scan{scan_id}_{i}"
+                    )
                     s.add_node(
                         helper.make_node(
                             "Unsqueeze",
-                            inputs=[gather_sym, axes_sym],      # data, axes
+                            inputs=[gather_sym, axes_sym],  # data, axes
                             outputs=[unsq_sym],
                             name=s.get_unique_name("Unsqueeze_trip"),
                         )
                     )
                     s.add_shape_info(unsq_sym, (1,), i64)
 
-                    broadcast_shape = unsq_sym                # ← use this for Expand
+                    # 1-D `[trip_len]` is already perfect for Expand
+                    broadcast_shape = unsq_sym
+                    trip_shape_sym = trip_shape_sym or unsq_sym
                     # ----- broadcast the scalar data tensor ---------------------
                     exsym = s.builder.get_unique_name(f"{onnx_inputs[slot]}_exp")
                     s.add_node(
@@ -686,13 +692,65 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     gather_sym = s.builder.get_unique_name(
                         f"trip_len_vec_scan{scan_id}_{i}"
                     )
-                    # dims=[1] ⇒ rank-1 tensor [trip_count]
+                    # If `length` is still the JAX-to-ONNX dynamic sentinel we
+                    # *cannot* embed it in an initializer – ONNX expects a real
+                    # int.  In that corner-case we fall back to a dummy '1'. The
+                    # tensor is never consumed when all `xs` are scalars, but
+                    # ORT still needs a valid constant here.
+                    init_val = (
+                        int(length)
+                        if isinstance(length, (int, _np.integer))
+                        else 1  # harmless placeholder for dynamic case
+                    )
+                    # dims=[1] ⇒ rank-1 tensor [trip_count | 1]
                     s.builder.add_initializer(
-                        gather_sym, [length], data_type=INT64, dims=[1]
+                        gather_sym, [init_val], data_type=INT64, dims=[1]
                     )
                     s.add_shape_info(gather_sym, (1,), i64)
+                    broadcast_shape = gather_sym
+                    trip_shape_sym = trip_shape_sym or gather_sym
+                    # ----- broadcast the scalar data tensor ---------------------
+                    exsym = s.builder.get_unique_name(f"{onnx_inputs[slot]}_exp")
+                    s.add_node(
+                        helper.make_node(
+                            "Expand",
+                            inputs=[onnx_inputs[slot], broadcast_shape],
+                            outputs=[exsym],
+                            name=s.get_unique_name("Expand_broadcast"),
+                        )
+                    )
+                    s.add_shape_info(exsym, (None,), var.aval.dtype)
+                    onnx_inputs[slot] = exsym
 
-  
+        # ────────────────────────────────────────────────────────────────
+        # Pass 2:  scalar **initializers** that never appeared as Vars
+        #          (e.g. `jnp.asarray(0.1)`) – ORT still sees rank-0.
+        # ────────────────────────────────────────────────────────────────
+        if trip_shape_sym is None:  # no vector xs at all
+            trip_shape_sym = s.builder.get_unique_name(f"trip_len_scan{scan_id}")
+            safe_len = int(length) if isinstance(length, (int, _np.integer)) else 1
+            s.builder.add_initializer(
+                trip_shape_sym, [safe_len], data_type=INT64, dims=[1]
+            )
+            s.add_shape_info(trip_shape_sym, (1,), i64)
+
+        for gidx in range(num_carry, num_carry + num_scan):
+            sym = onnx_inputs[gidx]
+            rank = s.builder.get_rank(sym)
+            if rank == 0:  # still a scalar
+                dtype = s.builder.get_dtype(sym) or _np.float32
+                exsym = s.builder.get_unique_name(f"{sym}_exp")
+                s.add_node(
+                    helper.make_node(
+                        "Expand",
+                        inputs=[sym, trip_shape_sym],
+                        outputs=[exsym],
+                        name=s.get_unique_name("Expand_broadcast_init"),
+                    )
+                )
+                s.add_shape_info(exsym, (None,), dtype)
+                onnx_inputs[gidx] = exsym
+
         # ------------------------------------------------------------------
         # Build top-level Scan node
         # ------------------------------------------------------------------
@@ -738,7 +796,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for idx, (sym, var) in enumerate(zip(onnx_outputs, node_outputs)):
             if idx < num_carry or not isinstance(var, Var):
                 continue
-            s.builder.value_info[:] = [vi for vi in s.builder.value_info
-                                       if vi.name != sym]
+            s.builder.value_info[:] = [
+                vi for vi in s.builder.value_info if vi.name != sym
+            ]
             s.add_shape_info(sym, (None,) + var.aval.shape, var.aval.dtype)
-

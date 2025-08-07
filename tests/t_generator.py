@@ -429,8 +429,6 @@ def make_test_function(tp: dict[str, Any]):
             )
             raise
 
-
-
         post_check = tp.get("post_check_onnx_graph")
         if post_check:
             assert post_check(
@@ -440,12 +438,10 @@ def make_test_function(tp: dict[str, Any]):
         onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
-
         # --- ONNX checker and runtime session (if requested) ---
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
             onnx.checker.check_model(onnx_model)
- 
 
         # Optional per-test override: skip numeric validation entirely
         if tp.get("skip_numeric_validation", False):

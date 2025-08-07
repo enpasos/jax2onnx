@@ -1468,3 +1468,35 @@ class OnnxBuilder:
         logger.debug("[subgraph-stub] requested ‘%s’ → passthrough", name)
         return self
         return self
+
+    # ────────────────────────────────────────────────────────────────
+    #  Helpers used by the Scan-plugin to inspect symbols
+    # ────────────────────────────────────────────────────────────────
+    def get_rank(self, sym: str) -> int | None:
+        """
+        Return the tensor *rank* of **sym** if it is known from
+        ``value_info``, graph IO or an initializer.
+        """
+
+        for vi in self.value_info + self.inputs + self.outputs:
+            if vi.name == sym:
+                return len(vi.type.tensor_type.shape.dim)
+        for init in self.initializers:
+            if init.name == sym:
+                return len(init.dims)
+        return None
+
+    def get_dtype(self, sym: str):
+        """
+        Return the NumPy dtype of **sym** when determinable, otherwise
+        ``None`` (caller should fall back on a reasonable default).
+        """
+        from onnx import mapping as _map
+
+        for vi in self.value_info + self.inputs + self.outputs:
+            if vi.name == sym:
+                return _map.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
+        for init in self.initializers:
+            if init.name == sym:
+                return _map.TENSOR_TYPE_TO_NP_TYPE[init.data_type]
+        return None
