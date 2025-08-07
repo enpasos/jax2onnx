@@ -11,7 +11,7 @@ from onnx import helper, TensorProto
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-from jax2onnx.converter.onnx_builder   import OnnxBuilder
+
 
 # -----------------------------------------------------------------------------
 # -- plug-in registration metadata
@@ -19,7 +19,9 @@ from jax2onnx.converter.onnx_builder   import OnnxBuilder
 @register_primitive(
     jaxpr_primitive=lax.rev_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.rev.html",
-    onnx=[{"component": "Flip", "doc": "https://onnx.ai/onnx/operators/onnx__Flip.html"}],
+    onnx=[
+        {"component": "Flip", "doc": "https://onnx.ai/onnx/operators/onnx__Flip.html"}
+    ],
     since="v0.7.5",
     context="primitives.lax",
     component="rev",
@@ -44,8 +46,9 @@ class RevPlugin(PrimitiveLeafPlugin):
     # ───────────────────── abstract-eval (shape propagation) ──────────────────
     @staticmethod
     def abstract_eval(
-        x_aval: core.ShapedArray, *,
-        dimensions: Sequence[int],       # provided by JAX in eqn.params
+        x_aval: core.ShapedArray,
+        *,
+        dimensions: Sequence[int],  # provided by JAX in eqn.params
         **unused_params,
     ) -> Sequence[core.ShapedArray]:
         # Reversing does not change shape or dtype.
@@ -68,17 +71,17 @@ class RevPlugin(PrimitiveLeafPlugin):
             3.  x    = Gather(x, idxs, axis=axis)           # reversed
         """
 
-        axes        = [int(a) for a in params["dimensions"]]
-        x_sym_in    = s.get_name(node_inputs[0])
+        axes = [int(a) for a in params["dimensions"]]
+        x_sym_in = s.get_name(node_inputs[0])
         current_sym = x_sym_in
 
         # shared scalar constants
-        one_name     = s.builder.get_unique_name("const_one")
-        neg1_name    = s.builder.get_unique_name("const_neg1")
-        s.builder.add_initializer(one_name,  [1],  data_type=TensorProto.INT64, dims=[])
+        one_name = s.builder.get_unique_name("const_one")
+        neg1_name = s.builder.get_unique_name("const_neg1")
+        s.builder.add_initializer(one_name, [1], data_type=TensorProto.INT64, dims=[])
         s.builder.add_initializer(neg1_name, [-1], data_type=TensorProto.INT64, dims=[])
 
-        original_aval = node_inputs[0].aval        # shape / dtype stay constant
+        original_aval = node_inputs[0].aval  # shape / dtype stay constant
         for ax_idx, axis in enumerate(axes):
             # -- len = Shape(x)[axis] -------------------------------------------------
             shape_sym = s.builder.get_unique_name(f"shape_rev{ax_idx}")
@@ -145,9 +148,9 @@ class RevPlugin(PrimitiveLeafPlugin):
                 )
             )
             # ⇨ output has exactly the same static shape & dtype as the input
-            s.add_shape_info(out_sym,
-                             original_aval.shape,
-                             _np.dtype(original_aval.dtype))
+            s.add_shape_info(
+                out_sym, original_aval.shape, _np.dtype(original_aval.dtype)
+            )
 
             current_sym = out_sym
 

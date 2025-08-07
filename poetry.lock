@@ -1755,14 +1755,14 @@ test = ["flax (>=0.5.3)", "scikit-learn", "scipy (>=1.7.1)"]
 
 [[package]]
 name = "orbax-checkpoint"
-version = "0.11.20"
+version = "0.11.21"
 description = "Orbax Checkpoint"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "orbax_checkpoint-0.11.20-py3-none-any.whl", hash = "sha256:32170d74c92bf1c1adf967fc8e5a762b5b9e2073cd905ce772b799f30a0b45a7"},
-    {file = "orbax_checkpoint-0.11.20.tar.gz", hash = "sha256:7bea7fd196befd8822297a737edeeecf6b0df0188d763facd1ab97b9bacd9926"},
+    {file = "orbax_checkpoint-0.11.21-py3-none-any.whl", hash = "sha256:930454e23a86ee9155c20fc36a699366c65ecd508e21d3d84aec9b5173d461c2"},
+    {file = "orbax_checkpoint-0.11.21.tar.gz", hash = "sha256:1b3a7d861bb681a7c6061d2f0803d21d319c3b7478945b0e0d70beff0a49931d"},
 ]
 
 [package.dependencies]
@@ -2734,14 +2734,14 @@ scipy = ["scipy"]
 
 [[package]]
 name = "treescope"
-version = "0.1.9"
+version = "0.1.10"
 description = "Treescope: An interactive HTML pretty-printer for ML research in IPython notebooks."
 optional = false
 python-versions = ">=3.10"
 groups = ["main", "test"]
 files = [
-    {file = "treescope-0.1.9-py3-none-any.whl", hash = "sha256:68677013a9f0228212fccf835f3fb037be07ae8b4c5f6f58eefab11198f83cf7"},
-    {file = "treescope-0.1.9.tar.gz", hash = "sha256:ba6cdbdc9c5b52691d5f3bb4c5d5c7daa5627119acac8640b46d37e6aabe63a6"},
+    {file = "treescope-0.1.10-py3-none-any.whl", hash = "sha256:dde52f5314f4c29d22157a6fe4d3bd103f9cae02791c9e672eefa32c9aa1da51"},
+    {file = "treescope-0.1.10.tar.gz", hash = "sha256:20f74656f34ab2d8716715013e8163a0da79bdc2554c16d5023172c50d27ea95"},
 ]
 
 [package.dependencies]

@@ -1,6 +1,9 @@
+# file: jax2onnx/plugins/jax/lax/slice.py
+
 from typing import TYPE_CHECKING
 
 import jax
+import jax.numpy as jnp  # ⬅️ needed by the new testcase
 import numpy as np
 from onnx import helper
 
@@ -33,6 +36,21 @@ if TYPE_CHECKING:
             "testcase": "slice_3d_none_strides",
             "callable": lambda a: a[0:2, 0:1, 0:256],
             "input_shapes": [(2, 50, 256)],
+        },
+        {
+            # ── regression for Scan dropping the trip axis (issue #XYZ) ──
+            "testcase": "slice_scan_axis_drop",
+            "callable": lambda x: (
+                jax.lax.scan(
+                    # body: add a dummy batch axis, slice it, then squeeze again
+                    lambda c, xt: (c, jnp.squeeze(xt[None, ...][0:1, :, :, :], axis=0)),
+                    jnp.zeros(x.shape[1:], dtype=x.dtype),  # carry
+                    x,  # sequence over leading axis
+                )[
+                    1
+                ]  # we care only about the stacked outputs
+            ),
+            "input_shapes": [(2, 3, 4, 5)],  # (T, H, W, C)
         },
     ],
 )
