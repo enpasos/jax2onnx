@@ -536,6 +536,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         # ------------------------------------------------------------------
         # Special-case: no scan-inputs → Loop
+        # Thread consts **and** carry as Loop state (M = num_consts + num_carry)
         # ------------------------------------------------------------------
         if num_scan == 0:
             trip_name = s.builder.get_unique_name("trip_count")
@@ -563,9 +564,28 @@ class ScanPlugin(PrimitiveLeafPlugin):
             cond_in = body_builder.get_unique_name("cond_in")
             body_builder.add_input(cond_in, (), _np.bool_)
 
-            for i, var in enumerate(closed_jaxpr.jaxpr.invars[:num_carry]):
-                nm = body_builder.get_unique_name(f"carry_in_{i}")
-                body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
+            # Body inputs: iter, cond, then all state in the order [consts..., carry...]
+            for i, var in enumerate(
+                closed_jaxpr.jaxpr.invars[: num_consts + num_carry]
+            ):
+                nm = body_builder.get_unique_name(f"state_in_{i}")
+                # const inputs must match model precision so they align with the symbols we feed
+                dt = var.aval.dtype
+                try:
+                    npdt = _np.dtype(dt)
+                except Exception:
+                    npdt = (
+                        _np.float64
+                        if body_builder.enable_double_precision
+                        else _np.float32
+                    )
+                if i < num_consts and _np.issubdtype(npdt, _np.floating):
+                    dt = (
+                        _np.float64
+                        if body_builder.enable_double_precision
+                        else _np.float32
+                    )
+                body_builder.add_input(nm, var.aval.shape, dt)
                 body_conv.var_to_name[var] = nm
 
             for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
@@ -584,8 +604,48 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_builder.add_node(idn)
             body_builder.add_output(cond_out, (), _np.bool_)
 
+            # Emit body state outputs first: passthrough consts, then computed carries
+            # 1) consts passthrough
+            for ci in range(num_consts):
+                in_sym = body_conv.get_name(closed_jaxpr.jaxpr.invars[ci])
+                const_out = body_builder.get_unique_name(f"const_out_{ci}")
+                body_builder.add_node(
+                    helper.make_node(
+                        "Identity",
+                        inputs=[in_sym],
+                        outputs=[const_out],
+                        name=body_builder.get_unique_name("Identity_const_passthrough"),
+                    )
+                )
+                aval = closed_jaxpr.jaxpr.invars[ci].aval
+                # keep dtype identical to the body input (which we may have coerced)
+                out_dt = body_builder.get_dtype(in_sym) or aval.dtype
+                body_builder.add_output(const_out, aval.shape, out_dt)
+
+            # 2) computed carry(s)
             seen_body = set()
-            for var in closed_jaxpr.jaxpr.outvars:
+            for cj in range(num_carry):
+                carr_sym = body_conv.get_name(closed_jaxpr.jaxpr.outvars[cj])
+                out_sym = (
+                    carr_sym
+                    if carr_sym not in seen_body
+                    else body_builder.get_unique_name(f"{carr_sym}_dup")
+                )
+                if out_sym != carr_sym:
+                    body_builder.add_node(
+                        helper.make_node(
+                            "Identity",
+                            inputs=[carr_sym],
+                            outputs=[out_sym],
+                            name=body_builder.get_unique_name("Identity_carry_dup"),
+                        )
+                    )
+                seen_body.add(out_sym)
+                aval = closed_jaxpr.jaxpr.outvars[cj].aval
+                body_builder.add_output(out_sym, aval.shape, aval.dtype)
+
+            # 3) per-iter y outputs (no duplication of carry)
+            for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
                 orig = body_conv.get_name(var)
                 out_name = (
                     orig
@@ -593,31 +653,112 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     else body_builder.get_unique_name(f"{orig}_dup")
                 )
                 if out_name != orig:
-                    dup = helper.make_node(
-                        "Identity",
-                        inputs=[orig],
-                        outputs=[out_name],
-                        name=body_builder.get_unique_name("Identity_dup_scan0"),
+                    body_builder.add_node(
+                        helper.make_node(
+                            "Identity",
+                            inputs=[orig],
+                            outputs=[out_name],
+                            name=body_builder.get_unique_name("Identity_dup_scan0"),
+                        )
                     )
-                    body_builder.add_node(dup)
                 seen_body.add(out_name)
                 body_builder.add_output(out_name, var.aval.shape, var.aval.dtype)
 
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
             )
-            loop_inputs = [trip_name, cond_name] + [s.get_name(v) for v in node_inputs]
-            loop_outputs = [s.get_name(v) for v in node_outputs]
+
+            # Pass state inputs = [consts..., carry...]
+            state_in_syms = [
+                s.get_name(v) for v in node_inputs[: num_consts + num_carry]
+            ]
+            loop_inputs = [trip_name, cond_name] + state_in_syms
+
+            # Body returns [carry, y1, y2, ...] per iteration → primitive returns
+            # [final_carry, ystack1, ystack2, ...]. We'll need this count to size Loop outs.
+            jax_body_outvars = list(closed_jaxpr.jaxpr.outvars)
+            num_y = len(jax_body_outvars) - num_carry
+            if num_y < 0:
+                raise ValueError("Internal error: num_y < 0 in Loop lowering.")
+
+            # Create Loop node outputs in ONNX order: [const_state..., carry_state..., scan...]
+            loop_tmp_outs: list[str] = []
+            # state outs: consts passthrough first
+            for ci in range(num_consts):
+                var_in = closed_jaxpr.jaxpr.invars[ci]
+                tmp = s.builder.get_unique_name(f"loop_const_raw_{ci}")
+                inner_rank = len(getattr(var_in.aval, "shape", ()))
+                # match dtype of the symbol we feed into Loop for this const
+                const_sym = state_in_syms[ci]
+                const_dt = s.builder.get_dtype(const_sym) or getattr(
+                    var_in.aval, "dtype", _np.float32
+                )
+                s.add_shape_info(tmp, (None,) * inner_rank, const_dt)
+                loop_tmp_outs.append(tmp)
+            # then computed carries
+            for i in range(num_carry):
+                var = jax_body_outvars[i]
+                tmp = s.builder.get_unique_name(f"loop_state_raw_{i}")
+                inner_rank = len(getattr(var.aval, "shape", ()))
+                s.add_shape_info(
+                    tmp, (None,) * inner_rank, getattr(var.aval, "dtype", _np.float32)
+                )
+                loop_tmp_outs.append(tmp)
+
+            # scan (stacked) outs
+            for k, var in enumerate(jax_body_outvars[num_carry:]):
+                tmp = s.builder.get_unique_name(f"loop_scan_raw_{k}")
+                inner_rank = len(getattr(var.aval, "shape", ()))
+                s.add_shape_info(
+                    tmp,
+                    (None,) * (inner_rank + 1),
+                    getattr(var.aval, "dtype", _np.float32),
+                )
+                loop_tmp_outs.append(tmp)
+
             loop_node = helper.make_node(
                 "Loop",
                 inputs=loop_inputs,
-                outputs=loop_outputs,
+                outputs=loop_tmp_outs,
                 name=s.get_unique_name("Loop"),
                 body=loop_body,
             )
             s.add_node(loop_node)
-            for sym, v in zip(loop_outputs, node_outputs):
-                s.add_shape_info(sym, v.aval.shape, v.aval.dtype)
+
+            # ----- Forward ONLY needed primitive outputs by index (skip const passthroughs) -----
+            # Primitive result order is: [final_carry] + [ystack_k...]
+            # Loop outputs are: [const_state..., carry_state..., ystack_k...]
+            for j, out_var in enumerate(node_outputs):
+                # DropVar or similar → nothing to wire
+                if not isinstance(out_var, Var):
+                    continue
+                if j < num_carry:
+                    # carry slot
+                    src_name = loop_tmp_outs[num_consts + j]
+                else:
+                    # y slot j-num_carry
+                    k = j - num_carry
+                    src_name = loop_tmp_outs[num_consts + num_carry + k]
+                final_name = s.get_name(out_var)
+                s.add_node(
+                    helper.make_node(
+                        "Identity",
+                        inputs=[src_name],
+                        outputs=[final_name],
+                        name=s.get_unique_name("LoopOut"),
+                    )
+                )
+                # Replace any stale VI and attach rank/dtype consistent with the var
+                s.builder.value_info[:] = [
+                    vi for vi in s.builder.value_info if vi.name != final_name
+                ]
+                inner_rank = len(getattr(out_var.aval, "shape", ()))
+                out_rank = inner_rank if j < num_carry else inner_rank + 1
+                dtype = s.builder.get_dtype(src_name) or getattr(
+                    out_var.aval, "dtype", _np.float32
+                )
+                s.add_shape_info(final_name, (None,) * out_rank, dtype)
+
             return
 
         # ------------------------------------------------------------------
@@ -679,8 +820,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 )
             )
             aval = jaxpr.invars[ci].aval
+            # keep dtype identical to the body input (which we may have coerced)
             out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-            body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
+            body_builder.add_output(out_sym, aval.shape, out_dt)
 
         # 1b) **computed** carry from body outvars
         seen: set[str] = set()
@@ -736,24 +878,24 @@ class ScanPlugin(PrimitiveLeafPlugin):
         # Broadcast rank-0 sequence inputs  (operate ONLY on xs, not carries)
         # ------------------------------------------------------------------
         # State = consts + carry (they are part of node_inputs, in that order)
-        carry_syms = [s.get_name(v) for v in node_inputs[: num_carry + num_consts]]
+        carry_syms = [s.get_name(v) for v in node_inputs[: num_consts + num_carry]]
 
         xs_syms = [
             s.get_name(v)
             for v in node_inputs[
-                num_carry + num_consts : num_carry + num_consts + num_scan
+                num_consts + num_carry : num_consts + num_carry + num_scan
             ]
         ]
 
         trip_shape_sym: str | None = None  # will hold a 1-D [trip] tensor
 
         for i in range(num_scan):
-            var = node_inputs[num_carry + num_consts + i]
+            var = node_inputs[num_consts + num_carry + i]
             if len(var.aval.shape) == 0:
                 ref_var = None
                 # look for a reference among *real* scan inputs
                 for cand in node_inputs[
-                    num_carry + num_consts : num_carry + num_consts + num_scan
+                    num_consts + num_carry : num_consts + num_carry + num_scan
                 ]:
                     if len(cand.aval.shape) > 0:
                         ref_var = cand
@@ -890,11 +1032,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
             rank = s.builder.get_rank(sym)
             if rank is None:
-                rank = len(node_inputs[num_carry + num_consts + i].aval.shape)
+                rank = len(node_inputs[num_consts + num_carry + i].aval.shape)
             # If dtype isn't known yet, fall back to the JAX aval dtype; if that's
             # still missing, align the fallback to the precision mode (no silent f32).
             dtype = s.builder.get_dtype(sym) or getattr(
-                node_inputs[num_carry + num_consts + i].aval, "dtype", default_float
+                node_inputs[num_consts + num_carry + i].aval, "dtype", default_float
             )
             s.add_shape_info(proxy, (None,) * rank, dtype)
             xs_syms_dyn.append(proxy)
@@ -993,3 +1135,5 @@ class ScanPlugin(PrimitiveLeafPlugin):
             inner_rank = len(var.aval.shape)
             out_rank = inner_rank if is_carry else inner_rank + 1
             s.add_shape_info(final_name, (None,) * out_rank, var.aval.dtype)
+
+        return
