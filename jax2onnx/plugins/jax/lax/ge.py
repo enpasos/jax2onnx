@@ -18,7 +18,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__GreaterOrEqual.html",
         }
     ],
-    since="v0.7.4",
+    since="v0.7.5",
     context="primitives.lax",
     component="greater_equal",
     testcases=[

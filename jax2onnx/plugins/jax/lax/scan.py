@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import core, lax
 from onnx import TensorProto, helper
+from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -569,23 +570,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 closed_jaxpr.jaxpr.invars[: num_consts + num_carry]
             ):
                 nm = body_builder.get_unique_name(f"state_in_{i}")
-                # const inputs must match model precision so they align with the symbols we feed
-                dt = var.aval.dtype
-                try:
-                    npdt = _np.dtype(dt)
-                except Exception:
-                    npdt = (
-                        _np.float64
-                        if body_builder.enable_double_precision
-                        else _np.float32
-                    )
-                if i < num_consts and _np.issubdtype(npdt, _np.floating):
-                    dt = (
-                        _np.float64
-                        if body_builder.enable_double_precision
-                        else _np.float32
-                    )
-                body_builder.add_input(nm, var.aval.shape, dt)
+                # Keep body input dtypes equal to the jaxpr aval dtypes; we cast
+                # outer symbols to these dtypes just before wiring the Loop inputs.
+                body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
                 body_conv.var_to_name[var] = nm
 
             for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
@@ -669,9 +656,49 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
 
             # Pass state inputs = [consts..., carry...]
-            state_in_syms = [
+            # Ensure the symbols we feed into Loop match the body input (aval) dtypes.
+            raw_state_syms = [
                 s.get_name(v) for v in node_inputs[: num_consts + num_carry]
             ]
+            state_in_syms: list[str] = []
+            for i, sym in enumerate(raw_state_syms):
+                aval_dt = getattr(closed_jaxpr.jaxpr.invars[i].aval, "dtype", None)
+                sym_dt = s.builder.get_dtype(sym)
+                # If both are floating and differ, insert an explicit Cast to the aval dtype
+                if (
+                    aval_dt is not None
+                    and sym_dt is not None
+                    and _np.issubdtype(_np.dtype(sym_dt), _np.floating)
+                    and _np.issubdtype(_np.dtype(aval_dt), _np.floating)
+                    and _np.dtype(sym_dt) != _np.dtype(aval_dt)
+                ):
+                    cast_out = s.builder.get_unique_name(
+                        f"{sym}_cast_{_np.dtype(aval_dt).name}"
+                    )
+                    to_enum = _NP2ONNX.get(_np.dtype(aval_dt), None)
+                    if to_enum is None:
+                        # Fall back conservatively to FLOAT if mapping is missing
+                        to_enum = TensorProto.FLOAT
+                    s.add_node(
+                        helper.make_node(
+                            "Cast",
+                            inputs=[sym],
+                            outputs=[cast_out],
+                            name=s.get_unique_name("CastLoopStateIn"),
+                            to=to_enum,
+                        )
+                    )
+                    # Preserve rank info if we have it; otherwise make fully dynamic
+                    rank = s.builder.get_rank(sym)
+                    if rank is None:
+                        rank = len(
+                            getattr(closed_jaxpr.jaxpr.invars[i].aval, "shape", ())
+                        )
+                    s.add_shape_info(cast_out, (None,) * rank, aval_dt)
+                    state_in_syms.append(cast_out)
+                else:
+                    state_in_syms.append(sym)
+
             loop_inputs = [trip_name, cond_name] + state_in_syms
 
             # Body returns [carry, y1, y2, ...] per iteration → primitive returns
@@ -688,7 +715,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 var_in = closed_jaxpr.jaxpr.invars[ci]
                 tmp = s.builder.get_unique_name(f"loop_const_raw_{ci}")
                 inner_rank = len(getattr(var_in.aval, "shape", ()))
-                # match dtype of the symbol we feed into Loop for this const
+                # match dtype of the (possibly cast) symbol we feed into Loop for this const
                 const_sym = state_in_syms[ci]
                 const_dt = s.builder.get_dtype(const_sym) or getattr(
                     var_in.aval, "dtype", _np.float32
@@ -700,9 +727,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 var = jax_body_outvars[i]
                 tmp = s.builder.get_unique_name(f"loop_state_raw_{i}")
                 inner_rank = len(getattr(var.aval, "shape", ()))
-                s.add_shape_info(
-                    tmp, (None,) * inner_rank, getattr(var.aval, "dtype", _np.float32)
+                # Carry state out dtype must match its corresponding (possibly cast) state input
+                carry_in_sym = state_in_syms[num_consts + i]
+                carry_dt = s.builder.get_dtype(carry_in_sym) or getattr(
+                    var.aval, "dtype", _np.float32
                 )
+                s.add_shape_info(tmp, (None,) * inner_rank, carry_dt)
                 loop_tmp_outs.append(tmp)
 
             # scan (stacked) outs
@@ -782,22 +812,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for i, var in enumerate(jaxpr.invars):
             nm = body_builder.get_unique_name(f"scan_body_in_{i}")
             dyn_shp = (None,) * len(var.aval.shape)
-            # Ensure captured-const inputs match the precision mode (so they
-            # line up with the dtype of the symbol we feed at the top level).
-            dt = var.aval.dtype
-            try:
-                npdt = _np.dtype(dt)
-            except Exception:
-                npdt = (
-                    _np.float32
-                    if not body_builder.enable_double_precision
-                    else _np.float64
-                )
-            if i < num_consts and _np.issubdtype(npdt, _np.floating):
-                dt = (
-                    _np.float64 if body_builder.enable_double_precision else _np.float32
-                )
-            body_builder.add_input(nm, dyn_shp, dt)
+            # For consts+carry, match dtype to the outer symbol that feeds Scan
+            if i < (num_consts + num_carry):
+                upstream_sym = s.get_name(node_inputs[i])
+                upstream_dt = s.builder.get_dtype(upstream_sym) or var.aval.dtype
+                body_builder.add_input(nm, dyn_shp, upstream_dt)
+            else:
+                # xs inputs keep aval dtype; proxies will be dtype-compatible
+                body_builder.add_input(nm, dyn_shp, var.aval.dtype)
             body_conv.var_to_name[var] = nm
 
         body_conv._process_jaxpr(jaxpr, consts)
@@ -1059,14 +1081,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for ci in range(num_consts):
             tmp = s.builder.get_unique_name(f"scan_const_raw_{ci}")
             scan_tmp_outs.append(tmp)
-            aval = jaxpr.invars[ci].aval
-            if _np.issubdtype(_np.dtype(aval.dtype), _np.floating):
-                const_dt = (
-                    _np.float64 if s.builder.enable_double_precision else _np.float32
-                )
-            else:
-                const_dt = aval.dtype
-            s.add_shape_info(tmp, (None,) * len(aval.shape), const_dt)
+            # Const state out dtype must match the const state *input*
+            const_in_sym = carry_syms[ci]
+            const_dt = s.builder.get_dtype(const_in_sym) or jaxpr.invars[ci].aval.dtype
+            s.add_shape_info(tmp, (None,) * len(jaxpr.invars[ci].aval.shape), const_dt)
 
         # b) real carry outputs
         for j in range(num_carry):
@@ -1076,7 +1094,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
             aval_src = (
                 out_var.aval if isinstance(out_var, Var) else jaxpr.outvars[j].aval
             )
-            s.add_shape_info(tmp, (None,) * len(aval_src.shape), aval_src.dtype)
+            # Carry state out dtype must match carry state *input*
+            carry_in_sym = carry_syms[num_consts + j]
+            carry_dt = s.builder.get_dtype(carry_in_sym) or aval_src.dtype
+            s.add_shape_info(tmp, (None,) * len(aval_src.shape), carry_dt)
             if isinstance(out_var, Var):
                 final_name = s.get_name(out_var)
                 post_map.append((True, tmp, final_name, out_var))
