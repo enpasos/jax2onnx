@@ -26,6 +26,37 @@ i64 = _np.int64
 _SCAN_INSTANCE_COUNTER: int = 0
 
 
+# --- Utility: make all internal VIs rank-only (shape dims unknown) -----------
+def _loosen_value_infos_to_rank_only(bld: OnnxBuilder) -> None:
+    """
+    For aggressive ORT shape-inference cases inside Loop/Scan bodies, we can mark
+    *internal* value_infos to be rank-only (all dims dynamic). Inputs/outputs are
+    already handled explicitly elsewhere.
+    Guarded by env var: JAX2ONNX_LOOP_BODY_LOOSEN_SHAPES.
+    """
+    flag = os.getenv("JAX2ONNX_LOOP_BODY_LOOSEN_SHAPES", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not flag:
+        return
+    # Rebuild value_info with same dtype but fully dynamic dims.
+    vis = list(bld.value_info)
+    bld.value_info[:] = [vi for vi in bld.value_info if False]  # clear
+    for vi in vis:
+        name = vi.name
+        dt = bld.get_dtype(name)
+        # Prefer known rank; fall back to rank from the existing VI if needed
+        rank = bld.get_rank(name)
+        if rank is None:
+            # try to peek the proto
+            tt = vi.type.tensor_type
+            rank = len(tt.shape.dim) if tt.HasField("shape") else 0
+        bld.add_value_info(name, (None,) * (rank or 0), dt)
+
+
 # --- Utility: retag body value_info dtypes to match producer inputs ----------
 def _retag_value_infos_to_input_dtype(bld: OnnxBuilder) -> None:
     """
@@ -682,6 +713,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
             _retag_value_infos_to_input_dtype(body_builder)
 
+            # Optional: make all internal shapes rank-only to avoid ORT Loop body
+            # broadcast inference clashes (enabled via env var).
+            _loosen_value_infos_to_rank_only(body_builder)
             body_builder.outputs.clear()
             cond_out = body_builder.get_unique_name("cond_out")
             idn = helper.make_node(
