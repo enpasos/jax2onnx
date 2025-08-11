@@ -91,16 +91,25 @@ def test_feed_forward_like_nested_loops_mixed_dtypes_loads_and_runs(tmp_path):
             if node is None:
                 return False
             if node.op_type == "Cast":
-                to_double = any(a.name == "to" and a.i == _TP.DOUBLE for a in node.attribute)
+                to_double = any(
+                    a.name == "to" and a.i == _TP.DOUBLE for a in node.attribute
+                )
                 # continue through all inputs; remember we saw Cast(to=DOUBLE)
-                return any(walk_back(inp, seen_cast or to_double, depth + 1, limit) for inp in node.input)
+                return any(
+                    walk_back(inp, seen_cast or to_double, depth + 1, limit)
+                    for inp in node.input
+                )
             if node.op_type in index_ops:
                 # indexing reached; succeed only if a Cast(to=DOUBLE) was seen on the path
                 if seen_cast:
                     return True
-                return any(walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input)
+                return any(
+                    walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input
+                )
             if node.op_type in passthrough:
-                return any(walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input)
+                return any(
+                    walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input
+                )
             # stop on other ops
             return False
 

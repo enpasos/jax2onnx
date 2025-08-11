@@ -9,14 +9,12 @@ output dtypes via explicit Casts when needed.
 
 from __future__ import annotations
 
-import os
-import numpy as np
-import jax
 import jax.numpy as jnp
 import pytest
 from jax import lax
 
 from jax2onnx import to_onnx
+
 onnx = pytest.importorskip("onnx", reason="onnx is required for this test")
 ort = pytest.importorskip("onnxruntime", reason="onnxruntime is required for this test")
 
@@ -40,7 +38,9 @@ def _fn_nested_loop_gathernd_mixed_dtypes():
         return (i + jnp.int32(1), acc), val  # per-step y is float32
 
     def outer(carry, _):
-        (_, acc_final), ys = lax.scan(inner, (jnp.int32(0), jnp.float64(0.0)), xs=None, length=3)
+        (_, acc_final), ys = lax.scan(
+            inner, (jnp.int32(0), jnp.float64(0.0)), xs=None, length=3
+        )
         y_last = ys[-1]  # float32
         return carry + jnp.asarray(y_last, dtype=jnp.float64), (acc_final, y_last)
 
@@ -56,8 +56,11 @@ def _iter_loop_bodies(graph):
                     yield a.g
                     yield from _iter_loop_bodies(a.g)
 
+
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_gathernd_mixed_dtypes_fails_without_harmonization(tmp_path, monkeypatch):
+def test_nested_loop_gathernd_mixed_dtypes_fails_without_harmonization(
+    tmp_path, monkeypatch
+):
     """
     Negative test: disable Loop-body binop harmonization and assert there are
     NO Cast nodes named like our harmonizer (“CastAlignBinOp”) inside any Loop body.
@@ -92,7 +95,8 @@ def test_nested_loop_gathernd_mixed_dtypes_fails_without_harmonization(tmp_path,
                 return True
         return False
 
-    assert not any(body_contains_castalign(g) for g in iter_loop_bodies(m.graph)), \
-        "Harmonization casts ('CastAlignBinOp') should NOT be present when disabled."
+    assert not any(
+        body_contains_castalign(g) for g in iter_loop_bodies(m.graph)
+    ), "Harmonization casts ('CastAlignBinOp') should NOT be present when disabled."
 
     monkeypatch.delenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", raising=False)

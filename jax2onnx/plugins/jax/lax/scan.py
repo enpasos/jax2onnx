@@ -620,9 +620,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 closed_jaxpr.jaxpr.invars[: num_consts + num_carry]
             ):
                 nm = body_builder.get_unique_name(f"state_in_{i}")
-                # Keep body input dtypes equal to the jaxpr aval dtypes; we cast
-                # outer symbols to these dtypes just before wiring the Loop inputs.
-                body_builder.add_input(nm, var.aval.shape, var.aval.dtype)
+                # Rank-only (all dims dynamic) to avoid ORT subgraph shape conflicts.
+                # Keep body input dtypes equal to the jaxpr aval dtypes; we cast outer
+                # symbols to these dtypes just before wiring the Loop inputs.
+                dyn_shape = (None,) * len(getattr(var.aval, "shape", ()))
+                body_builder.add_input(nm, dyn_shape, var.aval.dtype)
                 body_conv.var_to_name[var] = nm
 
             for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
@@ -706,7 +708,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 aval = closed_jaxpr.jaxpr.invars[ci].aval
                 # keep dtype identical to the body input (which we may have coerced)
                 out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-                body_builder.add_output(const_out, aval.shape, out_dt)
+                body_builder.add_output(const_out, (None,) * len(aval.shape), out_dt)
 
             # 2) computed carry(s)
             seen_body = set()
@@ -730,7 +732,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 aval = closed_jaxpr.jaxpr.outvars[cj].aval
                 # Use the actual dtype on the symbol if known (after any Cast we inserted).
                 out_dt = body_builder.get_dtype(carr_sym) or aval.dtype
-                body_builder.add_output(out_sym, aval.shape, out_dt)
+                body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
 
             # 3) per-iter y outputs (no duplication of carry)
             for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
@@ -751,7 +753,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 seen_body.add(out_name)
                 y_dt = body_builder.get_dtype(orig) or var.aval.dtype
-                body_builder.add_output(out_name, var.aval.shape, y_dt)
+                # For consistency make y outputs rank-only as well.
+                body_builder.add_output(out_name, (None,) * len(var.aval.shape), y_dt)
 
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
@@ -968,7 +971,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             aval = jaxpr.invars[ci].aval
             # keep dtype identical to the body input (which we may have coerced)
             out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-            body_builder.add_output(out_sym, aval.shape, out_dt)
+            body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
 
         # 1b) **computed** carry from body outvars
         seen: set[str] = set()
