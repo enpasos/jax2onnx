@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import numpy as _np
 from typing import Any, Sequence, Union, Optional
 
@@ -23,6 +24,55 @@ INT64 = TensorProto.INT64
 i64 = _np.int64
 # unique id for every Scan node – used when generating helper names
 _SCAN_INSTANCE_COUNTER: int = 0
+
+
+# --- Utility: retag body value_info dtypes to match producer inputs ----------
+def _retag_value_infos_to_input_dtype(bld: OnnxBuilder) -> None:
+    """
+    For common ops whose output dtype should mirror an input (passthrough/index-like/
+    basic binops), update the recorded value_info dtype to match the input dtype.
+    This avoids ORT type inference mismatches when earlier passes inserted Casts.
+    """
+    passthrough = {
+        "Squeeze",
+        "Unsqueeze",
+        "Identity",
+        "Reshape",
+        "Transpose",
+        "Flatten",
+        "Expand",
+    }
+    index_like = {"Gather", "GatherND", "GatherElements", "Slice"}
+    binops = {"Add", "Sub", "Mul", "Div"}
+    same_as_first = passthrough | index_like | {"Concat"} | binops
+
+    out2node = {}
+    for n in bld.nodes:
+        for o in n.output:
+            out2node[o] = n
+
+    names = [vi.name for vi in list(bld.value_info)]
+    for name in names:
+        n = out2node.get(name)
+        if n is None or n.op_type == "Cast":
+            continue
+        exp_dt = None
+        if n.op_type in same_as_first and n.input:
+            exp_dt = bld.get_dtype(n.input[0])
+        cur_dt = bld.get_dtype(name)
+        if exp_dt is None or cur_dt is None:
+            continue
+        if _np.dtype(exp_dt) != _np.dtype(cur_dt):
+            rank = bld.get_rank(name)
+            if rank is None and n.input:
+                rank = bld.get_rank(n.input[0])
+            if rank is None:
+                rank = 0
+            bld.value_info[:] = [vi for vi in bld.value_info if vi.name != name]
+            bld.add_value_info(name, (None,) * rank, exp_dt)
+
+
+# ---------------------------------------------------------------------------
 
 
 # ----------------------------------------------------------------------
@@ -581,58 +631,53 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_conv._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
             # --- dtype harmonization for binary float ops in Loop body ---
-            _binops = {"Add", "Sub", "Mul", "Div"}
-            for n in list(
-                body_builder.nodes
-            ):  # list() in case we append while iterating
-                if n.op_type in _binops and len(n.input) >= 2:
-                    a, b = n.input[0], n.input[1]
-                    ta = body_builder.get_dtype(a)
-                    tb = body_builder.get_dtype(b)
-                    if (
-                        ta is not None
-                        and tb is not None
-                        and _np.issubdtype(_np.dtype(ta), _np.floating)
-                        and _np.issubdtype(_np.dtype(tb), _np.floating)
-                        and _np.dtype(ta) != _np.dtype(tb)
-                    ):
-                        # Cast RHS to LHS dtype and INSERT the Cast BEFORE this node
-                        cast_out = body_builder.get_unique_name(
-                            f"{b}_cast_{_np.dtype(ta).name}"
-                        )
-                        to_enum = _NP2ONNX[_np.dtype(ta)]
-                        cast_node = helper.make_node(
-                            "Cast",
-                            inputs=[b],
-                            outputs=[cast_out],
-                            name=body_builder.get_unique_name("CastAlignBinOp"),
-                            to=to_enum,
-                        )
-                        # Insert before current node to maintain topo order
-                        idx = body_builder.nodes.index(n)
-                        body_builder.nodes.insert(idx, cast_node)
-                        # keep rank if we know it; otherwise be dynamic
-                        r = body_builder.get_rank(b)
-                        if r is None:
-                            r = body_builder.get_rank(a)
-                        if r is None:
-                            r = 0
-                        body_builder.add_value_info(cast_out, (None,) * r, ta)
-                        n.input[1] = cast_out
-                        # Ensure the binary op's OUTPUT is also typed to the LHS dtype (ta).
-                        # Earlier passes may have annotated it as float32; after harmonization
-                        # the Add output becomes ta (e.g., float64), so update value_info.
-                        if len(n.output) >= 1:
-                            out_name = n.output[0]
-                            r_out = body_builder.get_rank(out_name)
-                            if r_out is None:
-                                r_out = body_builder.get_rank(a)
-                            if r_out is None:
-                                r_out = body_builder.get_rank(b)
-                            if r_out is None:
-                                r_out = 0
-                            body_builder.add_value_info(out_name, (None,) * r_out, ta)
+            # Allow tests to disable this to reproduce pre-fix failures.
+            _disable_cast_env = os.getenv(
+                "JAX2ONNX_DISABLE_LOOP_BINOP_CAST", ""
+            ).lower()
+            _disable_cast = _disable_cast_env in ("1", "true", "yes", "on")
+            if not _disable_cast:
+                _binops = {"Add", "Sub", "Mul", "Div"}
+                for n in list(
+                    body_builder.nodes
+                ):  # list() in case we append while iterating
+                    if n.op_type in _binops and len(n.input) >= 2:
+                        a, b = n.input[0], n.input[1]
+                        ta = body_builder.get_dtype(a)
+                        tb = body_builder.get_dtype(b)
+                        if (
+                            ta is not None
+                            and tb is not None
+                            and _np.issubdtype(_np.dtype(ta), _np.floating)
+                            and _np.issubdtype(_np.dtype(tb), _np.floating)
+                            and _np.dtype(ta) != _np.dtype(tb)
+                        ):
+                            # Cast RHS to LHS dtype and INSERT the Cast BEFORE this node
+                            cast_out = body_builder.get_unique_name(
+                                f"{b}_cast_{_np.dtype(ta).name}"
+                            )
+                            to_enum = _NP2ONNX[_np.dtype(ta)]
+                            cast_node = helper.make_node(
+                                "Cast",
+                                inputs=[b],
+                                outputs=[cast_out],
+                                name=body_builder.get_unique_name("CastAlignBinOp"),
+                                to=to_enum,
+                            )
+                            # Insert before current node to maintain topo order
+                            idx = body_builder.nodes.index(n)
+                            body_builder.nodes.insert(idx, cast_node)
+                            # keep rank if we know it; otherwise be dynamic
+                            r = body_builder.get_rank(b)
+                            if r is None:
+                                r = body_builder.get_rank(a)
+                            if r is None:
+                                r = 0
+                            body_builder.add_value_info(cast_out, (None,) * r, ta)
+                            n.input[1] = cast_out
             # --- end harmonization ---
+
+            _retag_value_infos_to_input_dtype(body_builder)
 
             body_builder.outputs.clear()
             cond_out = body_builder.get_unique_name("cond_out")
@@ -683,7 +728,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 seen_body.add(out_sym)
                 aval = closed_jaxpr.jaxpr.outvars[cj].aval
-                body_builder.add_output(out_sym, aval.shape, aval.dtype)
+                # Use the actual dtype on the symbol if known (after any Cast we inserted).
+                out_dt = body_builder.get_dtype(carr_sym) or aval.dtype
+                body_builder.add_output(out_sym, aval.shape, out_dt)
 
             # 3) per-iter y outputs (no duplication of carry)
             for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
@@ -703,7 +750,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         )
                     )
                 seen_body.add(out_name)
-                body_builder.add_output(out_name, var.aval.shape, var.aval.dtype)
+                y_dt = body_builder.get_dtype(orig) or var.aval.dtype
+                body_builder.add_output(out_name, var.aval.shape, y_dt)
 
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
@@ -862,6 +910,23 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
         body_conv = Jaxpr2OnnxConverter(body_builder)
 
+        # --- dtype inference helpers ---
+        def _infer_dtype_from_producer(bld, sym):
+            # Look for the node that produces `sym` and try to use any input dtype as output dtype.
+            for n in reversed(bld.nodes):
+                if sym in n.output:
+                    for inp in n.input:
+                        dt = bld.get_dtype(inp)
+                        if dt is not None:
+                            return dt
+                    return None
+            return None
+
+        def _dtype_or_infer(bld, sym, fallback):
+            return (
+                bld.get_dtype(sym) or _infer_dtype_from_producer(bld, sym) or fallback
+            )
+
         # declare inputs (exactly the jaxpr.invars; order is [consts, carry, xs])
         for i, var in enumerate(jaxpr.invars):
             nm = body_builder.get_unique_name(f"scan_body_in_{i}")
@@ -877,6 +942,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_conv.var_to_name[var] = nm
 
         body_conv._process_jaxpr(jaxpr, consts)
+
+        # Retag internal VIs: e.g. Squeeze/Gather/Add should inherit input dtype,
+        # which may be f64 under enable_double_precision.
+        _retag_value_infos_to_input_dtype(body_builder)
+
         # Re-emit body outputs in ONNX-required order:
         #   1) state outputs:   consts (passthrough)  +  **computed carries**
         #   2) stacked y-outputs (ONLY jaxpr.outvars[num_carry:]) → fully dynamic dims
@@ -920,7 +990,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 )
             seen.add(out_sym)
             aval = jaxpr.outvars[cj].aval
-            body_builder.add_output(out_sym, (None,) * len(aval.shape), aval.dtype)
+            out_dt = _dtype_or_infer(body_builder, carr_sym, aval.dtype)
+            body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
 
         # 2) y-outputs (do NOT duplicate the carry)
         #    Continue using `seen` to avoid double-emitting symbols.
@@ -943,7 +1014,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
             seen.add(out)
             # →  make *every* dimension dynamic; keep only the rank
             dyn_shape = tuple(None for _ in var.aval.shape)
-            body_builder.add_output(out, dyn_shape, var.aval.dtype)
+            y_dt = _dtype_or_infer(body_builder, orig, var.aval.dtype)
+            body_builder.add_output(out, dyn_shape, y_dt)
         # ▶──────────────────────────── PATCH END ──────────────────────────────
 
         body_graph = body_builder.create_graph(
