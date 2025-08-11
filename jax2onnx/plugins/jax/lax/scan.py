@@ -580,6 +580,60 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
             body_conv._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
+            # --- dtype harmonization for binary float ops in Loop body ---
+            _binops = {"Add", "Sub", "Mul", "Div"}
+            for n in list(
+                body_builder.nodes
+            ):  # list() in case we append while iterating
+                if n.op_type in _binops and len(n.input) >= 2:
+                    a, b = n.input[0], n.input[1]
+                    ta = body_builder.get_dtype(a)
+                    tb = body_builder.get_dtype(b)
+                    if (
+                        ta is not None
+                        and tb is not None
+                        and _np.issubdtype(_np.dtype(ta), _np.floating)
+                        and _np.issubdtype(_np.dtype(tb), _np.floating)
+                        and _np.dtype(ta) != _np.dtype(tb)
+                    ):
+                        # Cast RHS to LHS dtype and INSERT the Cast BEFORE this node
+                        cast_out = body_builder.get_unique_name(
+                            f"{b}_cast_{_np.dtype(ta).name}"
+                        )
+                        to_enum = _NP2ONNX[_np.dtype(ta)]
+                        cast_node = helper.make_node(
+                            "Cast",
+                            inputs=[b],
+                            outputs=[cast_out],
+                            name=body_builder.get_unique_name("CastAlignBinOp"),
+                            to=to_enum,
+                        )
+                        # Insert before current node to maintain topo order
+                        idx = body_builder.nodes.index(n)
+                        body_builder.nodes.insert(idx, cast_node)
+                        # keep rank if we know it; otherwise be dynamic
+                        r = body_builder.get_rank(b)
+                        if r is None:
+                            r = body_builder.get_rank(a)
+                        if r is None:
+                            r = 0
+                        body_builder.add_value_info(cast_out, (None,) * r, ta)
+                        n.input[1] = cast_out
+                        # Ensure the binary op's OUTPUT is also typed to the LHS dtype (ta).
+                        # Earlier passes may have annotated it as float32; after harmonization
+                        # the Add output becomes ta (e.g., float64), so update value_info.
+                        if len(n.output) >= 1:
+                            out_name = n.output[0]
+                            r_out = body_builder.get_rank(out_name)
+                            if r_out is None:
+                                r_out = body_builder.get_rank(a)
+                            if r_out is None:
+                                r_out = body_builder.get_rank(b)
+                            if r_out is None:
+                                r_out = 0
+                            body_builder.add_value_info(out_name, (None,) * r_out, ta)
+            # --- end harmonization ---
+
             body_builder.outputs.clear()
             cond_out = body_builder.get_unique_name("cond_out")
             idn = helper.make_node(

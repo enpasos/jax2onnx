@@ -1,3 +1,5 @@
+# file: tests/permanent_examples/test_loop_gather_dtype_regression.py
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -32,7 +34,11 @@ def test_loop_gather_const_f32_loads_and_runs(tmp_path):
 
     # Export with double mode enabled (this used to provoke a float/double clash in Loop body)
     model = to_onnx(
-        fn, inputs=[], enable_double_precision=True, opset=21, model_name="loop_gather_dtype"
+        fn,
+        inputs=[],
+        enable_double_precision=True,
+        opset=21,
+        model_name="loop_gather_dtype",
     )
     p = tmp_path / "loop_gather_dtype.onnx"
     p.write_bytes(model.SerializeToString())
@@ -53,3 +59,52 @@ def test_loop_gather_const_f32_loads_and_runs(tmp_path):
     assert y1_onnx.dtype == np.float64
     np.testing.assert_allclose(y0_onnx, y0_ref, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(y1_onnx, y1_ref, rtol=1e-12, atol=1e-12)
+
+
+def _fn_nested_loop_shared_table_f32():
+    table = jnp.asarray([0.3, 0.6, 0.9, 1.2], dtype=jnp.float32)
+
+    def inner(carry, _):
+        idx = (carry % 4).astype(jnp.int64)
+        v = table[idx]  # f32 Gather/GatherND from captured const
+        c64 = jnp.asarray(carry, jnp.float64)
+        y = c64 + jnp.asarray(
+            0.0, jnp.float64
+        )  # keep inner in f64 mode; don't force-cast v
+        return carry + 1, (y, v)
+
+    def outer(carry, _):
+        # inner scan has xs=None -> lowered to Loop; `table` is captured const → Loop state
+        _, ys = lax.scan(inner, carry, xs=None, length=3)
+        _ = table[0] + jnp.float32(
+            0.0
+        )  # touch table so it's also captured by the OUTER scan
+        return carry, (ys[0][-1], ys[1][-1])
+
+    def main():
+        # outer scan also has xs=None -> nested Loop; `table` captured again → outer Loop state too
+        c0 = jnp.asarray(0, dtype=jnp.int32)
+        _, (y64, y32) = lax.scan(outer, c0, xs=None, length=2)
+        return y64, y32  # (f64[], f32[])
+
+    return main
+
+
+def test_loop_gather_const_f32_nested_shared_table(tmp_path):
+    fn = _fn_nested_loop_shared_table_f32()
+    model = to_onnx(
+        fn,
+        inputs=[],
+        enable_double_precision=True,
+        opset=21,
+        model_name="loop_gather_dtype_nested_shared",
+    )
+    p = tmp_path / "loop_gather_dtype_nested_shared.onnx"
+    p.write_bytes(model.SerializeToString())
+
+    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+    ref_y64, ref_y32 = map(np.asarray, fn())
+    got_y64, got_y32 = [np.asarray(x) for x in sess.run(None, {})]
+    assert got_y64.dtype == np.float64 and got_y32.dtype == np.float32
+    np.testing.assert_allclose(got_y64, ref_y64, rtol=1e-12, atol=1e-15)
+    np.testing.assert_allclose(got_y32, ref_y32, rtol=1e-6, atol=1e-6)
