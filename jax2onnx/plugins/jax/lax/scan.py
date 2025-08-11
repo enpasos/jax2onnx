@@ -620,10 +620,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 closed_jaxpr.jaxpr.invars[: num_consts + num_carry]
             ):
                 nm = body_builder.get_unique_name(f"state_in_{i}")
-                # Rank-only (all dims dynamic) to avoid ORT subgraph shape conflicts.
-                # Keep body input dtypes equal to the jaxpr aval dtypes; we cast outer
-                # symbols to these dtypes just before wiring the Loop inputs.
+                # IMPORTANT: rank-only (all dynamic) to avoid ORT fixing concrete sizes
+                # that can conflict with broadcasted shapes inside the Loop body.
                 dyn_shape = (None,) * len(getattr(var.aval, "shape", ()))
+                # Keep body input dtypes equal to the jaxpr aval dtypes; we Cast outer
+                # symbols to these dtypes just before wiring the Loop inputs.
                 body_builder.add_input(nm, dyn_shape, var.aval.dtype)
                 body_conv.var_to_name[var] = nm
 
@@ -696,19 +697,22 @@ class ScanPlugin(PrimitiveLeafPlugin):
             # 1) consts passthrough
             for ci in range(num_consts):
                 in_sym = body_conv.get_name(closed_jaxpr.jaxpr.invars[ci])
-                const_out = body_builder.get_unique_name(f"const_out_{ci}")
+                out_sym = body_builder.get_unique_name(f"const_out_{ci}")
                 body_builder.add_node(
                     helper.make_node(
                         "Identity",
                         inputs=[in_sym],
-                        outputs=[const_out],
+                        outputs=[out_sym],
                         name=body_builder.get_unique_name("Identity_const_passthrough"),
                     )
                 )
                 aval = closed_jaxpr.jaxpr.invars[ci].aval
                 # keep dtype identical to the body input (which we may have coerced)
                 out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-                body_builder.add_output(const_out, (None,) * len(aval.shape), out_dt)
+                # rank-only output (avoid fixed sizes in Scan body outputs)
+                body_builder.add_output(
+                    out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
+                )
 
             # 2) computed carry(s)
             seen_body = set()
@@ -732,7 +736,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 aval = closed_jaxpr.jaxpr.outvars[cj].aval
                 # Use the actual dtype on the symbol if known (after any Cast we inserted).
                 out_dt = body_builder.get_dtype(carr_sym) or aval.dtype
-                body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
+                # rank-only carry output
+                body_builder.add_output(
+                    out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
+                )
 
             # 3) per-iter y outputs (no duplication of carry)
             for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
@@ -753,8 +760,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 seen_body.add(out_name)
                 y_dt = body_builder.get_dtype(orig) or var.aval.dtype
-                # For consistency make y outputs rank-only as well.
-                body_builder.add_output(out_name, (None,) * len(var.aval.shape), y_dt)
+                # rank-only per-iteration output (Loop stacks them outside)
+                body_builder.add_output(
+                    out_name, (None,) * len(getattr(var.aval, "shape", ())), y_dt
+                )
 
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
@@ -971,7 +980,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
             aval = jaxpr.invars[ci].aval
             # keep dtype identical to the body input (which we may have coerced)
             out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-            body_builder.add_output(out_sym, (None,) * len(aval.shape), out_dt)
+            # rank-only output (avoid fixed sizes in Scan body outputs)
+            body_builder.add_output(
+                out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
+            )
 
         # 1b) **computed** carry from body outvars
         seen: set[str] = set()
