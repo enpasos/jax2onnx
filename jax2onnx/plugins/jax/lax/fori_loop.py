@@ -11,6 +11,7 @@ from jax import config
 from jax import core, lax
 from jax.extend.core import Primitive
 from onnx import helper, TensorProto
+from onnx import onnx_ml_pb2 as om
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,6 +27,93 @@ _USE_INT64 = bool(config.read("jax_enable_x64"))
 
 def _canon_int(x: int | np.integer) -> np.integer:
     return np.int64(x) if _USE_INT64 else np.int32(x)
+
+
+def _loosen_graph_value_infos_to_rank_only(g) -> None:
+    """
+    For a Loop body:
+      • Drop VIs for outputs of shape/dtype-sensitive ops (let ORT infer).
+      • Drop VIs that correspond to initializers (constants) or Constant/ConstantOfShape.
+      • For remaining VIs, keep elem_type but clear dim_value *and* dim_param (rank-only).
+    """
+    produced_by_type = {o: n.op_type for n in g.node for o in n.output}
+    produced_by_name = {o: n.name for n in g.node for o in n.output}
+
+    sensitive = {
+        # dtype/shape changers
+        "Cast",
+        "Reshape",
+        "Squeeze",
+        "Unsqueeze",
+        "Expand",
+        "Concat",
+        # shape/index-ish
+        "Range",
+        "Shape",
+        "NonZero",
+        "Gather",
+        "GatherND",
+        "Slice",
+        # constants
+        "Constant",
+        "ConstantOfShape",
+        # dtype troublemaker
+        "Pow",
+        # NEW: index arithmetic can re-tighten dims (e.g., add_start_* vectors)
+        "Add",
+    }
+
+    # Heuristics by node name (useful if op_type is missing/opaque)
+    def looks_sensitive_by_name(nm: str, vi: om.ValueInfoProto) -> bool:
+        nm = (nm or "").lower()
+        # reshape-ish helpers
+        if any(tok in nm for tok in ("reshape", "squeeze", "unsqueeze", "expand")):
+            return True
+        # index arithmetic naming pattern; only relevant for int tensors
+        if vi.type.HasField("tensor_type"):
+            et = vi.type.tensor_type.elem_type
+            if et in (TensorProto.INT64, TensorProto.INT32):
+                if any(tok in nm for tok in ("add_start", "start_col", "start_row")):
+                    return True
+        return False
+
+    initializer_names = {init.name for init in g.initializer}
+
+    keep: list[om.ValueInfoProto] = []
+    for vi in list(g.value_info):
+        name = vi.name
+
+        # Drop constants immediately
+        if name in initializer_names:
+            continue
+
+        op_type = produced_by_type.get(name)
+        node_nm = produced_by_name.get(name, "")
+
+        # Drop VIs for sensitive producers (or when the name gives it away)
+        if (op_type in sensitive) or looks_sensitive_by_name(node_nm, vi):
+            continue
+
+        # Only handle tensor types
+        if not vi.type.HasField("tensor_type"):
+            continue
+
+        # Rebuild a fresh, rank-only VI (preserve dtype, clear dims)
+        ttype = vi.type.tensor_type
+        elem = ttype.elem_type
+        rank = len(ttype.shape.dim) if ttype.HasField("shape") else 0
+
+        new_vi = om.ValueInfoProto()
+        new_vi.name = name
+        new_vi.type.tensor_type.elem_type = elem
+        if rank:
+            shp = new_vi.type.tensor_type.shape
+            for _ in range(rank):
+                shp.dim.add()  # leave dim_value/param unset -> dynamic
+        keep.append(new_vi)
+
+    del g.value_info[:]
+    g.value_info.extend(keep)
 
 
 # ─────────────────────────────── primitive stub ──────────────────────────────
@@ -166,10 +254,12 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         body_builder.add_scalar_input(iter64, TensorProto.INT64)
         body_builder.add_scalar_input(cond_in, TensorProto.BOOL)
 
-        # add the k state inputs
+        # add the k state inputs as rank-only to prevent ORT from over-constraining
         for idx, v in enumerate(node_inputs):
             sym = body_builder.name_generator.get(f"{prefix}_state{idx}_in")
-            body_builder.add_input(sym, v.aval.shape, v.aval.dtype)
+            rank = len(getattr(v.aval, "shape", ()))
+            dyn_shape = (None,) * rank
+            body_builder.add_input(sym, dyn_shape, v.aval.dtype)
             # Map to Jaxpr input (skip the first invar which is the loop‑index)
             body_conv.var_to_name[body_closed.jaxpr.invars[idx + 1]] = sym
 
@@ -223,6 +313,8 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
+        # Always sanitize Loop-body VIs to avoid ORT type/shape re-tightening issues
+        _loosen_graph_value_infos_to_rank_only(body_graph)
 
         # stub: register the fori_loop body subgraph (no real graph yet)
         s.subgraph(
@@ -232,6 +324,9 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             ),  # Convert dict_values to a list
             jaxpr=body_closed.jaxpr,
         )
+
+        # Defensive re-apply (harmless if nothing changed)
+        _loosen_graph_value_infos_to_rank_only(body_graph)
 
         # ---------------------------------------------------------------------------
         # Emit the outer Loop node

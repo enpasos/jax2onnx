@@ -224,6 +224,9 @@ class OnnxBuilder:
         # maps {DimVar-object-or-id → canonical user symbol, e.g. "B"}
         self.var_to_symbol_map: dict[Any, str] = {}
 
+        # Optional: used by subgraph plugins to decide whether to relax internal VIs.
+        self.loosen_internal_shapes: bool = False
+
         self.nodes: list[NodeProto] = []
         self.inputs: list[ValueInfoProto] = []
         self.outputs: list[ValueInfoProto] = []

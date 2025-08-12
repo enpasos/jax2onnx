@@ -21,6 +21,7 @@ from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.optimize_onnx_graph import improve_onnx_model
 from jax import config as jax_config  # NEW
 import jax.numpy as jnp
+from onnx import onnx_ml_pb2 as om
 
 logger = logging.getLogger("jax2onnx.converter.conversion_api")
 
@@ -80,6 +81,7 @@ def to_onnx(
     opset: int = 21,
     *,
     enable_double_precision: bool = False,
+    loosen_internal_shapes: bool = False,
     default_dtype: Any | None = None,
     record_primitive_calls_file: Optional[str] = None,
     # ... other parameters ...
@@ -104,6 +106,10 @@ def to_onnx(
         If **True**, the converter keeps every tensor in double
         precision (`tensor(double)`).  If **False** (default) the
         graph is down-cast to single precision.
+    loosen_internal_shapes : bool, optional
+        If True, allow plugins to relax internal subgraph
+        value_info to rank-only (clear concrete dim_value/param) to keep ORT
+        from re-tightening Loop/Scan body shapes, by default False
     default_dtype : Any | None, optional
         Default data type for inputs if not specified, by default None
 
@@ -192,6 +198,12 @@ def to_onnx(
     )
     builder.converter = converter
 
+    # Propagate the knob so subgraph builders can read it (optional today; no-ops if unused).
+    if hasattr(converter, "builder"):
+        setattr(
+            converter.builder, "loosen_internal_shapes", bool(loosen_internal_shapes)
+        )
+
     converter.call_params = input_params or {}
 
     # --- Step 2: Trace the function using Symbolic Avals ---
@@ -247,7 +259,88 @@ def to_onnx(
             record_primitive_calls_file,
         )
 
+    # Post-optimization sanitizer: shape inference may have re-added concrete dims
+    # inside Loop/Scan bodies. If requested, walk subgraphs and relax VIs again.
+    if bool(loosen_internal_shapes):
+        _relax_internal_value_infos_in_subgraphs(model)
+
     return model
+
+
+def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
+    """
+    Walk all subgraphs (Loop/Scan/If, etc.) and make their *internal* value_info
+    rank-only: keep elem_type, clear dim_value and dim_param for all dims.
+    Drop VIs that belong to constants and to outputs of sensitive shape/dtype ops.
+    """
+    sensitive_ops = {
+        # dtype/shape changers
+        "Cast",
+        "Reshape",
+        "Squeeze",
+        "Unsqueeze",
+        "Expand",
+        "Concat",
+        # shape/index-ish
+        "Range",
+        "Shape",
+        "NonZero",
+        "Gather",
+        "GatherND",
+        "Slice",
+        # constants
+        "Constant",
+        "ConstantOfShape",
+        # exponentiation can cause dtype disputes
+        "Pow",
+        # light heuristic: index arith often re-tightens dims via constants
+        "Add",
+    }
+
+    def relax_graph(g: onnx.GraphProto) -> None:
+        # Build producer map for this graph
+        produced_by_type = {o: n.op_type for n in g.node for o in n.output}
+        initializer_names = {init.name for init in g.initializer}
+
+        keep: list[om.ValueInfoProto] = []
+        for vi in list(g.value_info):
+            name = vi.name
+            # Drop VI if it's an initializer (constant)
+            if name in initializer_names:
+                continue
+            # Drop VI for outputs of sensitive ops; let ORT infer them
+            if produced_by_type.get(name) in sensitive_ops:
+                continue
+            # Only handle tensor types
+            if not vi.type.HasField("tensor_type"):
+                continue
+            ttype = vi.type.tensor_type
+            elem = ttype.elem_type
+            # Rebuild a fresh VI with same rank but fully dynamic dims
+            new_vi = om.ValueInfoProto()
+            new_vi.name = name
+            new_vi.type.tensor_type.elem_type = elem
+            if ttype.HasField("shape"):
+                shp = new_vi.type.tensor_type.shape
+                for _ in ttype.shape.dim:
+                    shp.dim.add()  # no dim_value or dim_param -> dynamic
+            keep.append(new_vi)
+
+        del g.value_info[:]
+        g.value_info.extend(keep)
+
+        # Recurse into child subgraphs
+        for n in g.node:
+            for a in n.attribute:
+                if a.type == onnx.AttributeProto.GRAPH:
+                    sg = onnx.helper.get_attribute_value(a)
+                    relax_graph(sg)
+                elif a.type == onnx.AttributeProto.GRAPHS:
+                    for sg in onnx.helper.get_attribute_value(a):
+                        relax_graph(sg)
+
+    # Relax the main graph
+    relax_graph(model.graph)
 
 
 def analyze_constants(model: onnx.ModelProto):

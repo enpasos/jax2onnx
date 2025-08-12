@@ -28,20 +28,8 @@ _SCAN_INSTANCE_COUNTER: int = 0
 
 # --- Utility: make all internal VIs rank-only (shape dims unknown) -----------
 def _loosen_value_infos_to_rank_only(bld: OnnxBuilder) -> None:
-    """
-    For aggressive ORT shape-inference cases inside Loop/Scan bodies, we can mark
-    *internal* value_infos to be rank-only (all dims dynamic). Inputs/outputs are
-    already handled explicitly elsewhere.
-    Guarded by env var: JAX2ONNX_LOOP_BODY_LOOSEN_SHAPES.
-    """
-    flag = os.getenv("JAX2ONNX_LOOP_BODY_LOOSEN_SHAPES", "").lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    if not flag:
-        return
+    """Make *internal* value_infos rank-only (all dims dynamic).
+    Inputs/outputs are handled explicitly elsewhere. Always on."""
     # Rebuild value_info with same dtype but fully dynamic dims.
     vis = list(bld.value_info)
     bld.value_info[:] = [vi for vi in bld.value_info if False]  # clear
@@ -60,9 +48,9 @@ def _loosen_value_infos_to_rank_only(bld: OnnxBuilder) -> None:
 # --- Utility: retag body value_info dtypes to match producer inputs ----------
 def _retag_value_infos_to_input_dtype(bld: OnnxBuilder) -> None:
     """
-    For common ops whose output dtype should mirror an input (passthrough/index-like/
-    basic binops), update the recorded value_info dtype to match the input dtype.
-    This avoids ORT type inference mismatches when earlier passes inserted Casts.
+    Ensure outputs of common shape/index/passthrough/binop nodes inherit the dtype
+    of their first input. IMPORTANT: iterate over *nodes*, not just existing VIs,
+    so we also cover symbols that don't yet have a value_info entry.
     """
     passthrough = {
         "Squeeze",
@@ -77,30 +65,51 @@ def _retag_value_infos_to_input_dtype(bld: OnnxBuilder) -> None:
     binops = {"Add", "Sub", "Mul", "Div"}
     same_as_first = passthrough | index_like | {"Concat"} | binops
 
-    out2node = {}
-    for n in bld.nodes:
+    for n in list(bld.nodes):
+        if n.op_type not in same_as_first or not n.input:
+            continue
+        exp_dt = bld.get_dtype(n.input[0])
+        if exp_dt is None:
+            continue
         for o in n.output:
-            out2node[o] = n
+            cur_dt = bld.get_dtype(o)
+            if cur_dt is not None and _np.dtype(cur_dt) == _np.dtype(exp_dt):
+                continue
+            # pick a sensible rank for `o`
+            r = bld.get_rank(o)
+            if r is None:
+                r = bld.get_rank(n.input[0]) or 0
+            # replace any stale VI and set dtype to the input's dtype
+            bld.value_info[:] = [vi for vi in bld.value_info if vi.name != o]
+            bld.add_value_info(o, (None,) * r, exp_dt)
 
-    names = [vi.name for vi in list(bld.value_info)]
-    for name in names:
-        n = out2node.get(name)
-        if n is None or n.op_type == "Cast":
+
+# --- Utility: make all internal VIs rank-only (shape dims unknown) -----------
+def _loosen_graph_value_infos_to_rank_only(g) -> None:
+    """Always-on sanitization for Loop/Scan bodies:
+    - drop value_info for any *node output* (let ORT infer dtypes)
+    - drop value_info that mirrors any graph input/output
+    - keep the rest but clear all concrete dims → rank-only
+    """
+    produced = {o for n in g.node for o in n.output}
+    io_names = {i.name for i in g.input} | {o.name for o in g.output}
+    keep = []
+    for vi in list(g.value_info):
+        name = vi.name
+        # Remove VIs for node outputs and any that mirror graph IO
+        if name in produced or name in io_names:
             continue
-        exp_dt = None
-        if n.op_type in same_as_first and n.input:
-            exp_dt = bld.get_dtype(n.input[0])
-        cur_dt = bld.get_dtype(name)
-        if exp_dt is None or cur_dt is None:
-            continue
-        if _np.dtype(exp_dt) != _np.dtype(cur_dt):
-            rank = bld.get_rank(name)
-            if rank is None and n.input:
-                rank = bld.get_rank(n.input[0])
-            if rank is None:
-                rank = 0
-            bld.value_info[:] = [vi for vi in bld.value_info if vi.name != name]
-            bld.add_value_info(name, (None,) * rank, exp_dt)
+        # Keep dtype, but clear all fixed dim info → rank-only
+        tt = vi.type.tensor_type
+        if tt.HasField("shape"):
+            for d in tt.shape.dim:
+                if d.HasField("dim_value"):
+                    d.ClearField("dim_value")
+                if d.HasField("dim_param"):
+                    d.ClearField("dim_param")
+        keep.append(vi)
+    del g.value_info[:]
+    g.value_info.extend(keep)
 
 
 # ---------------------------------------------------------------------------
@@ -712,9 +721,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             # --- end harmonization ---
 
             _retag_value_infos_to_input_dtype(body_builder)
-
-            # Optional: make all internal shapes rank-only to avoid ORT Loop body
-            # broadcast inference clashes (enabled via env var).
+            # Make internal shapes rank-only to avoid ORT Loop-body broadcast clashes.
             _loosen_value_infos_to_rank_only(body_builder)
             body_builder.outputs.clear()
             cond_out = body_builder.get_unique_name("cond_out")
@@ -802,6 +809,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
             loop_body = body_builder.create_graph(
                 body_builder.model_name, is_subgraph=True
             )
+
+            # Final pass to sanitize the Loop body VIs (always on)
+            _loosen_graph_value_infos_to_rank_only(loop_body)
 
             # Pass state inputs = [consts..., carry...]
             # Ensure the symbols we feed into Loop match the body input (aval) dtypes.
