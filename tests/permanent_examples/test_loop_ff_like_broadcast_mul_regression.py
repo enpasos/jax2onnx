@@ -1,10 +1,7 @@
-import os
 from pathlib import Path
 
-import jax
 import jax.numpy as jnp
 from jax import lax
-import numpy as _np
 import onnx
 import onnxruntime as ort
 import pytest
@@ -20,11 +17,11 @@ def _ff_like_loop_broadcast_mul_repro():
         so ORT's Loop-body shape inferencer will try to broadcast them.
     """
     const_big = jnp.ones((1, 201, 6, 1, 1), dtype=jnp.float64)  # (1,201,6,1,1)
-    vec6 = jnp.full((6,), 0.1, dtype=jnp.float64)               # (6,)
+    vec6 = jnp.full((6,), 0.1, dtype=jnp.float64)  # (6,)
 
     def body(carry, _):
         b = jnp.reshape(vec6, (1, 6, 1, 1))  # (1,6,1,1) → broadcast against const_big
-        y = const_big * b                    # broadcast → (1,201,6,1,1)
+        y = const_big * b  # broadcast → (1,201,6,1,1)
         return carry, y
 
     # No scanned inputs: Loop path
@@ -61,7 +58,9 @@ def test_loop_ff_like_broadcast_mul_loads_and_runs(tmp_path: Path):
     # Loop body should contain at least one Mul
     body = _first_loop_body(m.graph)
     assert body is not None, "Expected a Loop body subgraph."
-    assert any(n.op_type == "Mul" for n in body.node), "Expected a Mul inside Loop body."
+    assert any(
+        n.op_type == "Mul" for n in body.node
+    ), "Expected a Mul inside Loop body."
 
     # ORT must be able to load and execute
     sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
