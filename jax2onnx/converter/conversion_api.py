@@ -7,10 +7,12 @@ from typing import (
     Optional,
     Sequence,
     Union,
-)  # Added Tuple, List
+    Tuple,
+)
 import onnx
 import logging
 import numpy as np
+import jax
 from onnx import helper, mapping
 from jax2onnx.converter.dynamic_utils import (
     _create_symbolic_input_avals,
@@ -72,10 +74,19 @@ def _strip_param_initializers(model, input_params):
     model.graph.initializer.extend(keep)
 
 
+# Type alias for input specs
+InputSpec = Union[
+    "jax.ShapeDtypeStruct",
+    np.ndarray,
+    jnp.ndarray,
+    Tuple[Union[int, str], ...],
+    Sequence[Union[int, str]],
+]
+
+
 def to_onnx(
     fn: Any,
-    # Assume 'inputs' is passed as a list/sequence of shape tuples
-    inputs: Sequence[Sequence[Union[int, str]]],
+    inputs: Sequence[InputSpec],
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
@@ -293,8 +304,11 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
         "ConstantOfShape",
         # exponentiation can cause dtype disputes
         "Pow",
-        # light heuristic: index arith often re-tightens dims via constants
+        # arithmetic can re-tighten dims in subgraphs (e.g. mul_31)
         "Add",
+        "Sub",
+        "Mul",
+        "Div",
     }
 
     def relax_graph(g: onnx.GraphProto) -> None:
@@ -344,47 +358,42 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
 
 
 def analyze_constants(model: onnx.ModelProto):
-    """
-    Analyzes constants in an ONNX model and prints a detailed report.
-
-    This function is useful for debugging and understanding how constants are
-    represented and used within the ONNX graph.
-
-    Args:
-        model: The ONNX model to analyze.
-    """
     logger.info("\n🔍 Constant Analysis Report (Verbose)")
     graph = model.graph
     graph_inputs = {inp.name for inp in graph.input}
     initializers = {init.name for init in graph.initializer}
-    const_nodes = {
-        node.output[0]: node for node in graph.node if node.op_type == "Constant"
-    }
+    const_nodes = {n.output[0]: n for n in graph.node if n.op_type == "Constant"}
     function_names = {f.name for f in model.functions}
+
     logger.info("\n📦 Top-Level Inputs:")
     for inp in graph.input:
         logger.info(f"  - {inp.name}")
-    logger.info("\n🧊 Initializers (Style 2):")
+
+    logger.info("\n🧊 Initializers:")
     for init in graph.initializer:
         logger.info(f"  - {init.name}")
-    logger.info("\n🧱 Constant Nodes in Main Graph (Style 2):")
+
+    logger.info("\n🧱 Constant Nodes in Main Graph:")
     for name in const_nodes:
         logger.info(f"  - {name}")
+
     logger.info("\n🧩 Function Call Inputs:")
     for node in graph.node:
         if node.op_type in function_names:
             logger.info(f"\n▶ Function Call: {node.op_type}")
             for inp in node.input:
-                style = "Unknown/Intermediate"
                 if inp in initializers:
-                    style = "Style 2 (initializer reused)"
+                    style = "initializer"
                 elif inp in graph_inputs:
-                    style = "Style 1 (passed in as input)"
+                    style = "graph input"
                 elif inp in const_nodes:
-                    style = "Style 2 (constant node)"
+                    style = "constant node"
+                else:
+                    style = "intermediate"
                 logger.info(f"  - {inp} → {style}")
+
     logger.info("\n🔗 Constant Usage Map:")
     for node in graph.node:
         for inp in node.input:
-            if inp.startswith("const_") or inp.startswith("var_"):
+            if inp.startswith(("const_", "var_")):
                 logger.info(f"  - {inp} used in {node.op_type}")

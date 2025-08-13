@@ -59,8 +59,11 @@ def _loosen_graph_value_infos_to_rank_only(g) -> None:
         "ConstantOfShape",
         # dtype troublemaker
         "Pow",
-        # NEW: index arithmetic can re-tighten dims (e.g., add_start_* vectors)
+        # arithmetic can re-tighten dims (e.g., add_* / mul_* intermediates)
         "Add",
+        "Sub",
+        "Mul",
+        "Div",
     }
 
     # Heuristics by node name (useful if op_type is missing/opaque)
