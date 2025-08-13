@@ -8,14 +8,30 @@ from jax2onnx.converter.conversion_api import to_onnx
 
 # Ops that can (re-)tighten dims or are shape/dtype sensitive
 SENSITIVE = {
-    "Add", "Sub", "Mul", "Div",
-    "Reshape", "Squeeze", "Unsqueeze", "Expand", "Concat",
-    "Range", "Shape", "NonZero", "Gather", "GatherND", "Slice",
-    "Constant", "ConstantOfShape", "Pow",
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "Reshape",
+    "Squeeze",
+    "Unsqueeze",
+    "Expand",
+    "Concat",
+    "Range",
+    "Shape",
+    "NonZero",
+    "Gather",
+    "GatherND",
+    "Slice",
+    "Constant",
+    "ConstantOfShape",
+    "Pow",
 }
+
 
 def _producer_map(g: onnx.GraphProto):
     return {o: n.op_type for n in g.node for o in n.output}
+
 
 def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
     tt = vi.type.tensor_type
@@ -23,12 +39,14 @@ def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
         return False
     return any(d.HasField("dim_value") for d in tt.shape.dim)
 
+
 def _loop_bodies(g: onnx.GraphProto):
     for n in g.node:
         if n.op_type == "Loop":
             for a in n.attribute:
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
+
 
 def _nested_loop_repro():
     """
@@ -41,25 +59,29 @@ def _nested_loop_repro():
     updates_len = 200
 
     def inner_body(i, ref):
-        idx = jnp.array([5], dtype=jnp.int32)                         # (1,)
-        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)   # (5,200,1,1)
+        idx = jnp.array([5], dtype=jnp.int32)  # (1,)
+        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)  # (5,200,1,1)
         dnums = lax.ScatterDimensionNumbers(
             update_window_dims=(0, 1, 2, 3),
             inserted_window_dims=(),
             scatter_dims_to_operand_dims=(1,),
         )
         ref = lax.scatter(
-            ref, idx, updates, dnums,
-            indices_are_sorted=True, unique_indices=True,
+            ref,
+            idx,
+            updates,
+            dnums,
+            indices_are_sorted=True,
+            unique_indices=True,
             mode=lax.GatherScatterMode.FILL_OR_DROP,
         )  # (5, T, 1, 1)
-        a0   = jnp.squeeze(ref[0:1, :, :, :], axis=0)   # (T,1,1)
-        mid  = ref[1:4, :, :, :]                        # (3,T,1,1)
-        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)   # (T,1,1)
-        ratio  = last / (0.4 * a0)
+        a0 = jnp.squeeze(ref[0:1, :, :, :], axis=0)  # (T,1,1)
+        mid = ref[1:4, :, :, :]  # (3,T,1,1)
+        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)  # (T,1,1)
+        ratio = last / (0.4 * a0)
         sum_sq = jnp.sum(mid * mid, axis=0)
-        tail   = a0 * (0.5 * sum_sq + ratio)
-        out = jnp.stack([a0, mid[0], mid[1], mid[2], tail], axis=0)   # (5,T,1,1)
+        tail = a0 * (0.5 * sum_sq + ratio)
+        out = jnp.stack([a0, mid[0], mid[1], mid[2], tail], axis=0)  # (5,T,1,1)
         return out
 
     def outer_body(j, carry):
@@ -80,7 +102,7 @@ def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
         _nested_loop_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=False,   # intentionally off
+        loosen_internal_shapes=False,  # intentionally off
         opset=21,
         model_name="nested_loop_no_loosen",
     )
@@ -123,7 +145,7 @@ def test_nested_loop_with_loosen_loads_and_drops_arith_vis(tmp_path):
         _nested_loop_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,    # feature under test
+        loosen_internal_shapes=True,  # feature under test
         opset=21,
         model_name="nested_loop_loosen",
     )
@@ -141,6 +163,6 @@ def test_nested_loop_with_loosen_loads_and_drops_arith_vis(tmp_path):
     for b in _loop_bodies(m.graph):
         prod = _producer_map(b)
         for vi in b.value_info:
-            assert not (_has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE)), (
-                f"Found risky VI '{vi.name}' in Loop body despite loosening."
-            )
+            assert not (
+                _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE)
+            ), f"Found risky VI '{vi.name}' in Loop body despite loosening."

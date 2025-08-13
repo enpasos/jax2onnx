@@ -4,14 +4,13 @@ import pytest
 import onnx
 import onnxruntime as ort
 import jax.numpy as jnp
-import numpy as np
 from jax import lax
-from onnx import helper as oh
 
 from jax2onnx.converter.conversion_api import to_onnx
 
 
 # ---------- tiny helpers ----------
+
 
 def _first_loop_or_scan_body(graph: onnx.GraphProto):
     for n in graph.node:
@@ -20,6 +19,7 @@ def _first_loop_or_scan_body(graph: onnx.GraphProto):
                 if a.name == "body":
                     return onnx.helper.get_attribute_value(a)
     return None
+
 
 def _all_dims_dynamic(vi: onnx.ValueInfoProto) -> bool:
     tt = vi.type.tensor_type
@@ -36,6 +36,7 @@ def _all_dims_dynamic(vi: onnx.ValueInfoProto) -> bool:
 
 # ---------- model under test (scan body mirrors the loop repro) ----------
 
+
 def _scan_body_broadcast_mul_with_scatter_repro():
 
     T = 210  # matches the earlier use-case
@@ -46,8 +47,8 @@ def _scan_body_broadcast_mul_with_scatter_repro():
         ref = carry
 
         # Scatter into the time dimension (dim=1), like in the trace.
-        idx = jnp.array([5], dtype=jnp.int32)                           # (1,)
-        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)     # (5,200,1,1)
+        idx = jnp.array([5], dtype=jnp.int32)  # (1,)
+        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)  # (5,200,1,1)
 
         dnums = lax.ScatterDimensionNumbers(
             update_window_dims=(0, 1, 2, 3),
@@ -55,19 +56,23 @@ def _scan_body_broadcast_mul_with_scatter_repro():
             scatter_dims_to_operand_dims=(1,),
         )
         ref = lax.scatter(
-            ref, idx, updates, dnums,
-            indices_are_sorted=True, unique_indices=True,
+            ref,
+            idx,
+            updates,
+            dnums,
+            indices_are_sorted=True,
+            unique_indices=True,
             mode=lax.GatherScatterMode.FILL_OR_DROP,
         )  # (5, T, 1, 1)
 
-        a0   = jnp.squeeze(ref[0:1, :, :, :], axis=0)   # (T,1,1)
-        mid  = ref[1:4, :, :, :]                        # (3,T,1,1)
-        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)   # (T,1,1)
+        a0 = jnp.squeeze(ref[0:1, :, :, :], axis=0)  # (T,1,1)
+        mid = ref[1:4, :, :, :]  # (3,T,1,1)
+        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)  # (T,1,1)
 
         # Broadcasted mul/div with fixed 1-dims, mirroring the logs.
-        ratio  = last / (0.4 * a0)                      # (T,1,1)
-        sum_sq = jnp.sum(mid * mid, axis=0)             # (T,1,1)
-        tail   = a0 * (0.5 * sum_sq + ratio)            # (T,1,1)
+        ratio = last / (0.4 * a0)  # (T,1,1)
+        sum_sq = jnp.sum(mid * mid, axis=0)  # (T,1,1)
+        tail = a0 * (0.5 * sum_sq + ratio)  # (T,1,1)
 
         out = jnp.stack([a0, mid[0], mid[1], mid[2], tail], axis=0)  # (5,T,1,1)
         # scan needs (carry_out, y_out); we don't need a real y
@@ -78,6 +83,7 @@ def _scan_body_broadcast_mul_with_scatter_repro():
     xs = jnp.arange(1, dtype=jnp.int32)  # length-1 scan (enough to create a Scan body)
     carry_out, _ = lax.scan(body_fun, init, xs)
     return carry_out  # shape (5, T, 1, 1)
+
 
 def _nested_loop_repro():
     """
@@ -92,26 +98,30 @@ def _nested_loop_repro():
 
     def inner_body(i, ref):
         # Scatter into time dimension (axis=1)
-        idx = jnp.array([5], dtype=jnp.int32)                          # (1,)
-        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)    # (5,200,1,1)
+        idx = jnp.array([5], dtype=jnp.int32)  # (1,)
+        updates = jnp.ones((5, updates_len, 1, 1), dtype=ref.dtype)  # (5,200,1,1)
         dnums = lax.ScatterDimensionNumbers(
             update_window_dims=(0, 1, 2, 3),
             inserted_window_dims=(),
             scatter_dims_to_operand_dims=(1,),
         )
         ref = lax.scatter(
-            ref, idx, updates, dnums,
-            indices_are_sorted=True, unique_indices=True,
+            ref,
+            idx,
+            updates,
+            dnums,
+            indices_are_sorted=True,
+            unique_indices=True,
             mode=lax.GatherScatterMode.FILL_OR_DROP,
         )  # (5, T, 1, 1)
 
         # Same broadcasted arithmetic as the scan repro
-        a0   = jnp.squeeze(ref[0:1, :, :, :], axis=0)   # (T,1,1)
-        mid  = ref[1:4, :, :, :]                        # (3,T,1,1)
-        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)   # (T,1,1)
-        ratio  = last / (0.4 * a0)                      # (T,1,1)
-        sum_sq = jnp.sum(mid * mid, axis=0)             # (T,1,1)
-        tail   = a0 * (0.5 * sum_sq + ratio)            # (T,1,1)
+        a0 = jnp.squeeze(ref[0:1, :, :, :], axis=0)  # (T,1,1)
+        mid = ref[1:4, :, :, :]  # (3,T,1,1)
+        last = jnp.squeeze(ref[4:5, :, :, :], axis=0)  # (T,1,1)
+        ratio = last / (0.4 * a0)  # (T,1,1)
+        sum_sq = jnp.sum(mid * mid, axis=0)  # (T,1,1)
+        tail = a0 * (0.5 * sum_sq + ratio)  # (T,1,1)
         out = jnp.stack([a0, mid[0], mid[1], mid[2], tail], axis=0)  # (5,T,1,1)
         return out
 
@@ -122,16 +132,18 @@ def _nested_loop_repro():
     init = jnp.ones((5, T, 1, 1), dtype=jnp.float64)
     return lax.fori_loop(0, 2, outer_body, init)  # final (5, T, 1, 1)
 
+
 # ---------- tests ----------
+
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path, monkeypatch):
 
     model = to_onnx(
         _scan_body_broadcast_mul_with_scatter_repro,
-        inputs=[],                           # nullary function
-        enable_double_precision=True,        # exercise dtype propagation into subgraphs
-        loosen_internal_shapes=True,         # the feature under test
+        inputs=[],  # nullary function
+        enable_double_precision=True,  # exercise dtype propagation into subgraphs
+        loosen_internal_shapes=True,  # the feature under test
         opset=21,
         model_name="scan_body_loosen_shapes_repro",
     )
@@ -155,13 +167,15 @@ def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path, monkeypatch):
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_path, monkeypatch):
+def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
+    tmp_path, monkeypatch
+):
 
     model = to_onnx(
         _scan_body_broadcast_mul_with_scatter_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,   # ensure sanitizer runs
+        loosen_internal_shapes=True,  # ensure sanitizer runs
         opset=21,
         model_name="scan_body_loosen_shapes_vi_check",
     )
@@ -175,14 +189,36 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_pa
 
     # If there are internal VIs, each must be rank-only (no fixed dims; no dim_param).
     for vi in body.value_info:
-        assert _all_dims_dynamic(vi), f"Scan/Loop body VI '{vi.name}' must be rank-only when loosening is enabled."
+        assert _all_dims_dynamic(
+            vi
+        ), f"Scan/Loop body VI '{vi.name}' must be rank-only when loosening is enabled."
 
-SENSITIVE = {"Add","Sub","Mul","Div","Reshape","Squeeze","Unsqueeze","Expand",
-             "Concat","Range","Shape","NonZero","Gather","GatherND","Slice",
-             "Constant","ConstantOfShape","Pow"}
+
+SENSITIVE = {
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "Reshape",
+    "Squeeze",
+    "Unsqueeze",
+    "Expand",
+    "Concat",
+    "Range",
+    "Shape",
+    "NonZero",
+    "Gather",
+    "GatherND",
+    "Slice",
+    "Constant",
+    "ConstantOfShape",
+    "Pow",
+}
+
 
 def _producer_map(g: onnx.GraphProto):
     return {o: n.op_type for n in g.node for o in n.output}
+
 
 def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
     tt = vi.type.tensor_type
@@ -190,12 +226,14 @@ def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
         return False
     return any(d.HasField("dim_value") for d in tt.shape.dim)
 
+
 def _loop_bodies(g: onnx.GraphProto):
     for n in g.node:
         if n.op_type == "Loop":
             for a in n.attribute:
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
+
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
@@ -208,7 +246,7 @@ def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
         _nested_loop_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=False,   # intentionally off
+        loosen_internal_shapes=False,  # intentionally off
         opset=21,
         model_name="nested_loop_no_loosen",
     )
@@ -239,6 +277,7 @@ def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
         # ORT failed to load → also acceptable for this test
         pass
 
+
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_nested_loop_without_loosen_fails_in_ort(tmp_path):
     """
@@ -250,7 +289,7 @@ def test_nested_loop_without_loosen_fails_in_ort(tmp_path):
         _nested_loop_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=False,   # intentionally off
+        loosen_internal_shapes=False,  # intentionally off
         opset=21,
         model_name="nested_loop_no_loosen",
     )
@@ -258,16 +297,36 @@ def test_nested_loop_without_loosen_fails_in_ort(tmp_path):
     p.write_bytes(model.SerializeToString())
 
     # Helper predicates for the structural hazard
-    SENSITIVE = {"Add","Sub","Mul","Div","Reshape","Squeeze","Unsqueeze","Expand",
-                 "Concat","Range","Shape","NonZero","Gather","GatherND","Slice",
-                 "Constant","ConstantOfShape","Pow"}
+    SENSITIVE = {
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Reshape",
+        "Squeeze",
+        "Unsqueeze",
+        "Expand",
+        "Concat",
+        "Range",
+        "Shape",
+        "NonZero",
+        "Gather",
+        "GatherND",
+        "Slice",
+        "Constant",
+        "ConstantOfShape",
+        "Pow",
+    }
+
     def _producer_map(g: onnx.GraphProto):
         return {o: n.op_type for n in g.node for o in n.output}
+
     def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
         tt = vi.type.tensor_type
         if not tt.HasField("shape"):
             return False
         return any(d.HasField("dim_value") for d in tt.shape.dim)
+
     def _loop_bodies(g: onnx.GraphProto):
         for n in g.node:
             if n.op_type == "Loop":

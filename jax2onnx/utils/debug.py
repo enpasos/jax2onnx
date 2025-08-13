@@ -4,11 +4,12 @@ Debug utilities for jax2onnx.
 This module contains utilities for debugging JAX to ONNX conversion.
 """
 
+from __future__ import annotations
 from typing import List, Dict, Any, Optional, Union, Tuple
 import json
-import os
 import logging
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field, is_dataclass, fields
+import numpy as np
 
 logger = logging.getLogger("jax2onnx.utils.debug")
 
@@ -66,52 +67,111 @@ class RecordedPrimitiveCallLog:
         )
 
 
-def save_primitive_calls_log(
-    log_entries: List[RecordedPrimitiveCallLog], output_file: str
-) -> None:
+def _to_jsonable(obj: Any, *, max_array_elems: int = 64) -> Any:
     """
-    Save recorded primitive call logs to a JSON file.
-
-    Args:
-        log_entries: List of RecordedPrimitiveCallLog objects
-        output_file: Path to the output file
+    Best-effort serializer:
+    - dataclasses -> dict (without deepcopy), field-by-field
+    - numpy arrays -> small arrays tolist(), else summary
+    - jaxlib/_jax Traceback and any other non-serializable -> str(obj)
     """
-    logger.info(f"Saving {len(log_entries)} primitive call records to {output_file}")
+    # primitives
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
 
-    # Convert dataclass objects to dictionaries
-    serializable_entries = []
-    for entry in log_entries:
-        try:
-            # Convert dataclass to dict
-            entry_dict = asdict(entry)
+    # numpy scalars
+    if isinstance(obj, (np.generic,)):
+        return obj.item()
 
-            # Make shapes JSON-serializable by converting tuples to lists
-            def make_serializable(obj):
-                if isinstance(obj, tuple):
-                    return list(make_serializable(item) for item in obj)
-                elif isinstance(obj, list):
-                    return [make_serializable(item) for item in obj]
-                elif isinstance(obj, dict):
-                    return {k: make_serializable(v) for k, v in obj.items()}
-                # Handle any other non-serializable types
-                return str(obj)
+    # numpy arrays
+    if isinstance(obj, np.ndarray):
+        if obj.size <= max_array_elems:
+            return obj.tolist()
+        return {"ndarray": True, "shape": list(obj.shape), "dtype": str(obj.dtype)}
 
-            entry_dict = make_serializable(entry_dict)
-            serializable_entries.append(entry_dict)
-        except Exception as e:
-            logger.error(
-                f"Error serializing primitive call log entry: {e}", exc_info=True
+    # dataclasses (without dataclasses.asdict → no deepcopy)
+    if is_dataclass(obj):
+        out = {}
+        for f in fields(obj):
+            try:
+                out[f.name] = _to_jsonable(
+                    getattr(obj, f.name), max_array_elems=max_array_elems
+                )
+            except Exception as e:
+                out[f.name] = (
+                    f"<unserializable:{type(getattr(obj, f.name)).__name__}> {e}"
+                )
+        return out
+
+    # mappings
+    if isinstance(obj, dict):
+        return {
+            _to_jsonable(k, max_array_elems=max_array_elems): _to_jsonable(
+                v, max_array_elems=max_array_elems
             )
+            for k, v in obj.items()
+        }
 
-    # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+    # sequences
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(x, max_array_elems=max_array_elems) for x in obj]
 
-    # Write to file
+    # fallback: string
     try:
-        with open(output_file, "w") as f:
-            json.dump(serializable_entries, f, indent=2)
-        logger.info(f"Successfully saved primitive call log to {output_file}")
+        return str(obj)
+    except Exception:
+        return f"<unserializable:{type(obj).__name__}>"
+
+
+def _json_sanitize(obj):
+    # Fast path for primitives
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+
+    # Lists / tuples
+    if isinstance(obj, (list, tuple)):
+        return [_json_sanitize(x) for x in obj]
+
+    # Dicts
+    if isinstance(obj, dict):
+        return {str(k): _json_sanitize(v) for k, v in obj.items()}
+
+    # Dataclasses
+    if is_dataclass(obj):
+        out = {}
+        for f in fields(obj):
+            name = f.name
+            try:
+                out[name] = _json_sanitize(getattr(obj, name))
+            except Exception:
+                # Drop unserializable field
+                out[name] = f"<unserializable:{name}>"
+        return out
+
+    # Numpy/JAX arrays → shape+dtype summary (or .tolist() if you prefer)
+    try:
+        import numpy as _np
+
+        if isinstance(obj, _np.ndarray):
+            return {
+                "__ndarray__": True,
+                "shape": list(obj.shape),
+                "dtype": str(obj.dtype),
+            }
+    except Exception:
+        pass
+
+    # Fallback: repr (covers jaxlib._jax.Traceback, frames, etc.)
+    try:
+        return repr(obj)
+    except Exception:
+        return "<unserializable>"
+
+
+def save_primitive_calls_log(records, path: str) -> None:
+    try:
+        sanitized = [_json_sanitize(r) for r in records]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(sanitized, f, indent=2)
+        logger.info(f"Successfully saved primitive call log to {path}")
     except Exception as e:
-        logger.error(
-            f"Error writing primitive calls log to {output_file}: {e}", exc_info=True
-        )
+        logger.error(f"Failed to save primitive call log to {path}: {e}")
