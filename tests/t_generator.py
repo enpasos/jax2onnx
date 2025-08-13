@@ -329,6 +329,40 @@ def make_test_function(tp: dict[str, Any]):
 
         processed_input_specs_for_to_onnx: List[Any]
 
+        # Shared helper for generating numeric inputs from shapes/dtypes
+        def _rand(shape, dtype):
+            """
+            Return a NumPy array/random scalar of the requested shape and dtype,
+            always as an np.ndarray (so .astype is available).
+            """
+            if np.issubdtype(dtype, np.floating):
+                raw = np.random.randn(*shape) if shape else np.random.randn()
+            elif np.issubdtype(dtype, np.integer):
+                raw = (
+                    np.random.randint(0, 5, size=shape)
+                    if shape
+                    else np.random.randint(0, 5)
+                )
+            elif dtype == np.bool_ or dtype == np.dtype(bool):
+                raw = (
+                    (np.random.rand(*shape) > 0.5)
+                    if shape
+                    else (np.random.rand() > 0.5)
+                )
+            else:
+                raw = np.random.randn(*shape) if shape else np.random.randn()
+            arr = np.array(raw)
+            target = (
+                jnp.float64
+                if (
+                    current_enable_double_precision
+                    and np.issubdtype(dtype, np.floating)
+                )
+                else dtype
+            )
+            return arr.astype(target)
+
+        processed_input_specs_for_to_onnx = []
         if input_shapes_from_testcase is not None:
             processed_input_specs_for_to_onnx = []
             if input_dtypes_from_testcase:
@@ -498,87 +532,46 @@ def make_test_function(tp: dict[str, Any]):
         # comparison.  Assume `jnp.float32` for every tensor unless the
         # testcase overrode it.
         #
-        elif input_shapes_from_testcase:
+        elif (input_shapes_from_testcase is not None) or (
+            len(inspect.signature(callable_obj).parameters) == 0
+        ):
             # Build a dtype list: honour explicit list if present.
             # Otherwise choose float32 *or* float64 depending on the
             # variant we are running.
+            #
+            # NOTE: This branch now also covers zero-arg callables and cases where
+            # `input_shapes_from_testcase == []`. In that situation we still run
+            # numeric validation with an empty input list to exercise ORT.
+            shapes_for_num_check = input_shapes_from_testcase or []
+
             if input_dtypes_from_testcase is None:
                 default_dtype = (
                     jnp.float64 if current_enable_double_precision else jnp.float32
                 )
-                input_dtypes_from_testcase = [default_dtype] * len(
-                    input_shapes_from_testcase
-                )
+                input_dtypes_from_testcase = [default_dtype] * len(shapes_for_num_check)
 
             symbol_map: dict[str, int] = {}
             concrete_shapes: list[tuple[int, ...]] = []
-            for shape_tuple in input_shapes_from_testcase:
+            for shape_tuple in shapes_for_num_check:
                 concrete_shape = tuple(
                     symbol_map.setdefault(dim, 2) if isinstance(dim, str) else dim
                     for dim in shape_tuple
                 )
                 concrete_shapes.append(concrete_shape)
 
-            def _rand(shape, dtype):
-                """
-                Return a NumPy array/random scalar of the requested shape and dtype,
-                always as an np.ndarray (so .astype is available).
-                """
-                # 1) Generate a raw Python float or ndarray
-                if np.issubdtype(dtype, np.floating):
-                    raw = np.random.randn(*shape) if shape else np.random.randn()
-                elif np.issubdtype(dtype, np.integer):
-                    raw = (
-                        np.random.randint(0, 5, size=shape)
-                        if shape
-                        else np.random.randint(0, 5)
-                    )
-                elif dtype == np.bool_ or dtype == np.dtype(bool):
-                    raw = (
-                        (np.random.rand(*shape) > 0.5)
-                        if shape
-                        else (np.random.rand() > 0.5)
-                    )
-                else:
-                    raw = np.random.randn(*shape) if shape else np.random.randn()
-
-                # 2) Wrap into ndarray and cast
-                arr = np.array(raw)
-                target = (
-                    jnp.float64
-                    if (
-                        current_enable_double_precision
-                        and np.issubdtype(dtype, np.floating)
-                    )
-                    else dtype
-                )
-                return arr.astype(target)
-
             xs_for_num_check = [
                 _rand(shp, dt)
                 for shp, dt in zip(concrete_shapes, input_dtypes_from_testcase)
-            ]
+            ]  # ← may legitimately be [] for zero-arg callables
 
-            # Special-case: avoid all-False attention masks (would yield −inf → NaN).
-            for idx, dt in enumerate(input_dtypes_from_testcase):
-                if dt == np.bool_ or dt == np.dtype(bool):
-                    mask = xs_for_num_check[idx]
-                    # Only apply if there's at least one dimension to index
-                    if mask.ndim == 0:
-                        continue
-                    all_false_rows = ~np.any(mask, axis=-1, keepdims=True)
-                    if np.any(all_false_rows):
-                        fix = np.zeros_like(mask)
-                        # build a safe indexer for the last axis
-                        idxers = [slice(None)] * mask.ndim
-                        idxers[-1] = 0
-                        fix[tuple(idxers)] = True
-                        xs_for_num_check[idx] = np.where(all_false_rows, fix, mask)
-                        logger.warning(
-                            f"Modified random attention mask for test '{testcase_name}' to prevent all-False rows that can cause NaNs."
-                        )
-
+            # tolerances for this branch as well
             rtol, atol = _get_rtol_atol(tp, current_enable_double_precision)
+
+            if not shapes_for_num_check:
+                logger.info(
+                    f"Running numerical check for '{testcase_name}' with zero inputs "
+                    f"(callable takes no arguments)."
+                )
 
             passed_numerical, validation_message = allclose(
                 callable_obj,
@@ -593,10 +586,10 @@ def make_test_function(tp: dict[str, Any]):
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
 
-        else:
-            logger.info(
-                f"No concrete inputs available for '{testcase_name}', skipping numerical validation."
-            )
+        # ------------------------------------------------------------------
+        # If we reach here, it means numeric validation was skipped or not applicable.
+        # We can add more conditions or logging if needed.
+        # ------------------------------------------------------------------
 
         # --- Function Count Check ---
         if expected_num_funcs is not None:
