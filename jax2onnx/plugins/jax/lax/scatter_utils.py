@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250803-d4-batched-shapes-fixes"
+SCATTER_UTILS_VERSION = "DEBUG-V20250814-d5-depth2-fix-shapes"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -205,6 +205,21 @@ def compute_expected_updates_shape(
             result[i] = next(batch_iter)
 
     return tuple(result)
+
+
+def _map_operand_axis_to_updates_pos(
+    dnums: ScatterDimensionNumbers, operand_rank: int, operand_axis: int
+) -> Optional[int]:
+    """Given an operand axis, return which *updates* axis position contains
+    that window dim, per JAX ScatterDimensionNumbers."""
+    inserted = set(dnums.inserted_window_dims)
+    window_operand_dims = [d for d in range(operand_rank) if d not in inserted]
+    if operand_axis not in window_operand_dims:
+        return None
+    i = window_operand_dims.index(operand_axis)
+    if i >= len(dnums.update_window_dims):
+        return None
+    return dnums.update_window_dims[i]
 
 
 def _prepare_scatter_inputs_for_onnx(
@@ -445,7 +460,13 @@ def _prepare_scatter_inputs_for_onnx(
 
     # --- Calculate expected ONNX updates shape based on the *final processed* indices for the general path ---
     # `processed_indices_shape_for_default_path` is `target_indices_shape_symbolic` (the (N,K) shape of final_indices_name_to_return)
-    processed_indices_shape_for_default_path = target_indices_shape_symbolic
+    # NOTE: Keep this as a variadic Tuple so later specialized paths that use
+    # shapes like (B, L, 2) (i.e., batch dims + K) remain type-correct.
+    # Otherwise static checkers may infer a fixed-length 2-tuple and reject
+    # 3-length tuples later.
+    processed_indices_shape_for_default_path: Tuple[Any, ...] = (
+        target_indices_shape_symbolic
+    )
 
     # ------------------------------------------------------------------
     #  Expected shape for the ONNX `updates` input  – **spec‑exact**
@@ -460,7 +481,6 @@ def _prepare_scatter_inputs_for_onnx(
     #  it is already correct and kept consistent throughout.)
 
     # --- New logic for batched window scatter ---
-    use_depth2_for_batched_window_scatter = False
     sdod = dimension_numbers.scatter_dims_to_operand_dims
     uwd = dimension_numbers.update_window_dims
     iwd = dimension_numbers.inserted_window_dims
@@ -482,28 +502,16 @@ def _prepare_scatter_inputs_for_onnx(
         scatter_target_op_axis = sdod[0]
         if scatter_target_op_axis < op_rank:
             shapes_match_for_depth2_pattern = True
-            if scatter_target_op_axis > 0:
-                if not _are_dims_equal(
-                    operand_shape_symbolic[0], original_updates_shape_symbolic[0], s
-                ):
-                    shapes_match_for_depth2_pattern = False
-                if (
-                    shapes_match_for_depth2_pattern
-                    and op_rank > scatter_target_op_axis + 1
-                ):
-                    op_trailing_shape = operand_shape_symbolic[
+            if shapes_match_for_depth2_pattern and op_rank > scatter_target_op_axis + 1:
+                op_trailing_shape = operand_shape_symbolic[scatter_target_op_axis + 1 :]
+                if scatter_target_op_axis < len(original_updates_shape_symbolic):
+                    upd_trailing_shape = original_updates_shape_symbolic[
                         scatter_target_op_axis + 1 :
                     ]
-                    if scatter_target_op_axis < len(original_updates_shape_symbolic):
-                        upd_trailing_shape = original_updates_shape_symbolic[
-                            scatter_target_op_axis + 1 :
-                        ]
-                        if not _are_shapes_equal(
-                            op_trailing_shape, upd_trailing_shape, s
-                        ):
-                            shapes_match_for_depth2_pattern = False
-                    else:
+                    if not _are_shapes_equal(op_trailing_shape, upd_trailing_shape, s):
                         shapes_match_for_depth2_pattern = False
+                else:
+                    shapes_match_for_depth2_pattern = False
             elif scatter_target_op_axis == 0:
                 if op_rank > 1:
                     if not _are_shapes_equal(
@@ -517,38 +525,71 @@ def _prepare_scatter_inputs_for_onnx(
 
             if shapes_match_for_depth2_pattern and op_rank > 0:
                 if scatter_target_op_axis < len(original_updates_shape_symbolic):
-                    use_depth2_for_batched_window_scatter = True
+                    pass
                 else:
                     logger.warning(
                         f"Depth-2: scatter_target_op_axis {scatter_target_op_axis} out of bounds for updates_shape {original_updates_shape_symbolic}"
                     )
 
-    if use_depth2_for_batched_window_scatter:
+    # Depth-2 rewrite also for K=1 with a leading N=1 in updates and indices=(1,1).
+    if (
+        len(sdod) == 1
+        and not obd
+        and not iwd
+        # updates rank may be op_rank (no N) or op_rank+1 with a leading N=1
+        and (
+            upd_rank == op_rank
+            or (
+                upd_rank == op_rank + 1
+                and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
+            )
+        )
+        # indices can be (), (1,) or (1,1) for K=1
+        and (
+            not jax_indices_shape_symbolic
+            or _are_shapes_equal(jax_indices_shape_symbolic, (1,), s)
+            or _are_shapes_equal(jax_indices_shape_symbolic, (1, 1), s)
+        )
+    ):
         logger.info(
             "Applying generalized 'depth-2 indices' strategy for batched window scatter."
         )
         scatter_op_axis_idx = dimension_numbers.scatter_dims_to_operand_dims[0]
-        concrete_operand_shape_d2 = _make_shape_concrete_for_prod(
-            operand_shape_symbolic, s, "d2_op_shape"
+        _make_shape_concrete_for_prod(operand_shape_symbolic, s, "d2_op_shape")
+        # Map operand axis -> updates axis position to read the *correct* L.
+        upd_pos_for_scatter_axis = _map_operand_axis_to_updates_pos(
+            dimension_numbers, op_rank, scatter_op_axis_idx
         )
-        concrete_updates_shape_d2 = _make_shape_concrete_for_prod(
-            original_updates_shape_symbolic, s, "d2_upd_shape"
-        )
-
-        B_val = concrete_operand_shape_d2[
-            0
-        ]  # Assumes batch is axis 0 for this strategy
-        L_val = concrete_updates_shape_d2[
-            scatter_op_axis_idx
-        ]  # Window length from updates' corresponding scatter axis
+        if upd_pos_for_scatter_axis is None:
+            logger.warning(
+                "Depth-2: could not map operand axis to updates position; "
+                "falling back to default path."
+            )
+        else:
+            # B is operand axis 0; L is the updates axis that corresponds to the scatter op axis.
+            B_sym = operand_shape_symbolic[0]
+            L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+            B_val = _make_shape_concrete_for_prod((B_sym,), s, "d2_B")[0]
+            L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L")[0]
 
         col_start_scalar_name = s.get_unique_name(f"{current_indices_name}_scalar_d2")
         s.add_node(
             helper.make_node(
                 "Squeeze",
+                # Squeeze all size-1 axes of the provided indices (supports (1,), (1,1), …)
                 [
                     current_indices_name,
-                    s.get_constant_name(np.array([0], dtype=np.int64)),
+                    s.get_constant_name(
+                        np.array(
+                            [
+                                ax
+                                for ax, dim in enumerate(current_indices_shape_symbolic)
+                                if _are_dims_equal(dim, 1, s)
+                            ]
+                            or [0],
+                            dtype=np.int64,
+                        )
+                    ),
                 ],
                 [col_start_scalar_name],
             )
@@ -691,11 +732,7 @@ def _prepare_scatter_inputs_for_onnx(
             )
         )
 
-        final_indices_shape_for_depth2_strat = (
-            operand_shape_symbolic[0],
-            original_updates_shape_symbolic[scatter_op_axis_idx],
-            2,
-        )
+        final_indices_shape_for_depth2_strat = (B_sym, L_sym, 2)
         _manually_ensure_shape_env_entry(
             s,
             indices_2d_name,
@@ -705,8 +742,83 @@ def _prepare_scatter_inputs_for_onnx(
         )
 
         final_indices_name_to_return = indices_2d_name
-        _final_updates_name_val_to_return = original_updates_name_val
-        current_expected_onnx_updates_shape = original_updates_shape_symbolic
+        # ONNX with K=2 expects updates of shape (B, L) + data.shape[2:]
+        expected_updates_shape_d2 = (
+            B_sym,
+            L_sym,
+        ) + tuple(operand_shape_symbolic[2:])
+
+        # If updates come as (1, B, L, …), drop the leading singleton.
+        if (
+            len(original_updates_shape_symbolic) == len(expected_updates_shape_d2) + 1
+            and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
+            and _are_shapes_equal(
+                tuple(original_updates_shape_symbolic[1:]), expected_updates_shape_d2, s
+            )
+        ):
+            squeezed_updates_name = s.get_unique_name(
+                f"{original_updates_name_val}_dropN_d2"
+            )
+            s.add_node(
+                helper.make_node(
+                    "Squeeze",
+                    [
+                        original_updates_name_val,
+                        s.get_constant_name(np.array([0], dtype=np.int64)),
+                    ],
+                    [squeezed_updates_name],
+                )
+            )
+            _manually_ensure_shape_env_entry(
+                s,
+                squeezed_updates_name,
+                expected_updates_shape_d2,
+                original_updates_dtype_np,
+                "Depth2SqueezeUpdates",
+            )
+            _final_updates_name_val_to_return = squeezed_updates_name
+            original_updates_shape_symbolic = expected_updates_shape_d2
+        elif not _are_shapes_equal(
+            original_updates_shape_symbolic, expected_updates_shape_d2, s
+        ):
+            # Safe fallback: Reshape to the expected (B, L, ...).
+            tgt = []
+            for dim in expected_updates_shape_d2:
+                if isinstance(dim, (int, np.integer)):
+                    tgt.append(int(dim))
+                else:
+                    tgt.append(
+                        int(_make_shape_concrete_for_prod((dim,), s, "d2_rs")[0])
+                    )
+            reshaped_updates_name = s.get_unique_name(
+                f"{original_updates_name_val}_to_ONNX_d2"
+            )
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    [
+                        original_updates_name_val,
+                        s.get_constant_name(np.array(tgt, dtype=np.int64)),
+                    ],
+                    [reshaped_updates_name],
+                )
+            )
+            _manually_ensure_shape_env_entry(
+                s,
+                reshaped_updates_name,
+                expected_updates_shape_d2,
+                original_updates_dtype_np,
+                "Depth2ReshapedUpdates",
+            )
+            _final_updates_name_val_to_return = reshaped_updates_name
+            original_updates_shape_symbolic = expected_updates_shape_d2
+        else:
+            _final_updates_name_val_to_return = original_updates_name_val
+
+        # Reflect the ONNX expectation going forward.
+        current_expected_onnx_updates_shape = expected_updates_shape_d2
+        processed_indices_shape_for_default_path = final_indices_shape_for_depth2_strat
+        target_indices_shape_symbolic = final_indices_shape_for_depth2_strat
 
     else:
         # ────────────────────────────────────────────────────────────────

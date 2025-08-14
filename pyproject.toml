@@ -90,5 +90,5 @@ default_level = "WARNING"
 format = "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s"
 
 [tool.jax2onnx.logging.levels]
-"jax2onnx" = "DEBUG"
+"jax2onnx" = "INFO"
  
