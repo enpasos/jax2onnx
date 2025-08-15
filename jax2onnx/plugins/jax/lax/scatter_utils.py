@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250814-d5-depth2-fix-shapes"
+SCATTER_UTILS_VERSION = "DEBUG-V20250814-d8-d2-permute-dynexpand"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -817,9 +817,6 @@ def _prepare_scatter_inputs_for_onnx(
 
         # Reflect the ONNX expectation going forward.
         current_expected_onnx_updates_shape = expected_updates_shape_d2
-        processed_indices_shape_for_default_path = final_indices_shape_for_depth2_strat
-        target_indices_shape_symbolic = final_indices_shape_for_depth2_strat
-
     else:
         # ────────────────────────────────────────────────────────────────
         #  📐  depth‑3 strategy  (|sdod| == 2, window update on H×W patch)
@@ -1468,12 +1465,19 @@ def _prepare_scatter_inputs_for_onnx(
                     )
                 )
 
-                # Expand to match indices shape
+                # Expand to match indices shape using a dynamic Shape() (avoids invalid constants for symbolic dims)
+                shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
+                s.add_node(
+                    helper.make_node("Shape", [final_indices_name_to_return], [shape_of_indices_name])
+                )
+                _manually_ensure_shape_env_entry(
+                    s, shape_of_indices_name, (indices_rank,), np.int64, "IdxShapeForBroadcast"
+                )
                 dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
                 s.add_node(
                     helper.make_node(
                         "Expand",
-                        [dim_limits_reshaped_name, target_shape_name],
+                        [dim_limits_reshaped_name, shape_of_indices_name],
                         [dim_limits_bc_name],
                     )
                 )
