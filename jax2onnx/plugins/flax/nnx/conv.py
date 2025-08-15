@@ -242,6 +242,22 @@ if not hasattr(nnx, "conv_p"):
             in {n.op_type for n in model.graph.node},
         },
         {
+            "testcase": "conv_1d_more_1d_inputs",
+            "callable": nnx.Conv(28, 4, kernel_size=(3,), rngs=nnx.Rngs(0)),
+            "input_shapes": [(2, 4, 4, 28)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_1d_more_2d_inputs",
+            "callable": nnx.Conv(28, 4, kernel_size=(3,), rngs=nnx.Rngs(0)),
+            "input_shapes": [(2, 4, 4, 8, 28)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
             "testcase": "conv_1d_large_kernel",
             "callable": nnx.Conv(
                 16, 8, kernel_size=(5,), strides=(2,), rngs=nnx.Rngs(0)
@@ -422,6 +438,208 @@ if not hasattr(nnx, "conv_p"):
             "post_check_onnx_graph": lambda model: "Conv"
             in {n.op_type for n in model.graph.node},
         },
+        # Group convolution test cases
+        {
+            "testcase": "conv_2d_group_conv",
+            "callable": nnx.Conv(
+                16, 32, kernel_size=(3, 3), feature_group_count=4, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 14, 14, 16)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_1d_group_conv_more_dims",
+            "callable": nnx.Conv(
+                12, 24, kernel_size=(5,), feature_group_count=3, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 8, 6, 12)],  # 1D conv on 3D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_2d_depthwise",
+            "callable": nnx.Conv(
+                8, 8, kernel_size=(3, 3), feature_group_count=8, rngs=nnx.Rngs(0)
+            ),  # Depthwise conv
+            "input_shapes": [(2, 16, 16, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        # Mixed dimension cases with complex parameters
+        {
+            "testcase": "conv_1d_complex_on_4d",
+            "callable": nnx.Conv(
+                20,
+                40,
+                kernel_size=(7,),
+                strides=(2,),
+                kernel_dilation=(3,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 8, 10, 20)],  # 1D conv on 3D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_2d_complex_on_5d",
+            "callable": nnx.Conv(
+                15,
+                30,
+                kernel_size=(3, 5),
+                strides=(1, 2),
+                kernel_dilation=(2, 1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 6, 8, 12, 15)],  # 2D conv on 4D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_1d_high_dilation_on_3d",
+            "callable": nnx.Conv(
+                24,
+                12,
+                kernel_size=(9,),
+                strides=(3,),
+                kernel_dilation=(4,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 16, 24)],  # 1D conv on 2D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        # Group convolution with complex parameters
+        {
+            "testcase": "conv_2d_group_stride_dilation",
+            "callable": nnx.Conv(
+                32,
+                64,
+                kernel_size=(5, 3),
+                strides=(2, 1),
+                kernel_dilation=(1, 3),
+                feature_group_count=8,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 20, 24, 32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_1d_group_on_higher_dim",
+            "callable": nnx.Conv(
+                18,
+                36,
+                kernel_size=(4,),
+                strides=(2,),
+                kernel_dilation=(2,),
+                feature_group_count=6,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 5, 7, 9, 18)],  # 1D conv on 4D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        # Edge cases with SAME padding and complex configurations
+        {
+            "testcase": "conv_1d_same_padding_on_3d",
+            "callable": nnx.Conv(
+                16,
+                8,
+                kernel_size=(5,),
+                strides=(2,),
+                kernel_dilation=(3,),
+                padding="SAME",
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 12, 16)],  # 1D conv on 2D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_2d_same_padding_mixed_dilation",
+            "callable": nnx.Conv(
+                10,
+                20,
+                kernel_size=(3, 7),
+                strides=(1, 2),
+                kernel_dilation=(4, 1),
+                padding="SAME",
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 18, 28, 10)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        # Large kernel and high-dimensional cases
+        {
+            "testcase": "conv_1d_large_kernel_on_4d",
+            "callable": nnx.Conv(
+                25, 50, kernel_size=(11,), strides=(4,), rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 8, 12, 25)],  # 1D conv on 3D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_2d_asymmetric_on_5d",
+            "callable": nnx.Conv(
+                14,
+                28,
+                kernel_size=(2, 8),
+                strides=(3, 1),
+                kernel_dilation=(1, 2),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 6, 9, 15, 14)],  # 2D conv on 4D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        # Complex combinations with groups
+        {
+            "testcase": "conv_3d_group_complex",
+            "callable": nnx.Conv(
+                24,
+                48,
+                kernel_size=(2, 3, 4),
+                strides=(1, 2, 1),
+                kernel_dilation=(2, 1, 3),
+                feature_group_count=8,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 10, 14, 18, 24)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
+        {
+            "testcase": "conv_1d_unit_group_on_multi_dim",
+            "callable": nnx.Conv(
+                21,
+                21,
+                kernel_size=(6,),
+                strides=(3,),
+                kernel_dilation=(2,),
+                feature_group_count=21,  # Each input channel has its own group
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 7, 11, 13, 21)],  # 1D conv on 4D spatial input
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda model: "Conv"
+            in {n.op_type for n in model.graph.node},
+        },
     ],
 )
 class ConvPlugin(PrimitiveLeafPlugin):
@@ -484,6 +702,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             int, Tuple[int, ...]
         ],  # Updated to support arbitrary dimensions
         dimension_numbers: Any,  # Flax uses str | ConvDimensionNumbers | None
+        feature_group_count: int = 1,  # Added feature_group_count parameter
     ):
         if ConvPlugin._ORIGINAL_CONV_CALL is None:
             raise RuntimeError("Original nnx.Conv.__call__ not captured.")
@@ -496,9 +715,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if ConvPlugin._ORIGINAL_CONV_CALL is None:
                 raise RuntimeError("Original nnx.Conv.__call__ missing.")
 
-            in_features = kv.shape[-2]
+            # Extract features from original kernel dimensions (before any padding)
+            original_kernel_size_tuple = kernel.shape[:-2]
+
+            # For grouped convolutions, kernel.shape[-2] is in_features_per_group, not total in_features
+            # Total in_features = in_features_per_group * feature_group_count
+            in_features_per_group = kernel.shape[-2]
+            in_features = in_features_per_group * feature_group_count
+
+            # But use the current (potentially padded) kernel for computation
             out_features = kv.shape[-1]
-            kernel_size_tuple = kv.shape[:-2]
+            kernel_size_tuple = original_kernel_size_tuple  # Use original kernel size
 
             def promote_dtype_func(*args, dtype=None):  # type: ignore
                 # Simplified for abstract_eval: assume dtypes are already correct or handled by JAX
@@ -520,7 +747,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 strides=strides,  # Pass the original parameter - let Flax handle broadcasting
                 padding=padding,  # Original padding string/sequence
                 dimension_numbers=dimension_numbers,
-                feature_group_count=1,  # Assuming default
+                feature_group_count=feature_group_count,  # Use actual parameter
                 input_dilation=1,  # Assuming default, Flax nnx.Conv uses input_dilation not lhs_dilation
                 kernel_dilation=dilations,  # This is rhs_dilation in lax
                 use_bias=(
@@ -564,12 +791,71 @@ class ConvPlugin(PrimitiveLeafPlugin):
         jax_input_shape = input_var.aval.shape
         kernel_shape = kernel_var.aval.shape
 
-        # Determine spatial dimensions
+        # Determine spatial dimensions from input and kernel shapes
         input_rank = len(jax_input_shape)
         kernel_rank = len(kernel_shape)
-        num_spatial_dims = (
-            kernel_rank - 2
-        )  # kernel: (spatial..., in_features, out_features)
+
+        # Number of spatial dims in the input tensor (excluding batch and channel dims)
+        input_spatial_dims = input_rank - 2  # (batch, spatial..., channels)
+        # Number of spatial dims in the convolution operation (from kernel shape)
+        conv_spatial_dims = kernel_rank - 2  # (spatial..., in_features, out_features)
+
+        # Handle mixed-dimensional convolutions by reshaping input
+        if conv_spatial_dims < input_spatial_dims:
+            # For mixed-dimensional convolutions (e.g., 1D conv on 4D spatial input),
+            # we need to flatten non-participating spatial dimensions into batch dimension
+
+            # Calculate participating and non-participating spatial dimensions
+            non_participating_dims = input_spatial_dims - conv_spatial_dims
+            participating_spatial_shape = jax_input_shape[
+                -1 - conv_spatial_dims : -1
+            ]  # Last conv_spatial_dims spatial dims
+            non_participating_spatial_shape = jax_input_shape[
+                1 : 1 + non_participating_dims
+            ]  # First non_participating_dims spatial dims
+
+            # Calculate flattened batch size
+            original_batch_size = jax_input_shape[0]
+            flattened_batch_size = original_batch_size * np.prod(
+                non_participating_spatial_shape
+            )
+
+            # Reshape input: (batch, non_participating..., participating..., channels) -> (flattened_batch, participating..., channels)
+            reshaped_input_shape = (
+                [flattened_batch_size]
+                + list(participating_spatial_shape)
+                + [jax_input_shape[-1]]
+            )
+            reshaped_input_name = s.get_unique_name(f"{input_name}_reshaped")
+
+            reshape_node = helper.make_node(
+                "Reshape",
+                inputs=[
+                    input_name,
+                    s.builder.get_constant_name(
+                        np.array(reshaped_input_shape, dtype=np.int64)
+                    ),
+                ],
+                outputs=[reshaped_input_name],
+                name=s.get_unique_name("reshape_input"),
+            )
+            s.add_node(reshape_node)
+            s.add_shape_info(
+                reshaped_input_name, tuple(reshaped_input_shape), input_var.aval.dtype
+            )
+
+            # Update input variables for subsequent processing
+            input_name = reshaped_input_name
+            jax_input_shape = tuple(reshaped_input_shape)
+            input_rank = len(jax_input_shape)
+            input_spatial_dims = conv_spatial_dims  # Now they match
+
+            logger.info(
+                f"ConvPlugin: Reshaped input from {input_var.aval.shape} to {reshaped_input_shape} for {conv_spatial_dims}D conv"
+            )
+
+        # For ONNX compatibility, spatial dims should now match
+        num_spatial_dims = input_spatial_dims
 
         # Dynamic Pre-Transpose: (batch, spatial..., channels) -> (batch, channels, spatial...)
         # For N-D: [0, input_rank-1, 1, 2, ..., input_rank-2]
@@ -592,19 +878,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
             pre_transpose_name, tuple(pre_transpose_shape), input_var.aval.dtype
         )
 
-        # Dynamic Kernel Transpose: (spatial..., in_features, out_features) -> (out_features, in_features, spatial...)
+        # Store original shape info for potential output reshaping
+        original_input_shape = input_var.aval.shape
+        needs_output_reshape = conv_spatial_dims < len(original_input_shape) - 2
+
+        # Handle kernel transformation (no padding needed since input is already reshaped)
         kernel_name = s.get_name(kernel_var)
         kernel_const_val = s.name_to_const.get(kernel_name, None)
         if isinstance(kernel_var, Literal):  # If kernel is a compile-time literal
             kernel_const_val = np.asarray(kernel_var.val)
 
         onnx_kernel_name: str
-
-        # Kernel: HWIO (Jax) -> OIHW (ONNX)
-        # Build kernel transpose permutation: [kernel_rank-1, kernel_rank-2, 0, 1, ..., kernel_rank-3]
-        kernel_transpose_perm = [kernel_rank - 1, kernel_rank - 2] + list(
-            range(kernel_rank - 2)
-        )
 
         if kernel_const_val is not None:
             kernel_np = np.asarray(kernel_const_val)
@@ -615,12 +899,25 @@ class ConvPlugin(PrimitiveLeafPlugin):
             ):  # Downcast if needed
                 kernel_np = kernel_np.astype(np.float32)
 
+            # Kernel transpose: (spatial..., in_features, out_features) -> (out_features, in_features, spatial...)
+            final_kernel_rank = len(kernel_np.shape)
+            kernel_transpose_perm = [
+                final_kernel_rank - 1,
+                final_kernel_rank - 2,
+            ] + list(range(final_kernel_rank - 2))
             transposed_kernel_np = np.transpose(kernel_np, kernel_transpose_perm)
-            onnx_kernel_name = s.builder.get_constant_name(
-                transposed_kernel_np
-            )  # This should handle dtype
+            onnx_kernel_name = s.builder.get_constant_name(transposed_kernel_np)
+
         else:  # Dynamic kernel
             onnx_kernel_name = s.get_unique_name(f"{kernel_name}_onnx")
+
+            # Kernel transpose: (spatial..., in_features, out_features) -> (out_features, in_features, spatial...)
+            final_kernel_rank = len(kernel_shape)
+            kernel_transpose_perm = [
+                final_kernel_rank - 1,
+                final_kernel_rank - 2,
+            ] + list(range(final_kernel_rank - 2))
+
             kernel_transpose_node = helper.make_node(
                 "Transpose",
                 inputs=[kernel_name],
@@ -683,22 +980,34 @@ class ConvPlugin(PrimitiveLeafPlugin):
                     onnx_bias_name = casted_bias_name
                     s.add_shape_info(onnx_bias_name, bias_var.aval.shape, jnp.float64)
 
-        # Convolution parameters - make dimension-agnostic
+        # Convolution parameters - pad with 1s if conv has fewer spatial dims than input
         strides_param = params.get("strides", 1)
-        strides_final = (
-            tuple(strides_param)
-            if isinstance(strides_param, Sequence)
-            else (strides_param,) * num_spatial_dims
-        )
+        if isinstance(strides_param, Sequence):
+            strides_conv = tuple(strides_param)
+        else:
+            strides_conv = (strides_param,) * conv_spatial_dims
+
+        # Pad strides to match input spatial dims (prepend 1s for non-participating dimensions)
+        if conv_spatial_dims < input_spatial_dims:
+            padding_dims = input_spatial_dims - conv_spatial_dims
+            strides_final = (1,) * padding_dims + strides_conv
+        else:
+            strides_final = strides_conv
 
         padding_param = params.get("padding", "VALID")  # This is JAX padding string
 
         dilations_param = params.get("dilations", 1)
-        dilations_final = (
-            tuple(dilations_param)
-            if isinstance(dilations_param, Sequence)
-            else (dilations_param,) * num_spatial_dims
-        )
+        if isinstance(dilations_param, Sequence):
+            dilations_conv = tuple(dilations_param)
+        else:
+            dilations_conv = (dilations_param,) * conv_spatial_dims
+
+        # Pad dilations to match input spatial dims (prepend 1s for non-participating dimensions)
+        if conv_spatial_dims < input_spatial_dims:
+            padding_dims = input_spatial_dims - conv_spatial_dims
+            dilations_final = (1,) * padding_dims + dilations_conv
+        else:
+            dilations_final = dilations_conv
 
         conv_inputs = [pre_transpose_name, onnx_kernel_name]
         if onnx_bias_name:
@@ -709,6 +1018,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
             "strides": list(strides_final),
             "dilations": list(dilations_final),
         }
+
+        # Add group parameter for grouped convolution
+        feature_group_count = params.get("feature_group_count", 1)
+        if feature_group_count > 1:
+            conv_attrs["group"] = feature_group_count
 
         # Handle ONNX padding attribute based on JAX padding string
         # Special handling: ONNX doesn't support SAME padding with dilations > 1
@@ -817,36 +1131,131 @@ class ConvPlugin(PrimitiveLeafPlugin):
         )
         s.add_node(conv_node)
 
-        # Output shape calculation (NHWC for JAX, then transpose to NCHW for ONNX Conv output)
-        # The abstract_eval of nnx.conv_p should give the correct JAX output shape.
-        # We can rely on the output_var.aval from the jaxpr for the final NHWC shape.
+        # Output shape calculation for actual conv output in NCHW format
         final_jax_output_shape = node_outputs[0].aval.shape
         final_jax_output_dtype = node_outputs[0].aval.dtype
 
-        # Calculate intermediate ONNX conv output shape: (batch, channels, spatial...)
-        output_rank = len(final_jax_output_shape)
-        conv_out_nchw_shape = [
-            final_jax_output_shape[0],
-            final_jax_output_shape[-1],
-        ] + list(final_jax_output_shape[1:-1])
+        # Calculate actual ONNX conv output shape based on the reshaped input
+        # Conv operates on: (possibly_flattened_batch, spatial..., channels)
+        # Conv output will be: (possibly_flattened_batch, channels, conv_spatial...)
+        if needs_output_reshape:
+            # Mixed-dimensional case: conv operates on flattened batch
+            flattened_batch_size = (
+                np.prod(jax_input_shape[: -1 - conv_spatial_dims]) * jax_input_shape[0]
+            )
+            conv_output_channels = final_jax_output_shape[-1]  # Output channels
+            conv_output_spatial_dims = final_jax_output_shape[
+                -1 - conv_spatial_dims : -1
+            ]  # Spatial dims after conv
+            actual_conv_out_nchw_shape = [
+                flattened_batch_size,
+                conv_output_channels,
+            ] + list(conv_output_spatial_dims)
+        else:
+            # Standard case: no reshaping, standard NCHW conversion
+            actual_conv_out_nchw_shape = [
+                final_jax_output_shape[0],
+                final_jax_output_shape[-1],
+            ] + list(final_jax_output_shape[1:-1])
+
         s.add_shape_info(
-            conv_out_nchw_name, tuple(conv_out_nchw_shape), final_jax_output_dtype
+            conv_out_nchw_name,
+            tuple(actual_conv_out_nchw_shape),
+            final_jax_output_dtype,
         )
 
-        # Dynamic Post-Transpose: (batch, channels, spatial...) -> (batch, spatial..., channels)
-        # For N-D: [0, 2, 3, ..., output_rank-1, 1]
-        post_transpose_perm = [0] + list(range(2, output_rank)) + [1]
-        post_transpose_node = helper.make_node(
-            "Transpose",
-            inputs=[conv_out_nchw_name],
-            outputs=[final_output_name],
-            name=s.get_unique_name("transpose_post"),
-            perm=post_transpose_perm,
-        )
-        s.add_node(post_transpose_node)
-        s.add_shape_info(
-            final_output_name, final_jax_output_shape, final_jax_output_dtype
-        )
+        # Handle mixed-dimensional convolution output processing
+        if needs_output_reshape:
+            # First, reshape the NCHW conv output back to original batch and spatial dimensions
+            # Conv output: (flattened_batch, channels, conv_spatial...)
+            # Target: (batch, non_participating..., channels, conv_spatial...)
+            original_batch_size = original_input_shape[0]
+            original_non_participating_dims = original_input_shape[
+                1 : 1 + (len(original_input_shape) - 2 - conv_spatial_dims)
+            ]
+            conv_output_spatial_dims = actual_conv_out_nchw_shape[
+                2:
+            ]  # Spatial dimensions from conv output
+            output_channels = actual_conv_out_nchw_shape[1]  # Channels from conv output
+
+            # Reshaped NCHW output: (batch, non_participating..., channels, conv_spatial...)
+            reshaped_nchw_shape = (
+                [original_batch_size]
+                + list(original_non_participating_dims)
+                + [output_channels]
+                + list(conv_output_spatial_dims)
+            )
+            reshaped_nchw_name = s.get_unique_name("conv_out_reshaped_nchw")
+
+            reshape_nchw_node = helper.make_node(
+                "Reshape",
+                inputs=[
+                    conv_out_nchw_name,
+                    s.builder.get_constant_name(
+                        np.array(reshaped_nchw_shape, dtype=np.int64)
+                    ),
+                ],
+                outputs=[reshaped_nchw_name],
+                name=s.get_unique_name("reshape_nchw_output"),
+            )
+            s.add_node(reshape_nchw_node)
+            s.add_shape_info(
+                reshaped_nchw_name, tuple(reshaped_nchw_shape), final_jax_output_dtype
+            )
+
+            # Now apply transpose: (batch, non_participating..., channels, conv_spatial...) -> (batch, non_participating..., conv_spatial..., channels)
+            reshaped_rank = len(reshaped_nchw_shape)
+            # Channels are at position: 1 + len(non_participating_dims)
+            # Spatial dims start at position: 1 + len(non_participating_dims) + 1
+            channels_pos = 1 + len(original_non_participating_dims)
+            spatial_start_pos = channels_pos + 1
+
+            # Build permutation: [batch_dims..., spatial_dims..., channels]
+            post_transpose_perm = list(
+                range(channels_pos)
+            )  # batch and non-participating dims
+            post_transpose_perm.extend(
+                range(spatial_start_pos, reshaped_rank)
+            )  # spatial dims
+            post_transpose_perm.append(channels_pos)  # channels at the end
+
+            post_transpose_node = helper.make_node(
+                "Transpose",
+                inputs=[reshaped_nchw_name],
+                outputs=[final_output_name],
+                name=s.get_unique_name("transpose_post"),
+                perm=post_transpose_perm,
+            )
+            s.add_node(post_transpose_node)
+            s.add_shape_info(
+                final_output_name, final_jax_output_shape, final_jax_output_dtype
+            )
+
+            # Verify element count consistency for debugging
+            conv_total_elements = np.prod(actual_conv_out_nchw_shape)
+            reshaped_total_elements = np.prod(reshaped_nchw_shape)
+            logger.info(
+                f"ConvPlugin: Reshaped conv output from {actual_conv_out_nchw_shape} (total={conv_total_elements}) to {reshaped_nchw_shape} (total={reshaped_total_elements}), then transposed to {final_jax_output_shape}"
+            )
+        else:
+            # Standard case: no reshaping needed, just transpose NCHW -> NHWC
+            actual_conv_output_rank = len(actual_conv_out_nchw_shape)
+            # Dynamic Post-Transpose: (batch, channels, spatial...) -> (batch, spatial..., channels)
+            actual_post_transpose_perm = (
+                [0] + list(range(2, actual_conv_output_rank)) + [1]
+            )
+
+            post_transpose_node = helper.make_node(
+                "Transpose",
+                inputs=[conv_out_nchw_name],
+                outputs=[final_output_name],
+                name=s.get_unique_name("transpose_post"),
+                perm=actual_post_transpose_perm,
+            )
+            s.add_node(post_transpose_node)
+            s.add_shape_info(
+                final_output_name, final_jax_output_shape, final_jax_output_dtype
+            )
 
     @staticmethod
     def _conv(
@@ -858,6 +1267,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         padding: Union[str, Sequence[Tuple[int, int]]],  # JAX padding can be complex
         dilations: Union[int, Tuple[int, ...]],
         dimension_numbers: Any,
+        feature_group_count: int = 1,  # Added feature_group_count parameter
     ):
         # Determine spatial dimensions from kernel shape
         num_spatial_dims = (
@@ -886,6 +1296,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             padding=padding,  # Pass JAX padding directly
             dilations=dilations_arg,  # Pass the correctly typed tuple
             dimension_numbers=dimension_numbers,
+            feature_group_count=feature_group_count,  # Add feature_group_count parameter
         )
 
     @staticmethod
@@ -965,6 +1376,9 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 getattr(
                     self, "dimension_numbers", None
                 ),  # Pass original dimension_numbers
+                getattr(
+                    self, "feature_group_count", 1
+                ),  # Pass feature_group_count from nnx.Conv instance
             )
 
         return patched_conv_call
