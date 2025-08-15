@@ -134,26 +134,34 @@ nnx.batch_norm_p.def_impl(_batch_norm_impl)
             "input_shapes": [("B", 8)],
             "run_only_f32_variant": True,
         },
-        # {
-        #     "testcase": "batch_norm_4d",
-        #     "callable": nnx.BatchNorm(
-        #         num_features=3, use_running_average=True, rngs=nnx.Rngs(0)
-        #     ),
-        #     "input_shapes": [("B", 4, 4, 3)],
-        #     "run_only_f32_variant": True,
-        # },
-        # {
-        #     "testcase": "batch_norm_4d_no_bias_no_scale",
-        #     "callable": nnx.BatchNorm(
-        #         num_features=3,
-        #         use_running_average=True,
-        #         use_bias=False,
-        #         use_scale=False,
-        #         rngs=nnx.Rngs(0),
-        #     ),
-        #     "input_shapes": [("B", 4, 4, 3)],
-        #     "run_only_f32_variant": True,
-        # },
+        {
+            "testcase": "batch_norm_3d",
+            "callable": nnx.BatchNorm(
+                num_features=3, use_running_average=True, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 4, 3)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "batch_norm_4d",
+            "callable": nnx.BatchNorm(
+                num_features=3, use_running_average=True, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [("B", 4, 4, 3)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "batch_norm_4d_no_bias_no_scale",
+            "callable": nnx.BatchNorm(
+                num_features=3,
+                use_running_average=True,
+                use_bias=False,
+                use_scale=False,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [("B", 4, 4, 3)],
+            "run_only_f32_variant": True,
+        },
         # {
         #     "testcase": "batch_norm_training_mode_fallback",
         #     "callable": nnx.BatchNorm(
@@ -206,8 +214,11 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 )
             )
             bn_in_name = pre_trans
+            pre_transposed_shape = (shape[0], shape[-1]) + shape[1:-1]  # NHWC -> NCHW
+            s.add_shape_info(bn_in_name, pre_transposed_shape, x_var.aval.dtype)
             # Intermediate output in NCHW
             bn_out = s.get_unique_name("bn_nchw_out")
+            s.add_shape_info(bn_out, pre_transposed_shape, x_var.aval.dtype)
         else:
             bn_in_name = in_name
             bn_out = out_name
