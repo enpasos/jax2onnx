@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250814-d8-d2-permute-dynexpand"
+SCATTER_UTILS_VERSION = "DEBUG-V20250816-d8-d2-narrow-degenerate-pick"
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -556,6 +556,7 @@ def _prepare_scatter_inputs_for_onnx(
         )
         scatter_op_axis_idx = dimension_numbers.scatter_dims_to_operand_dims[0]
         _make_shape_concrete_for_prod(operand_shape_symbolic, s, "d2_op_shape")
+
         # Map operand axis -> updates axis position to read the *correct* L.
         upd_pos_for_scatter_axis = _map_operand_axis_to_updates_pos(
             dimension_numbers, op_rank, scatter_op_axis_idx
@@ -566,17 +567,16 @@ def _prepare_scatter_inputs_for_onnx(
                 "falling back to default path."
             )
         else:
-            # B is operand axis 0; L is the updates axis that corresponds to the scatter op axis.
+            # B is operand axis 0; candidate L is the updates axis that corresponds
+            # to the scatter op axis.
             B_sym = operand_shape_symbolic[0]
-            L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
             B_val = _make_shape_concrete_for_prod((B_sym,), s, "d2_B")[0]
-            L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L")[0]
 
+        # Build scalar start from indices ((1,), (1,1), … → squeeze to scalar)
         col_start_scalar_name = s.get_unique_name(f"{current_indices_name}_scalar_d2")
         s.add_node(
             helper.make_node(
                 "Squeeze",
-                # Squeeze all size-1 axes of the provided indices (supports (1,), (1,1), …)
                 [
                     current_indices_name,
                     s.get_constant_name(
@@ -598,7 +598,73 @@ def _prepare_scatter_inputs_for_onnx(
             s, col_start_scalar_name, (), final_indices_dtype_np, "ColStartScalarD2"
         )
 
-        # ... (Rest of the depth-2 indices construction logic - should be correct from Attempt 5/your suggestion)
+        # ----------------------------
+        # Narrow “degenerate single-point” gate
+        # Only slice when ALL conditions hold:
+        #  • window covers all operand dims (len(uwd) == op_rank)
+        #  • we can map the scatter operand axis into updates
+        #  • updates have a leading N=1 (upd_rank == op_rank + 1 and updates[0] == 1)
+        #  • the mapped updates axis actually has length 1
+        # ----------------------------
+        def _dim_is_one(dim: Any) -> bool:
+            if isinstance(dim, (int, np.integer)):
+                return int(dim) == 1
+            try:
+                return _make_shape_concrete_for_prod((dim,), s, "d2_dim1_check")[0] == 1
+            except Exception:
+                return False
+
+        degenerate_pick = (
+            len(uwd) == op_rank
+            and upd_pos_for_scatter_axis is not None
+            and upd_rank == op_rank + 1
+            and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
+            and _dim_is_one(original_updates_shape_symbolic[upd_pos_for_scatter_axis])
+            and (
+                not jax_indices_shape_symbolic
+                or _are_shapes_equal(jax_indices_shape_symbolic, (1,), s)
+                or _are_shapes_equal(jax_indices_shape_symbolic, (1, 1), s)
+            )
+        )
+
+        if degenerate_pick:
+            # Slice updates at the start column; this removes that axis in updates.
+            picked_updates_name = s.get_unique_name("updates_pick_scatter_axis_d2")
+            s.add_node(
+                helper.make_node(
+                    "Gather",
+                    [original_updates_name_val, col_start_scalar_name],
+                    [picked_updates_name],
+                    axis=upd_pos_for_scatter_axis,
+                )
+            )
+            upd_shape_after_pick = tuple(
+                d
+                for i, d in enumerate(original_updates_shape_symbolic)
+                if i != upd_pos_for_scatter_axis
+            )
+            _manually_ensure_shape_env_entry(
+                s,
+                picked_updates_name,
+                upd_shape_after_pick,
+                original_updates_dtype_np,
+                "Depth2PickScatterAxis",
+            )
+            original_updates_name_val = picked_updates_name
+            original_updates_shape_symbolic = upd_shape_after_pick
+            # For the rest of the path we treat this as L = 1.
+            L_sym, L_val = 1, 1
+        else:
+            # Use the genuine L from updates at the mapped axis.
+            if upd_pos_for_scatter_axis is None:
+                # Shouldn't happen because we guard above, but keep safe fallback.
+                logger.warning("Depth-2: missing mapped updates axis; using L=1.")
+                L_sym, L_val = 1, 1
+            else:
+                L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+                L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L")[0]
+
+        # From here on, proceed exactly as before using B_val/L_val …
         arange_b_end_name = s.get_constant_name(np.array(B_val, dtype=np.int64))
         arange_b_name = s.get_unique_name("arange_b_d2")
         s.add_node(
@@ -1394,227 +1460,115 @@ def _prepare_scatter_inputs_for_onnx(
     #  ➤  JAX `FILL_OR_DROP` ⇒   ONNX: mask-out out-of-range rows
     # -----------------------------------------------------------------
     # If JAX asked for out‐of‐bounds entries to be dropped, mask them here
-    if scatter_mode == GatherScatterMode.FILL_OR_DROP:
+
+    # --- right before the FILL_OR_DROP block, after you’ve finalized names ---
+    # final_indices_name_to_return, _final_updates_name_val_to_return are decided here
+    idx_sds = s.shape_env.get(final_indices_name_to_return)
+    upd_sds = s.shape_env.get(_final_updates_name_val_to_return)
+    idx_shape = (idx_sds.shape if isinstance(idx_sds, ShapeDtypeStruct) else idx_sds)
+    upd_shape = (upd_sds.shape if isinstance(upd_sds, ShapeDtypeStruct) else upd_sds)
+    # if you still want to keep target_indices_shape_symbolic consistent for later logs:
+    # target_indices_shape_symbolic = idx_shape
+
+    # --- FILL_OR_DROP gating (replace your if with this) ---
+    is_fill_or_drop = (
+        scatter_mode == GatherScatterMode.FILL_OR_DROP
+        or (isinstance(scatter_mode, str) and scatter_mode.upper() == "FILL_OR_DROP")
+    )
+
+    if is_fill_or_drop:
         # ---------------- Step 1: build a boolean mask per *row* -----------
-        # Get operand rank for shape-tensor's shape info
         op_aval = operand_v.aval
         op_rank = len(op_aval.shape)
 
-        # Create shape tensor for bounds checking
         operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
-        s.add_node(
-            helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name])
-        )
-        # Shape() output is always (rank,) and int64
-        _manually_ensure_shape_env_entry(
-            s, operand_shape_tensor_name, (op_rank,), np.int64, "OperandShape"
-        )
+        s.add_node(helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name]))
+        _manually_ensure_shape_env_entry(s, operand_shape_tensor_name, (op_rank,), np.int64, "OperandShape")
 
-        # Create zero tensor for lower bound check
         zero_tensor_name = s.get_constant_name(np.array(0, dtype=np.int64))
 
-        # Check lower bounds: indices >= 0
+        # lower bounds: indices >= 0      (SHAPE = idx_shape)
         low_ok_name = s.get_unique_name("low_bounds_ok")
-        s.add_node(
-            helper.make_node(
-                "GreaterOrEqual",
-                [final_indices_name_to_return, zero_tensor_name],
-                [low_ok_name],
-            )
-        )
-        _manually_ensure_shape_env_entry(
-            s, low_ok_name, target_indices_shape_symbolic, np.bool_, "LowBoundsOK"
-        )
+        s.add_node(helper.make_node("GreaterOrEqual", [final_indices_name_to_return, zero_tensor_name], [low_ok_name]))
+        _manually_ensure_shape_env_entry(s, low_ok_name, idx_shape, np.bool_, "LowBoundsOK")
 
-        # -------------------------------------------------------------
-        # 1. Pick only the dims used by this scatter  (e.g. (0,) ➜ N)
-        # -------------------------------------------------------------
-        scatter_dims = list(dimension_numbers.scatter_dims_to_operand_dims)  # e.g. [0]
+        # dimension limits for the *scatter dims* only: shape = (K,)
+        scatter_dims = list(dimension_numbers.scatter_dims_to_operand_dims)  # e.g. [0] or [0,1]
         dims_const_name = s.get_constant_name(np.array(scatter_dims, dtype=np.int64))
 
         dim_limits_name = s.get_unique_name("dim_limits")
-        s.add_node(
-            helper.make_node(
-                "Gather",
-                [operand_shape_tensor_name, dims_const_name],
-                [dim_limits_name],
-                axis=0,
-            )
-        )
-        _manually_ensure_shape_env_entry(
-            s, dim_limits_name, (len(scatter_dims),), np.int64, "DimLimits"
-        )
+        s.add_node(helper.make_node("Gather", [operand_shape_tensor_name, dims_const_name], [dim_limits_name], axis=0))
+        _manually_ensure_shape_env_entry(s, dim_limits_name, (len(scatter_dims),), np.int64, "DimLimits")
 
-        # -------------------------------------------------------------
-        # 2. Broadcast the (k,) vector to the same shape as `indices`
-        # -------------------------------------------------------------
-        shape_info_obj = s.shape_env.get(final_indices_name_to_return)
-        if shape_info_obj is not None:
-            indices_shape = (
-                shape_info_obj.shape
-                if isinstance(shape_info_obj, ShapeDtypeStruct)
-                else shape_info_obj
-            )
-            indices_rank = len(indices_shape)
-            if indices_rank >= 2:
-                # Create target shape for broadcasting dim_limits
-                target_shape = list(indices_shape)
-                target_shape_name = s.get_constant_name(
-                    np.array(target_shape, dtype=np.int64)
-                )
+        # reshape to broadcastable and then expand to idx_shape
+        idx_rank = len(idx_shape)
+        dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
+        reshape_target = [1] * (idx_rank - 1) + [len(scatter_dims)]
+        s.add_node(helper.make_node("Reshape",
+                                   [dim_limits_name, s.get_constant_name(np.array(reshape_target, dtype=np.int64))],
+                                   [dim_limits_reshaped_name]))
+        _manually_ensure_shape_env_entry(s, dim_limits_reshaped_name, tuple(reshape_target), np.int64, "DimLimitsReshaped")
 
-                # Reshape dim_limits to be broadcastable
-                dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
-                reshape_target = [1] * (indices_rank - 1) + [len(scatter_dims)]
-                s.add_node(
-                    helper.make_node(
-                        "Reshape",
-                        [
-                            dim_limits_name,
-                            s.get_constant_name(
-                                np.array(reshape_target, dtype=np.int64)
-                            ),
-                        ],
-                        [dim_limits_reshaped_name],
-                    )
-                )
-                _manually_ensure_shape_env_entry(
-                    s, dim_limits_reshaped_name, tuple(reshape_target), np.int64,
-                    "DimLimitsReshaped"
-                )
+        # dynamic shape for Expand target, but register as idx_shape
+        shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
+        s.add_node(helper.make_node("Shape", [final_indices_name_to_return], [shape_of_indices_name]))
+        _manually_ensure_shape_env_entry(s, shape_of_indices_name, (idx_rank,), np.int64, "IdxShapeForBroadcast")
 
-                # Expand to match indices shape using a dynamic Shape() (avoids invalid constants for symbolic dims)
-                shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
-                s.add_node(
-                    helper.make_node("Shape", [final_indices_name_to_return], [shape_of_indices_name])
-                )
-                _manually_ensure_shape_env_entry(
-                    s, shape_of_indices_name, (indices_rank,), np.int64, "IdxShapeForBroadcast"
-                )
-                dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
-                s.add_node(
-                    helper.make_node(
-                        "Expand",
-                        [dim_limits_reshaped_name, shape_of_indices_name],
-                        [dim_limits_bc_name],
-                    )
-                )
-                _manually_ensure_shape_env_entry(
-                    s, dim_limits_bc_name, target_indices_shape_symbolic, np.int64,
-                    "DimLimitsBroadcast"
-                )
+        dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
+        s.add_node(helper.make_node("Expand", [dim_limits_reshaped_name, shape_of_indices_name], [dim_limits_bc_name]))
+        _manually_ensure_shape_env_entry(s, dim_limits_bc_name, idx_shape, np.int64, "DimLimitsBroadcast")
 
-                # Check upper bounds: indices < shape
-                high_ok_name = s.get_unique_name("high_bounds_ok")
-                s.add_node(
-                    helper.make_node(
-                        "Less",
-                        [final_indices_name_to_return, dim_limits_bc_name],
-                        [high_ok_name],
-                    )
-                )
-                _manually_ensure_shape_env_entry(
-                    s, high_ok_name, target_indices_shape_symbolic, np.bool_, "HighBoundsOK"
-                )
+        # upper bounds: indices < dim_limits_bc   (SHAPE = idx_shape)
+        high_ok_name = s.get_unique_name("high_bounds_ok")
+        s.add_node(helper.make_node("Less", [final_indices_name_to_return, dim_limits_bc_name], [high_ok_name]))
+        _manually_ensure_shape_env_entry(s, high_ok_name, idx_shape, np.bool_, "HighBoundsOK")
 
-                # Combine bounds checks
-                both_ok_name = s.get_unique_name("both_bounds_ok")
-                s.add_node(
-                    helper.make_node("And", [low_ok_name, high_ok_name], [both_ok_name])
-                )
-                _manually_ensure_shape_env_entry(
-                    s, both_ok_name, target_indices_shape_symbolic,
-                    np.bool_,
-                    "BothBoundsOK"
-                )
+        # elementwise AND over K, still (B,L,K)
+        both_ok_name = s.get_unique_name("both_bounds_ok")
+        s.add_node(helper.make_node("And", [low_ok_name, high_ok_name], [both_ok_name]))
+        _manually_ensure_shape_env_entry(s, both_ok_name, idx_shape, np.bool_, "BothBoundsOK")
 
-                # Reduce along last dimension to get row validity
-                row_ok_name = s.get_unique_name("row_ok")
-                s.add_node(
-                    helper.make_node(
-                        "ReduceAll",
-                        [both_ok_name],
-                        [row_ok_name],
-                        axes=[-1],
-                        keepdims=0,
-                    )
-                )
-                row_ok_shape = target_indices_shape_symbolic[:-1]
-                _manually_ensure_shape_env_entry(
-                    s, row_ok_name, row_ok_shape,
-                    np.bool_, "RowOK"
-                )
+        # Reduce along last axis (K) → (B,L)
+        row_ok_name = s.get_unique_name("row_ok")
+        s.add_node(helper.make_node("ReduceAll", [both_ok_name], [row_ok], axes=[-1], keepdims=0))
+        row_ok_shape = tuple(idx_shape[:-1])  # (B,L)
+        _manually_ensure_shape_env_entry(s, row_ok_name, row_ok_shape, np.bool_, "RowOK")
 
-                # ───────────────────────────────────────────────────────────────
-                # Broadcast row_ok from shape (N,) → (N,1,1,…,1) so it lines up
-                # with the updates tensor of rank R.
-                # ───────────────────────────────────────────────────────────────
-                updates_rank = len(current_expected_onnx_updates_shape)
-                if updates_rank > 1:
-                    # axes [1,2,…,R−1]
-                    axes_to_unsq = np.arange(1, updates_rank, dtype=np.int64)
-                    axes_const = s.get_constant_name(axes_to_unsq)
-                    row_ok_bc = s.get_unique_name("row_ok_bc")
-                    s.add_node(
-                        helper.make_node(
-                            "Unsqueeze",
-                            [row_ok_name, axes_const],
-                            [row_ok_bc],
-                        )
-                    )
-                    # Shape info: (N,1,1,…,1)
-                    bc_shape = (current_expected_onnx_updates_shape[0],) + (1,) * (
-                        updates_rank - 1
-                    )
-                    _manually_ensure_shape_env_entry(
-                        s, row_ok_bc, bc_shape, np.bool_, "RowOkBroadcast"
-                    )
-                    row_ok_name = row_ok_bc
-                # ───────────────────────────────────────────────────────────────
+        # Broadcast row_ok to align with updates (B,L, …window…)
+        upd_rank = len(upd_shape)
+        if upd_rank >= 3:
+            # IMPORTANT: keep L at axis=1; add ones on axes [2..upd_rank-1]
+            axes_to_unsq = np.arange(2, upd_rank, dtype=np.int64)
+            row_ok_bc = s.get_unique_name("row_ok_bc")
+            s.add_node(helper.make_node("Unsqueeze",
+                                        [row_ok_name, s.get_constant_name(axes_to_unsq)],
+                                        [row_ok_bc]))
+            bc_shape = row_ok_shape + (1,) * (upd_rank - 2)  # (B,L,1,1,...)
+            _manually_ensure_shape_env_entry(s, row_ok_bc, bc_shape, np.bool_, "RowOkBroadcast")
+            row_ok_name = row_ok_bc
+        # else: (B,L) already lines up with (B,L) for 2-D updates
 
-        # ------------- Step 2: neutral-element for this reduction ----------
-        neutral_val = _get_neutral_value(reduction, original_updates_dtype_np)
+        # neutral for this reduction & dtype
+        neutral_val = _get_neutral_value(reduction, _ensure_np_dtype(s.shape_env[_final_updates_name_val_to_return].dtype))
         neutral_updates_name = s.get_constant_name(neutral_val)
 
-        # Broadcast row_ok to match updates shape and create safe updates
+        # safe updates: Where(row_ok, updates, neutral)   (SHAPE = upd_shape)
         safe_updates_name = s.get_unique_name("safe_updates")
-        s.add_node(
-            helper.make_node(
-                "Where",
-                [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
-                [safe_updates_name],
-            )
-        )
+        s.add_node(helper.make_node("Where", [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
+                                    [safe_updates_name]))
+        _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape,
+                                         _ensure_np_dtype(s.shape_env[_final_updates_name_val_to_return].dtype),
+                                         "SafeUpdates")
 
-        # ------------- Step 3: replace *bad* indices with 0 ----------------
+        # safe indices: zero-fill bad rows   (SHAPE = idx_shape)
         safe_indices_name = s.get_unique_name("safe_indices")
-        s.add_node(
-            helper.make_node(
-                "Where",
-                [both_ok_name, final_indices_name_to_return, zero_tensor_name],
-                [safe_indices_name],
-            )
-        )
+        s.add_node(helper.make_node("Where", [both_ok_name, final_indices_name_to_return, zero_tensor_name],
+                                    [safe_indices_name]))
+        _manually_ensure_shape_env_entry(s, safe_indices_name, idx_shape, np.int64, "SafeIndices")
 
-        # Update the return values
+        # return masked triplet
         final_indices_name_to_return = safe_indices_name
         _final_updates_name_val_to_return = safe_updates_name
-
-        # Add shape info for the new tensors
-        _manually_ensure_shape_env_entry(
-            s,
-            safe_indices_name,
-            target_indices_shape_symbolic,
-            final_indices_dtype_np,
-            "SafeIndices",
-        )
-        _manually_ensure_shape_env_entry(
-            s,
-            safe_updates_name,
-            current_expected_onnx_updates_shape,
-            original_updates_dtype_np,
-            "SafeUpdates",
-        )
 
     # -----------------------------------------------------------------
 
