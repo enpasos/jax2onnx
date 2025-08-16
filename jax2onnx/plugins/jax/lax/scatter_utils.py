@@ -807,6 +807,73 @@ def _prepare_scatter_inputs_for_onnx(
             "Indices2D_Depth2Strat",
         )
 
+        # ---- Bounds guard for ScatterND (depth-2 path) ----
+        # Add bounds checking to handle out-of-bounds indices safely
+        if scatter_mode == GatherScatterMode.FILL_OR_DROP or (isinstance(scatter_mode, str) and scatter_mode.upper() == "FILL_OR_DROP"):
+            # Get operand shape for bounds checking
+            operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name]))
+            _manually_ensure_shape_env_entry(s, operand_shape_tensor_name, (len(operand_shape_symbolic),), np.int64, "OperandShape")
+
+            # Gather the first two dims (B, L) for bounds checking
+            gather_axes_const = s.get_constant_name(np.array([0, 1], dtype=np.int64))
+            dim_limits_name = s.get_unique_name("dim_limits")
+            s.add_node(helper.make_node("Gather", [operand_shape_tensor_name, gather_axes_const], [dim_limits_name], axis=0))
+            _manually_ensure_shape_env_entry(s, dim_limits_name, (2,), np.int64, "DimLimits")
+
+            # Reshape dim_limits to (1,2) for broadcasting
+            dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
+            reshape_target_const = s.get_constant_name(np.array([1, 2], dtype=np.int64))
+            s.add_node(helper.make_node("Reshape", [dim_limits_name, reshape_target_const], [dim_limits_reshaped_name]))
+            _manually_ensure_shape_env_entry(s, dim_limits_reshaped_name, (1, 2), np.int64, "DimLimitsReshaped")
+
+            # Broadcast to match indices shape
+            shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
+            s.add_node(helper.make_node("Shape", [indices_2d_name], [shape_of_indices_name]))
+            _manually_ensure_shape_env_entry(s, shape_of_indices_name, (2,), np.int64, "IndicesShapeForBC")
+
+            dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
+            s.add_node(helper.make_node("Expand", [dim_limits_reshaped_name, shape_of_indices_name], [dim_limits_bc_name]))
+            _manually_ensure_shape_env_entry(s, dim_limits_bc_name, (B_val, L_val, 2), np.int64, "DimLimitsBroadcast")
+
+            # Check bounds: indices >= 0 and indices < dim_limits
+            zero_tensor_name = s.get_constant_name(np.array(0, dtype=np.int64))
+            
+            ge0_name = s.get_unique_name("ge0")
+            s.add_node(helper.make_node("GreaterOrEqual", [indices_2d_name, zero_tensor_name], [ge0_name]))
+            _manually_ensure_shape_env_entry(s, ge0_name, (B_val, L_val, 2), np.bool_, "GeZero")
+
+            lt_name = s.get_unique_name("lt_bounds")
+            s.add_node(helper.make_node("Less", [indices_2d_name, dim_limits_bc_name], [lt_name]))
+            _manually_ensure_shape_env_entry(s, lt_name, (B_val, L_val, 2), np.bool_, "LtBounds")
+
+            both_ok_name = s.get_unique_name("both_bounds_ok")
+            s.add_node(helper.make_node("And", [ge0_name, lt_name], [both_ok_name]))
+            _manually_ensure_shape_env_entry(s, both_ok_name, (B_val, L_val, 2), np.bool_, "BothBoundsOK")
+
+            # Reduce along last axis to get per-row validity
+            row_ok_name = s.get_unique_name("row_ok")
+            s.add_node(helper.make_node("ReduceAll", [both_ok_name], [row_ok_name], axes=[-1], keepdims=0))
+            _manually_ensure_shape_env_entry(s, row_ok_name, (B_val, L_val), np.bool_, "RowOK")
+
+            # Create safe indices by replacing invalid rows with zeros
+            zero_2d_name = s.get_unique_name("zeros_2d")
+            s.add_node(helper.make_node("Sub", [indices_2d_name, indices_2d_name], [zero_2d_name]))
+            _manually_ensure_shape_env_entry(s, zero_2d_name, (B_val, L_val, 2), np.int64, "Zeros2D")
+
+            # Broadcast row_ok to match indices shape for Where operation
+            unsqueeze_axes_const = s.get_constant_name(np.array([2], dtype=np.int64))
+            row_ok_unsq_name = s.get_unique_name("row_ok_unsq")
+            s.add_node(helper.make_node("Unsqueeze", [row_ok_name, unsqueeze_axes_const], [row_ok_unsq_name]))
+            _manually_ensure_shape_env_entry(s, row_ok_unsq_name, (B_val, L_val, 1), np.bool_, "RowOkUnsqueezed")
+
+            safe_indices_name = s.get_unique_name("safe_indices")
+            s.add_node(helper.make_node("Where", [row_ok_unsq_name, indices_2d_name, zero_2d_name], [safe_indices_name]))
+            _manually_ensure_shape_env_entry(s, safe_indices_name, (B_val, L_val, 2), np.int64, "SafeIndices")
+
+            # Update the indices name to use the safe version
+            indices_2d_name = safe_indices_name
+
         final_indices_name_to_return = indices_2d_name
         # ONNX with K=2 expects updates of shape (B, L) + data.shape[2:]
         expected_updates_shape_d2 = (
@@ -924,9 +991,7 @@ def _prepare_scatter_inputs_for_onnx(
                 )
             )
             # (1,2) --squeeze[0]--> (2,)
-            _manually_ensure_shape_env_entry(
-                s, squeeze_idx, (2,), np.int64, "SqueezedIdxD3"
-            )
+            _manually_ensure_shape_env_entry(s, squeeze_idx, (2,), np.int64, "SqueezedIdxD3")
             # gather(0) → row0   ;   gather(1) → col0
             row0_name = s.get_unique_name("row0_d3")
             col0_name = s.get_unique_name("col0_d3")
