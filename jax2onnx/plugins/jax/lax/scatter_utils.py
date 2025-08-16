@@ -1396,10 +1396,18 @@ def _prepare_scatter_inputs_for_onnx(
     # If JAX asked for out‐of‐bounds entries to be dropped, mask them here
     if scatter_mode == GatherScatterMode.FILL_OR_DROP:
         # ---------------- Step 1: build a boolean mask per *row* -----------
+        # Get operand rank for shape-tensor's shape info
+        op_aval = operand_v.aval
+        op_rank = len(op_aval.shape)
+
         # Create shape tensor for bounds checking
         operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
         s.add_node(
             helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name])
+        )
+        # Shape() output is always (rank,) and int64
+        _manually_ensure_shape_env_entry(
+            s, operand_shape_tensor_name, (op_rank,), np.int64, "OperandShape"
         )
 
         # Create zero tensor for lower bound check
@@ -1413,6 +1421,9 @@ def _prepare_scatter_inputs_for_onnx(
                 [final_indices_name_to_return, zero_tensor_name],
                 [low_ok_name],
             )
+        )
+        _manually_ensure_shape_env_entry(
+            s, low_ok_name, target_indices_shape_symbolic, np.bool_, "LowBoundsOK"
         )
 
         # -------------------------------------------------------------
@@ -1429,6 +1440,9 @@ def _prepare_scatter_inputs_for_onnx(
                 [dim_limits_name],
                 axis=0,
             )
+        )
+        _manually_ensure_shape_env_entry(
+            s, dim_limits_name, (len(scatter_dims),), np.int64, "DimLimits"
         )
 
         # -------------------------------------------------------------
@@ -1464,6 +1478,10 @@ def _prepare_scatter_inputs_for_onnx(
                         [dim_limits_reshaped_name],
                     )
                 )
+                _manually_ensure_shape_env_entry(
+                    s, dim_limits_reshaped_name, tuple(reshape_target), np.int64,
+                    "DimLimitsReshaped"
+                )
 
                 # Expand to match indices shape using a dynamic Shape() (avoids invalid constants for symbolic dims)
                 shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
@@ -1481,6 +1499,10 @@ def _prepare_scatter_inputs_for_onnx(
                         [dim_limits_bc_name],
                     )
                 )
+                _manually_ensure_shape_env_entry(
+                    s, dim_limits_bc_name, target_indices_shape_symbolic, np.int64,
+                    "DimLimitsBroadcast"
+                )
 
                 # Check upper bounds: indices < shape
                 high_ok_name = s.get_unique_name("high_bounds_ok")
@@ -1491,11 +1513,19 @@ def _prepare_scatter_inputs_for_onnx(
                         [high_ok_name],
                     )
                 )
+                _manually_ensure_shape_env_entry(
+                    s, high_ok_name, target_indices_shape_symbolic, np.bool_, "HighBoundsOK"
+                )
 
                 # Combine bounds checks
                 both_ok_name = s.get_unique_name("both_bounds_ok")
                 s.add_node(
                     helper.make_node("And", [low_ok_name, high_ok_name], [both_ok_name])
+                )
+                _manually_ensure_shape_env_entry(
+                    s, both_ok_name, target_indices_shape_symbolic,
+                    np.bool_,
+                    "BothBoundsOK"
                 )
 
                 # Reduce along last dimension to get row validity
@@ -1508,6 +1538,11 @@ def _prepare_scatter_inputs_for_onnx(
                         axes=[-1],
                         keepdims=0,
                     )
+                )
+                row_ok_shape = target_indices_shape_symbolic[:-1]
+                _manually_ensure_shape_env_entry(
+                    s, row_ok_name, row_ok_shape,
+                    np.bool_, "RowOK"
                 )
 
                 # ───────────────────────────────────────────────────────────────
