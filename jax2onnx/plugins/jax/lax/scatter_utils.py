@@ -678,64 +678,42 @@ def _prepare_scatter_inputs_for_onnx(
         # This entire block is now unconditional for the depth-2 pattern because JAX
         # treats this pattern as having CLIP semantics (like dynamic_update_slice)
         # regardless of the `mode` parameter in the jaxpr.
-        # operand_dim_size := Shape(operand)[scatter_op_axis_idx]  → ()
-        shape_op_name = s.get_unique_name("shape_op_d2")
-        s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
-        _manually_ensure_shape_env_entry(
-            s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_Clip_ShapeOp"
-        )
-        dim_size_name = s.get_unique_name("dim_size_d2")
-        s.add_node(
-            helper.make_node(
-                "Gather",
-                [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-                [dim_size_name],
-                axis=0,
-            )
-        )
-        _manually_ensure_shape_env_entry(
-            s, dim_size_name, (), np.int64, "D2_Clip_DimSize"
-        )
-
-        # L_len := updates.shape[upd_pos_for_scatter_axis] → ()
-        if degenerate_pick:
-            L_len_name = s.get_constant_name(np.array(1, dtype=np.int64))
-        else:
-            shape_upd_name = s.get_unique_name("shape_upd_d2")
-            s.add_node(helper.make_node("Shape", [original_updates_name_val], [shape_upd_name]))
+        if is_clip:
+            shape_op_name = s.get_unique_name("shape_op_d2")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
             _manually_ensure_shape_env_entry(
-                s, shape_upd_name, (len(original_updates_shape_symbolic),), np.int64, "D2_Clip_ShapeUpd"
+                s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_Clip_ShapeOp"
             )
-            L_len_name = s.get_unique_name("L_len_d2")
+            dim_size_name = s.get_unique_name("dim_size_d2")
             s.add_node(
                 helper.make_node(
                     "Gather",
-                    [shape_upd_name, s.get_constant_name(np.array([upd_pos_for_scatter_axis], dtype=np.int64))],
-                    [L_len_name],
+                    [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+                    [dim_size_name],
                     axis=0,
                 )
             )
             _manually_ensure_shape_env_entry(
-                s, L_len_name, (), np.int64, "D2_Clip_LLen"
+                s, dim_size_name, (), np.int64, "D2_Clip_DimSize"
             )
 
-        # upper = max(0, dim_size - L_len)
-        upper_name = s.get_unique_name("upper_start_d2")
-        s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
-        _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_Clip_Upper")
-        zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
-        upper_nneg_name = s.get_unique_name("upper_nneg_d2")
-        s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
-        _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_Clip_UpperNneg")
+            # upper = max(0, dim_size - L_len)
+            upper_name = s.get_unique_name("upper_start_d2")
+            s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
+            _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_Clip_Upper")
+            zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
+            upper_nneg_name = s.get_unique_name("upper_nneg_d2")
+            s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
+            _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_Clip_UpperNneg")
 
-        # start_clamped = min(max(start, 0), upper_nneg)
-        tmp_nneg_name = s.get_unique_name("start_nneg_d2")
-        s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
-        _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_Clip_StartNneg")
-        start_clamped_name = s.get_unique_name("start_clamped_d2")
-        s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
-        _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_Clip_StartClamped")
-        col_start_scalar_name = start_clamped_name
+            # start_clamped = min(max(start, 0), upper_nneg)
+            tmp_nneg_name = s.get_unique_name("start_nneg_d2")
+            s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
+            _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_Clip_StartNneg")
+            start_clamped_name = s.get_unique_name("start_clamped_d2")
+            s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
+            _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_Clip_StartClamped")
+            col_start_scalar_name = start_clamped_name
 
         arange_b_end_name = s.get_constant_name(np.array(B_val, dtype=np.int64))
         arange_b_name = s.get_unique_name("arange_b_d2")
