@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates"
+SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates-FIX1"
 
 
 
@@ -697,19 +697,22 @@ def _prepare_scatter_inputs_for_onnx(
         else:
             # 🔁 Use the window length from the **updates** tensor (not the operand).
             # This preserves slice-update semantics when updates span only a subset
-            # of the operand along the scatter axis.
-            L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
-            try:
-                L_val = _make_shape_concrete_for_prod(
-                    (L_sym,), s, "d2_L_from_updates"
-                )[0]
-            except Exception:
-                # Fallback: if the updates axis is purely symbolic, read from operand.
-                L_sym = operand_shape_symbolic[scatter_op_axis_idx]
-                L_val = _make_shape_concrete_for_prod(
-                    (L_sym,), s, "d2_L_from_operand_fallback"
-                )[0]
-            logger.info(f"Depth-2: Using L from updates axis pos {upd_pos_for_scatter_axis} → L_sym={L_sym}, L_val={L_val}")
+            # of the operand along the scatter axis. Only fall back to operand if we
+            # truly cannot read/resolve L from updates.
+            if upd_pos_for_scatter_axis is not None:
+                L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+                try:
+                    L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L_from_updates")[0]
+                except Exception:
+                    L_sym = operand_shape_symbolic[scatter_op_axis_idx]
+                    L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L_from_operand_fallback")[0]
+                logger.info(
+                    f"Depth-2: Using L from updates axis pos {upd_pos_for_scatter_axis} → "
+                    f"L_sym={L_sym}, L_val={L_val}"
+                )
+            else:
+                # No mapping → let default path handle it.
+                logger.warning("Depth-2: no updates-axis mapping; falling back to default path.")
 
         # scalar L as a Constant tensor for arithmetic below
         L_len_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
@@ -971,11 +974,8 @@ def _prepare_scatter_inputs_for_onnx(
             indices_2d_name = safe_indices_name
 
         final_indices_name_to_return = indices_2d_name
-        # ONNX with K=2 expects updates of shape (B, L) + data.shape[2:]
-        expected_updates_shape_d2 = (
-            B_sym,
-            L_sym,
-        ) + tuple(operand_shape_symbolic[2:])
+        # ONNX with K=2 expects updates of shape (B, Lᵤ, ...) where Lᵤ comes from updates.
+        expected_updates_shape_d2 = (B_sym, L_sym) + tuple(operand_shape_symbolic[2:])
 
         # If updates come as (1, B, L, …), drop the leading singleton.
         if (
@@ -1010,37 +1010,14 @@ def _prepare_scatter_inputs_for_onnx(
         elif not _are_shapes_equal(
             original_updates_shape_symbolic, expected_updates_shape_d2, s
         ):
-            # Safe fallback: Reshape to the expected (B, L, ...).
-            tgt = []
-            for dim in expected_updates_shape_d2:
-                if isinstance(dim, (int, np.integer)):
-                    tgt.append(int(dim))
-                else:
-                    tgt.append(
-                        int(_make_shape_concrete_for_prod((dim,), s, "d2_rs")[0])
-                    )
-            reshaped_updates_name = s.get_unique_name(
-                f"{original_updates_name_val}_to_ONNX_d2"
+            # Do NOT reshape when element counts differ; mismatches here usually mean
+            # Lᵤ != Lₒ and we must keep the updates' L. Keep original updates untouched.
+            logger.info(
+                "Depth-2: updates shape differs from computed expectation; "
+                "keeping original updates (no reshape) to preserve L from updates."
             )
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    [
-                        original_updates_name_val,
-                        s.get_constant_name(np.array(tgt, dtype=np.int64)),
-                    ],
-                    [reshaped_updates_name],
-                )
-            )
-            _manually_ensure_shape_env_entry(
-                s,
-                reshaped_updates_name,
-                expected_updates_shape_d2,
-                original_updates_dtype_np,
-                "Depth2ReshapedUpdates",
-            )
-            _final_updates_name_val_to_return = reshaped_updates_name
-            original_updates_shape_symbolic = expected_updates_shape_d2
+            _final_updates_name_val_to_return = original_updates_name_val
+            # Keep shape as-is (original_updates_shape_symbolic)
         else:
             _final_updates_name_val_to_return = original_updates_name_val
 
@@ -1893,5 +1870,3 @@ def _onnx_expected_updates_shape(
         return tuple(operand_shape)
     k = indices_shape[-1]
     return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
-
-
