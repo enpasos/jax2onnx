@@ -25,7 +25,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250817-d11-d2-start-clamp"
+SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates"
+
+
+
+def _reduce_min_last_axis(
+    s: Jaxpr2OnnxConverter,
+    inp: str,
+    out: str,
+    keepdims: int = 0,
+):
+    """
+    Insert a ReduceMin over the **last** axis that is valid for every opset.
+    """
+    if s.builder.opset >= 18:          # ⟵ op-set 18 = attribute → input switch
+        axes_name = s.get_constant_name(np.array([-1], dtype=np.int64))
+        s.add_node(
+            helper.make_node(
+                "ReduceMin",
+                [inp, axes_name],        # → axes is **input-2**
+                [out],
+                keepdims=keepdims,
+            )
+        )
+    else:                               # legacy path (≤ 17) keeps the attribute
+        s.add_node(
+            helper.make_node(
+                "ReduceMin",
+                [inp],
+                [out],
+                axes=[-1],
+                keepdims=keepdims,
+            )
+        )
+
+
 
 
 def _ensure_np_dtype(dtype_like: Any) -> np.dtype:
@@ -661,14 +695,21 @@ def _prepare_scatter_inputs_for_onnx(
             # For the rest of the path we treat this as L = 1.
             L_sym, L_val = 1, 1
         else:
-            # Use the genuine L from updates at the mapped axis.
-            if upd_pos_for_scatter_axis is None:
-                # Shouldn't happen because we guard above, but keep safe fallback.
-                logger.warning("Depth-2: missing mapped updates axis; using L=1.")
-                L_sym, L_val = 1, 1
-            else:
-                L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
-                L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L")[0]
+            # 🔁 Use the window length from the **updates** tensor (not the operand).
+            # This preserves slice-update semantics when updates span only a subset
+            # of the operand along the scatter axis.
+            L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+            try:
+                L_val = _make_shape_concrete_for_prod(
+                    (L_sym,), s, "d2_L_from_updates"
+                )[0]
+            except Exception:
+                # Fallback: if the updates axis is purely symbolic, read from operand.
+                L_sym = operand_shape_symbolic[scatter_op_axis_idx]
+                L_val = _make_shape_concrete_for_prod(
+                    (L_sym,), s, "d2_L_from_operand_fallback"
+                )[0]
+            logger.info(f"Depth-2: Using L from updates axis pos {upd_pos_for_scatter_axis} → L_sym={L_sym}, L_val={L_val}")
 
         # scalar L as a Constant tensor for arithmetic below
         L_len_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
@@ -846,18 +887,18 @@ def _prepare_scatter_inputs_for_onnx(
             final_indices_shape_for_depth2_strat,
             np.int64,
             "Indices2D_Depth2Strat",
-        )
+        ) 
 
-        # ---- Bounds guard for ScatterND (depth-2 path) ----
-        # Add bounds checking to handle out-of-bounds indices safely
-        if scatter_mode == GatherScatterMode.FILL_OR_DROP or (isinstance(scatter_mode, str) and scatter_mode.upper() == "FILL_OR_DROP"):
+        # For every semantics except explicit CLIP we must not hand ORT invalid indices.
+        # Re-use the existing mask-and-zero logic.
+        if not is_clip:
             # Get operand shape for bounds checking
             operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
             s.add_node(helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name]))
             _manually_ensure_shape_env_entry(s, operand_shape_tensor_name, (len(operand_shape_symbolic),), np.int64, "OperandShape")
 
             # Gather the first two dims (B, L) for bounds checking
-            gather_axes_const = s.get_constant_name(np.array([0, 1], dtype=np.int64))
+            gather_axes_const = s.get_constant_name(np.array([0, scatter_op_axis_idx], dtype=np.int64))
             dim_limits_name = s.get_unique_name("dim_limits")
             s.add_node(helper.make_node("Gather", [operand_shape_tensor_name, gather_axes_const], [dim_limits_name], axis=0))
             _manually_ensure_shape_env_entry(s, dim_limits_name, (2,), np.int64, "DimLimits")
@@ -871,7 +912,7 @@ def _prepare_scatter_inputs_for_onnx(
             # Broadcast to match indices shape
             shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
             s.add_node(helper.make_node("Shape", [indices_2d_name], [shape_of_indices_name]))
-            _manually_ensure_shape_env_entry(s, shape_of_indices_name, (2,), np.int64, "IndicesShapeForBC")
+            _manually_ensure_shape_env_entry(s, shape_of_indices_name, (3,), np.int64, "IndicesShapeForBC")
 
             dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
             s.add_node(helper.make_node("Expand", [dim_limits_reshaped_name, shape_of_indices_name], [dim_limits_bc_name]))
@@ -900,7 +941,7 @@ def _prepare_scatter_inputs_for_onnx(
             both_ok_i64 = s.get_unique_name("both_bounds_ok_i64")
             s.add_node(helper.make_node("Cast", [both_ok_name], [both_ok_i64], to=int(TensorProto.INT64)))
             row_min_i64 = s.get_unique_name("row_min_i64")
-            s.add_node(helper.make_node("ReduceMin", [both_ok_i64], [row_min_i64], axes=[-1], keepdims=0))
+            _reduce_min_last_axis(s, both_ok_i64, row_min_i64, keepdims=0)
             row_ok_name = s.get_unique_name("row_ok")
             s.add_node(helper.make_node("Cast", [row_min_i64], [row_ok_name], to=int(TensorProto.BOOL)))
             _manually_ensure_shape_env_entry(s, both_ok_i64, (B_val, L_val, 2), np.int64, "BothBoundsOK_i64")
@@ -1671,7 +1712,7 @@ def _prepare_scatter_inputs_for_onnx(
         both_ok_i64 = s.get_unique_name("both_bounds_ok_i64")
         s.add_node(helper.make_node("Cast", [both_ok_name], [both_ok_i64], to=int(TensorProto.INT64)))
         row_min_i64 = s.get_unique_name("row_min_i64")
-        s.add_node(helper.make_node("ReduceMin", [both_ok_i64], [row_min_i64], axes=[-1], keepdims=0))
+        _reduce_min_last_axis(s, both_ok_i64, row_min_i64, keepdims=0)
         row_ok_name = s.get_unique_name("row_ok")
         s.add_node(helper.make_node("Cast", [row_min_i64], [row_ok_name], to=int(TensorProto.BOOL)))
         row_ok_shape = tuple(idx_shape[:-1])  # (B,L)
