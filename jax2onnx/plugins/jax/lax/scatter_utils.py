@@ -677,57 +677,34 @@ def _prepare_scatter_inputs_for_onnx(
         #   start ∈ [0, max(0, dim_size - L)]
         # Build all values as ONNX tensors (no Python ints in ops).
         # ─────────────────────────────────────────────────────────────
-        shape_op_name = s.get_unique_name("shape_op_d2")
-        s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
-        _manually_ensure_shape_env_entry(
-            s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_Clip_ShapeOp"
-        )
-        # Gather returns a length-1 vector; squeeze to scalar.
-        dim_size_vec = s.get_unique_name("dim_size_vec_d2")
-        s.add_node(
-            helper.make_node(
-                "Gather",
-                [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-                [dim_size_vec],
-                axis=0,
-            )
-        )
-        _manually_ensure_shape_env_entry(
-            s, dim_size_vec, (1,), np.int64, "D2_Clip_DimSizeVec"
-        )
-        dim_size_name = s.get_unique_name("dim_size_d2")
-        s.add_node(
-            helper.make_node(
-                "Squeeze",
-                [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
-                [dim_size_name],
-            )
-        )
-        _manually_ensure_shape_env_entry(
-            s, dim_size_name, (), np.int64, "D2_Clip_DimSize"
-        )
-
-        # upper = max(0, dim_size - L)
-        upper_name = s.get_unique_name("upper_start_d2")
-        s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
-        _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_Clip_Upper")
-        zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
-        upper_nneg_name = s.get_unique_name("upper_nneg_d2")
-        s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
-        _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_Clip_UpperNneg")
-
-        # start_clamped = min(max(start, 0), upper_nneg)
-        tmp_nneg_name = s.get_unique_name("start_nneg_d2")
-        s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
-        _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_Clip_StartNneg")
-        start_clamped_name = s.get_unique_name("start_clamped_d2")
-        s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
-        _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_Clip_StartClamped")
-        col_start_scalar_name = start_clamped_name
-
-        # ----------------------------
-        # END: Clamp scalar start
-        # ----------------------------
+        if is_clip:
+            shape_op_name = s.get_unique_name("shape_op_d2")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
+            _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_Clip_ShapeOp")
+            dim_size_vec = s.get_unique_name("dim_size_vec_d2")
+            s.add_node(helper.make_node("Gather",
+                         [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+                         [dim_size_vec], axis=0))
+            _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_Clip_DimSizeVec")
+            dim_size_name = s.get_unique_name("dim_size_d2")
+            s.add_node(helper.make_node("Squeeze",
+                         [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
+                         [dim_size_name]))
+            _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_Clip_DimSize")
+            upper_name = s.get_unique_name("upper_start_d2")
+            s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
+            _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_Clip_Upper")
+            zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
+            upper_nneg_name = s.get_unique_name("upper_nneg_d2")
+            s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
+            _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_Clip_UpperNneg")
+            tmp_nneg_name = s.get_unique_name("start_nneg_d2")
+            s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
+            _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_Clip_StartNneg")
+            start_clamped_name = s.get_unique_name("start_clamped_d2")
+            s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
+            _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_Clip_StartClamped")
+            col_start_scalar_name = start_clamped_name
 
         arange_b_end_name = s.get_constant_name(np.array(B_val, dtype=np.int64))
         arange_b_name = s.get_unique_name("arange_b_d2")
@@ -1875,3 +1852,5 @@ def _onnx_expected_updates_shape(
         return tuple(operand_shape)
     k = indices_shape[-1]
     return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
+
+
