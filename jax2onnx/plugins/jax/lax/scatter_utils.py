@@ -714,6 +714,52 @@ def _prepare_scatter_inputs_for_onnx(
                 # No mapping → let default path handle it.
                 logger.warning("Depth-2: no updates-axis mapping; falling back to default path.")
 
+
+        # --- Normalize updates to axis order (B, L, ...) for our depth-2 indices ---
+        # Map batch (operand axis 0) and the scatter axis -> updates axis positions.
+        pos_batch_in_updates = _map_operand_axis_to_updates_pos(
+            dimension_numbers, op_rank, 0
+        )
+        if pos_batch_in_updates is None:
+            # Best-effort fallback: many models already have B at 0
+            pos_batch_in_updates = 0
+
+        pos_L_in_updates = upd_pos_for_scatter_axis  # already computed above
+
+        if pos_L_in_updates is not None:
+            desired_perm = [pos_batch_in_updates, pos_L_in_updates] + [
+                i for i in range(upd_rank)
+                if i not in (pos_batch_in_updates, pos_L_in_updates)
+            ]
+            if desired_perm != list(range(upd_rank)):
+                transposed_updates = s.get_unique_name(
+                    f"{original_updates_name_val}_to_BL"
+                )
+                s.add_node(
+                    helper.make_node(
+                        "Transpose",
+                        [original_updates_name_val],
+                        [transposed_updates],
+                        perm=desired_perm,
+                    )
+                )
+                original_updates_name_val = transposed_updates
+                original_updates_shape_symbolic = tuple(
+                    original_updates_shape_symbolic[i] for i in desired_perm
+                )
+                _manually_ensure_shape_env_entry(
+                    s,
+                    original_updates_name_val,
+                    original_updates_shape_symbolic,
+                    original_updates_dtype_np,
+                    "Depth2TransposeUpdatesToBL",
+                )
+                logger.info(
+                    f"Depth-2: Reordered updates axes to (B,L,...) via perm={desired_perm}"
+                )
+
+
+
         # scalar L as a Constant tensor for arithmetic below
         L_len_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
 
@@ -976,6 +1022,64 @@ def _prepare_scatter_inputs_for_onnx(
         final_indices_name_to_return = indices_2d_name
         # ONNX with K=2 expects updates of shape (B, Lᵤ, ...) where Lᵤ comes from updates.
         expected_updates_shape_d2 = (B_sym, L_sym) + tuple(operand_shape_symbolic[2:])
+
+
+
+        # If updates are (B, L, 1, ...), or generally differ from the expected
+        # (B, L, ...) only by a single singleton axis anywhere, squeeze it.
+        if not _are_shapes_equal(original_updates_shape_symbolic, expected_updates_shape_d2, s):
+            squeeze_axis = None
+
+            def _dim_is_one_generic(d: Any) -> bool:
+                if isinstance(d, (int, np.integer)):
+                    return int(d) == 1
+                try:
+                    return _make_shape_concrete_for_prod((d,), s, "d2_squeeze_probe")[0] == 1
+                except Exception:
+                    return False
+
+            for i, d in enumerate(original_updates_shape_symbolic):
+                if _dim_is_one_generic(d):
+                    cand = tuple(dd for j, dd in enumerate(original_updates_shape_symbolic) if j != i)
+                    if _are_shapes_equal(cand, expected_updates_shape_d2, s):
+                        squeeze_axis = i
+                        break
+
+            if squeeze_axis is not None:
+                squeezed_updates_name = s.get_unique_name(
+                    f"{original_updates_name_val}_squeeze_axis{squeeze_axis}_d2"
+                )
+                s.add_node(
+                    helper.make_node(
+                        "Squeeze",
+                        [original_updates_name_val,
+                         s.get_constant_name(np.array([squeeze_axis], dtype=np.int64))],
+                        [squeezed_updates_name],
+                    )
+                )
+                _manually_ensure_shape_env_entry(
+                    s,
+                    squeezed_updates_name,
+                    expected_updates_shape_d2,
+                    original_updates_dtype_np,
+                    "Depth2SqueezeSingleton",
+                )
+                original_updates_name_val = squeezed_updates_name
+                original_updates_shape_symbolic = expected_updates_shape_d2
+                _final_updates_name_val_to_return = squeezed_updates_name
+            else:
+                # keep existing fallback (preserve L from updates) for true mismatches
+                logger.info(
+                    "Depth-2: updates shape differs from computed expectation; "
+                    "keeping original updates (no reshape) to preserve L from updates."
+                )
+                _final_updates_name_val_to_return = original_updates_name_val
+        else:
+            _final_updates_name_val_to_return = original_updates_name_val
+
+
+
+
 
         # If updates come as (1, B, L, …), drop the leading singleton.
         if (
