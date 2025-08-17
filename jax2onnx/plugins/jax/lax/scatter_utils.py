@@ -901,10 +901,22 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(helper.make_node("And", [ge0_name, lt_name], [both_ok_name]))
             _manually_ensure_shape_env_entry(s, both_ok_name, (B_val, L_val, 2), np.bool_, "BothBoundsOK")
 
-            # Reduce along last axis to get per-row validity
+
+
+
+            # Reduce along last axis to get per-row validity (ORT has no ReduceAll)
+            # Implement ALL(K) as ReduceMin over int64 after casting bool→int64.
+            both_ok_i64 = s.get_unique_name("both_bounds_ok_i64")
+            s.add_node(helper.make_node("Cast", [both_ok_name], [both_ok_i64], to=int(TensorProto.INT64)))
+            row_min_i64 = s.get_unique_name("row_min_i64")
+            s.add_node(helper.make_node("ReduceMin", [both_ok_i64], [row_min_i64], axes=[-1], keepdims=0))
             row_ok_name = s.get_unique_name("row_ok")
-            s.add_node(helper.make_node("ReduceAll", [both_ok_name], [row_ok_name], axes=[-1], keepdims=0))
+            s.add_node(helper.make_node("Cast", [row_min_i64], [row_ok_name], to=int(TensorProto.BOOL)))
             _manually_ensure_shape_env_entry(s, row_ok_name, (B_val, L_val), np.bool_, "RowOK")
+
+
+
+
 
             # Create safe indices by replacing invalid rows with zeros
             zero_2d_name = s.get_unique_name("zeros_2d")
@@ -1658,11 +1670,25 @@ def _prepare_scatter_inputs_for_onnx(
         s.add_node(helper.make_node("And", [low_ok_name, high_ok_name], [both_ok_name]))
         _manually_ensure_shape_env_entry(s, both_ok_name, idx_shape, np.bool_, "BothBoundsOK")
 
-        # Reduce along last axis (K) → (B,L)
+
+
+
+
+        # Reduce along last axis (K) → (B,L)  (ORT has no ReduceAll)
+        # Implement ALL(K) as ReduceMin over int64 after casting bool→int64.
+        both_ok_i64 = s.get_unique_name("both_bounds_ok_i64")
+        s.add_node(helper.make_node("Cast", [both_ok_name], [both_ok_i64], to=int(TensorProto.INT64)))
+        row_min_i64 = s.get_unique_name("row_min_i64")
+        s.add_node(helper.make_node("ReduceMin", [both_ok_i64], [row_min_i64], axes=[-1], keepdims=0))
         row_ok_name = s.get_unique_name("row_ok")
-        s.add_node(helper.make_node("ReduceAll", [both_ok_name], [row_ok_name], axes=[-1], keepdims=0))
+        s.add_node(helper.make_node("Cast", [row_min_i64], [row_ok_name], to=int(TensorProto.BOOL)))
         row_ok_shape = tuple(idx_shape[:-1])  # (B,L)
         _manually_ensure_shape_env_entry(s, row_ok_name, row_ok_shape, np.bool_, "RowOK")
+
+
+
+
+
 
         # Broadcast row_ok to align with updates (B,L, …window…)
         upd_rank = len(upd_shape)
