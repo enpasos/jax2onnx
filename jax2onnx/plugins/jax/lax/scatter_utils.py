@@ -1608,23 +1608,38 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(s, low_ok_name, idx_shape, np.bool_, "LowBoundsOK")
 
         # dimension limits for the *scatter dims* only: shape = (K,)
-        scatter_dims = list(dimension_numbers.scatter_dims_to_operand_dims)  # e.g. [0] or [0,1]
-        dims_const_name = s.get_constant_name(np.array(scatter_dims, dtype=np.int64))
+        scatter_dims = list(dimension_numbers.scatter_dims_to_operand_dims)
+        # Determine how many dims indices actually index (K)
+        try:
+            k = int(_make_shape_concrete_for_prod((idx_shape[-1],), s, "FOD_K")[0])
+        except Exception:
+            k = idx_shape[-1] if isinstance(idx_shape[-1], int) else len(scatter_dims)
 
+        # If our indices include the implicit batch axis we added (depth-2/3),
+        # check that axis 0 as well.
+        if k == len(scatter_dims) + 1 and 0 not in scatter_dims:
+            dims_to_check = [0] + scatter_dims
+        elif k == len(scatter_dims):
+            dims_to_check = scatter_dims
+        else:
+            # Generic, conservative fallback: first k operand dims.
+            dims_to_check = list(range(k))
+
+        dims_const_name = s.get_constant_name(np.array(dims_to_check, dtype=np.int64))
         dim_limits_name = s.get_unique_name("dim_limits")
         s.add_node(helper.make_node("Gather", [operand_shape_tensor_name, dims_const_name], [dim_limits_name], axis=0))
-        _manually_ensure_shape_env_entry(s, dim_limits_name, (len(scatter_dims),), np.int64, "DimLimits")
+        _manually_ensure_shape_env_entry(s, dim_limits_name, (len(dims_to_check),), np.int64, "DimLimits")
 
         # reshape to broadcastable and then expand to idx_shape
         idx_rank = len(idx_shape)
         dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
-        reshape_target = [1] * (idx_rank - 1) + [len(scatter_dims)]
+        reshape_target = [1] * (idx_rank - 1) + [len(dims_to_check)]
         s.add_node(helper.make_node("Reshape",
                                    [dim_limits_name, s.get_constant_name(np.array(reshape_target, dtype=np.int64))],
                                    [dim_limits_reshaped_name]))
         _manually_ensure_shape_env_entry(s, dim_limits_reshaped_name, tuple(reshape_target), np.int64, "DimLimitsReshaped")
 
-        # dynamic shape for Expand target, but register as idx_shape
+        # Broadcast to match indices shape
         shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
         s.add_node(helper.make_node("Shape", [final_indices_name_to_return], [shape_of_indices_name]))
         _manually_ensure_shape_env_entry(s, shape_of_indices_name, (idx_rank,), np.int64, "IdxShapeForBroadcast")
@@ -1658,7 +1673,7 @@ def _prepare_scatter_inputs_for_onnx(
             s.add_node(helper.make_node("Unsqueeze",
                                         [row_ok_name, s.get_constant_name(axes_to_unsq)],
                                         [row_ok_bc]))
-            bc_shape = row_ok_shape + (1,) * (upd_rank - 2)  # (B,L,1,1,...)
+            bc_shape = row_ok_shape + (1,) * (upd_rank - 2) # (B,L,1,1,...)
             _manually_ensure_shape_env_entry(s, row_ok_bc, bc_shape, np.bool_, "RowOkBroadcast")
             row_ok_name = row_ok_bc
         # else: (B,L) already lines up with (B,L) for 2-D updates
