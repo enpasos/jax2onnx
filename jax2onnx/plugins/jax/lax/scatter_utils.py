@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX5-no-presqueeze-when-N1"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX6-postN-normalize-and-reread-L"
 
 
 
@@ -157,6 +157,18 @@ def _are_shapes_equal(
         if not _are_dims_equal(d1, d2, s):
             return False
     return True
+
+def _dims_concrete_equal_or_symbol_equal(d1: Any, d2: Any, s: "Jaxpr2OnnxConverter") -> bool:
+    """Treat dims as equal if either they are symbol-equal (same object) or both
+    can be concretized to the same int value."""
+    if _are_dims_equal(d1, d2, s):
+        return True
+    try:
+        v1 = _make_shape_concrete_for_prod((d1,), s, "eqv_d1")[0]
+        v2 = _make_shape_concrete_for_prod((d2,), s, "eqv_d2")[0]
+        return int(v1) == int(v2)
+    except Exception:
+        return False
 
 
 def _make_shape_concrete_for_prod(
@@ -1968,4 +1980,4 @@ def _onnx_expected_updates_shape(
         # K == 0
         return tuple(operand_shape)
     k = indices_shape[-1]
-    return tuple(indices_shape[:-1]) + tuple(operand_shape[k:]) 
+    return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
