@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates-FIX1a-skip-transpose-with-leading-N"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX2-remove-nonclip-index-munging"
 
 
 
@@ -952,86 +952,21 @@ def _prepare_scatter_inputs_for_onnx(
             "Indices2D_Depth2Strat",
         ) 
 
-        # For every semantics except explicit CLIP we must not hand ORT invalid indices.
-        # Re-use the existing mask-and-zero logic.
-        if not is_clip:
-            # Get operand shape for bounds checking
-            operand_shape_tensor_name = s.get_unique_name("operand_shape_tensor")
-            s.add_node(helper.make_node("Shape", [final_operand_name], [operand_shape_tensor_name]))
-            _manually_ensure_shape_env_entry(s, operand_shape_tensor_name, (len(operand_shape_symbolic),), np.int64, "OperandShape")
-
-            # Gather the first two dims (B, L) for bounds checking
-            gather_axes_const = s.get_constant_name(np.array([0, scatter_op_axis_idx], dtype=np.int64))
-            dim_limits_name = s.get_unique_name("dim_limits")
-            s.add_node(helper.make_node("Gather", [operand_shape_tensor_name, gather_axes_const], [dim_limits_name], axis=0))
-            _manually_ensure_shape_env_entry(s, dim_limits_name, (2,), np.int64, "DimLimits")
-
-            # Reshape dim_limits to (1,2) for broadcasting
-            dim_limits_reshaped_name = s.get_unique_name("dim_limits_reshaped")
-            reshape_target_const = s.get_constant_name(np.array([1, 2], dtype=np.int64))
-            s.add_node(helper.make_node("Reshape", [dim_limits_name, reshape_target_const], [dim_limits_reshaped_name]))
-            _manually_ensure_shape_env_entry(s, dim_limits_reshaped_name, (1, 2), np.int64, "DimLimitsReshaped")
-
-            # Broadcast to match indices shape
-            shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
-            s.add_node(helper.make_node("Shape", [indices_2d_name], [shape_of_indices_name]))
-            _manually_ensure_shape_env_entry(s, shape_of_indices_name, (3,), np.int64, "IndicesShapeForBC")
-
-            dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
-            s.add_node(helper.make_node("Expand", [dim_limits_reshaped_name, shape_of_indices_name], [dim_limits_bc_name]))
-            _manually_ensure_shape_env_entry(s, dim_limits_bc_name, (B_val, L_val, 2), np.int64, "DimLimitsBroadcast")
-
-            # Check bounds: indices >= 0 and indices < dim_limits
-            zero_tensor_name = s.get_constant_name(np.array(0, dtype=np.int64))
-            
-            ge0_name = s.get_unique_name("ge0")
-            s.add_node(helper.make_node("GreaterOrEqual", [indices_2d_name, zero_tensor_name], [ge0_name]))
-            _manually_ensure_shape_env_entry(s, ge0_name, (B_val, L_val, 2), np.bool_, "GeZero")
-
-            lt_name = s.get_unique_name("lt_bounds")
-            s.add_node(helper.make_node("Less", [indices_2d_name, dim_limits_bc_name], [lt_name]))
-            _manually_ensure_shape_env_entry(s, lt_name, (B_val, L_val, 2), np.bool_, "LtBounds")
-
-            both_ok_name = s.get_unique_name("both_bounds_ok")
-            s.add_node(helper.make_node("And", [ge0_name, lt_name], [both_ok_name]))
-            _manually_ensure_shape_env_entry(s, both_ok_name, (B_val, L_val, 2), np.bool_, "BothBoundsOK")
 
 
 
-
-            # Reduce along last axis to get per-row validity (ORT has no ReduceAll)
-            # Implement ALL(K) as ReduceMin over int64 after casting bool→int64.
-            both_ok_i64 = s.get_unique_name("both_bounds_ok_i64")
-            s.add_node(helper.make_node("Cast", [both_ok_name], [both_ok_i64], to=int(TensorProto.INT64)))
-            row_min_i64 = s.get_unique_name("row_min_i64")
-            _reduce_min_last_axis(s, both_ok_i64, row_min_i64, keepdims=0)
-            row_ok_name = s.get_unique_name("row_ok")
-            s.add_node(helper.make_node("Cast", [row_min_i64], [row_ok_name], to=int(TensorProto.BOOL)))
-            _manually_ensure_shape_env_entry(s, both_ok_i64, (B_val, L_val, 2), np.int64, "BothBoundsOK_i64")
-            _manually_ensure_shape_env_entry(s, row_min_i64, (B_val, L_val), np.int64, "RowMinI64")
-            _manually_ensure_shape_env_entry(s, row_ok_name, (B_val, L_val), np.bool_, "RowOK")
+        # IMPORTANT:
+        #  • CLIP is handled above by clamping `col_start_scalar_name`.
+        #  • FILL_OR_DROP is handled later in a unified block (masks updates to neutral).
+        #  • PROMISE_IN_BOUNDS (or unspecified) → do nothing here.
+        # So we intentionally do not rewrite indices in the depth-2 path.
 
 
 
 
 
-            # Create safe indices by replacing invalid rows with zeros
-            zero_2d_name = s.get_unique_name("zeros_2d")
-            s.add_node(helper.make_node("Sub", [indices_2d_name, indices_2d_name], [zero_2d_name]))
-            _manually_ensure_shape_env_entry(s, zero_2d_name, (B_val, L_val, 2), np.int64, "Zeros2D")
 
-            # Broadcast row_ok to match indices shape for Where operation
-            unsqueeze_axes_const = s.get_constant_name(np.array([2], dtype=np.int64))
-            row_ok_unsq_name = s.get_unique_name("row_ok_unsq")
-            s.add_node(helper.make_node("Unsqueeze", [row_ok_name, unsqueeze_axes_const], [row_ok_unsq_name]))
-            _manually_ensure_shape_env_entry(s, row_ok_unsq_name, (B_val, L_val, 1), np.bool_, "RowOkUnsqueezed")
 
-            safe_indices_name = s.get_unique_name("safe_indices")
-            s.add_node(helper.make_node("Where", [row_ok_unsq_name, indices_2d_name, zero_2d_name], [safe_indices_name]))
-            _manually_ensure_shape_env_entry(s, safe_indices_name, (B_val, L_val, 2), np.int64, "SafeIndices")
-
-            # Update the indices name to use the safe version
-            indices_2d_name = safe_indices_name
 
         final_indices_name_to_return = indices_2d_name
         # ONNX with K=2 expects updates of shape (B, Lᵤ, ...) where Lᵤ comes from updates.
