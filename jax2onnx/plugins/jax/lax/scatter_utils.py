@@ -24,8 +24,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX4-always-clamp-start"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX5-no-presqueeze-when-N1"
 
 
 
@@ -1020,13 +1019,14 @@ def _prepare_scatter_inputs_for_onnx(
         final_indices_name_to_return = indices_2d_name
         expected_updates_shape_d2 = (B_sym, L_sym) + tuple(operand_shape_symbolic[2:])
 
-
-
-        # If updates are (B, L, 1, ...), or generally differ from the expected
-        # (B, L, ...) only by a single singleton axis anywhere, squeeze it.
-        if not _are_shapes_equal(original_updates_shape_symbolic, expected_updates_shape_d2, s):
+        # If updates are (B, L, 1, ...) or differ from the expected (B, L, ...)
+        # only by a single singleton axis, we may squeeze it — BUT:
+        #   • If there is a leading N=1 (has_leading_N == True) we MUST NOT do it here.
+        #     The dedicated “drop leading N” block below handles that case and preserves
+        #     the dtype-mismatch test behaviour.
+        if (not _are_shapes_equal(original_updates_shape_symbolic, expected_updates_shape_d2, s)
+            and not has_leading_N):
             squeeze_axis = None
-
             def _dim_is_one_generic(d: Any) -> bool:
                 if isinstance(d, (int, np.integer)):
                     return int(d) == 1
@@ -1074,11 +1074,9 @@ def _prepare_scatter_inputs_for_onnx(
         else:
             _final_updates_name_val_to_return = original_updates_name_val
 
-
-
-
-
         # If updates come as (1, B, L, …), drop the leading singleton.
+        # (This path is intentionally separate to avoid the fp64 type-mismatch
+        #  regression described above.)
         if (
             len(original_updates_shape_symbolic) == len(expected_updates_shape_d2) + 1
             and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
@@ -1970,4 +1968,4 @@ def _onnx_expected_updates_shape(
         # K == 0
         return tuple(operand_shape)
     k = indices_shape[-1]
-    return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
+    return tuple(indices_shape[:-1]) + tuple(operand_shape[k:]) 
