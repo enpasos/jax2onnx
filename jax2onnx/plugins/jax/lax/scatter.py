@@ -289,6 +289,7 @@ def _count_reshape_to_shape_in_model(
                 ),
             ),
             "input_shapes": [],
+            "run_only_f32_variant": True,
         },
 
 
@@ -311,6 +312,7 @@ def _count_reshape_to_shape_in_model(
                 mode=GatherScatterMode.CLIP,
             ),
             "input_shapes": [],
+            "run_only_f32_variant": True,
         },
         # ────────────────────────────────────────────────────────────────
         # REGRESSION ♦ depth-2 ScatterND helper keeps f32 although
