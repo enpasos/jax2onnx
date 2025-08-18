@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX6-postN-normalize-and-reread-L"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX7-default-none-and-safe-drop"
 
 
 
@@ -274,7 +274,7 @@ def _prepare_scatter_inputs_for_onnx(
     updates_v: Any,
     dimension_numbers: ScatterDimensionNumbers,
     scatter_mode: Optional[Any] = None,  # Add scatter_mode parameter
-    reduction: str = "add",  # Add reduction parameter
+    reduction: str = "none",  # default to replace semantics for lax.scatter
 ) -> Tuple[str, str, str]:
     logger.debug(
         f"Running _prepare_scatter_inputs_for_onnx - Version: {SCATTER_UTILS_VERSION}"
@@ -1776,6 +1776,7 @@ def _prepare_scatter_inputs_for_onnx(
         # Broadcast to match indices shape
         shape_of_indices_name = s.get_unique_name("shape_of_indices_for_bc")
         s.add_node(helper.make_node("Shape", [final_indices_name_to_return], [shape_of_indices_name]))
+              
         _manually_ensure_shape_env_entry(s, shape_of_indices_name, (idx_rank,), np.int64, "IdxShapeForBroadcast")
 
         dim_limits_bc_name = s.get_unique_name("dim_limits_bc")
@@ -1826,23 +1827,38 @@ def _prepare_scatter_inputs_for_onnx(
             row_ok_name = row_ok_bc
         # else: (B,L) already lines up with (B,L) for 2-D updates
 
-        # neutral for this reduction & dtype
-        neutral_val = _get_neutral_value(reduction, _ensure_np_dtype(s.shape_env[_final_updates_name_val_to_return].dtype))
-        neutral_updates_name = s.get_constant_name(neutral_val)
-
-        # safe updates: Where(row_ok, updates, neutral)   (SHAPE = upd_shape)
-        safe_updates_name = s.get_unique_name("safe_updates")
-        s.add_node(helper.make_node("Where", [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
-                                    [safe_updates_name]))
-        _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape,
-                                         _ensure_np_dtype(s.shape_env[_final_updates_name_val_to_return].dtype),
-                                         "SafeUpdates")
-
         # safe indices: zero-fill bad rows   (SHAPE = idx_shape)
         safe_indices_name = s.get_unique_name("safe_indices")
         s.add_node(helper.make_node("Where", [both_ok_name, final_indices_name_to_return, zero_tensor_name],
                                     [safe_indices_name]))
         _manually_ensure_shape_env_entry(s, safe_indices_name, idx_shape, np.int64, "SafeIndices")
+
+        # safe updates under different reductions:
+        #  • add/mul/max/min -> use neutral constant (no-op under the reduction)
+        #  • none/replace    -> write back the original values at those indices,
+        #                       i.e. GatherND(operand, safe_indices) as the fallback
+        np_upd_dtype = _ensure_np_dtype(s.shape_env[_final_updates_name_val_to_return].dtype)
+        red_norm = (str(reduction).lower() if reduction is not None else "none")
+        if red_norm in ("add", "mul", "max", "min"):
+            neutral_val = _get_neutral_value(red_norm, np_upd_dtype)
+            neutral_updates_name = s.get_constant_name(neutral_val)
+            safe_updates_name = s.get_unique_name("safe_updates")
+            s.add_node(helper.make_node("Where",
+                                        [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
+                                        [safe_updates_name]))
+            _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape, np_upd_dtype, "SafeUpdates")
+        else:
+            # replace/none semantics
+            fallback_updates_name = s.get_unique_name("fallback_updates_old_value")
+            s.add_node(helper.make_node("GatherND",
+                                        [final_operand_name, safe_indices_name],
+                                        [fallback_updates_name]))
+            _manually_ensure_shape_env_entry(s, fallback_updates_name, upd_shape, np_upd_dtype, "FallbackOldUpdates")
+            safe_updates_name = s.get_unique_name("safe_updates")
+            s.add_node(helper.make_node("Where",
+                                        [row_ok_name, _final_updates_name_val_to_return, fallback_updates_name],
+                                        [safe_updates_name]))
+            _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape, np_upd_dtype, "SafeUpdates")
 
         # return masked triplet
         final_indices_name_to_return = safe_indices_name
