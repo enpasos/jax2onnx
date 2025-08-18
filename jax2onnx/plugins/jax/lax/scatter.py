@@ -290,6 +290,28 @@ def _count_reshape_to_shape_in_model(
             ),
             "input_shapes": [],
         },
+
+
+        {
+            "testcase": "scatter_clip_2d_window_at_edge",
+            "callable": lambda: lax.scatter(
+                jnp.arange(5).reshape(1, 5).astype(jnp.float32),
+                jnp.array([[4]], dtype=jnp.int32),  # Start at index 4 of axis 1
+                jnp.array([[[9.0, 8.0]]], dtype=jnp.float32).transpose(
+                    0, 2, 1
+                ),  # Shape (1, 2, 1), window will be (1, 2)
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(
+                        1,
+                        2,
+                    ),  # window dims in updates are axis 1 and 2
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),  # map index to operand axis 1
+                ),
+                mode=GatherScatterMode.CLIP,
+            ),
+            "input_shapes": [],
+        },
         # ────────────────────────────────────────────────────────────────
         # REGRESSION ♦ depth-2 ScatterND helper keeps f32 although
         #                operand is f64  →  onnx.check_model type error

@@ -285,6 +285,12 @@ def _prepare_scatter_inputs_for_onnx(
         scatter_mode == GatherScatterMode.CLIP
         or (isinstance(scatter_mode, str) and str(scatter_mode).upper() == "CLIP")
     )
+    # We'll need this before the depth-2 block so we can avoid clamping the scalar
+    # start under FILL_OR_DROP as well.
+    is_fill_or_drop = (
+        scatter_mode == GatherScatterMode.FILL_OR_DROP
+        or (isinstance(scatter_mode, str) and str(scatter_mode).upper() == "FILL_OR_DROP")
+    )
 
     def to_symbolic_tuple(
         jax_shape: Tuple[Any, ...],
@@ -800,36 +806,47 @@ def _prepare_scatter_inputs_for_onnx(
         #   start ∈ [0, max(0, dim_size - L)]
         # ORT rejects models with any statically-OOB ScatterND indices, so we
         # enforce this even for PROMISE_IN_BOUNDS. Valid inputs are unchanged.
-        shape_op_name = s.get_unique_name("shape_op_d2")
-        s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
-        _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_StartClamp_ShapeOp")
-        dim_size_vec = s.get_unique_name("dim_size_vec_d2")
-        s.add_node(helper.make_node(
-            "Gather",
-            [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-            [dim_size_vec],
-            axis=0))
-        _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_StartClamp_DimSizeVec")
-        dim_size_name = s.get_unique_name("dim_size_d2")
-        s.add_node(helper.make_node(
-            "Squeeze",
-            [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
-            [dim_size_name]))
-        _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_StartClamp_DimSize")
-        upper_name = s.get_unique_name("upper_start_d2")
-        s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
-        _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_StartClamp_Upper")
-        zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
-        upper_nneg_name = s.get_unique_name("upper_nneg_d2")
-        s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
-        _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_StartClamp_UpperNneg")
-        tmp_nneg_name = s.get_unique_name("start_nneg_d2")
-        s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
-        _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_StartClamp_StartNneg")
-        start_clamped_name = s.get_unique_name("start_clamped_d2")
-        s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
-        _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_StartClamp_StartClamped")
-        col_start_scalar_name = start_clamped_name
+        # Clamp policy for the scalar 'start':
+        #  • PROMISE/None → clamp the scalar to keep ORT happy even if callers pass OOB.
+        #  • CLIP         → do NOT clamp here; we clamp the *vector* below element-wise.
+        #  • FILL_OR_DROP → do NOT clamp here; later masking makes indices ORT-safe.
+        # Result for PROMISE/None:
+        #   start ∈ [0, max(0, dim_size - L)]
+        # ORT rejects models with statically-OOB ScatterND indices; for PROMISE/None
+        # we enforce this. For CLIP/FILL_OR_DROP we keep the scalar and fix things later.
+        if not (is_clip or is_fill_or_drop):
+            shape_op_name = s.get_unique_name("shape_op_d2")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
+            _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_StartClamp_ShapeOp")
+            dim_size_vec = s.get_unique_name("dim_size_vec_d2")
+            s.add_node(helper.make_node(
+                "Gather",
+                [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+                [dim_size_vec],
+                axis=0))
+            _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_StartClamp_DimSizeVec")
+            dim_size_name = s.get_unique_name("dim_size_d2")
+            s.add_node(helper.make_node(
+                "Squeeze",
+                [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
+                [dim_size_name]))
+            _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_StartClamp_DimSize")
+            upper_name = s.get_unique_name("upper_start_d2")
+            s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
+            _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_StartClamp_Upper")
+            zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
+            upper_nneg_name = s.get_unique_name("upper_nneg_d2")
+            s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
+            _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_StartClamp_UpperNneg")
+            tmp_nneg_name = s.get_unique_name("start_nneg_d2")
+            s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
+            _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_StartClamp_StartNneg")
+            start_clamped_name = s.get_unique_name("start_clamped_d2")
+            s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
+            _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_StartClamp_StartClamped")
+            col_start_scalar_name = start_clamped_name
+        # else: keep the original scalar 'col_start_scalar_name' intact
+
 
         # ----------------------------
         # END OF scalar start clamping
@@ -1025,8 +1042,7 @@ def _prepare_scatter_inputs_for_onnx(
         # IMPORTANT:
         #  • We clamp the scalar start unconditionally (ORT rejects OOB indices).
         #  • Under CLIP, we additionally clamp the full index vector below to [0, dim-1].
-        #  • FILL_OR_DROP is handled later (masking updates to the neutral element).
-        #  • PROMISE_IN_BOUNDS: valid callers are unaffected; invalid callers won’t crash ORT.
+        #  • FILL_OR_DROP: valid callers are unaffected; invalid callers won’t crash ORT.
 
         final_indices_name_to_return = indices_2d_name
         expected_updates_shape_d2 = (B_sym, L_sym) + tuple(operand_shape_symbolic[2:])
