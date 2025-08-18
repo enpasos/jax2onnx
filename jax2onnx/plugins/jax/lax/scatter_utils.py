@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates-FIX1"
+SCATTER_UTILS_VERSION = "DEBUG-V20250817-d12-d2-L-from-updates-FIX1a-skip-transpose-with-leading-N"
 
 
 
@@ -716,47 +716,61 @@ def _prepare_scatter_inputs_for_onnx(
 
 
         # --- Normalize updates to axis order (B, L, ...) for our depth-2 indices ---
-        # Map batch (operand axis 0) and the scatter axis -> updates axis positions.
-        pos_batch_in_updates = _map_operand_axis_to_updates_pos(
-            dimension_numbers, op_rank, 0
+        # IMPORTANT: If updates come as (1, B, L, …), reordering first moves the 1 away
+        # from axis 0 and prevents the later squeeze-from-front optimization. That causes
+        # numerical mismatch in type-mismatch tests. So: if we detect a leading N=1 axis,
+        # skip this transpose entirely and let the later squeeze handle it.
+        has_leading_N = (
+            upd_rank == op_rank + 1
+            and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
         )
-        if pos_batch_in_updates is None:
-            # Best-effort fallback: many models already have B at 0
-            pos_batch_in_updates = 0
+        if has_leading_N:
+            logger.info(
+                "Depth-2: Leading singleton N=1 detected on updates; "
+                "skipping transpose (will squeeze later)."
+            )
+        else:
+            # Map batch (operand axis 0) and the scatter axis -> updates axis positions.
+            pos_batch_in_updates = _map_operand_axis_to_updates_pos(
+                dimension_numbers, op_rank, 0
+            )
+            if pos_batch_in_updates is None:
+                # Best-effort fallback: many models already have B at 0
+                pos_batch_in_updates = 0
 
-        pos_L_in_updates = upd_pos_for_scatter_axis  # already computed above
+            pos_L_in_updates = upd_pos_for_scatter_axis  # already computed above
 
-        if pos_L_in_updates is not None:
-            desired_perm = [pos_batch_in_updates, pos_L_in_updates] + [
-                i for i in range(upd_rank)
-                if i not in (pos_batch_in_updates, pos_L_in_updates)
-            ]
-            if desired_perm != list(range(upd_rank)):
-                transposed_updates = s.get_unique_name(
-                    f"{original_updates_name_val}_to_BL"
-                )
-                s.add_node(
-                    helper.make_node(
-                        "Transpose",
-                        [original_updates_name_val],
-                        [transposed_updates],
-                        perm=desired_perm,
+            if pos_L_in_updates is not None:
+                desired_perm = [pos_batch_in_updates, pos_L_in_updates] + [
+                    i for i in range(upd_rank)
+                    if i not in (pos_batch_in_updates, pos_L_in_updates)
+                ]
+                if desired_perm != list(range(upd_rank)):
+                    transposed_updates = s.get_unique_name(
+                        f"{original_updates_name_val}_to_BL"
                     )
-                )
-                original_updates_name_val = transposed_updates
-                original_updates_shape_symbolic = tuple(
-                    original_updates_shape_symbolic[i] for i in desired_perm
-                )
-                _manually_ensure_shape_env_entry(
-                    s,
-                    original_updates_name_val,
-                    original_updates_shape_symbolic,
-                    original_updates_dtype_np,
-                    "Depth2TransposeUpdatesToBL",
-                )
-                logger.info(
-                    f"Depth-2: Reordered updates axes to (B,L,...) via perm={desired_perm}"
-                )
+                    s.add_node(
+                        helper.make_node(
+                            "Transpose",
+                            [original_updates_name_val],
+                            [transposed_updates],
+                            perm=desired_perm,
+                        )
+                    )
+                    original_updates_name_val = transposed_updates
+                    original_updates_shape_symbolic = tuple(
+                        original_updates_shape_symbolic[i] for i in desired_perm
+                    )
+                    _manually_ensure_shape_env_entry(
+                        s,
+                        original_updates_name_val,
+                        original_updates_shape_symbolic,
+                        original_updates_dtype_np,
+                        "Depth2TransposeUpdatesToBL",
+                    )
+                    logger.info(
+                        f"Depth-2: Reordered updates axes to (B,L,...) via perm={desired_perm}"
+                    )
 
 
 
