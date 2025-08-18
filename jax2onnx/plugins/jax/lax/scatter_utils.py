@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX3-clip-add-start"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX4-always-clamp-start"
 
 
 
@@ -785,39 +785,54 @@ def _prepare_scatter_inputs_for_onnx(
         # scalar L as a Constant tensor for arithmetic below
         L_len_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
 
-        # Clamp scalar start so the full window fits on the axis:
+        # Unconditionally clamp the scalar start so the full window fits:
         #   start ∈ [0, max(0, dim_size - L)]
-        # Build all values as ONNX tensors (no Python ints in ops).
-        # ─────────────────────────────────────────────────────────────
-        if is_clip:
-            shape_op_name = s.get_unique_name("shape_op_d2")
-            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
-            _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_Clip_ShapeOp")
-            dim_size_vec = s.get_unique_name("dim_size_vec_d2")
-            s.add_node(helper.make_node("Gather",
-                         [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-                         [dim_size_vec], axis=0))
-            _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_Clip_DimSizeVec")
-            dim_size_name = s.get_unique_name("dim_size_d2")
-            s.add_node(helper.make_node("Squeeze",
-                         [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
-                         [dim_size_name]))
-            _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_Clip_DimSize")
-            upper_name = s.get_unique_name("upper_start_d2")
-            s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
-            _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_Clip_Upper")
-            zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
-            upper_nneg_name = s.get_unique_name("upper_nneg_d2")
-            s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
-            _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_Clip_UpperNneg")
-            tmp_nneg_name = s.get_unique_name("start_nneg_d2")
-            s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
-            _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_Clip_StartNneg")
-            start_clamped_name = s.get_unique_name("start_clamped_d2")
-            s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
-            _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_Clip_StartClamped")
-            col_start_scalar_name = start_clamped_name
+        # ORT rejects models with any statically-OOB ScatterND indices, so we
+        # enforce this even for PROMISE_IN_BOUNDS. Valid inputs are unchanged.
+        shape_op_name = s.get_unique_name("shape_op_d2")
+        s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
+        _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_StartClamp_ShapeOp")
+        dim_size_vec = s.get_unique_name("dim_size_vec_d2")
+        s.add_node(helper.make_node(
+            "Gather",
+            [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+            [dim_size_vec],
+            axis=0))
+        _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_StartClamp_DimSizeVec")
+        dim_size_name = s.get_unique_name("dim_size_d2")
+        s.add_node(helper.make_node(
+            "Squeeze",
+            [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
+            [dim_size_name]))
+        _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_StartClamp_DimSize")
+        upper_name = s.get_unique_name("upper_start_d2")
+        s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
+        _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_StartClamp_Upper")
+        zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
+        upper_nneg_name = s.get_unique_name("upper_nneg_d2")
+        s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
+        _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_StartClamp_UpperNneg")
+        tmp_nneg_name = s.get_unique_name("start_nneg_d2")
+        s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
+        _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_StartClamp_StartNneg")
+        start_clamped_name = s.get_unique_name("start_clamped_d2")
+        s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
+        _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_StartClamp_StartClamped")
+        col_start_scalar_name = start_clamped_name
 
+        # ----------------------------
+        # END OF scalar start clamping
+        # ----------------------------
+
+
+        # ----------------------------
+        #  Prepare batch and column index grids
+        # ----------------------------
+        # Grids are (B, L, ...window...) for the scatter output shape.
+        # We use the same generic batching logic as in the default path,
+        # but with explicit (B, L) shapes for clarity.
+
+        # Batch grid: 0..B-1
         arange_b_end_name = s.get_constant_name(np.array(B_val, dtype=np.int64))
         arange_b_name = s.get_unique_name("arange_b_d2")
         s.add_node(
@@ -863,6 +878,8 @@ def _prepare_scatter_inputs_for_onnx(
             np.int64,
             "BatchIndicesBLD2",
         )
+
+        # Column grid: scalar start + 0..L-1
         arange_l_end_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
         arange_l_name = s.get_unique_name("arange_l_d2")
         s.add_node(
@@ -992,26 +1009,15 @@ def _prepare_scatter_inputs_for_onnx(
             final_indices_shape_for_depth2_strat,
             np.int64,
             "Indices2D_Depth2Strat",
-        ) 
-
-
-
+        )
 
         # IMPORTANT:
-        #  • CLIP is handled above by clamping `col_start_scalar_name`.
-        #  • FILL_OR_DROP is handled later in a unified block (masks updates to neutral).
-        #  • PROMISE_IN_BOUNDS (or unspecified) → do nothing here.
-        # So we intentionally do not rewrite indices in the depth-2 path.
-
-
-
-
-
-
-
+        #  • We clamp the scalar start unconditionally (ORT rejects OOB indices).
+        #  • Under CLIP, we additionally clamp the full index vector below to [0, dim-1].
+        #  • FILL_OR_DROP is handled later (masking updates to the neutral element).
+        #  • PROMISE_IN_BOUNDS: valid callers are unaffected; invalid callers won’t crash ORT.
 
         final_indices_name_to_return = indices_2d_name
-        # ONNX with K=2 expects updates of shape (B, Lᵤ, ...) where Lᵤ comes from updates.
         expected_updates_shape_d2 = (B_sym, L_sym) + tuple(operand_shape_symbolic[2:])
 
 
