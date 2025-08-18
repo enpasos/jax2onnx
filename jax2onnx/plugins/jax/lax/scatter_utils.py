@@ -700,12 +700,20 @@ def _prepare_scatter_inputs_for_onnx(
             # of the operand along the scatter axis. Only fall back to operand if we
             # truly cannot read/resolve L from updates.
             if upd_pos_for_scatter_axis is not None:
-                L_sym = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+                L_sym_updates = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
+                L_sym_operand = operand_shape_symbolic[scatter_op_axis_idx]
+
                 try:
-                    L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L_from_updates")[0]
-                except Exception:
-                    L_sym = operand_shape_symbolic[scatter_op_axis_idx]
-                    L_val = _make_shape_concrete_for_prod((L_sym,), s, "d2_L_from_operand_fallback")[0]
+                    L_val_updates = _make_shape_concrete_for_prod((L_sym_updates,), s, "d2_L_from_updates")[0]
+                    L_val_operand = _make_shape_concrete_for_prod((L_sym_operand,), s, "d2_L_from_operand")[0]
+                    L_val = min(L_val_updates, L_val_operand)
+                    L_sym = min(L_sym_updates, L_sym_operand, key=lambda x: str(x))
+                except Exception as e:
+                    logger.warning(f"Fallback triggered due to error {e}. Using operand shape directly.")
+                    L_sym = L_sym_operand
+                    L_val = L_val_operand
+
+                
                 logger.info(
                     f"Depth-2: Using L from updates axis pos {upd_pos_for_scatter_axis} → "
                     f"L_sym={L_sym}, L_val={L_val}"
