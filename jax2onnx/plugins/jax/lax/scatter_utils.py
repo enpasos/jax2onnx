@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX2-remove-nonclip-index-munging"
+SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX3-clip-add-start"
 
 
 
@@ -888,6 +888,40 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(
             s, add_start_name, (L_val,), np.int64, "AddStartColD2"
         )
+
+        # NEW: under CLIP policy, also clamp the entire index vector to [0, dim_size-1]
+        #      (we already clamp the scalar start earlier to [0, dim_size-L])
+        if is_clip:
+            shape_op_name2 = s.get_unique_name("shape_op_d2_idxvec")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name2]))
+            _manually_ensure_shape_env_entry(
+                s, shape_op_name2, (len(operand_shape_symbolic),), np.int64, "D2_ClipIdxVec_ShapeOp"
+            )
+            dim_size_vec2 = s.get_unique_name("dim_size_vec_d2_idxvec")
+            s.add_node(helper.make_node(
+                "Gather",
+                [shape_op_name2, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+                [dim_size_vec2],
+                axis=0))
+            _manually_ensure_shape_env_entry(s, dim_size_vec2, (1,), np.int64, "D2_ClipIdxVec_DimSizeVec")
+            dim_size_scalar2 = s.get_unique_name("dim_size_d2_idxvec")
+            s.add_node(helper.make_node(
+                "Squeeze",
+                [dim_size_vec2, s.get_constant_name(np.array([0], dtype=np.int64))],
+                [dim_size_scalar2]))
+            _manually_ensure_shape_env_entry(s, dim_size_scalar2, (), np.int64, "D2_ClipIdxVec_DimSize")
+            max_valid_index_name = s.get_unique_name("max_valid_index_d2")
+            s.add_node(helper.make_node(
+                "Sub", [dim_size_scalar2, s.get_constant_name(np.array(1, dtype=np.int64))], [max_valid_index_name]))
+            _manually_ensure_shape_env_entry(s, max_valid_index_name, (), np.int64, "D2_ClipIdxVec_MaxValid")
+            clipped_add_start_name = s.get_unique_name("add_start_col_d2_clipped")
+            s.add_node(helper.make_node(
+                "Clip",
+                [add_start_name, s.get_constant_name(np.array(0, dtype=np.int64)), max_valid_index_name],
+                [clipped_add_start_name]))
+            _manually_ensure_shape_env_entry(s, clipped_add_start_name, (L_val,), np.int64, "D2_ClipIdxVec_Clipped")
+            add_start_name = clipped_add_start_name
+
         unsqueeze_l_name = s.get_unique_name("unsqueeze_l_d2")
         s.add_node(
             helper.make_node(
