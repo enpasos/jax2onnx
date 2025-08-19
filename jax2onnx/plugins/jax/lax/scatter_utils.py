@@ -27,7 +27,21 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 SCATTER_UTILS_VERSION = "PR-SKELETON-V1 + WhereGuardrails + ScatterNDEmit + UnsqueezeLastFix + UnsqueezeAxisRangeFix + Depth3FlattenDedup"
 
 
-# scatter_utils.py (near the other helpers)
+def _shape_from_env_entry(entry: Any) -> Optional[Tuple[Any, ...]]:
+    if isinstance(entry, ShapeDtypeStruct):
+        return entry.shape
+    if isinstance(entry, tuple):
+        # Some code paths stash a raw shape tuple in shape_env
+        return entry
+    return None
+
+
+def _dtype_from_env_entry(entry: Any) -> Optional[np.dtype]:
+    if isinstance(entry, ShapeDtypeStruct):
+        return _ensure_np_dtype(entry.dtype)
+    return None
+
+
 def _normalize_axes_for_attr(
     s, inp_name: str, axes: Sequence[int], *, is_unsqueeze: bool
 ) -> list[int]:
@@ -1515,8 +1529,6 @@ def _prepare_scatter_inputs_for_onnx(
                 s, cat3, (B_val, H_val, W_val, 3), np.int64, "CatIndicesBHW3D3"
             )
 
-            # Concat last to (B,H,W,3)  → cat3  (already in your code)
-
             # ---- 4️⃣  Flatten to match test post_check and ScatterND spec path ----
             def _named_shape_const(name_base: str, values: list[int]) -> str:
                 out_name = s.get_unique_name(name_base)
@@ -1659,7 +1671,11 @@ def _prepare_scatter_inputs_for_onnx(
             # For downstream shape logic:
             processed_indices_shape_for_default_path = (-1, 3)
             target_indices_shape_symbolic = (-1, 3)
-            original_updates_shape_symbolic = s.shape_env[reshaped_upd_name].shape
+            # mypy-safe: the env may store either ShapeDtypeStruct or a raw shape tuple
+            maybe_shape = _shape_from_env_entry(s.shape_env.get(reshaped_upd_name))
+            if maybe_shape is not None:
+                original_updates_shape_symbolic = maybe_shape
+            # Keep ONNX expectation in sync with the actual updates tensor
             current_expected_onnx_updates_shape = original_updates_shape_symbolic
 
         if (not use_depth3_for_batched_hw_scatter) and not _are_shapes_equal(
@@ -1928,10 +1944,13 @@ def _prepare_scatter_inputs_for_onnx(
 
     # --- right before the FILL_OR_DROP block, after you've finalized names ---
     # final_indices_name_to_return, _final_updates_name_val_to_return are decided here
-    idx_sds = s.shape_env.get(final_indices_name_to_return)
-    upd_sds = s.shape_env.get(_final_updates_name_val_to_return)
-    idx_shape = idx_sds.shape if isinstance(idx_sds, ShapeDtypeStruct) else idx_sds
-    upd_shape = upd_sds.shape if isinstance(upd_sds, ShapeDtypeStruct) else upd_sds
+    idx_shape = (
+        _shape_from_env_entry(s.shape_env.get(final_indices_name_to_return)) or ()
+    )
+    upd_shape = (
+        _shape_from_env_entry(s.shape_env.get(_final_updates_name_val_to_return)) or ()
+    )
+
     # if you still want to keep target_indices_shape_symbolic consistent for later logs:
     # target_indices_shape_symbolic = idx_shape
 
@@ -2255,9 +2274,11 @@ def _prepare_scatter_inputs_for_onnx(
         #  • add/mul/max/min -> use neutral constant (no-op under the reduction)
         #  • none/replace    -> write back the original values at those indices,
         #                       i.e. GatherND(operand, safe_indices) as the fallback
-        np_upd_dtype = _ensure_np_dtype(
-            s.shape_env[_final_updates_name_val_to_return].dtype
-        )
+        # mypy-safe: dtype may come from ShapeDtypeStruct or fall back to original dtype
+        upd_entry = s.shape_env.get(_final_updates_name_val_to_return)
+        upd_dtype = _dtype_from_env_entry(upd_entry) or original_updates_dtype_np
+        np_upd_dtype = _ensure_np_dtype(upd_dtype)
+
         red_norm = str(reduction).lower() if reduction is not None else "none"
         if red_norm in ("add", "mul", "max", "min"):
             neutral_val = _get_neutral_value(red_norm, np_upd_dtype)
@@ -2469,24 +2490,25 @@ def emit_where_with_guardrails(
     Returns the output tensor name.
     """
     # 1) cond → BOOL
-    cond_sds = s.shape_env.get(cond_name)
-    cond_dtype = _ensure_np_dtype(cond_sds.dtype) if cond_sds is not None else None
+    cond_entry = s.shape_env.get(cond_name)
+    cond_dtype = _dtype_from_env_entry(cond_entry)
     cond_bool = cond_name
     if cond_dtype is None or cond_dtype != np.bool_:
         cond_bool = s.get_unique_name(f"{cond_name}_as_bool")
         s.add_node(
             helper.make_node("Cast", [cond_name], [cond_bool], to=int(TensorProto.BOOL))
         )
-        if cond_sds is not None:
+        cond_shape = _shape_from_env_entry(cond_entry)
+        if cond_shape is not None:
             _manually_ensure_shape_env_entry(
-                s, cond_bool, cond_sds.shape, np.bool_, f"{context}_CondToBool"
+                s, cond_bool, cond_shape, np.bool_, f"{context}_CondToBool"
             )
 
     # 2) x/y → common dtype
-    x_sds = s.shape_env.get(x_name)
-    y_sds = s.shape_env.get(y_name)
-    x_dtype = _ensure_np_dtype(x_sds.dtype) if x_sds is not None else None
-    y_dtype = _ensure_np_dtype(y_sds.dtype) if y_sds is not None else None
+    x_entry = s.shape_env.get(x_name)
+    y_entry = s.shape_env.get(y_name)
+    x_dtype = _dtype_from_env_entry(x_entry)
+    y_dtype = _dtype_from_env_entry(y_entry)
 
     if x_dtype is None and y_dtype is None:
         target_dtype = np.int64
@@ -2512,9 +2534,11 @@ def emit_where_with_guardrails(
             )
         )
         sds_local = s.shape_env.get(inp_name)
-        if sds_local is not None:
+        # mypy-safe: the env may store either ShapeDtypeStruct or a raw shape tuple
+        local_shape = _shape_from_env_entry(sds_local)
+        if local_shape is not None:
             _manually_ensure_shape_env_entry(
-                s, casted, sds_local.shape, target_dtype, f"{context}_{tag}"
+                s, casted, local_shape, target_dtype, f"{context}_{tag}"
             )
         return casted
 
@@ -2522,29 +2546,30 @@ def emit_where_with_guardrails(
     y_cast = _maybe_cast(y_name, y_dtype, "CastY")
 
     # 3) Expand cond/x/y to a single target shape so Where sees identical dims.
-    # Prefer x's shape; fall back to y's if x is unknown.
-    ref_name = x_cast if (s.shape_env.get(x_cast) is not None) else y_cast
-    ref_sds: Optional[ShapeDtypeStruct] = s.shape_env.get(ref_name)
-    # If still unknown, we won't expand (rare); Where will broadcast at runtime.
-    shapeof_ref_name: Optional[str] = None
+    ref_name = x_name if (x_entry is not None) else y_name
     target_shape: Optional[Tuple[Any, ...]] = None
-    if ref_sds is not None:
-        target_shape = ref_sds.shape
-        # Build Shape(ref) once for all Expands
-        shapeof_ref_name = s.get_unique_name(f"{context}_shapeof_ref")
-        s.add_node(helper.make_node("Shape", [ref_name], [shapeof_ref_name]))
-        _manually_ensure_shape_env_entry(
-            s, shapeof_ref_name, (len(target_shape),), np.int64, f"{context}_ShapeOfRef"
-        )
+    shapeof_ref_name: Optional[str] = None
+
+    if ref_name is not None:
+        ref_entry = s.shape_env.get(ref_name)
+        ref_shape = _shape_from_env_entry(ref_entry)
+        if ref_shape is not None:
+            target_shape = ref_shape
+            shapeof_ref_name = s.get_unique_name(f"{context}_shapeof_ref")
+            s.add_node(helper.make_node("Shape", [ref_name], [shapeof_ref_name]))
+            _manually_ensure_shape_env_entry(
+                s,
+                shapeof_ref_name,
+                (len(ref_shape),),
+                np.int64,
+                f"{context}_ShapeOfRef",
+            )
 
     def _maybe_expand_to_ref(inp_name: str, desired_dtype: np.dtype, tag: str) -> str:
         if target_shape is None or shapeof_ref_name is None:
-            # No static target; leave as-is.
             return inp_name
-        sds_local = s.shape_env.get(inp_name)
-        if sds_local is not None and _are_shapes_equal(
-            sds_local.shape, target_shape, s
-        ):
+        local_shape = _shape_from_env_entry(s.shape_env.get(inp_name))
+        if local_shape is not None and _are_shapes_equal(local_shape, target_shape, s):
             return inp_name
         expanded = s.get_unique_name(f"{inp_name}_expanded_for_{context}_{tag}")
         s.add_node(helper.make_node("Expand", [inp_name, shapeof_ref_name], [expanded]))
@@ -2553,11 +2578,21 @@ def emit_where_with_guardrails(
         )
         return expanded
 
-    cond_ready = _maybe_expand_to_ref(cond_bool, np.bool_, "Cond")
-    x_ready = x_cast  # x_cast already has the reference shape; expand only if needed
-    if ref_name is not None and ref_name != x_cast:
-        x_ready = _maybe_expand_to_ref(x_cast, target_dtype, "X")
-    y_ready = _maybe_expand_to_ref(y_cast, target_dtype, "Y")
+    cond_ready = (
+        _maybe_expand_to_ref(cond_bool, np.bool_, "Cond")
+        if target_shape is not None
+        else cond_bool
+    )
+    x_ready = (
+        _maybe_expand_to_ref(x_cast, target_dtype, "X")
+        if (target_shape is not None and ref_name != x_cast)
+        else x_cast
+    )
+    y_ready = (
+        _maybe_expand_to_ref(y_cast, target_dtype, "Y")
+        if target_shape is not None
+        else y_cast
+    )
 
     # 4) Where node
     out = out_name or s.get_unique_name("where_out")
@@ -2569,16 +2604,17 @@ def emit_where_with_guardrails(
     )
     s.add_node(where_node)
 
-    # 5) Register out shape/dtype for builder strictness
+    # 5) Register out shape/dtype
     if target_shape is None:
-        # Fall back to x (else y) shape if known, else scalar ()
-        if x_sds is not None:
+        x_shape = _shape_from_env_entry(x_entry)
+        y_shape = _shape_from_env_entry(y_entry)
+        if x_shape is not None:
             _manually_ensure_shape_env_entry(
-                s, out, x_sds.shape, target_dtype, f"{context}_Out"
+                s, out, x_shape, target_dtype, f"{context}_Out"
             )
-        elif y_sds is not None:
+        elif y_shape is not None:
             _manually_ensure_shape_env_entry(
-                s, out, y_sds.shape, target_dtype, f"{context}_Out"
+                s, out, y_shape, target_dtype, f"{context}_Out"
             )
         else:
             _manually_ensure_shape_env_entry(s, out, (), target_dtype, f"{context}_Out")

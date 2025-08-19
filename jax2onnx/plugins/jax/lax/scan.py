@@ -794,7 +794,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
             # Normalize numeric binop dtypes inside the Loop body.
             # Prefer the dtype of Loop state inputs (e.g. carry) over promoting to a wider const.
-            _harmonize_numeric_binops(body_builder, prefer_input_prefixes=("state_in_",))
+            _harmonize_numeric_binops(
+                body_builder, prefer_input_prefixes=("state_in_",)
+            )
             # --- end harmonization ---
             _retag_value_infos_to_input_dtype(body_builder)
             # Make internal shapes rank-only to avoid ORT Loop-body broadcast clashes.
@@ -881,10 +883,38 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         )
                     )
                 seen_body.add(out_name)
-                y_dt = body_builder.get_dtype(orig) or var.aval.dtype
-                # rank-only per-iteration output (Loop stacks them outside)
+                # If the current symbol dtype differs from the aval dtype, cast to aval dtype
+                src_dt = body_builder.get_dtype(out_name) or body_builder.get_dtype(
+                    orig
+                )
+                tgt_dt = getattr(var.aval, "dtype", src_dt)
+                final_sym = out_name
+                if (
+                    src_dt is not None
+                    and tgt_dt is not None
+                    and _np.dtype(src_dt) != _np.dtype(tgt_dt)
+                ):
+                    cast_sym = body_builder.get_unique_name(
+                        f"{out_name}_cast_{_np.dtype(tgt_dt).name}"
+                    )
+                    to_enum = _NP2ONNX[_np.dtype(tgt_dt)]
+                    body_builder.add_node(
+                        helper.make_node(
+                            "Cast",
+                            inputs=[out_name],
+                            outputs=[cast_sym],
+                            name=body_builder.get_unique_name("CastAlignYOut"),
+                            to=to_enum,
+                        )
+                    )
+                    r = body_builder.get_rank(out_name) or len(
+                        getattr(var.aval, "shape", ())
+                    )
+                    body_builder.add_value_info(cast_sym, (None,) * r, tgt_dt)
+                    final_sym = cast_sym
+                # rank-only per-iteration output (Loop stacks them outside / Scan stacks inside)
                 body_builder.add_output(
-                    out_name, (None,) * len(getattr(var.aval, "shape", ())), y_dt
+                    final_sym, (None,) * len(getattr(var.aval, "shape", ())), tgt_dt
                 )
 
             loop_body = body_builder.create_graph(
@@ -1150,10 +1180,36 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 )
             seen_body.add(out_name)
-            y_dt = body_builder.get_dtype(orig) or var.aval.dtype
-            # rank-only per-iteration output (Loop stacks them outside)
+            # If the current symbol dtype differs from the aval dtype, cast to aval dtype
+            src_dt = body_builder.get_dtype(out_name) or body_builder.get_dtype(orig)
+            tgt_dt = getattr(var.aval, "dtype", src_dt)
+            final_sym = out_name
+            if (
+                src_dt is not None
+                and tgt_dt is not None
+                and _np.dtype(src_dt) != _np.dtype(tgt_dt)
+            ):
+                cast_sym = body_builder.get_unique_name(
+                    f"{out_name}_cast_{_np.dtype(tgt_dt).name}"
+                )
+                to_enum = _NP2ONNX[_np.dtype(tgt_dt)]
+                body_builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[out_name],
+                        outputs=[cast_sym],
+                        name=body_builder.get_unique_name("CastAlignYOut"),
+                        to=to_enum,
+                    )
+                )
+                r = body_builder.get_rank(out_name) or len(
+                    getattr(var.aval, "shape", ())
+                )
+                body_builder.add_value_info(cast_sym, (None,) * r, tgt_dt)
+                final_sym = cast_sym
+            # rank-only per-iteration output (Loop stacks them outside / Scan stacks inside)
             body_builder.add_output(
-                out_name, (None,) * len(getattr(var.aval, "shape", ())), y_dt
+                final_sym, (None,) * len(getattr(var.aval, "shape", ())), tgt_dt
             )
 
         body_graph = body_builder.create_graph(

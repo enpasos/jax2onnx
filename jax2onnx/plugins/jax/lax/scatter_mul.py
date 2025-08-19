@@ -252,7 +252,8 @@ class ScatterMulPlugin(PrimitiveLeafPlugin):
 
         # Style B: delegate to the shared converter
         class _Eqn:
-            pass
+            # mypy: declare the attribute so assignments are type-checked
+            params: dict[str, Any]
 
         _e = _Eqn()
         _e.params = params
