@@ -1786,14 +1786,14 @@ test = ["flax (>=0.5.3)", "scikit-learn", "scipy (>=1.7.1)"]
 
 [[package]]
 name = "orbax-checkpoint"
-version = "0.11.22"
+version = "0.11.23"
 description = "Orbax Checkpoint"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "orbax_checkpoint-0.11.22-py3-none-any.whl", hash = "sha256:532ee8cfadda3522ab40d5d7e4c38d7672db55b2306841450bcfa050d3d28ae6"},
-    {file = "orbax_checkpoint-0.11.22.tar.gz", hash = "sha256:32d1affa7a7eebad03b2b0393df7d2e75b67331200716f6579c426ab62ce9ebb"},
+    {file = "orbax_checkpoint-0.11.23-py3-none-any.whl", hash = "sha256:db91516f574428cd6734042bbf380cf095fc297cefe00ec55601c68a3ecb60b5"},
+    {file = "orbax_checkpoint-0.11.23.tar.gz", hash = "sha256:f59491f7c8c671cf255df7f467389e5317baba637ff9d57b2b4af83fe8e8526f"},
 ]
 
 [package.dependencies]

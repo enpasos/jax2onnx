@@ -112,7 +112,104 @@ def _loosen_graph_value_infos_to_rank_only(g) -> None:
     g.value_info.extend(keep)
 
 
-# ---------------------------------------------------------------------------
+# place near other top-level utilities (AFTER _loosen_graph_value_infos_to_rank_only)
+
+
+def _infer_dtype_from_producer(bld: OnnxBuilder, sym: str):
+    """Walk to the producing node and return the first available input dtype."""
+    for n in reversed(bld.nodes):
+        if sym in n.output:
+            for inp in n.input:
+                dt = bld.get_dtype(inp)
+                if dt is not None:
+                    return dt
+            return None
+    return None
+
+
+def _dtype_or_infer(bld: OnnxBuilder, sym: str, fallback=None):
+    dt = bld.get_dtype(sym)
+    return dt if dt is not None else (_infer_dtype_from_producer(bld, sym) or fallback)
+
+
+# --- Utility: harmonize numeric binops to a common promoted dtype -----------
+def _harmonize_numeric_binops(
+    bld: OnnxBuilder, prefer_input_prefixes: tuple[str, ...] = ()
+) -> None:
+    """
+    Cast inputs of {Add, Sub, Mul, Div} to a common promoted dtype to avoid
+    ORT type-inference errors when mixed dtypes reach a single node.
+    Controlled by env var JAX2ONNX_DISABLE_LOOP_BINOP_CAST.
+    If prefer_input_prefixes is set, prefer the dtype of inputs whose name starts
+    with any of those prefixes when resolving dtype conflicts.
+    """
+    _disable = os.getenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if _disable:
+        return
+
+    _binops = {"Add", "Sub", "Mul", "Div"}
+
+    def _has_pref(name: str) -> bool:
+        return any(name.startswith(pfx) for pfx in prefer_input_prefixes)
+
+    for n in list(bld.nodes):  # list() so we can insert Casts while iterating
+        if n.op_type not in _binops or len(n.input) < 2:
+            continue
+        a, b = n.input[0], n.input[1]
+        ta = _dtype_or_infer(bld, a, None)
+        tb = _dtype_or_infer(bld, b, None)
+
+        # Skip if both unknown or non-numeric
+        if ta is None and tb is None:
+            continue
+        if ta is not None and not _np.issubdtype(_np.dtype(ta), _np.number):
+            continue
+        if tb is not None and not _np.issubdtype(_np.dtype(tb), _np.number):
+            continue
+
+        # Decide common target dtype:
+        # - If dtypes differ and exactly one input is a preferred one (e.g. a Loop state),
+        #   choose that input's dtype to avoid unexpected upcasts (int32 vs int64).
+        # - Otherwise fall back to NumPy promotion.
+        if ta is not None and tb is not None:
+            dta, dtb = _np.dtype(ta), _np.dtype(tb)
+            if dta != dtb and (_has_pref(a) ^ _has_pref(b)):
+                target = dta if _has_pref(a) else dtb
+            else:
+                target = dta if dta == dtb else _np.promote_types(dta, dtb)
+        else:
+            target = _np.dtype(ta) if ta is not None else _np.dtype(tb)
+
+        def _ensure_cast(inp_sym: str, cur_dt):
+            if cur_dt is not None and _np.dtype(cur_dt) == _np.dtype(target):
+                return inp_sym
+            cast_out = bld.get_unique_name(f"{inp_sym}_cast_{_np.dtype(target).name}")
+            to_enum = _NP2ONNX[_np.dtype(target)]
+            cast_node = helper.make_node(
+                "Cast",
+                inputs=[inp_sym],
+                outputs=[cast_out],
+                name=bld.get_unique_name("CastAlignBinOp"),
+                to=to_enum,
+            )
+            # Insert Cast immediately before current node
+            idx = bld.nodes.index(n)
+            bld.nodes.insert(idx, cast_node)
+            # Preserve rank if known; otherwise infer from sibling input
+            r = bld.get_rank(inp_sym)
+            if r is None:
+                sib = a if inp_sym == b else b
+                r = bld.get_rank(sib) or 0
+            bld.add_value_info(cast_out, (None,) * r, target)
+            return cast_out
+
+        n.input[0] = _ensure_cast(a, ta)
+        n.input[1] = _ensure_cast(b, tb)
 
 
 # ----------------------------------------------------------------------
@@ -695,53 +792,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
             body_conv._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
 
-            # --- dtype harmonization for binary numeric ops in Loop body ---
-            # Allow tests to disable this to reproduce pre-fix failures.
-            _disable_cast_env = os.getenv(
-                "JAX2ONNX_DISABLE_LOOP_BINOP_CAST", ""
-            ).lower()
-            _disable_cast = _disable_cast_env in ("1", "true", "yes", "on")
-            if not _disable_cast:
-                _binops = {"Add", "Sub", "Mul", "Div"}
-                for n in list(
-                    body_builder.nodes
-                ):  # list() in case we append while iterating
-                    if n.op_type in _binops and len(n.input) >= 2:
-                        a, b = n.input[0], n.input[1]
-                        ta, tb = body_builder.get_dtype(a), body_builder.get_dtype(b)
-                        if (
-                            ta is not None
-                            and tb is not None
-                            # Align ANY numeric mismatch (floats or ints). Bool is not numeric.
-                            and _np.issubdtype(_np.dtype(ta), _np.number)
-                            and _np.issubdtype(_np.dtype(tb), _np.number)
-                            and _np.dtype(ta) != _np.dtype(tb)
-                        ):
-                            # Cast RHS to LHS dtype and INSERT the Cast BEFORE this node
-                            cast_out = body_builder.get_unique_name(
-                                f"{b}_cast_{_np.dtype(ta).name}"
-                            )
-                            to_enum = _NP2ONNX[_np.dtype(ta)]
-                            cast_node = helper.make_node(
-                                "Cast",
-                                inputs=[b],
-                                outputs=[cast_out],
-                                name=body_builder.get_unique_name("CastAlignBinOp"),
-                                to=to_enum,
-                            )
-                            # Insert before current node to maintain topo order
-                            idx = body_builder.nodes.index(n)
-                            body_builder.nodes.insert(idx, cast_node)
-                            # keep rank if we know it; otherwise be dynamic
-                            r = body_builder.get_rank(b)
-                            if r is None:
-                                r = body_builder.get_rank(a)
-                            if r is None:
-                                r = 0
-                            body_builder.add_value_info(cast_out, (None,) * r, ta)
-                            n.input[1] = cast_out
+            # Normalize numeric binop dtypes inside the Loop body.
+            # Prefer the dtype of Loop state inputs (e.g. carry) over promoting to a wider const.
+            _harmonize_numeric_binops(body_builder, prefer_input_prefixes=("state_in_",))
             # --- end harmonization ---
-
             _retag_value_infos_to_input_dtype(body_builder)
             # Make internal shapes rank-only to avoid ORT Loop-body broadcast clashes.
             _loosen_value_infos_to_rank_only(body_builder)
@@ -1008,23 +1062,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_builder.var_to_symbol_map = {}  # do not share with outer builder
         body_conv = Jaxpr2OnnxConverter(body_builder)
 
-        # --- dtype inference helpers ---
-        def _infer_dtype_from_producer(bld, sym):
-            # Look for the node that produces `sym` and try to use any input dtype as output dtype.
-            for n in reversed(bld.nodes):
-                if sym in n.output:
-                    for inp in n.input:
-                        dt = bld.get_dtype(inp)
-                        if dt is not None:
-                            return dt
-                    return None
-            return None
-
-        def _dtype_or_infer(bld, sym, fallback):
-            return (
-                bld.get_dtype(sym) or _infer_dtype_from_producer(bld, sym) or fallback
-            )
-
         # declare inputs (exactly the jaxpr.invars; order is [consts, carry, xs])
         for i, var in enumerate(jaxpr.invars):
             nm = body_builder.get_unique_name(f"scan_body_in_{i}")
@@ -1035,53 +1072,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         body_conv._process_jaxpr(jaxpr, consts)
 
-        # --- dtype harmonization for binary numeric ops in Scan body (same as Loop) ---
-        # Allow tests to disable this to reproduce pre-fix failures.
-        _disable_cast_env = os.getenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "").lower()
-        _disable_cast = _disable_cast_env in ("1", "true", "yes", "on")
-        if not _disable_cast:
-            _binops = {"Add", "Sub", "Mul", "Div"}
-            for n in list(
-                body_builder.nodes
-            ):  # list() in case we append while iterating
-                if n.op_type in _binops and len(n.input) >= 2:
-                    a, b = n.input[0], n.input[1]
-                    ta = body_builder.get_dtype(a)
-                    tb = body_builder.get_dtype(b)
-                    if (
-                        ta is not None
-                        and tb is not None
-                        and _np.issubdtype(_np.dtype(ta), _np.number)
-                        and _np.issubdtype(_np.dtype(tb), _np.number)
-                        and _np.dtype(ta) != _np.dtype(tb)
-                    ):
-                        # Cast RHS to LHS dtype and INSERT the Cast BEFORE this node
-                        cast_out = body_builder.get_unique_name(
-                            f"{b}_cast_{_np.dtype(ta).name}"
-                        )
-                        to_enum = _NP2ONNX[_np.dtype(ta)]
-                        cast_node = helper.make_node(
-                            "Cast",
-                            inputs=[b],
-                            outputs=[cast_out],
-                            name=body_builder.get_unique_name("CastAlignBinOp"),
-                            to=to_enum,
-                        )
-                        # Insert before current node to maintain topo order
-                        idx = body_builder.nodes.index(n)
-                        body_builder.nodes.insert(idx, cast_node)
-                        # keep rank if we know it; otherwise be dynamic
-                        r = body_builder.get_rank(b)
-                        if r is None:
-                            r = body_builder.get_rank(a)
-                        if r is None:
-                            r = 0
-                        body_builder.add_value_info(cast_out, (None,) * r, ta)
-                        n.input[1] = cast_out
-
-        # Retag internal VIs: e.g. Squeeze/Gather/Add should inherit input dtype,
-        # which may be f64 under enable_double_precision.
-        _retag_value_infos_to_input_dtype(body_builder)
+        # --- dtype harmonization for binary numeric ops in Scan body ---
+        _harmonize_numeric_binops(body_builder)
 
         # Re-emit body outputs in ONNX-required order:
         #   1) state outputs:   consts (passthrough)  +  **computed carries**

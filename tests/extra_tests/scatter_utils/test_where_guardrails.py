@@ -2,11 +2,12 @@
 
 
 import numpy as np
-from types import SimpleNamespace
 from onnx import TensorProto
 
 from jax2onnx.plugins.jax.lax.scatter_utils import (
-    ShapeDtypeStruct, emit_where_with_guardrails, _ensure_np_dtype
+    ShapeDtypeStruct,
+    emit_where_with_guardrails,
+    _ensure_np_dtype,
 )
 
 
@@ -19,11 +20,16 @@ class FakeBuilder:
 
     def _numpy_dtype_to_onnx(self, dt):
         dt = _ensure_np_dtype(dt)
-        if dt == np.float32: return TensorProto.FLOAT
-        if dt == np.float64: return TensorProto.DOUBLE
-        if dt == np.int64:   return TensorProto.INT64
-        if dt == np.int32:   return TensorProto.INT32
-        if dt == np.bool_:   return TensorProto.BOOL
+        if dt == np.float32:
+            return TensorProto.FLOAT
+        if dt == np.float64:
+            return TensorProto.DOUBLE
+        if dt == np.int64:
+            return TensorProto.INT64
+        if dt == np.int32:
+            return TensorProto.INT32
+        if dt == np.bool_:
+            return TensorProto.BOOL
         raise KeyError(str(dt))
 
     def make_name(self, base="n"):  # not used, kept for parity
@@ -46,7 +52,9 @@ class FakeConverter:
         name = f"const_{hash(key) & 0xFFFFFFFF:x}"
         self.builder._consts[name] = arr
         # minimal info for tests (rank & dtype)
-        self.add_shape_info(name, (int(arr.size),) if arr.ndim == 1 else tuple(arr.shape), arr.dtype)
+        self.add_shape_info(
+            name, (int(arr.size),) if arr.ndim == 1 else tuple(arr.shape), arr.dtype
+        )
         return name
 
     def add_node(self, node):
@@ -63,9 +71,9 @@ def test_where_guardrails_broadcasts_cond_and_casts_bool():
     cond = "cond"
     x = "x"
     y = "y"
-    s.shape_env[cond] = ShapeDtypeStruct((B, L), np.int64)          # not bool
-    s.shape_env[x]    = ShapeDtypeStruct((B, L, 1, 1), np.float32)
-    s.shape_env[y]    = ShapeDtypeStruct((B, L, 1, 1), np.float32)
+    s.shape_env[cond] = ShapeDtypeStruct((B, L), np.int64)  # not bool
+    s.shape_env[x] = ShapeDtypeStruct((B, L, 1, 1), np.float32)
+    s.shape_env[y] = ShapeDtypeStruct((B, L, 1, 1), np.float32)
 
     out = emit_where_with_guardrails(s, cond, x, y, context="UT")
     assert out in s.shape_env

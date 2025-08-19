@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
-import numpy as np
-from jax.lax import ScatterDimensionNumbers, GatherScatterMode
+from jax.lax import ScatterDimensionNumbers
 
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 from .scatter_utils import prepare_and_emit_scatternd  # reuse helpers
 
 # ---------- small normalizers (dimension_numbers / mode) ----------
+
 
 def _normalize_dnums(dnums_like: Any) -> ScatterDimensionNumbers:
     """
@@ -19,17 +19,12 @@ def _normalize_dnums(dnums_like: Any) -> ScatterDimensionNumbers:
     if isinstance(dnums_like, ScatterDimensionNumbers):
         return dnums_like
     # object with attributes
-    attrs = (
-        "update_window_dims",
-        "inserted_window_dims",
-        "scatter_dims_to_operand_dims",
-        "operand_batching_dims",
-        "scatter_indices_batching_dims",
-    )
+
     def _get(name):
         if isinstance(dnums_like, dict):
             return tuple(dnums_like.get(name, ()))
         return tuple(getattr(dnums_like, name, ()))
+
     return ScatterDimensionNumbers(
         update_window_dims=_get("update_window_dims"),
         inserted_window_dims=_get("inserted_window_dims"),
@@ -37,6 +32,7 @@ def _normalize_dnums(dnums_like: Any) -> ScatterDimensionNumbers:
         operand_batching_dims=_get("operand_batching_dims"),
         scatter_indices_batching_dims=_get("scatter_indices_batching_dims"),
     )
+
 
 def _normalize_mode(params: dict) -> Optional[Any]:
     """
@@ -47,7 +43,9 @@ def _normalize_mode(params: dict) -> Optional[Any]:
             return params[k]
     return None
 
+
 # ---------- shared implementation ----------
+
 
 def _convert_scatter_common(
     s: "Jaxpr2OnnxConverter",
@@ -89,8 +87,12 @@ def _convert_scatter_common(
 
 # ---------- 4 public converters (wire these in your registry) ----------
 
+
 def convert_lax_scatter(
-    s: "Jaxpr2OnnxConverter", eqn: Any, invars: Tuple[Any, Any, Any], outvars: Tuple[Any]
+    s: "Jaxpr2OnnxConverter",
+    eqn: Any,
+    invars: Tuple[Any, Any, Any],
+    outvars: Tuple[Any],
 ) -> str:
     operand_v, indices_v, updates_v = invars
     return _convert_scatter_common(
@@ -99,12 +101,16 @@ def convert_lax_scatter(
         indices_v=indices_v,
         updates_v=updates_v,
         params=getattr(eqn, "params", {}),
-        reduction="none",                 # replace semantics
+        reduction="none",  # replace semantics
         onnx_out_var=outvars[0],
     )
 
+
 def convert_lax_scatter_add(
-    s: "Jaxpr2OnnxConverter", eqn: Any, invars: Tuple[Any, Any, Any], outvars: Tuple[Any]
+    s: "Jaxpr2OnnxConverter",
+    eqn: Any,
+    invars: Tuple[Any, Any, Any],
+    outvars: Tuple[Any],
 ) -> str:
     operand_v, indices_v, updates_v = invars
     return _convert_scatter_common(
@@ -117,8 +123,12 @@ def convert_lax_scatter_add(
         onnx_out_var=outvars[0],
     )
 
+
 def convert_lax_scatter_min(
-    s: "Jaxpr2OnnxConverter", eqn: Any, invars: Tuple[Any, Any, Any], outvars: Tuple[Any]
+    s: "Jaxpr2OnnxConverter",
+    eqn: Any,
+    invars: Tuple[Any, Any, Any],
+    outvars: Tuple[Any],
 ) -> str:
     operand_v, indices_v, updates_v = invars
     return _convert_scatter_common(
@@ -131,8 +141,12 @@ def convert_lax_scatter_min(
         onnx_out_var=outvars[0],
     )
 
+
 def convert_lax_scatter_max(
-    s: "Jaxpr2OnnxConverter", eqn: Any, invars: Tuple[Any, Any, Any], outvars: Tuple[Any]
+    s: "Jaxpr2OnnxConverter",
+    eqn: Any,
+    invars: Tuple[Any, Any, Any],
+    outvars: Tuple[Any],
 ) -> str:
     operand_v, indices_v, updates_v = invars
     return _convert_scatter_common(
@@ -145,8 +159,12 @@ def convert_lax_scatter_max(
         onnx_out_var=outvars[0],
     )
 
+
 def convert_lax_scatter_mul(
-    s: "Jaxpr2OnnxConverter", eqn: Any, invars: Tuple[Any, Any, Any], outvars: Tuple[Any]
+    s: "Jaxpr2OnnxConverter",
+    eqn: Any,
+    invars: Tuple[Any, Any, Any],
+    outvars: Tuple[Any],
 ) -> str:
     """
     Style B converter for lax.scatter_mul → ONNX ScatterND(reduction='mul').

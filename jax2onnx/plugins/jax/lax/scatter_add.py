@@ -8,7 +8,6 @@ from jax import (
     core,
 )
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper
 
 # Correctly import from the plugin_system module based on your provided files
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -372,6 +371,7 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         # Style B: delegate to the shared converter
         class _Eqn:
             pass
+
         _e = _Eqn()
         _e.params = params
         convert_lax_scatter_add(
@@ -380,7 +380,6 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
             (operand_v, indices_v, updates_v),
             (out_v,),
         )
-        logger.debug("[ScatterAddPlugin] Emitted ScatterND(reduction='add') → %s", out_name)
-
-
-
+        logger.debug(
+            "[ScatterAddPlugin] Emitted ScatterND(reduction='add') → %s", out_name
+        )

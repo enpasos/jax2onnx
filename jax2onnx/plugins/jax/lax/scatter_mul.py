@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Sequence, Any
 import numpy as np
 from jax import lax, core
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_converters import convert_lax_scatter_mul
@@ -250,9 +249,11 @@ class ScatterMulPlugin(PrimitiveLeafPlugin):
             "Converting lax.scatter_mul with dimension_numbers: %s",
             params.get("dimension_numbers"),
         )
+
         # Style B: delegate to the shared converter
         class _Eqn:
             pass
+
         _e = _Eqn()
         _e.params = params
         convert_lax_scatter_mul(

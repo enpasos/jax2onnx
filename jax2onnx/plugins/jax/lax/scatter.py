@@ -270,14 +270,14 @@ def _count_reshape_to_shape_in_model(
             "input_shapes": [],  # no runtime inputs – everything is literal
             "run_only_f64_variant": True,  # exporter stays in float64
         },
-
-        
         {
             "testcase": "scatter_simple_2d_window_out_of_bounds",
             "callable": lambda: lax.scatter(
                 jnp.zeros((5, 5), dtype=jnp.float32),
                 jnp.array([[4]], dtype=jnp.int32),  # Start update at index 4 of axis 1
-                jnp.ones((1, 5, 2), dtype=jnp.float32),  # Window size is 2 along that axis
+                jnp.ones(
+                    (1, 5, 2), dtype=jnp.float32
+                ),  # Window size is 2 along that axis
                 dimension_numbers=lax.ScatterDimensionNumbers(
                     update_window_dims=(
                         1,
@@ -290,14 +290,14 @@ def _count_reshape_to_shape_in_model(
             "input_shapes": [],
             "run_only_f32_variant": True,
         },
-
-
         {
             "testcase": "scatter_clip_2d_window_at_edge",
             "callable": lambda: lax.scatter(
                 jnp.arange(5).reshape(1, 5).astype(jnp.float32),
-                jnp.array([[4]], dtype=jnp.int32),      # start at index 4 of axis 1
-                jnp.array([[[9.0, 8.0]]], dtype=jnp.float32),  # <- NO transpose → (1,1,2)
+                jnp.array([[4]], dtype=jnp.int32),  # start at index 4 of axis 1
+                jnp.array(
+                    [[[9.0, 8.0]]], dtype=jnp.float32
+                ),  # <- NO transpose → (1,1,2)
                 dimension_numbers=lax.ScatterDimensionNumbers(
                     update_window_dims=(1, 2),
                     inserted_window_dims=(),
@@ -308,7 +308,6 @@ def _count_reshape_to_shape_in_model(
             "input_shapes": [],
             "run_only_f32_variant": True,
         },
-
         # ────────────────────────────────────────────────────────────────
         # REGRESSION ♦ depth-2 ScatterND helper keeps f32 although
         #                operand is f64  →  onnx.check_model type error
@@ -403,8 +402,10 @@ class ScatterPlugin(PrimitiveLeafPlugin):
         logger.info(
             f"Preparing inputs for ONNX ScatterND with {params['dimension_numbers']}"
         )
+
         class _Eqn:
             pass
+
         _e = _Eqn()
         _e.params = params
         convert_lax_scatter(
@@ -413,8 +414,13 @@ class ScatterPlugin(PrimitiveLeafPlugin):
             (operand_v, indices_v, updates_v),
             (out_v,),
         )
-        logger.debug("[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name)
-        logger.debug("[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name)
+        logger.debug(
+            "[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name
+        )
+        logger.debug(
+            "[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name
+        )
+
 
 def _validate_updates_window_fits_operand(op_shape, upd_shape, dnums, *, mode=None):
     """
@@ -431,8 +437,12 @@ def _validate_updates_window_fits_operand(op_shape, upd_shape, dnums, *, mode=No
     scatter = tuple(getattr(dnums, "scatter_dims_to_operand_dims", ()))
 
     # Candidate operand-window sets
-    all_window = [d for d in range(op_rank) if d not in inserted]                 # includes scatter dims
-    excl_scatter_window = [d for d in all_window if d not in scatter]             # excludes scatter dims
+    all_window = [
+        d for d in range(op_rank) if d not in inserted
+    ]  # includes scatter dims
+    excl_scatter_window = [
+        d for d in all_window if d not in scatter
+    ]  # excludes scatter dims
 
     # Choose the convention that actually matches this dnums instance.
     uwd = tuple(getattr(dnums, "update_window_dims", ()))
@@ -447,7 +457,7 @@ def _validate_updates_window_fits_operand(op_shape, upd_shape, dnums, *, mode=No
     # Pair by ascending update axis order, as JAX expects.
     for upd_axis, op_axis in zip(sorted(uwd), window_operand_dims):
         upd_bound = int(upd_shape[upd_axis])
-        op_bound  = int(op_shape[op_axis])
+        op_bound = int(op_shape[op_axis])
         if upd_bound > op_bound:
             raise TypeError(
                 "Bounds of the window dimensions of updates must not exceed the bounds of the "

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.select")
 
+
 def _onnx_dtype_from_numpy(np_dtype: np.dtype) -> int:
     """Map a numpy dtype to onnx TensorProto.* enum."""
     np_dtype = np.dtype(np_dtype)
@@ -150,7 +151,11 @@ class SelectPlugin(PrimitiveLeafPlugin):
                 cond_cast_name = s.builder.get_unique_name(f"select_cond_cast_{i}")
                 s.builder.add_node(
                     helper.make_node(
-                        "Cast", [cond_name], [cond_cast_name], to=TensorProto.BOOL, name=cond_cast_name
+                        "Cast",
+                        [cond_name],
+                        [cond_cast_name],
+                        to=TensorProto.BOOL,
+                        name=cond_cast_name,
                     )
                 )
                 s.add_shape_info(cond_cast_name, cond_aval.shape, np.bool_)
@@ -162,8 +167,11 @@ class SelectPlugin(PrimitiveLeafPlugin):
             then_cast_name = s.builder.get_unique_name(f"select_then_cast_{i}")
             s.builder.add_node(
                 helper.make_node(
-                    "Cast", [then_name], [then_cast_name],
-                    to=onnx_result_dtype, name=then_cast_name
+                    "Cast",
+                    [then_name],
+                    [then_cast_name],
+                    to=onnx_result_dtype,
+                    name=then_cast_name,
                 )
             )
             s.add_shape_info(then_cast_name, then_shape, result_dtype_np)
@@ -180,8 +188,11 @@ class SelectPlugin(PrimitiveLeafPlugin):
             else_cast_name = s.builder.get_unique_name(f"select_else_cast_{i}")
             s.builder.add_node(
                 helper.make_node(
-                    "Cast", [current_else], [else_cast_name],
-                    to=onnx_result_dtype, name=else_cast_name
+                    "Cast",
+                    [current_else],
+                    [else_cast_name],
+                    to=onnx_result_dtype,
+                    name=else_cast_name,
                 )
             )
             s.add_shape_info(else_cast_name, else_shape, result_dtype_np)

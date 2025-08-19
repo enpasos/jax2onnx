@@ -108,7 +108,7 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_min")
                 lambda: lax.scatter_min(
                     jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
                     jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # (N,2)
-                    jnp.ones((2, 4, 5), dtype=jnp.float64),        # window (4,5)
+                    jnp.ones((2, 4, 5), dtype=jnp.float64),  # window (4,5)
                     dimension_numbers=lax.ScatterDimensionNumbers(
                         update_window_dims=(1, 2),
                         inserted_window_dims=(0, 1),
@@ -154,9 +154,11 @@ class ScatterMinPlugin(PrimitiveLeafPlugin):
             "Converting lax.scatter_min with dimension_numbers: %s",
             params.get("dimension_numbers"),
         )
+
         # Style B: delegate to the shared converter
         class _Eqn:
             pass
+
         _e = _Eqn()
         _e.params = params
         convert_lax_scatter_min(
