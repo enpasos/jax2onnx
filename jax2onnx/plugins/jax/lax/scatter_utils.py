@@ -24,7 +24,88 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_utils")
 
-SCATTER_UTILS_VERSION = "DEBUG-V20250818-d12-d2-FIX7-default-none-and-safe-drop"
+SCATTER_UTILS_VERSION = "PR-SKELETON-V1 + WhereGuardrails + ScatterNDEmit + UnsqueezeLastFix + UnsqueezeAxisRangeFix + Depth3FlattenDedup"
+
+
+ 
+# scatter_utils.py (near the other helpers)
+def _normalize_axes_for_attr(s, inp_name: str, axes: Sequence[int], *, is_unsqueeze: bool) -> list[int]:
+    """For opset<13 where axes must be an attribute (and usually non-negative),
+    convert negatives to absolute positions using known rank from shape_env."""
+    sds = s.shape_env.get(inp_name)
+    if not isinstance(sds, ShapeDtypeStruct):
+        # Be conservative; if we can't normalize, keep as-is (checker will complain
+        # only when negatives exist). You can also raise here if you prefer.
+        return list(axes)
+    r = len(sds.shape)
+    out = []
+    for a in axes:
+        a = int(a)
+        if a < 0:
+            # For Unsqueeze: allowed range is [-(r+1), r]; convert like numpy
+            # For Squeeze: allowed range is [-r, r-1]; convert like numpy
+            a = a + (r + 1 if is_unsqueeze else r)
+        out.append(a)
+    # ONNX requires axes to be sorted and unique
+    return sorted(set(out))
+
+def add_unsqueeze(s, x: str, axes: Sequence[int], y: str, *, ctx: str = "Unsqueeze"):
+    if s.builder.opset >= 13:
+        s.add_node(helper.make_node("Unsqueeze",
+                                    [x, s.get_constant_name(np.array(list(axes), dtype=np.int64))],
+                                    [y],
+                                    name=s.get_unique_name(ctx)))
+    else:
+        axes_attr = _normalize_axes_for_attr(s, x, axes, is_unsqueeze=True)
+        s.add_node(helper.make_node("Unsqueeze", [x], [y], axes=axes_attr,
+                                    name=s.get_unique_name(ctx)))
+
+def add_squeeze(s, x: str, axes: Sequence[int], y: str, *, ctx: str = "Squeeze"):
+    if s.builder.opset >= 13:
+        s.add_node(helper.make_node("Squeeze",
+                                    [x, s.get_constant_name(np.array(list(axes), dtype=np.int64))],
+                                    [y],
+                                    name=s.get_unique_name(ctx)))
+    else:
+        axes_attr = _normalize_axes_for_attr(s, x, axes, is_unsqueeze=False)
+        s.add_node(helper.make_node("Squeeze", [x], [y], axes=axes_attr,
+                                    name=s.get_unique_name(ctx)))
+
+
+def _harmonize_float_dtypes(s, names, dtypes, context):
+    import numpy as np
+
+    # Decide the target float dtype (widen across the provided dtypes)
+    target = None
+    for dt in dtypes:
+        dt = _ensure_np_dtype(dt)
+        if np.issubdtype(dt, np.floating):
+            target = dt if target is None else np.promote_types(target, dt)
+
+    if target is None:
+        return tuple(names)
+
+    out = []
+    for nm in names:
+        sds = s.shape_env.get(nm)
+        if isinstance(sds, ShapeDtypeStruct):
+            cur = _ensure_np_dtype(sds.dtype)
+            if np.issubdtype(cur, np.floating) and cur != np.dtype(target):
+                casted = s.get_unique_name(f"{nm}_cast_{np.dtype(target).name}")
+                s.add_node(
+                    helper.make_node(
+                        "Cast", [nm], [casted],
+                        to=int(s.builder._numpy_dtype_to_onnx(target)),
+                        name=s.get_unique_name(f"{context}_Cast"),
+                    )
+                )
+                _manually_ensure_shape_env_entry(
+                    s, casted, sds.shape, target, f"{context}_Harmonize"
+                )
+                out.append(casted)
+                continue
+        out.append(nm)
+    return tuple(out)
 
 
 
@@ -209,45 +290,45 @@ def compute_expected_updates_shape(
     indices_shape: Sequence[int],
 ) -> Tuple[int, ...]:
     """
-    Return the exact shape `updates` must have for a JAX scatter-style op,
-    per the official spec:
-
-        updates.shape == indices.shape[:-1]  (batch part, order preserved)
-                           + operand.shape[window_dims]  (at positions given
-                             by `update_window_dims`)
-
-    The `update_window_dims` values are **positions in the updates tensor**,
-    *not* operand-dimension IDs.  We therefore build the full result rank
-    first, place window-dim sizes at those positions, and fill the remaining
-    slots with the leading batch dims coming from `indices`.
+    Compute the required `updates` shape for a JAX scatter.
+    We support both legal conventions seen in the wild:
+      (A) window = all operand dims EXCEPT `inserted_window_dims`
+      (B) window = (A) EXCEPT ALSO the scatter dims
+    We choose whichever matches len(update_window_dims).
     """
     batch_shape: Tuple[int, ...] = tuple(indices_shape[:-1])
 
-    # Which operand dims participate in the slice (window)?
     inserted = set(dnums.inserted_window_dims)
-    window_operand_dims = [d for d in range(len(operand_shape)) if d not in inserted]
+    scatter_op_dims = tuple(getattr(dnums, "scatter_dims_to_operand_dims", ()))
 
-    if len(window_operand_dims) != len(dnums.update_window_dims):
+    all_window = [d for d in range(len(operand_shape)) if d not in inserted]
+    excl_scatter_window = [d for d in all_window if d not in scatter_op_dims]
+
+    if len(dnums.update_window_dims) == len(all_window):
+        operand_window_dims = all_window
+    elif len(dnums.update_window_dims) == len(excl_scatter_window):
+        operand_window_dims = excl_scatter_window
+    else:
         raise ValueError(
-            "Inconsistent scatter dnums: |window_operand_dims| "
-            f"{len(window_operand_dims)} != |update_window_dims| "
-            f"{len(dnums.update_window_dims)}"
+            "Inconsistent scatter dnums: |update_window_dims| does not match "
+            "either 'operand rank - inserted' or 'operand rank - inserted - "
+            "num_scatter_dims'. "
+            f"op_rank={len(operand_shape)}, inserted={sorted(inserted)}, "
+            f"scatter={list(scatter_op_dims)}, "
+            f"|update_window_dims|={len(dnums.update_window_dims)}"
         )
 
-    window_sizes = [operand_shape[d] for d in window_operand_dims]
+    # Build result rank and place window sizes at the requested positions.
+    result_rank = len(batch_shape) + len(dnums.update_window_dims)
+    result: list[int] = [None] * result_rank  # type: ignore
+    for upd_pos, op_dim in zip(dnums.update_window_dims, operand_window_dims):
+        result[upd_pos] = int(operand_shape[op_dim])
 
-    updates_rank = len(batch_shape) + len(window_sizes)
-    result: list = [None] * updates_rank
-
-    # 1️⃣  place window dims at the positions given by update_window_dims
-    for pos_in_updates, win_size in zip(dnums.update_window_dims, window_sizes):
-        result[pos_in_updates] = win_size
-
-    # 2️⃣  fill the remaining slots (in order) with batch dims
+    # Fill remaining slots with the batch shape from indices (in order).
     batch_iter = iter(batch_shape)
-    for i in range(updates_rank):
+    for i in range(result_rank):
         if result[i] is None:
-            result[i] = next(batch_iter)
+            result[i] = int(next(batch_iter))
 
     return tuple(result)
 
@@ -255,16 +336,35 @@ def compute_expected_updates_shape(
 def _map_operand_axis_to_updates_pos(
     dnums: ScatterDimensionNumbers, operand_rank: int, operand_axis: int
 ) -> Optional[int]:
-    """Given an operand axis, return which *updates* axis position contains
-    that window dim, per JAX ScatterDimensionNumbers."""
+    """
+    Map an *operand* axis to the position of the corresponding axis in
+    the **updates** tensor, honoring whichever window-convention the
+    ScatterDimensionNumbers encode (same choice as compute_expected_updates_shape).
+    """
     inserted = set(dnums.inserted_window_dims)
-    window_operand_dims = [d for d in range(operand_rank) if d not in inserted]
-    if operand_axis not in window_operand_dims:
+    scatter_op_dims = tuple(getattr(dnums, "scatter_dims_to_operand_dims", ()))
+
+    # Candidate operand-window sets
+    all_window = [d for d in range(operand_rank) if d not in inserted]
+    excl_scatter_window = [d for d in all_window if d not in scatter_op_dims]
+
+    # Pick the convention that matches |update_window_dims|
+    if len(dnums.update_window_dims) == len(all_window):
+        window_operand_dims = all_window                     # includes scatter dims
+    elif len(dnums.update_window_dims) == len(excl_scatter_window):
+        window_operand_dims = excl_scatter_window            # excludes scatter dims
+    else:
+        return None  # inconsistent dnums; can't map safely
+
+    try:
+        i = window_operand_dims.index(operand_axis)
+    except ValueError:
         return None
-    i = window_operand_dims.index(operand_axis)
+
     if i >= len(dnums.update_window_dims):
         return None
     return dnums.update_window_dims[i]
+
 
 
 def _prepare_scatter_inputs_for_onnx(
@@ -279,6 +379,9 @@ def _prepare_scatter_inputs_for_onnx(
     logger.debug(
         f"Running _prepare_scatter_inputs_for_onnx - Version: {SCATTER_UTILS_VERSION}"
     )
+    # Track which specialized rewrite we took (used for full-window gating).
+    used_depth2_strategy = False
+    used_depth3_strategy = False
 
     # Normalized policy checks (strings allowed for robustness)
     is_clip = (
@@ -593,7 +696,6 @@ def _prepare_scatter_inputs_for_onnx(
         len(sdod) == 1
         and not obd
         and not iwd
-        # updates rank may be op_rank (no N) or op_rank+1 with a leading N=1
         and (
             upd_rank == op_rank
             or (
@@ -611,8 +713,17 @@ def _prepare_scatter_inputs_for_onnx(
         logger.info(
             "Applying generalized 'depth-2 indices' strategy for batched window scatter."
         )
+        used_depth2_strategy = True
         scatter_op_axis_idx = dimension_numbers.scatter_dims_to_operand_dims[0]
         _make_shape_concrete_for_prod(operand_shape_symbolic, s, "d2_op_shape")
+
+        # Batch extent B (operand axis 0) – needed regardless of mapping outcome
+        B_sym = operand_shape_symbolic[0]
+        B_val = _make_shape_concrete_for_prod((B_sym,), s, "d2_B")[0]
+        has_leading_N = (
+            upd_rank == op_rank + 1
+            and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
+        )
 
         # Map operand axis -> updates axis position to read the *correct* L.
         upd_pos_for_scatter_axis = _map_operand_axis_to_updates_pos(
@@ -631,25 +742,17 @@ def _prepare_scatter_inputs_for_onnx(
 
         # Build scalar start from indices ((1,), (1,1), … → squeeze to scalar)
         col_start_scalar_name = s.get_unique_name(f"{current_indices_name}_scalar_d2")
-        s.add_node(
-            helper.make_node(
-                "Squeeze",
-                [
-                    current_indices_name,
-                    s.get_constant_name(
-                        np.array(
-                            [
-                                ax
-                                for ax, dim in enumerate(current_indices_shape_symbolic)
-                                if _are_dims_equal(dim, 1, s)
-                            ]
-                            or [0],
-                            dtype=np.int64,
-                        )
-                    ),
-                ],
-                [col_start_scalar_name],
-            )
+        add_squeeze(
+            s,
+            current_indices_name,
+            [
+                ax
+                for ax, dim in enumerate(current_indices_shape_symbolic)
+                if _are_dims_equal(dim, 1, s)
+            ]
+            or [0],
+            col_start_scalar_name,
+            ctx="ColStartScalarD2"
         )
         _manually_ensure_shape_env_entry(
             s, col_start_scalar_name, (), final_indices_dtype_np, "ColStartScalarD2"
@@ -701,151 +804,86 @@ def _prepare_scatter_inputs_for_onnx(
                 if i != upd_pos_for_scatter_axis
             )
             _manually_ensure_shape_env_entry(
-                s,
-                picked_updates_name,
-                upd_shape_after_pick,
-                original_updates_dtype_np,
-                "Depth2PickScatterAxis",
+                s, picked_updates_name, upd_shape_after_pick, original_updates_dtype_np, "Depth2PickScatterAxis"
             )
             original_updates_name_val = picked_updates_name
             original_updates_shape_symbolic = upd_shape_after_pick
             # For the rest of the path we treat this as L = 1.
             L_sym, L_val = 1, 1
+            _final_updates_name_val_to_return = picked_updates_name
         else:
-            # 🔁 Use the window length from the **updates** tensor (not the operand).
-            # This preserves slice-update semantics when updates span only a subset
-            # of the operand along the scatter axis. Only fall back to operand if we
-            # truly cannot read/resolve L from updates.
+            # 🔁 Prefer L from **updates**, but if we cannot map the updates
+            # axis, fall back to the operand L to keep this path well-defined.
             if upd_pos_for_scatter_axis is not None:
                 L_sym_updates = original_updates_shape_symbolic[upd_pos_for_scatter_axis]
                 L_sym_operand = operand_shape_symbolic[scatter_op_axis_idx]
-
                 try:
-                    L_val_updates = _make_shape_concrete_for_prod((L_sym_updates,), s, "d2_L_from_updates")[0]
-                    L_val_operand = _make_shape_concrete_for_prod((L_sym_operand,), s, "d2_L_from_operand")[0]
-                    L_val = min(L_val_updates, L_val_operand)
-                    L_sym = min(L_sym_updates, L_sym_operand, key=lambda x: str(x))
+                    L_val_updates = _make_shape_concrete_for_prod(
+                        (L_sym_updates,), s, "d2_L_from_updates"
+                    )[0]
+                    L_val = int(L_val_updates)
+                    L_sym = L_sym_updates
                 except Exception as e:
-                    logger.warning(f"Fallback triggered due to error {e}. Using operand shape directly.")
-                    L_sym = L_sym_operand
-                    L_val = L_val_operand
-
-                
-                logger.info(
-                    f"Depth-2: Using L from updates axis pos {upd_pos_for_scatter_axis} → "
-                    f"L_sym={L_sym}, L_val={L_val}"
-                )
+                    logger.warning(
+                        f"Depth-2: could not concretize L from updates ({e}); "
+                        "falling back to operand L."
+                    )
+                    L_sym = operand_shape_symbolic[scatter_op_axis_idx]
+                    L_val = _make_shape_concrete_for_prod(
+                        (L_sym,), s, "d2_L_fallback_operand"
+                    )[0]
             else:
-                # No mapping → let default path handle it.
-                logger.warning("Depth-2: no updates-axis mapping; falling back to default path.")
+                # No mapping → fallback to operand L so later code has a concrete value.
+                logger.warning(
+                    "Depth-2: no updates-axis mapping; falling back to operand L."
+                )
+                L_sym = operand_shape_symbolic[scatter_op_axis_idx]
+                L_val = _make_shape_concrete_for_prod(
+                    (L_sym,), s, "d2_L_from_operand_nomap"
+                )[0]
+            # Ensure L_val/L_sym are defined even if we took unusual paths
+            if "L_val" not in locals():
+                L_sym = operand_shape_symbolic[scatter_op_axis_idx]
+                L_val = _make_shape_concrete_for_prod(
+                    (L_sym,), s, "d2_L_fallback_operand"
+                )[0]
 
+            # scalar L as a Constant tensor for arithmetic below
+            L_len_name = s.get_constant_name(np.array(int(L_val), dtype=np.int64))
 
-        # --- Normalize updates to axis order (B, L, ...) for our depth-2 indices ---
-        # IMPORTANT: If updates come as (1, B, L, …), reordering first moves the 1 away
-        # from axis 0 and prevents the later squeeze-from-front optimization. That causes
-        # numerical mismatch in type-mismatch tests. So: if we detect a leading N=1 axis,
-        # skip this transpose entirely and let the later squeeze handle it.
-        has_leading_N = (
-            upd_rank == op_rank + 1
-            and _are_dims_equal(original_updates_shape_symbolic[0], 1, s)
-        )
-        if has_leading_N:
-            logger.info(
-                "Depth-2: Leading singleton N=1 detected on updates; "
-                "skipping transpose (will squeeze later)."
-            )
-        else:
-            # Map batch (operand axis 0) and the scatter axis -> updates axis positions.
-            pos_batch_in_updates = _map_operand_axis_to_updates_pos(
-                dimension_numbers, op_rank, 0
-            )
-            if pos_batch_in_updates is None:
-                # Best-effort fallback: many models already have B at 0
-                pos_batch_in_updates = 0
+        # CLIP for window updates: clamp the *start scalar* so the full window fits.
+        if is_clip:
+            shape_op_name2 = s.get_unique_name("shape_op_d2_start")
+            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name2]))
+            _manually_ensure_shape_env_entry(s, shape_op_name2, (len(operand_shape_symbolic),), np.int64, "D2_ClipStart_Shape")
+            
+            
+            # NEW registrations for every produced tensor in this clamp subgraph:
+            dim_size_vec2 = s.get_unique_name("dim_size_vec_d2_start")
+            s.add_node(helper.make_node("Gather",
+                                        [shape_op_name2, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
+                                        [dim_size_vec2], axis=0))
+            _manually_ensure_shape_env_entry(s, dim_size_vec2, (1,), np.int64, "D2_ClipStart_DimVec")   # ← ADD
 
-            pos_L_in_updates = upd_pos_for_scatter_axis  # already computed above
+            dim_size_scalar2 = s.get_unique_name("dim_size_d2_start")
+            add_squeeze(s, dim_size_vec2, [0], dim_size_scalar2, ctx="D2_ClipStart_Dim")
+            _manually_ensure_shape_env_entry(s, dim_size_scalar2, (), np.int64, "D2_ClipStart_Dim")     # ← ADD
 
-            if pos_L_in_updates is not None:
-                desired_perm = [pos_batch_in_updates, pos_L_in_updates] + [
-                    i for i in range(upd_rank)
-                    if i not in (pos_batch_in_updates, pos_L_in_updates)
-                ]
-                if desired_perm != list(range(upd_rank)):
-                    transposed_updates = s.get_unique_name(
-                        f"{original_updates_name_val}_to_BL"
-                    )
-                    s.add_node(
-                        helper.make_node(
-                            "Transpose",
-                            [original_updates_name_val],
-                            [transposed_updates],
-                            perm=desired_perm,
-                        )
-                    )
-                    original_updates_name_val = transposed_updates
-                    original_updates_shape_symbolic = tuple(
-                        original_updates_shape_symbolic[i] for i in desired_perm
-                    )
-                    _manually_ensure_shape_env_entry(
-                        s,
-                        original_updates_name_val,
-                        original_updates_shape_symbolic,
-                        original_updates_dtype_np,
-                        "Depth2TransposeUpdatesToBL",
-                    )
-                    logger.info(
-                        f"Depth-2: Reordered updates axes to (B,L,...) via perm={desired_perm}"
-                    )
+            zero_i64 = s.get_constant_name(np.array(0, dtype=np.int64))
 
+            max_start = s.get_unique_name("max_start_d2")
+            s.add_node(helper.make_node("Sub", [dim_size_scalar2, L_len_name], [max_start]))
+            _manually_ensure_shape_env_entry(s, max_start, (), np.int64, "D2_ClipStart_MaxStart")       # ← ADD
 
+            max_start_nneg = s.get_unique_name("max_start_nneg_d2")
+            s.add_node(helper.make_node("Max", [max_start, zero_i64], [max_start_nneg]))
+            _manually_ensure_shape_env_entry(s, max_start_nneg, (), np.int64, "D2_ClipStart_MaxStartNneg")  # ← ADD
 
-        # scalar L as a Constant tensor for arithmetic below
-        L_len_name = s.get_constant_name(np.array(L_val, dtype=np.int64))
+            col_start_clamped = s.get_unique_name("col_start_clamped_d2")
+            s.add_node(helper.make_node("Clip", [col_start_scalar_name, zero_i64, max_start_nneg], [col_start_clamped]))
+            _manually_ensure_shape_env_entry(s, col_start_clamped, (), np.int64, "D2_ClipStart_Col")
+            col_start_scalar_name = col_start_clamped
 
-        # Unconditionally clamp the scalar start so the full window fits:
-        #   start ∈ [0, max(0, dim_size - L)]
-        # ORT rejects models with any statically-OOB ScatterND indices, so we
-        # enforce this even for PROMISE_IN_BOUNDS. Valid inputs are unchanged.
-        # Clamp policy for the scalar 'start':
-        #  • PROMISE/None → clamp the scalar to keep ORT happy even if callers pass OOB.
-        #  • CLIP         → do NOT clamp here; we clamp the *vector* below element-wise.
-        #  • FILL_OR_DROP → do NOT clamp here; later masking makes indices ORT-safe.
-        # Result for PROMISE/None:
-        #   start ∈ [0, max(0, dim_size - L)]
-        # ORT rejects models with statically-OOB ScatterND indices; for PROMISE/None
-        # we enforce this. For CLIP/FILL_OR_DROP we keep the scalar and fix things later.
-        if not (is_clip or is_fill_or_drop):
-            shape_op_name = s.get_unique_name("shape_op_d2")
-            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name]))
-            _manually_ensure_shape_env_entry(s, shape_op_name, (len(operand_shape_symbolic),), np.int64, "D2_StartClamp_ShapeOp")
-            dim_size_vec = s.get_unique_name("dim_size_vec_d2")
-            s.add_node(helper.make_node(
-                "Gather",
-                [shape_op_name, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-                [dim_size_vec],
-                axis=0))
-            _manually_ensure_shape_env_entry(s, dim_size_vec, (1,), np.int64, "D2_StartClamp_DimSizeVec")
-            dim_size_name = s.get_unique_name("dim_size_d2")
-            s.add_node(helper.make_node(
-                "Squeeze",
-                [dim_size_vec, s.get_constant_name(np.array([0], dtype=np.int64))],
-                [dim_size_name]))
-            _manually_ensure_shape_env_entry(s, dim_size_name, (), np.int64, "D2_StartClamp_DimSize")
-            upper_name = s.get_unique_name("upper_start_d2")
-            s.add_node(helper.make_node("Sub", [dim_size_name, L_len_name], [upper_name]))
-            _manually_ensure_shape_env_entry(s, upper_name, (), np.int64, "D2_StartClamp_Upper")
-            zero64_name = s.get_constant_name(np.array(0, dtype=np.int64))
-            upper_nneg_name = s.get_unique_name("upper_nneg_d2")
-            s.add_node(helper.make_node("Max", [upper_name, zero64_name], [upper_nneg_name]))
-            _manually_ensure_shape_env_entry(s, upper_nneg_name, (), np.int64, "D2_StartClamp_UpperNneg")
-            tmp_nneg_name = s.get_unique_name("start_nneg_d2")
-            s.add_node(helper.make_node("Max", [col_start_scalar_name, zero64_name], [tmp_nneg_name]))
-            _manually_ensure_shape_env_entry(s, tmp_nneg_name, (), np.int64, "D2_StartClamp_StartNneg")
-            start_clamped_name = s.get_unique_name("start_clamped_d2")
-            s.add_node(helper.make_node("Min", [tmp_nneg_name, upper_nneg_name], [start_clamped_name]))
-            _manually_ensure_shape_env_entry(s, start_clamped_name, (), np.int64, "D2_StartClamp_StartClamped")
-            col_start_scalar_name = start_clamped_name
-        # else: keep the original scalar 'col_start_scalar_name' intact
 
 
         # ----------------------------
@@ -877,25 +915,23 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(
             s, arange_b_name, (B_val,), np.int64, "ArangeBD2"
         )
-        unsqueeze_b_name = s.get_unique_name("unsqueeze_b_d2")
-        s.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                [arange_b_name, s.get_constant_name(np.array([1], dtype=np.int64))],
-                [unsqueeze_b_name],
-            )
+        # Build (B,1) with a single Unsqueeze so Expand's target rank (2) ≥ input rank (2)
+        unsq_b = s.get_unique_name("unsq_B_d2")
+        add_unsqueeze(
+            s,
+            arange_b_name, 
+            [1],
+            unsq_b,
+            ctx="UnsqBStep1D2"
         )
         _manually_ensure_shape_env_entry(
-            s, unsqueeze_b_name, (B_val, 1), np.int64, "UnsqueezeBD2"
+            s, unsq_b, (B_val, 1), np.int64, "UnsqBStep1D2"
         )
         batch_indices_intermediate_name = s.get_unique_name("batch_indices_BL_d2")
         s.add_node(
             helper.make_node(
                 "Expand",
-                [
-                    unsqueeze_b_name,
-                    s.get_constant_name(np.array([B_val, L_val], dtype=np.int64)),
-                ],
+                [unsq_b, s.get_constant_name(np.array([B_val, L_val], dtype=np.int64))],
                 [batch_indices_intermediate_name],
             )
         )
@@ -934,46 +970,13 @@ def _prepare_scatter_inputs_for_onnx(
             s, add_start_name, (L_val,), np.int64, "AddStartColD2"
         )
 
-        # NEW: under CLIP policy, also clamp the entire index vector to [0, dim_size-1]
-        #      (we already clamp the scalar start earlier to [0, dim_size-L])
-        if is_clip:
-            shape_op_name2 = s.get_unique_name("shape_op_d2_idxvec")
-            s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op_name2]))
-            _manually_ensure_shape_env_entry(
-                s, shape_op_name2, (len(operand_shape_symbolic),), np.int64, "D2_ClipIdxVec_ShapeOp"
-            )
-            dim_size_vec2 = s.get_unique_name("dim_size_vec_d2_idxvec")
-            s.add_node(helper.make_node(
-                "Gather",
-                [shape_op_name2, s.get_constant_name(np.array([scatter_op_axis_idx], dtype=np.int64))],
-                [dim_size_vec2],
-                axis=0))
-            _manually_ensure_shape_env_entry(s, dim_size_vec2, (1,), np.int64, "D2_ClipIdxVec_DimSizeVec")
-            dim_size_scalar2 = s.get_unique_name("dim_size_d2_idxvec")
-            s.add_node(helper.make_node(
-                "Squeeze",
-                [dim_size_vec2, s.get_constant_name(np.array([0], dtype=np.int64))],
-                [dim_size_scalar2]))
-            _manually_ensure_shape_env_entry(s, dim_size_scalar2, (), np.int64, "D2_ClipIdxVec_DimSize")
-            max_valid_index_name = s.get_unique_name("max_valid_index_d2")
-            s.add_node(helper.make_node(
-                "Sub", [dim_size_scalar2, s.get_constant_name(np.array(1, dtype=np.int64))], [max_valid_index_name]))
-            _manually_ensure_shape_env_entry(s, max_valid_index_name, (), np.int64, "D2_ClipIdxVec_MaxValid")
-            clipped_add_start_name = s.get_unique_name("add_start_col_d2_clipped")
-            s.add_node(helper.make_node(
-                "Clip",
-                [add_start_name, s.get_constant_name(np.array(0, dtype=np.int64)), max_valid_index_name],
-                [clipped_add_start_name]))
-            _manually_ensure_shape_env_entry(s, clipped_add_start_name, (L_val,), np.int64, "D2_ClipIdxVec_Clipped")
-            add_start_name = clipped_add_start_name
-
         unsqueeze_l_name = s.get_unique_name("unsqueeze_l_d2")
-        s.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                [add_start_name, s.get_constant_name(np.array([0], dtype=np.int64))],
-                [unsqueeze_l_name],
-            )
+        add_unsqueeze(
+            s,
+            add_start_name, 
+            [0],
+            unsqueeze_l_name,
+            ctx="UnsqueezeLD2"
         )
         _manually_ensure_shape_env_entry(
             s, unsqueeze_l_name, (1, L_val), np.int64, "UnsqueezeLD2"
@@ -993,29 +996,24 @@ def _prepare_scatter_inputs_for_onnx(
             s, col_indices_intermediate_name, (B_val, L_val), np.int64, "ColIndicesBLD2"
         )
         final_batch_indices_name = s.get_unique_name("final_batch_indices_d2")
-        s.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                [
-                    batch_indices_intermediate_name,
-                    s.get_constant_name(np.array([2], dtype=np.int64)),
-                ],
-                [final_batch_indices_name],
-            )
+        # Use axis = -1 so shape inference is robust even if the input rank is seen as 1.
+        add_unsqueeze(
+            s,
+            batch_indices_intermediate_name, 
+            [-1],
+            final_batch_indices_name,
+            ctx="FinalBatchIdxD2"
         )
         _manually_ensure_shape_env_entry(
             s, final_batch_indices_name, (B_val, L_val, 1), np.int64, "FinalBatchIdxD2"
         )
         final_col_indices_name = s.get_unique_name("final_col_indices_d2")
-        s.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                [
-                    col_indices_intermediate_name,
-                    s.get_constant_name(np.array([2], dtype=np.int64)),
-                ],
-                [final_col_indices_name],
-            )
+        add_unsqueeze(
+            s,
+            col_indices_intermediate_name, 
+            [-1],
+            final_col_indices_name,
+            ctx="FinalColIdxD2"
         )
         _manually_ensure_shape_env_entry(
             s, final_col_indices_name, (B_val, L_val, 1), np.int64, "FinalColIdxD2"
@@ -1074,13 +1072,12 @@ def _prepare_scatter_inputs_for_onnx(
                 squeezed_updates_name = s.get_unique_name(
                     f"{original_updates_name_val}_squeeze_axis{squeeze_axis}_d2"
                 )
-                s.add_node(
-                    helper.make_node(
-                        "Squeeze",
-                        [original_updates_name_val,
-                         s.get_constant_name(np.array([squeeze_axis], dtype=np.int64))],
-                        [squeezed_updates_name],
-                    )
+                add_squeeze(
+                    s,
+                    original_updates_name_val,
+                    [squeeze_axis],
+                    squeezed_updates_name,
+                    ctx="Depth2SqueezeSingleton"
                 )
                 _manually_ensure_shape_env_entry(
                     s,
@@ -1115,15 +1112,12 @@ def _prepare_scatter_inputs_for_onnx(
             squeezed_updates_name = s.get_unique_name(
                 f"{original_updates_name_val}_dropN_d2"
             )
-            s.add_node(
-                helper.make_node(
-                    "Squeeze",
-                    [
-                        original_updates_name_val,
-                        s.get_constant_name(np.array([0], dtype=np.int64)),
-                    ],
-                    [squeezed_updates_name],
-                )
+            add_squeeze(
+                s,
+                original_updates_name_val, 
+                [0],
+                squeezed_updates_name,
+                ctx="Depth2SqueezeUpdates"
             )
             _manually_ensure_shape_env_entry(
                 s,
@@ -1132,8 +1126,9 @@ def _prepare_scatter_inputs_for_onnx(
                 original_updates_dtype_np,
                 "Depth2SqueezeUpdates",
             )
-            _final_updates_name_val_to_return = squeezed_updates_name
+            original_updates_name_val = squeezed_updates_name
             original_updates_shape_symbolic = expected_updates_shape_d2
+            _final_updates_name_val_to_return = squeezed_updates_name
         elif not _are_shapes_equal(
             original_updates_shape_symbolic, expected_updates_shape_d2, s
         ):
@@ -1155,40 +1150,52 @@ def _prepare_scatter_inputs_for_onnx(
         #  📐  depth‑3 strategy  (|sdod| == 2, window update on H×W patch)
         # ────────────────────────────────────────────────────────────────
         # depth‑3 pattern: 2 indexed axes (H,W) + *implicit* batch axis
+        # Accept both shapes:
+        #   • updates rank == op_rank + 1  → (B, H, W, C)   (batch outside window)
+        #   • updates rank == op_rank      → (B, H, W, C)   (batch inside update_window_dims)
+        # In both cases: 2 scatter dims (H,W), no inserted/batching dims, and indices=(1,2)
         use_depth3_for_batched_hw_scatter = (
             len(sdod) == 2
             and not iwd
             and not obd
-            and len(uwd) == op_rank  # every *operand* axis is a window‑axis
-            and upd_rank == op_rank + 1  # updates has the leading batch dim
+            and len(uwd) == op_rank                    # window covers all operand dims
+            and (upd_rank == op_rank or upd_rank == op_rank + 1)
             and _are_shapes_equal(jax_indices_shape_symbolic, (1, 2), s)
         )
 
+
         if use_depth3_for_batched_hw_scatter:
             logger.info("Applying depth-3 indices strategy for H×W window scatter.")
-            # Operand axes: 0:B, 1:H_total, 2:W_total, 3:C
-            # We treat k=3 indexed dims: (B, H, W).
-            B_val = _make_shape_concrete_for_prod(
-                (operand_shape_symbolic[0],), s, "d3_B"
-            )[0]
-            H_val = _make_shape_concrete_for_prod(
-                (original_updates_shape_symbolic[2],), s, "d3_H"
-            )[0]
-            W_val = _make_shape_concrete_for_prod(
-                (original_updates_shape_symbolic[3],), s, "d3_W"
-            )[0]
+            used_depth3_strategy = True
+            # Operand axes: 0:B, 1:H, 2:W, 3:C  (generic “NHWC” notation)
+            # We build B×H×W grids, so we need the extents B, H, W.
+            B_sym = operand_shape_symbolic[0]
+            B_val = _make_shape_concrete_for_prod((B_sym,), s, "d3_B")[0]
+            # Map operand axes → positions in the **updates** tensor (under whichever
+            # window convention the dnums encode). This makes the code robust to
+            # “batch-in-window” vs “batch-leading” variations.
+            pos_h = _map_operand_axis_to_updates_pos(dimension_numbers, op_rank, 1)
+            pos_w = _map_operand_axis_to_updates_pos(dimension_numbers, op_rank, 2)
+            if pos_h is None or pos_w is None:
+                # Fallback to the legacy assumption (updates = B, H, W, C)
+                pos_h = 1 if pos_h is None else pos_h
+                pos_w = 2 if pos_w is None else pos_w
+            H_sym = original_updates_shape_symbolic[pos_h]
+            W_sym = original_updates_shape_symbolic[pos_w]
+            H_val = _make_shape_concrete_for_prod((H_sym,), s, "d3_H")[0]
+            W_val = _make_shape_concrete_for_prod((W_sym,), s, "d3_W")[0]
+
+
+
 
             # ---- 1️⃣  row0 / col0 scalars ---------------------------------
             squeeze_idx = s.get_unique_name(f"{current_indices_name}_squeezed_d3")
-            s.add_node(
-                helper.make_node(
-                    "Squeeze",
-                    [
-                        current_indices_name,
-                        s.get_constant_name(np.array([0], dtype=np.int64)),
-                    ],
-                    [squeeze_idx],
-                )
+            add_squeeze(
+                s,
+                current_indices_name, 
+                [0],
+                squeeze_idx,
+                ctx="SqueezedIdxD3"
             )
             # (1,2) --squeeze[0]--> (2,)
             _manually_ensure_shape_env_entry(s, squeeze_idx, (2,), np.int64, "SqueezedIdxD3")
@@ -1235,17 +1242,43 @@ def _prepare_scatter_inputs_for_onnx(
             _manually_ensure_shape_env_entry(
                 s, arange_b, (B_val,), np.int64, "ArangeBD3"
             )
-            unsq_b = s.get_unique_name("unsq_B_d3")
-            s.add_node(
-                helper.make_node(
-                    "Unsqueeze",
-                    [arange_b, s.get_constant_name(np.array([1, 2], dtype=np.int64))],
-                    [unsq_b],
-                )
-            )  # (B,1,1)
-            _manually_ensure_shape_env_entry(
-                s, unsq_b, (B_val, 1, 1), np.int64, "UnsqBD3"
+
+
+
+
+
+
+
+            # Build (B,1,1) via two Unsqueezes so Expand to (B,H,W) broadcasts correctly.
+            # (If we only made (B,1), Expand would prepend a 1 → (1,B,1) which
+            #  is incompatible with (B,H,W) when H≠B.)
+            unsq_b_1 = s.get_unique_name("unsq_B_tmp1_d3")
+            add_unsqueeze(
+                s,
+                arange_b,
+                [1],
+                unsq_b_1,
+                ctx="UnsqBStep1D3"
             )
+            _manually_ensure_shape_env_entry(
+                s, unsq_b_1, (B_val, 1), np.int64, "UnsqBStep1D3"
+            )
+            unsq_b = s.get_unique_name("unsq_B_d3")
+            add_unsqueeze(
+                s,
+                unsq_b_1,
+                [2],
+                unsq_b,
+                ctx="UnsqBStep2D3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, unsq_b, (B_val, 1, 1), np.int64, "UnsqBStep2D3"
+            )
+
+
+
+
+
             arange_h = s.get_unique_name("arange_H_d3")
             s.add_node(
                 helper.make_node(
@@ -1261,21 +1294,83 @@ def _prepare_scatter_inputs_for_onnx(
             _manually_ensure_shape_env_entry(
                 s, arange_h, (H_val,), np.int64, "ArangeHD3"
             )
-            add_h = s.get_unique_name("row_plus_start_d3")
-            s.add_node(helper.make_node("Add", [arange_h, row0_name], [add_h]))
-            _manually_ensure_shape_env_entry(
-                s, add_h, (H_val,), np.int64, "RowPlusStartD3"
-            )
-            unsq_h = s.get_unique_name("unsq_H_d3")
+            arange_w = s.get_unique_name("arange_W_d3")
             s.add_node(
                 helper.make_node(
-                    "Unsqueeze",
-                    [add_h, s.get_constant_name(np.array([0, 2], dtype=np.int64))],
-                    [unsq_h],
+                    "Range",
+                    [
+                        s.get_constant_name(np.array(0, dtype=np.int64)),
+                        s.get_constant_name(np.array(W_val, dtype=np.int64)),
+                        s.get_constant_name(np.array(1, dtype=np.int64)),
+                    ],
+                    [arange_w],
                 )
-            )  # (1,H,1)
+            )
             _manually_ensure_shape_env_entry(
-                s, unsq_h, (1, H_val, 1), np.int64, "UnsqHD3"
+                s, arange_w, (W_val,), np.int64, "ArangeWD3"
+            )
+
+            # If CLIP, clamp the *starting scalars* so the full H×W patch fits.
+            if is_clip:
+                shape_op = s.get_unique_name("shape_op_d3_start")
+                s.add_node(helper.make_node("Shape", [final_operand_name], [shape_op]))
+                _manually_ensure_shape_env_entry(s, shape_op, (len(operand_shape_symbolic),), np.int64, "D3_ClipStart_Shape")
+
+                # dim_h and dim_w as scalars
+                dim_h_vec = s.get_unique_name("dim_h_vec_d3")
+                s.add_node(helper.make_node("Gather", [shape_op, s.get_constant_name(np.array([1], dtype=np.int64))], [dim_h_vec], axis=0))
+                dim_h = s.get_unique_name("dim_h_d3")
+                add_squeeze(s, dim_h_vec, [0], dim_h, ctx="D3_ClipStart_DimH")
+                dim_w_vec = s.get_unique_name("dim_w_vec_d3")
+                s.add_node(helper.make_node("Gather", [shape_op, s.get_constant_name(np.array([2], dtype=np.int64))], [dim_w_vec], axis=0))
+                dim_w = s.get_unique_name("dim_w_d3")
+                add_squeeze(s, dim_w_vec, [0], dim_w, ctx="D3_ClipStart_DimW")
+
+                # max starts = dim - extent, saturated at 0
+                h_extent = s.get_constant_name(np.array(H_val, dtype=np.int64))
+                w_extent = s.get_constant_name(np.array(W_val, dtype=np.int64))
+                zero_i64 = s.get_constant_name(np.array(0, dtype=np.int64))
+                h_max_start = s.get_unique_name("h_max_start_d3")
+                w_max_start = s.get_unique_name("w_max_start_d3")
+                s.add_node(helper.make_node("Sub", [dim_h, h_extent], [h_max_start]))
+                s.add_node(helper.make_node("Sub", [dim_w, w_extent], [w_max_start]))
+                h_max_start = s.get_unique_name("h_max_start_nneg_d3"); s.add_node(helper.make_node("Max", [h_max_start, zero_i64], [h_max_start]))
+                w_max_start = s.get_unique_name("w_max_start_nneg_d3"); s.add_node(helper.make_node("Max", [w_max_start, zero_i64], [w_max_start]))
+
+                # clamp the scalars
+                row0_clamped = s.get_unique_name("row0_clamped_d3")
+                col0_clamped = s.get_unique_name("col0_clamped_d3")
+                s.add_node(helper.make_node("Clip", [row0_name, zero_i64, h_max_start], [row0_clamped]))
+                s.add_node(helper.make_node("Clip", [col0_name, zero_i64, w_max_start], [col0_clamped]))
+                _manually_ensure_shape_env_entry(s, row0_clamped, (), np.int64, "D3_ClipStart_Row0")
+                _manually_ensure_shape_env_entry(s, col0_clamped, (), np.int64, "D3_ClipStart_Col0")
+                row0_name, col0_name = row0_clamped, col0_clamped
+
+            add_h = s.get_unique_name("row_plus_start_d3")
+            s.add_node(helper.make_node("Add", [arange_h, row0_name], [add_h]))
+            _manually_ensure_shape_env_entry(s, add_h, (H_val,), np.int64, "RowPlusStartD3")
+            # Build (1,H,1) as two Unsqueezes: axis 0 then axis 2
+            unsq_h_1 = s.get_unique_name("unsq_H_tmp1_d3")
+            add_unsqueeze(
+                s,
+                add_h, 
+                [0],
+                unsq_h_1,
+                ctx="UnsqHStep1D3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, unsq_h_1, (1, H_val), np.int64, "UnsqHStep1D3"
+            )
+            unsq_h = s.get_unique_name("unsq_H_d3")
+            add_unsqueeze(
+                s,
+                unsq_h_1, 
+                [2],
+                unsq_h,
+                ctx="UnsqHStep2D3"
+            )
+            _manually_ensure_shape_env_entry(
+                s, unsq_h, (1, H_val, 1), np.int64, "UnsqHStep2D3"
             )
             arange_w = s.get_unique_name("arange_W_d3")
             s.add_node(
@@ -1294,19 +1389,32 @@ def _prepare_scatter_inputs_for_onnx(
             )
             add_w = s.get_unique_name("col_plus_start_d3")
             s.add_node(helper.make_node("Add", [arange_w, col0_name], [add_w]))
+            _manually_ensure_shape_env_entry(s, add_w, (W_val,), np.int64, "ColPlusStartD3")
+
+            # (No vector Clip here; we already clamped row0/col0 so B×H×W grids are in-bounds.)
+
+            # Build (1,1,W) as two Unsqueezes: axis 0 then axis 1
+            unsq_w_1 = s.get_unique_name("unsq_W_tmp1_d3")
+            add_unsqueeze(
+                s,
+                add_w, 
+                [0],
+                unsq_w_1,
+                ctx="UnsqWStep1D3"
+            )
             _manually_ensure_shape_env_entry(
-                s, add_w, (W_val,), np.int64, "ColPlusStartD3"
+                s, unsq_w_1, (1, W_val), np.int64, "UnsqWStep1D3"
             )
             unsq_w = s.get_unique_name("unsq_W_d3")
-            s.add_node(
-                helper.make_node(
-                    "Unsqueeze",
-                    [add_w, s.get_constant_name(np.array([0, 1], dtype=np.int64))],
-                    [unsq_w],
-                )
-            )  # (1,1,W)
+            add_unsqueeze(
+                s,
+                unsq_w_1, 
+                [1],
+                unsq_w,
+                ctx="UnsqWStep2D3"
+            )
             _manually_ensure_shape_env_entry(
-                s, unsq_w, (1, 1, W_val), np.int64, "UnsqWD3"
+                s, unsq_w, (1, 1, W_val), np.int64, "UnsqWStep2D3"
             )
 
             # Expand each to (B,H,W)
@@ -1339,27 +1447,9 @@ def _prepare_scatter_inputs_for_onnx(
             b_grid_u = s.get_unique_name("Bgrid_u_d3")
             h_grid_u = s.get_unique_name("Hgrid_u_d3")
             w_grid_u = s.get_unique_name("Wgrid_u_d3")
-            s.add_node(
-                helper.make_node(
-                    "Unsqueeze",
-                    [b_grid, s.get_constant_name(np.array([3], dtype=np.int64))],
-                    [b_grid_u],
-                )
-            )
-            s.add_node(
-                helper.make_node(
-                    "Unsqueeze",
-                    [h_grid, s.get_constant_name(np.array([3], dtype=np.int64))],
-                    [h_grid_u],
-                )
-            )
-            s.add_node(
-                helper.make_node(
-                    "Unsqueeze",
-                    [w_grid, s.get_constant_name(np.array([3], dtype=np.int64))],
-                    [w_grid_u],
-                )
-            )
+            add_unsqueeze(s, b_grid, [3], b_grid_u, ctx="BgridUnsqD3")
+            add_unsqueeze(s, h_grid, [3], h_grid_u, ctx="HgridUnsqD3")
+            add_unsqueeze(s, w_grid, [3], w_grid_u, ctx="WgridUnsqD3")
             _manually_ensure_shape_env_entry(
                 s, b_grid_u, (B_val, H_val, W_val, 1), np.int64, "BgridUnsqD3"
             )
@@ -1383,80 +1473,90 @@ def _prepare_scatter_inputs_for_onnx(
             _manually_ensure_shape_env_entry(
                 s, cat3, (B_val, H_val, W_val, 3), np.int64, "CatIndicesBHW3D3"
             )
+ 
+
+            # Concat last to (B,H,W,3)  → cat3  (already in your code)
 
             # ---- 4️⃣  Flatten to match test post_check and ScatterND spec path ----
-            # Build named Constant tensors for shapes so post-check can count them,
-            # and register value_info so the builder is satisfied.
             def _named_shape_const(name_base: str, values: list[int]) -> str:
                 out_name = s.get_unique_name(name_base)
-                # IMPORTANT: attr tensor name == node output name (so post-check's
-                # const_map keyed by attr.t.name matches the Reshape input name)
                 tensor = helper.make_tensor(
-                    name=out_name,
-                    data_type=TensorProto.INT64,
-                    dims=[len(values)],
-                    vals=values,
+                    name=out_name, data_type=TensorProto.INT64, dims=[len(values)], vals=values
                 )
-                s.add_node(
-                    helper.make_node(
-                        "Constant",
-                        inputs=[],
-                        outputs=[out_name],
-                        value=tensor,
-                    )
-                )
-                # Register shape/dtype for builder's strict value_info pass
-                _manually_ensure_shape_env_entry(
-                    s,
-                    out_name,
-                    (len(values),),
-                    np.int64,
-                    "NamedShapeConstD3",
-                )
+                s.add_node(helper.make_node("Constant", inputs=[], outputs=[out_name], value=tensor))
+                _manually_ensure_shape_env_entry(s, out_name, (len(values),), np.int64, "NamedShapeConstD3")
                 return out_name
 
             shape_N3_name = _named_shape_const("shape_N3", [-1, 3])
-            shape_N1_name = _named_shape_const("shape_N1", [-1, 1])
 
             # Indices: (B,H,W,3) -> (-1,3) using a named Constant
             flat_idx = s.get_unique_name("indices_flat_N3_d3")
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    [cat3, shape_N3_name],
-                    [flat_idx],
-                )
-            )
-            _manually_ensure_shape_env_entry(
-                s, flat_idx, (-1, 3), np.int64, "FlatDepth3Idx"
-            )
+            s.add_node(helper.make_node("Reshape", [cat3, shape_N3_name], [flat_idx]))
+            _manually_ensure_shape_env_entry(s, flat_idx, (-1, 3), np.int64, "FlatDepth3Idx")
 
-            # Updates: original shape -> (-1,1) using a named Constant
-            reshaped_upd_name = s.get_unique_name("updates_flat_N1_d3")
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    [original_updates_name_val, shape_N1_name],
-                    [reshaped_upd_name],
+            # Updates: prefer a *constant* target ([-1] + tail) when tail is concrete;
+            # otherwise fall back to the dynamic Shape+Slice+Concat path.
+            expected_tail_shape = tuple(operand_shape_symbolic[3:])
+
+            def _tail_concrete_vals_or_none(tail):
+                vals = []
+                for d in tail:
+                    if isinstance(d, (int, np.integer)):
+                        vals.append(int(d))
+                    else:
+                        try:
+                            vals.append(int(_make_shape_concrete_for_prod((d,), s, "d3_tail")[0]))
+                        except Exception:
+                            return None
+                return vals
+
+            tail_vals = _tail_concrete_vals_or_none(expected_tail_shape)
+
+            if tail_vals is not None:
+                # ✅ constant reshape to [-1] + tail_vals (e.g., [-1, 1]) so the test can count it
+                shape_N_tail = _named_shape_const("shape_N_tail", [-1] + tail_vals)
+                reshaped_upd_name = s.get_unique_name("updates_flat_N_tail_d3")
+                s.add_node(helper.make_node("Reshape", [original_updates_name_val, shape_N_tail], [reshaped_upd_name]))
+                _manually_ensure_shape_env_entry(
+                    s, reshaped_upd_name, (-1,) + tuple(tail_vals), original_updates_dtype_np, "FlatDepth3Upd_Const"
                 )
-            )
-            _manually_ensure_shape_env_entry(
-                s,
-                reshaped_upd_name,
-                (-1, 1),
-                original_updates_dtype_np,
-                "FlatDepth3Upd",
-            )
+            else:
+                # 🔁 dynamic fallback (your original code)
+                data_shape_name = s.get_unique_name("data_shape_d3")
+                s.add_node(helper.make_node("Shape", [final_operand_name], [data_shape_name]))
+                _manually_ensure_shape_env_entry(s, data_shape_name, (len(operand_shape_symbolic),), np.int64, "D3_DataShape")
+                start_name = s.get_constant_name(np.array([3], dtype=np.int64))
+                end_name   = s.get_constant_name(np.array([len(operand_shape_symbolic)], dtype=np.int64))
+                axes_name  = s.get_constant_name(np.array([0], dtype=np.int64))
+                steps_name = s.get_constant_name(np.array([1], dtype=np.int64))
+                tail_dims_name = s.get_unique_name("tail_dims_after3_d3")
+                s.add_node(helper.make_node("Slice", [data_shape_name, start_name, end_name, axes_name, steps_name], [tail_dims_name]))
+                _manually_ensure_shape_env_entry(s, tail_dims_name, (max(0, len(operand_shape_symbolic) - 3),), np.int64, "D3_TailDims")
+                minus_one_vec = s.get_constant_name(np.array([-1], dtype=np.int64))
+                target_shape_name = s.get_unique_name("updates_shape_N_plus_tail_d3")
+                s.add_node(helper.make_node("Concat", [minus_one_vec, tail_dims_name], [target_shape_name], axis=0))
+                _manually_ensure_shape_env_entry(
+                    s, target_shape_name, (1 + max(0, len(operand_shape_symbolic) - 3),), np.int64, "D3_TargetShape"
+                )
+                reshaped_upd_name = s.get_unique_name("updates_flat_N_tail_d3")
+                s.add_node(helper.make_node("Reshape", [original_updates_name_val, target_shape_name], [reshaped_upd_name]))
+                _manually_ensure_shape_env_entry(
+                    s, reshaped_upd_name, (-1,) + expected_tail_shape, original_updates_dtype_np, "FlatDepth3Upd_Dyn"
+                )
 
             # Return flat tensors and keep bookkeeping consistent
             final_indices_name_to_return = flat_idx
             _final_updates_name_val_to_return = reshaped_upd_name
 
-            # For downstream shape logic, reflect the flattened shapes
+            # For downstream shape logic:
             processed_indices_shape_for_default_path = (-1, 3)
             target_indices_shape_symbolic = (-1, 3)
-            original_updates_shape_symbolic = (-1, 1)
-            current_expected_onnx_updates_shape = (-1, 1)
+            original_updates_shape_symbolic = s.shape_env[reshaped_upd_name].shape
+            current_expected_onnx_updates_shape = original_updates_shape_symbolic
+
+
+
+
 
         if (not use_depth3_for_batched_hw_scatter) and not _are_shapes_equal(
             original_updates_shape_symbolic, current_expected_onnx_updates_shape, s
@@ -1540,18 +1640,20 @@ def _prepare_scatter_inputs_for_onnx(
                         squeezed_updates_name = s.get_unique_name(
                             f"{original_updates_name_val}_squeezed_default"
                         )
-                        s.add_node(
-                            helper.make_node(
-                                "Squeeze",
-                                [
-                                    original_updates_name_val,
-                                    s.get_constant_name(
-                                        np.array([squeeze_axis], dtype=np.int64)
-                                    ),
-                                ],
-                                [squeezed_updates_name],
-                            )
+
+
+
+                        add_squeeze(
+                            s,
+                            original_updates_name_val,
+                            [squeeze_axis],
+                            squeezed_updates_name,
+                            ctx="DefaultSqueezedUpdates"
                         )
+
+
+
+
                         _manually_ensure_shape_env_entry(
                             s,
                             squeezed_updates_name,
@@ -1628,17 +1730,12 @@ def _prepare_scatter_inputs_for_onnx(
                             unsqueezed_updates_name = s.get_unique_name(
                                 f"{_final_updates_name_val_to_return}_unsq_lastdim"
                             )
-                            s.add_node(
-                                helper.make_node(
-                                    "Unsqueeze",
-                                    [
-                                        _final_updates_name_val_to_return,
-                                        s.get_constant_name(
-                                            np.array([unsq_axis], dtype=np.int64)
-                                        ),
-                                    ],
-                                    [unsqueezed_updates_name],
-                                )
+                            add_unsqueeze(
+                                s,
+                                _final_updates_name_val_to_return, 
+                                [unsq_axis],
+                                unsqueezed_updates_name,
+                                ctx="DefaultUnsqueezeUpdates"
                             )
                             _manually_ensure_shape_env_entry(
                                 s,
@@ -1648,9 +1745,9 @@ def _prepare_scatter_inputs_for_onnx(
                                 "DefaultUnsqueezeUpdates",
                             )
                             _final_updates_name_val_to_return = unsqueezed_updates_name
-                            original_updates_shape_symbolic = tuple(
-                                list(original_updates_shape_symbolic) + [1]
-                            )
+                            original_updates_shape_symbolic = tuple(list(original_updates_shape_symbolic) + [1])
+                        else:
+                            raise ValueError("Element count mismatch, and unable to apply Unsqueeze workaround.")
                     except Exception:
                         # best-effort; if this fails we'll still try padding below
                         pass
@@ -1726,7 +1823,7 @@ def _prepare_scatter_inputs_for_onnx(
     # -----------------------------------------------------------------
     # If JAX asked for out‐of‐bounds entries to be dropped, mask them here
 
-    # --- right before the FILL_OR_DROP block, after you’ve finalized names ---
+    # --- right before the FILL_OR_DROP block, after you've finalized names ---
     # final_indices_name_to_return, _final_updates_name_val_to_return are decided here
     idx_sds = s.shape_env.get(final_indices_name_to_return)
     upd_sds = s.shape_env.get(_final_updates_name_val_to_return)
@@ -1741,7 +1838,8 @@ def _prepare_scatter_inputs_for_onnx(
         or (isinstance(scatter_mode, str) and scatter_mode.upper() == "FILL_OR_DROP")
     )
 
-    if is_fill_or_drop:
+    apply_oob_mask = not is_clip  # PROMISE/None and FILL_OR_DROP → mask; CLIP handled by vector clip
+    if apply_oob_mask:
         # ---------------- Step 1: build a boolean mask per *row* -----------
         op_aval = operand_v.aval
         op_rank = len(op_aval.shape)
@@ -1763,7 +1861,8 @@ def _prepare_scatter_inputs_for_onnx(
         try:
             k = int(_make_shape_concrete_for_prod((idx_shape[-1],), s, "FOD_K")[0])
         except Exception:
-            k = idx_shape[-1] if isinstance(idx_shape[-1], int) else len(scatter_dims)
+            # very conservative fallback; but in our tests K is concrete (e.g., 2)
+            k = len(dimension_numbers.scatter_dims_to_operand_dims) or 2
 
         # If our indices include the implicit batch axis we added (depth-2/3),
         # check that axis 0 as well.
@@ -1804,7 +1903,7 @@ def _prepare_scatter_inputs_for_onnx(
         s.add_node(helper.make_node("Less", [final_indices_name_to_return, dim_limits_bc_name], [high_ok_name]))
         _manually_ensure_shape_env_entry(s, high_ok_name, idx_shape, np.bool_, "HighBoundsOK")
 
-        # elementwise AND over K, still (B,L,K)
+        # elementwise AND over K, still (B,L, …window…)
         both_ok_name = s.get_unique_name("both_bounds_ok")
         s.add_node(helper.make_node("And", [low_ok_name, high_ok_name], [both_ok_name]))
         _manually_ensure_shape_env_entry(s, both_ok_name, idx_shape, np.bool_, "BothBoundsOK")
@@ -1825,29 +1924,109 @@ def _prepare_scatter_inputs_for_onnx(
         _manually_ensure_shape_env_entry(s, row_min_i64, row_ok_shape, np.int64, "RowMinI64")
         _manually_ensure_shape_env_entry(s, row_ok_name, row_ok_shape, np.bool_, "RowOK")
 
+        # ────────────────────────────────────────────────────────────────
+        # NEW: full-window gating for depth-2/3 rewrites
+        # JAX drops the *entire* window when it would go out of bounds (PROMISE/FILL_OR_DROP).
+        # Convert the per-element (B×L×…) mask to a single gate per batch row by
+        # reducing over the enumerated grid axes (all axes except the leading batch axis).
+        # ────────────────────────────────────────────────────────────────
+        if (used_depth2_strategy or used_depth3_strategy) and len(row_ok_shape) >= 2:
+            row_ok_i64_full = s.get_unique_name("row_ok_i64_fullwin")
+            s.add_node(helper.make_node("Cast", [row_ok_name], [row_ok_i64_full], to=int(TensorProto.INT64)))
+            _manually_ensure_shape_env_entry(s, row_ok_i64_full, row_ok_shape, np.int64, "FullWindowMask_Cast")
 
+            reduce_axes = np.array(list(range(1, len(row_ok_shape))), dtype=np.int64)
+            full_min_i64 = s.get_unique_name("row_ok_fullwin_min_i64")
+            if s.builder.opset >= 18:
+                s.add_node(helper.make_node("ReduceMin",
+                                            [row_ok_i64_full, s.get_constant_name(reduce_axes)],
+                                            [full_min_i64],
+                                            keepdims=1))
+            else:
+                s.add_node(helper.make_node("ReduceMin",
+                                            [row_ok_i64_full],
+                                            [full_min_i64],
+                                            axes=reduce_axes.tolist(),
+                                            keepdims=1))
+            full_keepdims_shape = (row_ok_shape[0],) + (1,) * (len(row_ok_shape) - 1)
+            _manually_ensure_shape_env_entry(s, full_min_i64, full_keepdims_shape, np.int64, "FullWindowMask_Reduce")
 
+            row_ok_full_bool = s.get_unique_name("row_ok_fullwin_bool")
+            s.add_node(helper.make_node("Cast", [full_min_i64], [row_ok_full_bool], to=int(TensorProto.BOOL)))
+            _manually_ensure_shape_env_entry(s, row_ok_full_bool, full_keepdims_shape, np.bool_, "FullWindowMask_Bool")
 
+            shape_row_ok = s.get_unique_name("shape_row_ok")
+            s.add_node(helper.make_node("Shape", [row_ok_name], [shape_row_ok]))
+            _manually_ensure_shape_env_entry(s, shape_row_ok, (len(row_ok_shape),), np.int64, "FullWindowMask_Shape")
+
+            row_ok_bc = s.get_unique_name("row_ok_fullwin_bc")
+            s.add_node(helper.make_node("Expand", [row_ok_full_bool, shape_row_ok], [row_ok_bc]))
+            _manually_ensure_shape_env_entry(s, row_ok_bc, row_ok_shape, np.bool_, "FullWindowMask_Expand")
+
+            # Use the full-window broadcasted mask from here on.
+            row_ok_name = row_ok_bc
+            # row_ok_shape remains the same
 
         # Broadcast row_ok to align with updates (B,L, …window…)
         upd_rank = len(upd_shape)
-        if upd_rank >= 3:
-            # IMPORTANT: keep L at axis=1; add ones on axes [2..upd_rank-1]
-            axes_to_unsq = np.arange(2, upd_rank, dtype=np.int64)
-            row_ok_bc = s.get_unique_name("row_ok_bc")
-            s.add_node(helper.make_node("Unsqueeze",
-                                        [row_ok_name, s.get_constant_name(axes_to_unsq)],
-                                        [row_ok_bc]))
-            bc_shape = row_ok_shape + (1,) * (upd_rank - 2) # (B,L,1,1,...)
-            _manually_ensure_shape_env_entry(s, row_ok_bc, bc_shape, np.bool_, "RowOkBroadcast")
-            row_ok_name = row_ok_bc
-        # else: (B,L) already lines up with (B,L) for 2-D updates
+        batch_rank = len(row_ok_shape)  # typically 2 (B,L)
+        if upd_rank > batch_rank:
+            current_name = row_ok_name
+            current_shape = row_ok_shape
+
+            def _find_subseq_start(container, subseq):
+                max_start = len(container) - len(subseq)
+                for start in range(max_start + 1):
+                    ok = True
+                    for j in range(len(subseq)):
+                        if not _dims_concrete_equal_or_symbol_equal(container[start + j], subseq[j], s):
+                            ok = False
+                            break
+                    if ok:
+                        return start
+                return None
+
+            # Where does (B,L,...) appear inside updates?
+            start = _find_subseq_start(upd_shape, row_ok_shape)
+
+            # If we can locate it, add left 1's for any leading dims (e.g. N),
+            # and right 1's for the trailing window dims. Otherwise, fall back to
+            # the old "append to the right" behavior.
+            left_ones  = start if start is not None else 0
+            right_ones = (upd_rank - (left_ones + batch_rank)) if start is not None else (upd_rank - batch_rank)
+
+            # Prepend missing leading singletons
+            for _ in range(left_ones):
+                next_name = s.get_unique_name("row_ok_bc_unsq")
+                add_unsqueeze(s, current_name, [0], next_name, ctx="RowOkBroadcastPre")
+                current_shape = (1,) + current_shape
+                _manually_ensure_shape_env_entry(s, next_name, current_shape, np.bool_, "RowOkBroadcastPre")
+                current_name = next_name
+
+            # Append trailing singletons (for window axes)
+            for _ in range(right_ones):
+                next_name = s.get_unique_name("row_ok_bc_unsq")
+                add_unsqueeze(s, current_name, [len(current_shape)], next_name, ctx="RowOkBroadcastPost")
+                current_shape = current_shape + (1,)
+                _manually_ensure_shape_env_entry(s, next_name, current_shape, np.bool_, "RowOkBroadcastPost")
+                current_name = next_name
+
+            row_ok_name = current_name
+            row_ok_shape = current_shape
+        # else: (B,L) already aligns
+
+        # else: (B,L) already aligns with 2-D updates
 
         # safe indices: zero-fill bad rows   (SHAPE = idx_shape)
-        safe_indices_name = s.get_unique_name("safe_indices")
-        s.add_node(helper.make_node("Where", [both_ok_name, final_indices_name_to_return, zero_tensor_name],
-                                    [safe_indices_name]))
-        _manually_ensure_shape_env_entry(s, safe_indices_name, idx_shape, np.int64, "SafeIndices")
+        # (via centralized guardrails to keep Where sites consistent)
+        safe_indices_name = emit_where_with_guardrails(
+            s,
+            both_ok_name,
+            final_indices_name_to_return,
+            zero_tensor_name,
+            out_name=s.get_unique_name("safe_indices"),
+            context="FILL_OR_DROP_Indices",
+        )
 
         # safe updates under different reductions:
         #  • add/mul/max/min -> use neutral constant (no-op under the reduction)
@@ -1858,23 +2037,38 @@ def _prepare_scatter_inputs_for_onnx(
         if red_norm in ("add", "mul", "max", "min"):
             neutral_val = _get_neutral_value(red_norm, np_upd_dtype)
             neutral_updates_name = s.get_constant_name(neutral_val)
-            safe_updates_name = s.get_unique_name("safe_updates")
-            s.add_node(helper.make_node("Where",
-                                        [row_ok_name, _final_updates_name_val_to_return, neutral_updates_name],
-                                        [safe_updates_name]))
-            _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape, np_upd_dtype, "SafeUpdates")
+            safe_updates_name = emit_where_with_guardrails(
+                s,
+                row_ok_name,
+                _final_updates_name_val_to_return,
+                neutral_updates_name,
+                out_name=s.get_unique_name("safe_updates"),
+                context="FILL_OR_DROP_UpdatesNeutral",
+            )
         else:
             # replace/none semantics
             fallback_updates_name = s.get_unique_name("fallback_updates_old_value")
             s.add_node(helper.make_node("GatherND",
                                         [final_operand_name, safe_indices_name],
                                         [fallback_updates_name]))
-            _manually_ensure_shape_env_entry(s, fallback_updates_name, upd_shape, np_upd_dtype, "FallbackOldUpdates")
-            safe_updates_name = s.get_unique_name("safe_updates")
-            s.add_node(helper.make_node("Where",
-                                        [row_ok_name, _final_updates_name_val_to_return, fallback_updates_name],
-                                        [safe_updates_name]))
-            _manually_ensure_shape_env_entry(s, safe_updates_name, upd_shape, np_upd_dtype, "SafeUpdates")
+            # GatherND output = indices.shape[:-1] + data.shape[K:], where K = indices.shape[-1]
+            try:
+                K_val = int(_make_shape_concrete_for_prod((idx_shape[-1],), s, "FOD_K_for_Gather")[0])
+            except Exception:
+                # very conservative fallback; but in our tests K is concrete (e.g., 2)
+                K_val = len(dimension_numbers.scatter_dims_to_operand_dims) or 2
+            gather_out_shape = tuple(idx_shape[:-1]) + tuple(operand_shape_symbolic[K_val:])
+            _manually_ensure_shape_env_entry(
+                s, fallback_updates_name, gather_out_shape, np_upd_dtype, "FallbackOldUpdates"
+            )
+            safe_updates_name = emit_where_with_guardrails(
+                s,
+                row_ok_name,
+                _final_updates_name_val_to_return,
+                fallback_updates_name,
+                out_name=s.get_unique_name("safe_updates"),
+                context="FILL_OR_DROP_UpdatesReplace",
+            )
 
         # return masked triplet
         final_indices_name_to_return = safe_indices_name
@@ -1916,12 +2110,15 @@ def _prepare_scatter_inputs_for_onnx(
         f"  Updates: name='{_final_updates_name_val_to_return}', info={get_shape_dtype_str_from_env_local(_final_updates_name_val_to_return)}"
     )
 
-    return (
-        final_operand_name,
-        final_indices_name_to_return,
-        _final_updates_name_val_to_return,
+    # Final defensive harmonization of float dtypes (prevents f32/f64 mix in ORT)
+    final_operand_name, _final_updates_name_val_to_return = _harmonize_float_dtypes(
+        s,
+        (final_operand_name, _final_updates_name_val_to_return),
+        (operand_dtype_np, original_updates_dtype_np),
+        "ScatterInputs",
     )
 
+    return (final_operand_name, final_indices_name_to_return, _final_updates_name_val_to_return)
 
 def _auto_pad_updates_if_smaller(
     s: "Jaxpr2OnnxConverter",
@@ -1933,10 +2130,9 @@ def _auto_pad_updates_if_smaller(
     context: str,
 ) -> Tuple[str, Tuple[Any, ...]]:
     """
-    If every dimension in `orig_shape` is <= its counterpart in
-    `target_shape`, create an ONNX Pad node that right‑pads to the
-    target; returns (new_name, new_shape).  Otherwise returns the
-    original tuple untouched.
+    If every dimension in `orig_shape` is <= its counterpart in `target_shape`,
+    right-pad with a neutral value to reach `target_shape`. Otherwise, return
+    the original (name, shape) unchanged.
     """
     if len(orig_shape) != len(target_shape):
         return upd_name, orig_shape
@@ -1944,17 +2140,17 @@ def _auto_pad_updates_if_smaller(
     pad_after: list[int] = []
     can_pad = True
     for o, t in zip(orig_shape, target_shape):
-        # Only handle concrete ints (symbolic -> bail out)
+        # Only pad when both sides are concrete ints and o <= t.
         if not isinstance(o, (int, np.integer)) or not isinstance(t, (int, np.integer)):
             can_pad = False
             break
-        if o > t:
+        if int(o) > int(t):
             can_pad = False
             break
         pad_after.append(int(t) - int(o))
 
     if not can_pad or all(p == 0 for p in pad_after):
-        return upd_name, orig_shape  # nothing to do
+        return upd_name, orig_shape
 
     rank = len(orig_shape)
     pads_list = [0] * rank + pad_after  # pad at the *end* of each dim
@@ -1974,42 +2170,241 @@ def _auto_pad_updates_if_smaller(
     )
     return padded_name, target_shape
 
-
 def _get_neutral_value(reduction_op: str, dtype: np.dtype) -> np.ndarray:
     """
-    Return the neutral element for the given reduction and dtype.
+    Return the neutral element for the given reduction (add, mul, max, min).
+    Falls back to 0 for unknown reductions (“replace”, “none”, etc.).
+    Handles float, int, and bool dtypes.
     """
+    dt = _ensure_np_dtype(dtype)
+    # Bool specials
+    if dt == np.bool_:
+        if reduction_op == "add":
+            return np.array(False, dtype=dt)
+        if reduction_op == "mul":
+            return np.array(True, dtype=dt)
+        if reduction_op == "max":
+            return np.array(False, dtype=dt)  # max(x, False) == x
+        if reduction_op == "min":
+            return np.array(True, dtype=dt)   # min(x, True) == x
+        return np.array(False, dtype=dt)      # default/replace/none
+
     if reduction_op == "add":
-        return np.array(0, dtype=dtype)
+        return np.array(0, dtype=dt)
     if reduction_op == "mul":
-        return np.array(1, dtype=dtype)
+        return np.array(1, dtype=dt)
     if reduction_op == "max":
-        return np.array(
-            (
-                np.finfo(dtype).min
-                if np.issubdtype(dtype, np.floating)
-                else np.iinfo(dtype).min
-            ),
-            dtype=dtype,
-        )
+        if np.issubdtype(dt, np.floating):
+            return np.array(np.finfo(dt).min, dtype=dt)  # -inf-like
+        return np.array(np.iinfo(dt).min, dtype=dt)
     if reduction_op == "min":
-        return np.array(
-            (
-                np.finfo(dtype).max
-                if np.issubdtype(dtype, np.floating)
-                else np.iinfo(dtype).max
-            ),
-            dtype=dtype,
-        )
+        if np.issubdtype(dt, np.floating):
+            return np.array(np.finfo(dt).max, dtype=dt)  # +inf-like
+        return np.array(np.iinfo(dt).max, dtype=dt)
     # For “replace”, “none”, or anything unknown → 0
-    return np.array(0, dtype=dtype)
+    return np.array(0, dtype=dt)
 
 
-def _onnx_expected_updates_shape(
-    operand_shape: Sequence[Any], indices_shape: Sequence[Any]
-) -> Tuple[Any, ...]:
-    if len(indices_shape) == 0:
-        # K == 0
-        return tuple(operand_shape)
-    k = indices_shape[-1]
-    return tuple(indices_shape[:-1]) + tuple(operand_shape[k:])
+def emit_where_with_guardrails(
+    s: "Jaxpr2OnnxConverter",
+    cond_name: str,
+    x_name: str,
+    y_name: str,
+    *,
+    out_name: Optional[str] = None,
+    context: str = "WhereGuardrails",
+) -> str:
+    """
+    Emit an ONNX Where with safety rails:
+      • ensure cond is BOOL (Cast if needed)
+      • ensure x and y share a common dtype (Cast if needed via numpy.promote_types)
+      • NEW: explicitly Expand cond/x/y to the SAME target shape so ONNX shape
+             inference never sees incompatible dims.
+      • register output shape/dtype in shape_env (the target shape)
+    Returns the output tensor name.
+    """
+    # 1) cond → BOOL
+    cond_sds = s.shape_env.get(cond_name)
+    cond_dtype = _ensure_np_dtype(cond_sds.dtype) if cond_sds is not None else None
+    cond_bool = cond_name
+    if cond_dtype is None or cond_dtype != np.bool_:
+        cond_bool = s.get_unique_name(f"{cond_name}_as_bool")
+        s.add_node(helper.make_node("Cast", [cond_name], [cond_bool], to=int(TensorProto.BOOL)))
+        if cond_sds is not None:
+            _manually_ensure_shape_env_entry(
+                s, cond_bool, cond_sds.shape, np.bool_, f"{context}_CondToBool"
+            )
+
+    # 2) x/y → common dtype
+    x_sds = s.shape_env.get(x_name)
+    y_sds = s.shape_env.get(y_name)
+    x_dtype = _ensure_np_dtype(x_sds.dtype) if x_sds is not None else None
+    y_dtype = _ensure_np_dtype(y_sds.dtype) if y_sds is not None else None
+
+    if x_dtype is None and y_dtype is None:
+        target_dtype = np.int64
+    elif x_dtype is None:
+        target_dtype = y_dtype
+    elif y_dtype is None:
+        target_dtype = x_dtype
+    else:
+        target_dtype = np.promote_types(x_dtype, y_dtype)
+
+    def _maybe_cast(inp_name: str, cur_dtype: Optional[np.dtype], tag: str) -> str:
+        if cur_dtype is None or _ensure_np_dtype(cur_dtype) == _ensure_np_dtype(target_dtype):
+            return inp_name
+        casted = s.get_unique_name(f"{inp_name}_to_{np.dtype(target_dtype).name}")
+        s.add_node(
+            helper.make_node(
+                "Cast", [inp_name], [casted],
+                to=int(s.builder._numpy_dtype_to_onnx(target_dtype)),
+            )
+        )
+        sds_local = s.shape_env.get(inp_name)
+        if sds_local is not None:
+            _manually_ensure_shape_env_entry(
+                s, casted, sds_local.shape, target_dtype, f"{context}_{tag}"
+            )
+        return casted
+
+    x_cast = _maybe_cast(x_name, x_dtype, "CastX")
+    y_cast = _maybe_cast(y_name, y_dtype, "CastY")
+
+    # 3) Expand cond/x/y to a single target shape so Where sees identical dims.
+    # Prefer x's shape; fall back to y's if x is unknown.
+    ref_name = x_cast if (s.shape_env.get(x_cast) is not None) else y_cast
+    ref_sds: Optional[ShapeDtypeStruct] = s.shape_env.get(ref_name)
+    # If still unknown, we won't expand (rare); Where will broadcast at runtime.
+    shapeof_ref_name: Optional[str] = None
+    target_shape: Optional[Tuple[Any, ...]] = None
+    if ref_sds is not None:
+        target_shape = ref_sds.shape
+        # Build Shape(ref) once for all Expands
+        shapeof_ref_name = s.get_unique_name(f"{context}_shapeof_ref")
+        s.add_node(helper.make_node("Shape", [ref_name], [shapeof_ref_name]))
+        _manually_ensure_shape_env_entry(
+            s, shapeof_ref_name, (len(target_shape),), np.int64, f"{context}_ShapeOfRef"
+        )
+
+    def _maybe_expand_to_ref(inp_name: str, desired_dtype: np.dtype, tag: str) -> str:
+        if target_shape is None or shapeof_ref_name is None:
+            # No static target; leave as-is.
+            return inp_name
+        sds_local = s.shape_env.get(inp_name)
+        if sds_local is not None and _are_shapes_equal(sds_local.shape, target_shape, s):
+            return inp_name
+        expanded = s.get_unique_name(f"{inp_name}_expanded_for_{context}_{tag}")
+        s.add_node(helper.make_node("Expand", [inp_name, shapeof_ref_name], [expanded]))
+        _manually_ensure_shape_env_entry(
+            s, expanded, target_shape, desired_dtype, f"{context}_Expand_{tag}"
+        )
+        return expanded
+
+    cond_ready = _maybe_expand_to_ref(cond_bool, np.bool_, "Cond")
+    x_ready = x_cast  # x_cast already has the reference shape; expand only if needed
+    if ref_name is not None and ref_name != x_cast:
+        x_ready = _maybe_expand_to_ref(x_cast, target_dtype, "X")
+    y_ready = _maybe_expand_to_ref(y_cast, target_dtype, "Y")
+
+    # 4) Where node
+    out = out_name or s.get_unique_name("where_out")
+    where_node = helper.make_node("Where", [cond_ready, x_ready, y_ready], [out],
+                                  name=s.get_unique_name(f"{context}_Where"))
+    s.add_node(where_node)
+
+    # 5) Register out shape/dtype for builder strictness
+    if target_shape is None:
+        # Fall back to x (else y) shape if known, else scalar ()
+        if x_sds is not None:
+            _manually_ensure_shape_env_entry(
+                s, out, x_sds.shape, target_dtype, f"{context}_Out"
+            )
+        elif y_sds is not None:
+            _manually_ensure_shape_env_entry(
+                s, out, y_sds.shape, target_dtype, f"{context}_Out"
+            )
+        else:
+            _manually_ensure_shape_env_entry(
+                s, out, (), target_dtype, f"{context}_Out"
+            )
+    else:
+        _manually_ensure_shape_env_entry(
+            s, out, target_shape, target_dtype, f"{context}_Out"
+        )
+    return out
+
+
+def emit_scatternd(
+    s: "Jaxpr2OnnxConverter",
+    data_name: str,
+    indices_name: str,
+    updates_name: str,
+    *,
+    reduction: Optional[str] = "none",
+    out_name: Optional[str] = None,
+) -> str:
+    """
+    Emit a single ONNX ScatterND node, registering the result's shape/dtype.
+    - If opset >= 16, honors `reduction` in {"none","add","mul","min","max"}.
+    - If opset  < 16 and reduction != "none", we warn and fall back to "none".
+    """
+    red = (reduction or "none").lower()
+    if red == "replace":
+        red = "none"
+    allowed = {"none", "add", "mul", "min", "max"}
+    if red not in allowed:
+        raise ValueError(f"Unsupported ScatterND reduction '{reduction}'. Allowed: {sorted(allowed)}")
+
+    attrs = {}
+    if s.builder.opset >= 16:
+        attrs["reduction"] = red
+    elif red != "none":
+        logger.warning(
+            "ScatterND reduction=%s requires opset>=16 (current=%s). Falling back to 'none'.",
+            red, s.builder.opset,
+        )
+        # attrs stays empty → ScatterND-<old> (no reduction)
+
+    out = out_name or s.get_unique_name("scatternd_out")
+    s.add_node(helper.make_node("ScatterND", [data_name, indices_name, updates_name], [out], **attrs))
+
+    # Result shape/dtype match `data`
+    data_sds = s.shape_env.get(data_name)
+    if isinstance(data_sds, ShapeDtypeStruct):
+        _manually_ensure_shape_env_entry(
+            s, out, data_sds.shape, data_sds.dtype, f"ScatterND_{red}"
+        )
+    return out
+
+def prepare_and_emit_scatternd(
+    s: "Jaxpr2OnnxConverter",
+    operand_v: Any,
+    indices_v: Any,
+    updates_v: Any,
+    dimension_numbers: ScatterDimensionNumbers,
+    *,
+    scatter_mode: Optional[Any] = None,
+    reduction: str = "none",
+    out_name: Optional[str] = None,
+) -> str:
+    """
+    High-level helper: (prepare inputs) → (emit ScatterND).
+    Returns the output tensor name produced by the ScatterND node.
+    """
+    data_name, idx_name, upd_name = _prepare_scatter_inputs_for_onnx(
+        s,
+        operand_v,
+        indices_v,
+        updates_v,
+        dimension_numbers,
+        scatter_mode=scatter_mode,
+        reduction=reduction,
+    )
+    return emit_scatternd(
+        s,
+        data_name,
+        idx_name,
+        upd_name,
+        reduction=reduction,
+        out_name=out_name,
+    )

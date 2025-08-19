@@ -12,7 +12,7 @@ from onnx import helper
 
 # Correctly import from the plugin_system module based on your provided files
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from .scatter_utils import _prepare_scatter_inputs_for_onnx
+from .scatter_converters import convert_lax_scatter_add
 import logging
 
 # Import jnp for the new test case
@@ -364,37 +364,23 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         operand_v, indices_v, updates_v = node_inputs
         out_v = node_outputs[0]
         out_name = s.get_name(out_v)
-        operand_aval = operand_v.aval
 
-        dimension_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
         logger.info(
-            f"Converting lax.scatter_add with dimension_numbers: {dimension_numbers}"
+            f"Converting lax.scatter_add with dimension_numbers: {params.get('dimension_numbers')}"
         )
 
-        # This utility function contains the core fix and returns the final ONNX tensor names
-        final_operand_name, final_indices_name, final_updates_name = (
-            _prepare_scatter_inputs_for_onnx(
-                s, operand_v, indices_v, updates_v, dimension_numbers
-            )
+        # Style B: delegate to the shared converter
+        class _Eqn:
+            pass
+        _e = _Eqn()
+        _e.params = params
+        convert_lax_scatter_add(
+            s,
+            _e,
+            (operand_v, indices_v, updates_v),
+            (out_v,),
         )
+        logger.debug("[ScatterAddPlugin] Emitted ScatterND(reduction='add') → %s", out_name)
 
-        logger.debug(
-            "[ScatterAddPlugin] Final inputs to ScatterND: operand=%s, indices=%s, updates=%s",
-            final_operand_name,
-            final_indices_name,
-            final_updates_name,
-        )
 
-        # Create the ONNX ScatterND node with the 'add' reduction.
-        s.add_node(
-            helper.make_node(
-                "ScatterND",
-                inputs=[final_operand_name, final_indices_name, final_updates_name],
-                outputs=[out_name],
-                name=s.get_unique_name(f"scatter_nd_add_{out_name}"),
-                reduction="add",
-            )
-        )
 
-        # The output shape of scatter_add is always the same as the operand's shape.
-        s.add_shape_info(out_name, operand_aval.shape, operand_aval.dtype)
