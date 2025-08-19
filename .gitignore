@@ -1,5 +1,6 @@
 debugvenv
 data
+logs
 output
 .idea
 dist

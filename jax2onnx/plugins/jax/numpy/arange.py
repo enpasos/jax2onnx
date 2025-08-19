@@ -25,7 +25,6 @@ logger = logging.getLogger("jax2onnx.plugins.jax.numpy.arange")
 
 
 # --- JAX-side Sentinel for Data-Dependent Dynamic Dimensions ---
-# ... (sentinel class definition remains the same) ...
 class Jax2OnnxDynamicDimSentinel:
     _instance = None
 
@@ -69,18 +68,6 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
     for i, aval_item in enumerate(in_avals):
         logger.debug(
             f"  in_avals[{i}]: type={type(aval_item)}, aval={aval_item}, "
-            f"is_jax_extend_core_Literal={isinstance(aval_item, Literal)}, "  # Literal is jax.extend.core.Literal
-            f"val={getattr(aval_item, 'val', 'N/A')}, dtype={getattr(aval_item, 'dtype', 'N/A')}"
-        )
-    logger.debug(f"Checking against Literal type: {Literal} (from jax.extend.core)")
-
-    logger.debug("--- ARANGE abstract_eval_arange_dynamic ---")
-    logger.debug(f"Called with jax_enable_x64: {jax_config.jax_enable_x64}")
-    logger.debug(f"Explicit dtype parameter: {dtype}")
-    logger.debug(f"Number of in_avals: {len(in_avals)}")
-    for i, aval_item in enumerate(in_avals):
-        logger.debug(
-            f"  in_avals[{i}]: type={type(aval_item)}, aval={aval_item}, "
             f"is_jax_extend_core_Literal={isinstance(aval_item, Literal)}, "
             f"val={getattr(aval_item, 'val', 'N/A')}, dtype={getattr(aval_item, 'dtype', 'N/A')}"
         )
@@ -89,6 +76,7 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
     x64_enabled = jax_config.jax_enable_x64
     final_dtype: np.dtype
 
+    # Determine dtype as before...
     if dtype is not None:
         _temp_dtype = np.dtype(dtype)
         if jnp.issubdtype(_temp_dtype, np.floating):
@@ -108,20 +96,17 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
         else:
             final_dtype = _temp_dtype
     else:
+        # Infer dtype from avals as before...
         is_float_inferred = False
-        for aval_for_dtype in in_avals:
-            val_to_check_for_dtype = None
-            if isinstance(aval_for_dtype, Literal):
-                val_to_check_for_dtype = aval_for_dtype.val
-            elif hasattr(aval_for_dtype, "dtype"):
-                if jnp.issubdtype(aval_for_dtype.dtype, np.floating):
-                    is_float_inferred = True
-                    break
-                if not aval_for_dtype.shape and hasattr(aval_for_dtype, "val"):
-                    val_to_check_for_dtype = aval_for_dtype.val
-            if val_to_check_for_dtype is not None and isinstance(
-                val_to_check_for_dtype, (float, np.floating)
-            ):
+        for aval in in_avals:
+            val_to_check = None
+            if isinstance(aval, Literal):
+                val_to_check = aval.val
+            elif hasattr(aval, "dtype") and jnp.issubdtype(aval.dtype, np.floating):
+                is_float_inferred = True
+            elif not aval.shape and hasattr(aval, "val"):
+                val_to_check = aval.val
+            if isinstance(val_to_check, (float, np.floating)):
                 is_float_inferred = True
                 break
         if is_float_inferred:
@@ -129,90 +114,69 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
         else:
             final_dtype = np.dtype(np.int32)
         logger.debug(
-            f"Arange abstract_eval: dtype from bind was None, inferred as {final_dtype} from input avals (x64_enabled={x64_enabled})."
+            f"Arange abstract_eval: dtype inferred as {final_dtype} from input avals (x64={x64_enabled})."
         )
 
     try:
-        all_literals = True
+        # --- New: accept any concrete scalar aval ---
+        concrete_vals: list[float] = []
+        all_concrete = True
         for i, aval in enumerate(in_avals):
-            is_lit = isinstance(aval, Literal)
-            logger.debug(
-                f"Checking in_aval[{i}]: type={type(aval)}, isinstance Literal ({Literal})? {is_lit}"
-            )
-            if not is_lit:
-                all_literals = False
-                break
+            # 1) Literal from either core or extend.core
+            if isinstance(aval, (core.Literal, Literal)):
+                concrete_vals.append(float(aval.val))
+                continue
 
-        if not all_literals:
-            logger.warning(
-                "Arange abstract_eval: Not all inputs are jax.extend.core.Literal instances. Defaulting to dynamic shape."
+            # 2) Any scalar-shaped aval with a .val attribute
+            if not aval.shape and hasattr(aval, "val"):
+                v = aval.val
+                if np.isscalar(v):
+                    concrete_vals.append(float(v))
+                    continue
+
+            all_concrete = False
+            logger.debug(
+                f"in_aval[{i}] of type {type(aval)} is not concrete; falling back to dynamic."
             )
-            # ONNX Range will be fed int64 constants, so our dynamic arange must declare int64 output
+            break
+
+        if not all_concrete:
+            logger.warning(
+                "Arange abstract_eval: inputs not all concrete; defaulting to dynamic shape."
+            )
             dyn_dtype = (
                 np.dtype(np.int64)
                 if np.issubdtype(final_dtype, np.integer)
                 else final_dtype
             )
-            if dyn_dtype != final_dtype:
-                logger.debug(
-                    f"Arange abstract_eval: Promoting dynamic integer dtype {final_dtype} → {dyn_dtype}."
-                )
             return core.ShapedArray(
                 (DATA_DEPENDENT_DYNAMIC_DIM,), dyn_dtype, weak_type=False
             )
 
-        logger.debug("All inputs are Literals. Proceeding with concrete evaluation.")
-        concrete_vals = [float(aval.val) for aval in in_avals]
-        logger.debug(f"Concrete vals for calculation: {concrete_vals}")
-
-        py_start, py_stop, py_step = 0.0, 0.0, 1.0
+        logger.debug("All inputs are concrete. Proceeding with concrete evaluation.")
+        # Determine size by numpy semantics
+        start = concrete_vals[0] if len(concrete_vals) > 1 else 0.0
         if len(concrete_vals) == 1:
-            py_stop = concrete_vals[0]
+            stop = concrete_vals[0]
+            step = 1.0
         elif len(concrete_vals) == 2:
-            py_start = concrete_vals[0]
-            py_stop = concrete_vals[1]
-        elif len(concrete_vals) == 3:
-            py_start = concrete_vals[0]
-            py_stop = concrete_vals[1]
-            py_step = concrete_vals[2]
+            stop = concrete_vals[1]
+            step = 1.0
         else:
-            logger.error(
-                f"Internal error: arange abstract_eval received {len(concrete_vals)} concrete values. Defaulting to dynamic."
-            )
-            return core.ShapedArray(
-                (DATA_DEPENDENT_DYNAMIC_DIM,), final_dtype, weak_type=False
-            )
-        logger.debug(f"Python start={py_start}, stop={py_stop}, step={py_step}")
+            stop = concrete_vals[1]
+            step = concrete_vals[2]
 
-        if py_step == 0.0:
-            logger.warning("arange step is zero. Using dynamic sentinel.")
+        if step == 0.0:
             return core.ShapedArray(
                 (DATA_DEPENDENT_DYNAMIC_DIM,), final_dtype, weak_type=False
             )
 
-        size = 0
-        calc_start, calc_stop, calc_step = (
-            np.float64(py_start),
-            np.float64(py_stop),
-            np.float64(py_step),
-        )
-        if (calc_step > 0 and calc_start < calc_stop) or (
-            calc_step < 0 and calc_start > calc_stop
-        ):
-            value_for_ceil = (calc_stop - calc_start) / calc_step
-            size = int(np.ceil(value_for_ceil))
-        size = max(0, size)
-        logger.debug(
-            f"Arange abstract_eval: concrete case, calculated size={size}, final_dtype={final_dtype}"
-        )
-        return core.ShapedArray((size,), final_dtype, weak_type=False)
+        # Compute size
+        num = max(0, int(np.ceil((stop - start) / step)))
+        return core.ShapedArray((num,), final_dtype, weak_type=False)
 
-    except Exception as e:
-        logger.error(
-            f"Arange abstract_eval: Exception during concrete evaluation ({e}), defaulting to dynamic shape.",
-            exc_info=True,
-        )
-        # same promotion on error path
+    except Exception:
+        # Fallback to dynamic on any error
         err_dtype = (
             np.dtype(np.int64)
             if np.issubdtype(final_dtype, np.integer)
@@ -222,8 +186,6 @@ def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = Non
             (DATA_DEPENDENT_DYNAMIC_DIM,), err_dtype, weak_type=False
         )
 
-
-# ... (rest of the ArangePlugin class and other definitions remain the same) ...
 
 jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
 
@@ -386,24 +348,18 @@ class ArangePlugin(PrimitiveLeafPlugin):
             dtype_param = kwargs.pop("dtype", None)
             if kwargs:
                 logger.warning(
-                    f"jnp.arange patched call received unexpected kwargs: {kwargs}. "
-                    "These will be ignored by the primitive binding but passed to original if fallback occurs."
+                    f"jnp.arange patched call received unexpected kwargs: {kwargs}."
                 )
-            num_pos_args = len(args)
-            if not (1 <= num_pos_args <= 3):
-                logger.debug(
-                    f"Calling original arange due to invalid number of positional args: {num_pos_args}."
-                )
+            num_pos = len(args)
+            if not (1 <= num_pos <= 3):
                 if ArangePlugin._ORIGINAL_ARANGE:
-                    return ArangePlugin._ORIGINAL_ARANGE(  # type: ignore
+                    return ArangePlugin._ORIGINAL_ARANGE(
                         *args, dtype=dtype_param, **kwargs
                     )
                 raise TypeError(
-                    f"arange takes 1 to 3 positional arguments but {num_pos_args} were given"
+                    f"arange takes 1 to 3 positional arguments but {num_pos} were given"
                 )
-
-            bind_args = args[:num_pos_args]
-            return jnp.arange_p_jax2onnx.bind(*bind_args, dtype=dtype_param)
+            return jnp.arange_p_jax2onnx.bind(*args[:num_pos], dtype=dtype_param)
 
         return patched_arange
 

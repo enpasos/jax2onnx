@@ -6,17 +6,16 @@ from typing import TYPE_CHECKING, Sequence, Any
 
 import numpy as np
 import jax.numpy as jnp  # Keep for potential use in test cases or future needs
-from jax import ShapeDtypeStruct, lax, core
+from jax import lax, core
 from jax.lax import (
     ScatterDimensionNumbers,
     GatherScatterMode,
 )
-from onnx import helper
 import onnx
 from onnx import numpy_helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from .scatter_utils import _prepare_scatter_inputs_for_onnx
+from .scatter_converters import convert_lax_scatter
 
 import logging
 
@@ -234,6 +233,142 @@ def _count_reshape_to_shape_in_model(
             ],
             "run_only_f64_variant": True,
         },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION: fp64 ScatterND-helper dtype mismatch
+        #
+        #  • operand lives in **float64**
+        #  • generalised "depth-2 indices" path is chosen
+        #  • old helper records GatherND output as float32
+        #    → onnx.check_model fails with
+        #      "Type (tensor(float)) of output arg (…) does not match
+        #       expected type (tensor(double))"
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_fp64_type_mismatch",
+            "callable": (
+                # tiny tensor just large enough to trigger depth-2 logic
+                lambda: lax.scatter(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand (double)
+                    jnp.array([[1]], dtype=jnp.int32),  # indices  shape (1, depth=1)
+                    jnp.ones(
+                        (1, 2, 3, 4, 5), dtype=jnp.float64
+                    ),  # updates  shape = indices[:-1] + window
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(
+                            1,
+                            2,
+                            3,
+                            4,
+                        ),  # window-dims = all operand dims
+                        inserted_window_dims=(),  # ⇒ generalised depth-2 route
+                        scatter_dims_to_operand_dims=(
+                            1,
+                        ),  # scatter along 2-nd operand dim
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs – everything is literal
+            "run_only_f64_variant": True,  # exporter stays in float64
+        },
+        {
+            "testcase": "scatter_simple_2d_window_out_of_bounds",
+            "callable": lambda: lax.scatter(
+                jnp.zeros((5, 5), dtype=jnp.float32),
+                jnp.array([[4]], dtype=jnp.int32),  # Start update at index 4 of axis 1
+                jnp.ones(
+                    (1, 5, 2), dtype=jnp.float32
+                ),  # Window size is 2 along that axis
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(
+                        1,
+                        2,
+                    ),  # In updates, axes 1 and 2 are the window
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),  # Map index to operand axis 1
+                ),
+            ),
+            "input_shapes": [],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scatter_clip_2d_window_at_edge",
+            "callable": lambda: lax.scatter(
+                jnp.arange(5).reshape(1, 5).astype(jnp.float32),
+                jnp.array([[4]], dtype=jnp.int32),  # start at index 4 of axis 1
+                jnp.array(
+                    [[[9.0, 8.0]]], dtype=jnp.float32
+                ),  # <- NO transpose → (1,1,2)
+                dimension_numbers=lax.ScatterDimensionNumbers(
+                    update_window_dims=(1, 2),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+                mode=GatherScatterMode.CLIP,
+            ),
+            "input_shapes": [],
+            "run_only_f32_variant": True,
+        },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION ♦ depth-2 ScatterND helper keeps f32 although
+        #                operand is f64  →  onnx.check_model type error
+        #   • operand:     float64   (should drive GatherND dtype)
+        #   • updates:     float32   (leaks into helper -> GatherND recorded fp32)
+        #   • indices:     depth-2   (forces "generalised depth-2 indices" path)
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch_f64",
+            "callable": (
+                lambda: lax.scatter(
+                    # ① operand – double precision
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                    # ② indices – shape (N, 2) so depth-2 logic is chosen
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # (N, 2)
+                    # ③ updates – intentionally float32
+                    # shape = (N, 1, 1, 4, 5):
+                    #   – leading N  (=indices.shape[0])
+                    #   – two size-1 dims (inserted_window_dims)
+                    #   – the operand window (4,5)
+                    jnp.ones((2, 4, 5), dtype=jnp.float64),  # rank 3  ✅
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),  # positions in the updates tensor
+                        inserted_window_dims=(
+                            0,
+                            1,
+                        ),  # operand dims that are size-1 and absent
+                        scatter_dims_to_operand_dims=(0, 1),  # two scatter dims
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs (all literals)
+            "run_only_f64_variant": True,  # test must run with default fp32 exporter
+        },
+        {
+            "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch",
+            "callable": (
+                lambda: lax.scatter(
+                    # ① operand – double precision
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                    # ② indices – shape (N, 2) so depth-2 logic is chosen
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # (N, 2)
+                    # ③ updates – intentionally float32
+                    # shape = (N, 1, 1, 4, 5):
+                    #   – leading N  (=indices.shape[0])
+                    #   – two size-1 dims (inserted_window_dims)
+                    #   – the operand window (4,5)
+                    jnp.ones((2, 4, 5), dtype=jnp.float32),  # rank 3  ✅
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),  # positions in the updates tensor
+                        inserted_window_dims=(
+                            0,
+                            1,
+                        ),  # operand dims that are size-1 and absent
+                        scatter_dims_to_operand_dims=(0, 1),  # two scatter dims
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs (all literals)
+            "run_only_f32_variant": True,  # test must run with default fp32 exporter
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):
@@ -263,34 +398,70 @@ class ScatterPlugin(PrimitiveLeafPlugin):
         out_v = node_outputs[0]
         out_name = s.get_name(out_v)
 
-        # original operand info
-        aval = operand_v.aval
-        op_shape = tuple(aval.shape)
-        op_dtype = np.dtype(aval.dtype)
-
-        # prepare inputs
+        # Delegate to the shared converter (Style B)
         logger.info(
             f"Preparing inputs for ONNX ScatterND with {params['dimension_numbers']}"
         )
-        in_name, idx_name, upd_name = _prepare_scatter_inputs_for_onnx(
-            s, operand_v, indices_v, updates_v, params["dimension_numbers"]
+
+        class _Eqn:
+            # mypy: declare the attribute so assignments are type-checked
+            params: dict[str, Any]
+
+        _e = _Eqn()
+        _e.params = params
+        convert_lax_scatter(
+            s,
+            _e,
+            (operand_v, indices_v, updates_v),
+            (out_v,),
+        )
+        logger.debug(
+            "[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name
+        )
+        logger.debug(
+            "[ScatterPlugin] Emitted ScatterND(reduction='none') → %s", out_name
         )
 
-        # emit ScatterND
-        attrs: dict[str, Any] = {}
-        if s.builder.opset >= 16:
-            attrs["reduction"] = "none"
-        s.add_node(
-            helper.make_node(
-                "ScatterND",
-                [in_name, idx_name, upd_name],
-                [out_name],
-                name=s.get_unique_name(f"scatter_nd_{out_name}"),
-                **attrs,
+
+def _validate_updates_window_fits_operand(op_shape, upd_shape, dnums, *, mode=None):
+    """
+    Validate that each window dimension of `updates` does not exceed the
+    corresponding dimension of `operand`.
+
+    IMPORTANT: JAX has 2 legal conventions in the wild:
+      • update_window_dims = all operand dims \ {inserted}          (includes scatter dims)
+      • update_window_dims = all operand dims \ {inserted ∪ scatter}  (excludes scatter dims)
+    We must pick whichever matches |update_window_dims|.
+    """
+    op_rank = len(op_shape)
+    inserted = set(getattr(dnums, "inserted_window_dims", ()))
+    scatter = tuple(getattr(dnums, "scatter_dims_to_operand_dims", ()))
+
+    # Candidate operand-window sets
+    all_window = [
+        d for d in range(op_rank) if d not in inserted
+    ]  # includes scatter dims
+    excl_scatter_window = [
+        d for d in all_window if d not in scatter
+    ]  # excludes scatter dims
+
+    # Choose the convention that actually matches this dnums instance.
+    uwd = tuple(getattr(dnums, "update_window_dims", ()))
+    if len(uwd) == len(all_window):
+        window_operand_dims = all_window
+    elif len(uwd) == len(excl_scatter_window):
+        window_operand_dims = excl_scatter_window
+    else:
+        # Inconsistent `dnums` — let the converter’s general shape logic deal with it.
+        return
+
+    # Pair by ascending update axis order, as JAX expects.
+    for upd_axis, op_axis in zip(sorted(uwd), window_operand_dims):
+        upd_bound = int(upd_shape[upd_axis])
+        op_bound = int(op_shape[op_axis])
+        if upd_bound > op_bound:
+            raise TypeError(
+                "Bounds of the window dimensions of updates must not exceed the bounds of the "
+                f"corresponding dimensions of operand. For dimension {op_axis}, updates bound is "
+                f"{upd_bound}, operand bound is {op_bound}."
             )
-        )
-
-        # register output
-        s.shape_env[out_name] = ShapeDtypeStruct(op_shape, op_dtype)
-        s.add_shape_info(out_name, op_shape, op_dtype)
-        logger.debug(f"[ScatterPlugin] '{out_name}' -> {op_shape}/{op_dtype}")

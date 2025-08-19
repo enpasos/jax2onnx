@@ -1,3 +1,6 @@
+# file: jax2onnx/plugins/jax/numpy/select.py
+
+
 from __future__ import annotations
 
 import logging
@@ -5,9 +8,9 @@ from functools import reduce
 from typing import TYPE_CHECKING, Any, Sequence
 
 import jax.numpy as jnp
+import numpy as np
 from jax import core
 from jax.extend.core import Primitive, Var
-import numpy as np
 from onnx import helper, TensorProto
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -16,6 +19,24 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.select")
+
+
+def _onnx_dtype_from_numpy(np_dtype: np.dtype) -> int:
+    """Map a numpy dtype to onnx TensorProto.* enum."""
+    np_dtype = np.dtype(np_dtype)
+    if np_dtype == np.dtype(np.bool_):
+        return TensorProto.BOOL
+    if np_dtype == np.dtype(np.float32):
+        return TensorProto.FLOAT
+    if np_dtype == np.dtype(np.float64):
+        return TensorProto.DOUBLE
+    if np_dtype == np.dtype(np.int32):
+        return TensorProto.INT32
+    if np_dtype == np.dtype(np.int64):
+        return TensorProto.INT64
+    # Fallback: be conservative and use INT64 for plain Python ints
+    return TensorProto.INT64
+
 
 # Define the primitive for jnp.select
 jnp_select_p = Primitive("jnp_select")
@@ -109,6 +130,10 @@ class SelectPlugin(PrimitiveLeafPlugin):
         result_shape = jnp.broadcast_shapes(*all_shapes)
         all_dtypes = [v.aval.dtype for v in choice_vars] + [default_var.aval.dtype]
         result_dtype = reduce(jnp.promote_types, all_dtypes)
+        # Normalize to a numpy dtype for shape/dtype bookkeeping and Cast
+        result_dtype_np = np.dtype(result_dtype)
+        onnx_result_dtype = _onnx_dtype_from_numpy(result_dtype_np)
+
         # Build nested Where's from the inside out.
         # Inner nodes get unique names; the outermost writes directly to the JAXPR output var.
         for i in range(len(cond_vars) - 1, -1, -1):
@@ -123,23 +148,66 @@ class SelectPlugin(PrimitiveLeafPlugin):
             # Ensure the condition is boolean for ONNX's Where
             cond_aval = cond_vars[i].aval
             if cond_aval.dtype != np.bool_:
-                cast_name = s.builder.get_unique_name(f"cond_cast_{i}")
+                cond_cast_name = s.builder.get_unique_name(f"select_cond_cast_{i}")
                 s.builder.add_node(
                     helper.make_node(
-                        "Cast", [cond_name], [cast_name], to=TensorProto.BOOL
+                        "Cast",
+                        [cond_name],
+                        [cond_cast_name],
+                        to=TensorProto.BOOL,
+                        name=cond_cast_name,
                     )
                 )
-                s.add_shape_info(cast_name, cond_aval.shape, np.bool_)
-                cond_name = cast_name
+                s.add_shape_info(cond_cast_name, cond_aval.shape, np.bool_)
+                cond_name = cond_cast_name
 
+            # --- Always normalize data inputs to the promoted dtype ---
+            # THEN branch: keep original shape (cast does not broadcast)
+            then_shape = choice_vars[i].aval.shape
+            then_cast_name = s.builder.get_unique_name(f"select_then_cast_{i}")
+            s.builder.add_node(
+                helper.make_node(
+                    "Cast",
+                    [then_name],
+                    [then_cast_name],
+                    to=onnx_result_dtype,
+                    name=then_cast_name,
+                )
+            )
+            s.add_shape_info(then_cast_name, then_shape, result_dtype_np)
+            then_name = then_cast_name
+
+            # ELSE branch:
+            #  - for the first iteration (outermost Where), current_else is the raw default
+            #    so use its aval shape;
+            #  - for subsequent iterations it's the previous Where output (already result_shape)
+            if i == len(cond_vars) - 1:
+                else_shape = default_var.aval.shape
+            else:
+                else_shape = result_shape
+            else_cast_name = s.builder.get_unique_name(f"select_else_cast_{i}")
+            s.builder.add_node(
+                helper.make_node(
+                    "Cast",
+                    [current_else],
+                    [else_cast_name],
+                    to=onnx_result_dtype,
+                    name=else_cast_name,
+                )
+            )
+            s.add_shape_info(else_cast_name, else_shape, result_dtype_np)
+            current_else = else_cast_name
+
+            node_name = f"select_where_{i}"
             node = helper.make_node(
                 "Where",
                 inputs=[cond_name, then_name, current_else],
                 outputs=[output_name],
+                name=node_name,
             )
             s.add_node(node)
             # register shape & dtype for this intermediate
-            s.add_shape_info(output_name, result_shape, result_dtype)
+            s.add_shape_info(output_name, result_shape, result_dtype_np)
             current_else = output_name
         # done — no s.rename() needed anymore
 

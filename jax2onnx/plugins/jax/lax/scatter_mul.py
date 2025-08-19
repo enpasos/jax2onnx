@@ -5,10 +5,9 @@ from typing import TYPE_CHECKING, Sequence, Any
 import numpy as np
 from jax import lax, core
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from .scatter_utils import _prepare_scatter_inputs_for_onnx
+from .scatter_converters import convert_lax_scatter_mul
 import logging
 
 if TYPE_CHECKING:
@@ -246,30 +245,25 @@ class ScatterMulPlugin(PrimitiveLeafPlugin):
     ):
         operand_v, indices_v, updates_v = node_inputs
         out_v = node_outputs[0]
-        out_name = s.get_name(out_v)
-        operand_aval = operand_v.aval
-
-        dimension_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
-
-        # The _prepare_scatter_inputs_for_onnx function ensures that the operand,
-        # indices, and updates are correctly transformed to be compatible with
-        # the ONNX ScatterND operator.
-        final_operand_name, final_indices_name, final_updates_name = (
-            _prepare_scatter_inputs_for_onnx(
-                s, operand_v, indices_v, updates_v, dimension_numbers
-            )
+        logger.info(
+            "Converting lax.scatter_mul with dimension_numbers: %s",
+            params.get("dimension_numbers"),
         )
 
-        # The correct approach is to always use a single ScatterND node with the
-        # 'mul' reduction, as ONNX supports this directly.
-        s.add_node(
-            helper.make_node(
-                "ScatterND",
-                inputs=[final_operand_name, final_indices_name, final_updates_name],
-                outputs=[out_name],
-                name=s.get_unique_name("scatter_nd_mul"),
-                reduction="mul",
-            )
-        )
+        # Style B: delegate to the shared converter
+        class _Eqn:
+            # mypy: declare the attribute so assignments are type-checked
+            params: dict[str, Any]
 
-        s.add_shape_info(out_name, operand_aval.shape, operand_aval.dtype)
+        _e = _Eqn()
+        _e.params = params
+        convert_lax_scatter_mul(
+            s,
+            _e,
+            (operand_v, indices_v, updates_v),
+            (out_v,),
+        )
+        logger.debug(
+            "[ScatterMulPlugin] Emitted ScatterND(reduction='mul') → %s",
+            s.get_name(out_v),
+        )

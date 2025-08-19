@@ -7,10 +7,14 @@ from typing import (
     Optional,
     Sequence,
     Union,
-)  # Added Tuple, List
+    Tuple,
+    Set,
+)
 import onnx
+from onnx import onnx_ml_pb2 as om
 import logging
 import numpy as np
+import jax
 from onnx import helper, mapping
 from jax2onnx.converter.dynamic_utils import (
     _create_symbolic_input_avals,
@@ -71,15 +75,25 @@ def _strip_param_initializers(model, input_params):
     model.graph.initializer.extend(keep)
 
 
+# Type alias for input specs
+InputSpec = Union[
+    "jax.ShapeDtypeStruct",
+    np.ndarray,
+    jnp.ndarray,
+    Tuple[Union[int, str], ...],
+    Sequence[Union[int, str]],
+]
+
+
 def to_onnx(
     fn: Any,
-    # Assume 'inputs' is passed as a list/sequence of shape tuples
-    inputs: Sequence[Sequence[Union[int, str]]],
+    inputs: Sequence[InputSpec],
     input_params: Dict[str, Any] | None = None,
     model_name: str = "jax_model",
     opset: int = 21,
     *,
     enable_double_precision: bool = False,
+    loosen_internal_shapes: bool = False,
     default_dtype: Any | None = None,
     record_primitive_calls_file: Optional[str] = None,
     # ... other parameters ...
@@ -104,6 +118,10 @@ def to_onnx(
         If **True**, the converter keeps every tensor in double
         precision (`tensor(double)`).  If **False** (default) the
         graph is down-cast to single precision.
+    loosen_internal_shapes : bool, optional
+        If True, allow plugins to relax internal subgraph
+        value_info to rank-only (clear concrete dim_value/param) to keep ORT
+        from re-tightening Loop/Scan body shapes, by default False
     default_dtype : Any | None, optional
         Default data type for inputs if not specified, by default None
 
@@ -192,6 +210,12 @@ def to_onnx(
     )
     builder.converter = converter
 
+    # Propagate the knob so subgraph builders can read it (optional today; no-ops if unused).
+    if hasattr(converter, "builder"):
+        setattr(
+            converter.builder, "loosen_internal_shapes", bool(loosen_internal_shapes)
+        )
+
     converter.call_params = input_params or {}
 
     # --- Step 2: Trace the function using Symbolic Avals ---
@@ -247,51 +271,255 @@ def to_onnx(
             record_primitive_calls_file,
         )
 
+    # Post-optimization sanitizer: shape inference may have re-added concrete dims
+    # inside Loop/Scan bodies. If requested, walk subgraphs and relax VIs again.
+    if bool(loosen_internal_shapes):
+        _relax_internal_value_infos_in_subgraphs(model)
+
     return model
 
 
-def analyze_constants(model: onnx.ModelProto):
+def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
     """
-    Analyzes constants in an ONNX model and prints a detailed report.
-
-    This function is useful for debugging and understanding how constants are
-    represented and used within the ONNX graph.
-
-    Args:
-        model: The ONNX model to analyze.
+    Walk all subgraphs (Loop/Scan/If, recursively) and:
+      1) Make *internal* value_info rank-only (keep rank; clear dim_value/dim_param).
+      2) DO NOT touch subgraph inputs/outputs (preserves Loop control scalar shapes).
+      3) Guard elementwise broadcasts by inserting Shape(ref) → Expand(other, shape) on:
+         - binary ops: Mul, Add, Sub, Div, Pow
+         - variadic:   Sum (expand all non-ref operands)
     """
-    logger.info("\n🔍 Constant Analysis Report (Verbose)")
-    graph = model.graph
-    graph_inputs = {inp.name for inp in graph.input}
-    initializers = {init.name for init in graph.initializer}
-    const_nodes = {
-        node.output[0]: node for node in graph.node if node.op_type == "Constant"
-    }
+    logger = logging.getLogger("jax2onnx.relax_and_align")
+
+    # ---------- helpers ----------
+    def _rank_only_type(tp: om.TypeProto) -> om.TypeProto:
+        if not tp.HasField("tensor_type"):
+            return tp
+        new_tp = om.TypeProto()
+        new_tp.tensor_type.elem_type = tp.tensor_type.elem_type
+        if tp.tensor_type.HasField("shape"):
+            shp = new_tp.tensor_type.shape
+            for _ in tp.tensor_type.shape.dim:
+                shp.dim.add()  # keep rank, drop concrete dims
+        return new_tp
+
+    def _collect_used_names(g: onnx.GraphProto):
+        used_nodes: Set[str] = {n.name for n in g.node if n.name}
+        used_tensors: Set[str] = set()
+        for n in g.node:
+            used_tensors.update(t for t in n.input if t)
+            used_tensors.update(t for t in n.output if t)
+        for vi in list(g.input) + list(g.output) + list(g.value_info):
+            used_tensors.add(vi.name)
+        for init in g.initializer:
+            used_tensors.add(init.name)
+        for n in g.node:
+            if n.op_type == "Constant" and n.output:
+                used_tensors.update(n.output)
+        return used_nodes, used_tensors
+
+    def _fresh(base: str, used: set[str]) -> str:
+        base = base or "n"
+        name, k = base, 1
+        while name in used:
+            k += 1
+            name = f"{base}_{k}"
+        used.add(name)
+        return name
+
+    def _constant_like_sets(g: onnx.GraphProto):
+        init_names = {i.name for i in g.initializer}
+        const_outs = set()
+        for n in g.node:
+            if n.op_type == "Constant" and n.output:
+                const_outs.update(n.output)
+        return init_names, const_outs
+
+    def _is_constant_like(
+        name: str, init_names: set[str], const_outs: set[str]
+    ) -> bool:
+        return name in init_names or name in const_outs
+
+    def _rank_lookup(g: onnx.GraphProto) -> dict[str, int]:
+        ranks: dict[str, int] = {}
+        for vi in list(g.input) + list(g.output) + list(g.value_info):
+            if vi.type.HasField("tensor_type") and vi.type.tensor_type.HasField(
+                "shape"
+            ):
+                ranks[vi.name] = len(vi.type.tensor_type.shape.dim)
+        for init in g.initializer:
+            ranks[init.name] = len(list(init.dims))
+        for n in g.node:
+            if n.op_type == "Constant" and n.output:
+                for a in n.attribute:
+                    if (
+                        a.name == "value"
+                        and a.type == onnx.AttributeProto.TENSOR
+                        and a.t is not None
+                    ):
+                        ranks[n.output[0]] = len(list(a.t.dims))
+        return ranks
+
+    def _relax_internals(g: onnx.GraphProto) -> None:
+        for vi in g.value_info:
+            if vi.type.HasField("tensor_type"):
+                vi.type.CopyFrom(_rank_only_type(vi.type))
+
+    def _align_elementwise(g: onnx.GraphProto) -> tuple[int, int]:
+        BIN = {"Mul", "Add", "Sub", "Div", "Pow"}
+        VAR = {"Sum"}
+        used_node_names, used_tensor_names = _collect_used_names(g)
+        init_names, const_outs = _constant_like_sets(g)
+        ranks = _rank_lookup(g)
+        rewrites = 0
+        expands = 0
+
+        new_nodes = []
+        for n in g.node:
+            if (
+                n.op_type not in BIN | VAR
+                or not n.input
+                or n.name.endswith("__expanded")
+            ):
+                new_nodes.append(n)
+                continue
+
+            ins = [i for i in n.input if i]
+            if n.op_type in BIN and len(ins) != 2:
+                new_nodes.append(n)
+                continue
+            if n.op_type in VAR and len(ins) < 2:
+                new_nodes.append(n)
+                continue
+
+            # choose ref: highest known rank, prefer non-constants
+            idxs = list(range(len(ins)))
+            nonc = [
+                i for i in idxs if not _is_constant_like(ins[i], init_names, const_outs)
+            ]
+            order = nonc if nonc else idxs
+            ref_idx, best = order[0], -1
+            for i in order:
+                r = ranks.get(ins[i], -1)
+                if r > best:
+                    best = r
+                    ref_idx = i
+            ref = ins[ref_idx]
+
+            shape_out = _fresh(f"{(n.name or n.op_type)}__shape", used_tensor_names)
+            shape_node = helper.make_node(
+                "Shape",
+                inputs=[ref],
+                outputs=[shape_out],
+                name=_fresh(f"{(n.name or n.op_type)}__shape", used_node_names),
+            )
+            new_nodes.append(shape_node)
+
+            new_inputs = list(ins)
+            for i, t in enumerate(ins):
+                if i == ref_idx:
+                    continue
+                exp_out = _fresh(f"{t}__exp", used_tensor_names)
+                exp = helper.make_node(
+                    "Expand",
+                    inputs=[t, shape_out],
+                    outputs=[exp_out],
+                    name=_fresh(f"{(n.name or n.op_type)}__exp{i}", used_node_names),
+                )
+                new_nodes.append(exp)
+                new_inputs[i] = exp_out
+                expands += 1
+
+            new_op = helper.make_node(
+                n.op_type,
+                inputs=new_inputs,
+                outputs=list(n.output),
+                name=(
+                    (n.name + "__expanded")
+                    if n.name
+                    else _fresh(f"{n.op_type}__expanded", used_node_names)
+                ),
+            )
+            for a in n.attribute:
+                new_op.attribute.extend([a])
+            new_nodes.append(new_op)
+            rewrites += 1
+
+        del g.node[:]
+        g.node.extend(new_nodes)
+        return rewrites, expands
+
+    def _post_assertions(g: onnx.GraphProto) -> None:
+        import os as _os
+
+        if _os.environ.get("JAX2ONNX_STRICT_BROADCAST_ASSERT", "0") != "1":
+            return
+        BIN = {"Mul", "Add", "Sub", "Div", "Pow"}
+        VAR = {"Sum"}
+        prod = {}
+        for n in g.node:
+            for o in n.output:
+                prod[o] = n.op_type
+        ranks = _rank_lookup(g)
+        for n in g.node:
+            if n.op_type not in BIN | VAR:
+                continue
+            ins = [i for i in n.input if i]
+            if len(ins) < 2:
+                continue
+            ref = max(ins, key=lambda t: ranks.get(t, -1))
+            for t in ins:
+                if t == ref:
+                    continue
+                rr, rt = ranks.get(ref, -1), ranks.get(t, -1)
+                if rr >= 0 and rt >= 0 and rr != rt:
+                    assert (
+                        prod.get(t) == "Expand"
+                    ), f"Elementwise '{n.name}' expects Expand on non-ref input '{t}'"
+
+    def _walk_graph(g: onnx.GraphProto) -> tuple[int, int]:
+        _relax_internals(g)  # <— keep internal VIs rank-only
+        rw, ex = _align_elementwise(g)  # <— make broadcasting explicit
+        for n in g.node:  # recurse into ALL subgraphs
+            for a in n.attribute:
+                if a.type == onnx.AttributeProto.GRAPH:
+                    sub = onnx.helper.get_attribute_value(a)
+                    srw, sex = _walk_graph(sub)
+                    rw += srw
+                    ex += sex
+                elif a.type == onnx.AttributeProto.GRAPHS:
+                    for sub in onnx.helper.get_attribute_value(a):
+                        srw, sex = _walk_graph(sub)
+                        rw += srw
+                        ex += sex
+        _post_assertions(g)
+        return rw, ex
+
+    total_rw, total_ex = _walk_graph(model.graph)
+    logger.info(f"[relax_and_align] rewrites={total_rw}, expands_inserted={total_ex}")
+
+
+def analyze_constants(model: onnx.ModelProto) -> None:
+    logger.info("🔍 Constant Analysis Report (top-level graph)")
+    g = model.graph
+    graph_inputs = {i.name for i in g.input}
+    initializers = {i.name for i in g.initializer}
+    const_nodes = {n.output[0]: n for n in g.node if n.op_type == "Constant"}
     function_names = {f.name for f in model.functions}
-    logger.info("\n📦 Top-Level Inputs:")
-    for inp in graph.input:
-        logger.info(f"  - {inp.name}")
-    logger.info("\n🧊 Initializers (Style 2):")
-    for init in graph.initializer:
-        logger.info(f"  - {init.name}")
-    logger.info("\n🧱 Constant Nodes in Main Graph (Style 2):")
-    for name in const_nodes:
-        logger.info(f"  - {name}")
-    logger.info("\n🧩 Function Call Inputs:")
-    for node in graph.node:
+
+    logger.info("📦 Inputs: %s", sorted(graph_inputs))
+    logger.info("🧊 Initializers: %s", sorted(initializers))
+    logger.info("🧱 Constant nodes: %s", sorted(const_nodes))
+
+    for node in g.node:
         if node.op_type in function_names:
-            logger.info(f"\n▶ Function Call: {node.op_type}")
+            logger.info("▶ Function call: %s", node.op_type)
             for inp in node.input:
-                style = "Unknown/Intermediate"
                 if inp in initializers:
-                    style = "Style 2 (initializer reused)"
+                    style = "initializer"
                 elif inp in graph_inputs:
-                    style = "Style 1 (passed in as input)"
+                    style = "graph input"
                 elif inp in const_nodes:
-                    style = "Style 2 (constant node)"
-                logger.info(f"  - {inp} → {style}")
-    logger.info("\n🔗 Constant Usage Map:")
-    for node in graph.node:
-        for inp in node.input:
-            if inp.startswith("const_") or inp.startswith("var_"):
-                logger.info(f"  - {inp} used in {node.op_type}")
+                    style = "constant node"
+                else:
+                    style = "intermediate"
+                logger.info("   - %s → %s", inp, style)

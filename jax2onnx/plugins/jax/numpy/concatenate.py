@@ -8,7 +8,9 @@ import jax
 import jax.numpy as jnp
 from jax import core
 from jax.extend.core import Primitive
+import numpy as np
 from onnx import helper
+from onnx import mapping as onnx_mapping
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
@@ -33,6 +35,18 @@ def concat_dynamic_tile_func(x):
     tiled_token = jnp.broadcast_to(token, (x.shape[0], 1, D))  # (B, 1, D)
 
     return jnp.concatenate([tiled_token, x], axis=1)  # (B, 1+N, D)
+
+
+def concat_mixed_dtypes_noargs():
+    """
+    Regression repro: concatenating int32 and float32 without inputs.
+    Used to fail ORT load with:
+      Type Error: Type parameter (T) of Concat bound to different types
+    Our post-build sanitizer should cast to a common type so it loads & runs.
+    """
+    a = jnp.array([1, 2, 3], dtype=jnp.int32)
+    b = jnp.array([1.1, 2.2, 3.3], dtype=jnp.float32)
+    return jnp.concatenate((a, b), axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +77,12 @@ if not hasattr(jnp, "concatenate_p"):
             "testcase": "concatenate",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
+        },
+        {
+            "testcase": "concatenate_mixed_dtypes_noargs",
+            "callable": concat_mixed_dtypes_noargs,
+            "input_shapes": [],
+            "check_onnx_load": True,
         },
         {
             "testcase": "concatenate_abstract_middle_dim",
@@ -134,18 +154,66 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
     # ---------------------------------------------------------------------
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
         axis = int(params.get("axis", 0))
+
+        # Decide the final dtype for Concat:
+        # Use JAX's promoted output dtype from abstract eval. Do NOT override here,
+        # or we may disagree with previously-registered ValueInfo dtypes.
+        out_aval = node_outputs[0].aval
+        final_jax_dtype = out_aval.dtype
+        final_np_dtype = np.dtype(final_jax_dtype)
+        final_onnx_dtype = onnx_mapping.NP_TYPE_TO_TENSOR_TYPE[final_np_dtype]
+
+        # Ensure all inputs match the final dtype.
+        # If the final dtype is floating, cast *every* input to it. This is robust
+        # against upstream float literals becoming f64 initializers when x64 is enabled.
+        concat_inputs: list[str] = []
+        if jnp.issubdtype(final_jax_dtype, jnp.floating):
+            for vin in node_inputs:
+                in_name = s.get_name(vin)
+                cast_out = s.get_unique_name("cast_for_concat")
+                cast_node = helper.make_node(
+                    "Cast",
+                    inputs=[in_name],
+                    outputs=[cast_out],
+                    name=s.get_unique_name("cast_to_concat"),
+                    to=final_onnx_dtype,
+                )
+                s.add_node(cast_node)
+                s.add_shape_info(cast_out, tuple(vin.aval.shape), final_jax_dtype)
+                concat_inputs.append(cast_out)
+        else:
+            # For non-floating outputs, only cast when the dtype disagrees.
+            for vin in node_inputs:
+                in_name = s.get_name(vin)
+                in_dtype = vin.aval.dtype
+                if np.dtype(in_dtype) != final_np_dtype:
+                    cast_out = s.get_unique_name("cast_for_concat")
+                    cast_node = helper.make_node(
+                        "Cast",
+                        inputs=[in_name],
+                        outputs=[cast_out],
+                        name=s.get_unique_name("cast_to_concat"),
+                        to=final_onnx_dtype,
+                    )
+                    s.add_node(cast_node)
+                    s.add_shape_info(cast_out, tuple(vin.aval.shape), final_jax_dtype)
+                    concat_inputs.append(cast_out)
+                else:
+                    concat_inputs.append(in_name)
+
+        # Now create the Concat with uniform dtypes
         node = helper.make_node(
             "Concat",
-            inputs=[s.get_name(v) for v in node_inputs],
+            inputs=concat_inputs,
             outputs=[s.get_name(node_outputs[0])],
             name=s.get_unique_name("concat"),
             axis=axis,
         )
         s.add_node(node)
 
-        out_aval = node_outputs[0].aval
+        # Record output shape & final dtype
         s.add_shape_info(
-            s.get_name(node_outputs[0]), tuple(out_aval.shape), out_aval.dtype
+            s.get_name(node_outputs[0]), tuple(out_aval.shape), final_jax_dtype
         )
 
     # ---------------------------------------------------------------------
