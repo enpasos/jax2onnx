@@ -1,42 +1,40 @@
-from __future__ import annotations
 # jax2onnx/plugins/jax/lax/mul.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, Sequence, Any
+from typing import TYPE_CHECKING, Sequence, Any, Tuple
 import numpy as np
 from jax import core, lax
-from onnx import helper
+from onnx import helper, mapping as onnx_map
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-
 def _np_dt(x) -> np.dtype:
     return x if isinstance(x, np.dtype) else np.dtype(x)
 
+def _aval_dtype_shape(s: "Jaxpr2OnnxConverter", v: Any) -> Tuple[np.dtype, Tuple[Any, ...]]:
+    if hasattr(v, "aval"):
+        return _np_dt(v.aval.dtype), tuple(v.aval.shape)
+    name = s.get_name(v)
+    meta = s.builder.value_info_metadata.get(name)
+    if meta is not None:
+        shp, dt = meta
+        np_dt = _np_dt(onnx_map.TENSOR_TYPE_TO_NP_TYPE[dt]) if isinstance(dt, int) else _np_dt(dt)
+        return np_dt, tuple(shp)
+    return np.dtype(np.float32), ()
 
-def _cast_to(
-    s: "Jaxpr2OnnxConverter",
-    name: str,
-    cur_dt: np.dtype,
-    tgt_dt: np.dtype,
-    *,
-    ctx: str,
-    shape_hint: tuple[Any, ...],
-) -> str:
+def _cast_to(s: "Jaxpr2OnnxConverter", name: str, cur_dt: np.dtype, tgt_dt: np.dtype, *,
+             ctx: str, shape_hint: tuple[Any, ...]) -> str:
     if cur_dt == tgt_dt:
         return name
     out = s.builder.get_unique_name(f"{ctx}_cast")
-    s.add_node(
-        helper.make_node(
-            "Cast", [name], [out],
-            to=int(s.builder._numpy_dtype_to_onnx(tgt_dt)),
-            name=s.builder.get_unique_name(f"{ctx}_Cast"),
-        )
-    )
+    s.add_node(helper.make_node(
+        "Cast", [name], [out],
+        to=int(s.builder._numpy_dtype_to_onnx(tgt_dt)),
+        name=s.builder.get_unique_name(f"{ctx}_Cast"),
+    ))
     s.add_shape_info(out, shape_hint, tgt_dt)
     return out
-
 
 @register_primitive(
     jaxpr_primitive=lax.mul_p.name,
@@ -71,13 +69,10 @@ class MulPlugin(PrimitiveLeafPlugin):
         out_dtype = np.promote_types(x.dtype, y.dtype)
         return core.ShapedArray(np.broadcast_shapes(x.shape, y.shape), out_dtype)
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Any],
-        node_outputs: Sequence[Any],
-        params: dict[str, Any],
-    ):
+    def to_onnx(self, s: "Jaxpr2OnnxConverter",
+                node_inputs: Sequence[Any],
+                node_outputs: Sequence[Any],
+                params: dict[str, Any]):
         x_v, y_v = node_inputs
         out_v = node_outputs[0]
 
@@ -85,16 +80,17 @@ class MulPlugin(PrimitiveLeafPlugin):
         y_name = s.get_name(y_v)
         out_name = s.get_name(out_v)
 
-        # JAX-style dtype promotion
-        x_dt = _np_dt(x_v.aval.dtype)
-        y_dt = _np_dt(y_v.aval.dtype)
-        tgt  = _np_dt(np.promote_types(x_dt, y_dt))
+        x_dt, x_shape = _aval_dtype_shape(s, x_v)
+        y_dt, y_shape = _aval_dtype_shape(s, y_v)
 
-        # Cast both inputs to target dtype (via aval dtypes)
-        x_cast = _cast_to(s, x_name, x_dt, tgt, ctx="Mul", shape_hint=x_v.aval.shape)
-        y_cast = _cast_to(s, y_name, y_dt, tgt, ctx="Mul", shape_hint=y_v.aval.shape)
+        # Builder-side literal coercion first
+        x_name, y_name, tgt_enum = s.builder.coerce_binop_literals(x_name, y_name)
+        tgt_np = _np_dt(onnx_map.TENSOR_TYPE_TO_NP_TYPE[tgt_enum]) if tgt_enum not in (None, 0) \
+                 else _np_dt(np.promote_types(x_dt, y_dt))
 
-        # Rely on ONNX implicit broadcasting
+        x_cast = _cast_to(s, x_name, x_dt, tgt_np, ctx="Mul", shape_hint=x_shape)
+        y_cast = _cast_to(s, y_name, y_dt, tgt_np, ctx="Mul", shape_hint=y_shape)
+
         s.add_node(helper.make_node("Mul", [x_cast, y_cast], [out_name],
                                     name=s.builder.get_unique_name("Mul")))
-        s.add_shape_info(out_name, out_v.aval.shape, tgt)
+        s.add_shape_info(out_name, np.broadcast_shapes(x_shape, y_shape), tgt_np)

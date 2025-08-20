@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/flax/nnx/dot_product_attention.py
+
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
@@ -193,24 +195,34 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             s.add_shape_info(add_b, (B, N, T, S), np_dtype)
             cur_logits = add_b
 
-        # apply mask using dtype min (Flax semantics): where(mask, x, finfo(dtype).min)
+        # Apply mask using a large *finite* negative to avoid NaNs in some ORT Softmax paths.
+        # Branch order is important:
+        #   True  ⇒ masked  ⇒ take NEG
+        #   False ⇒ keep    ⇒ take logits
         if has_mask and mask_sym is not None:
+            # 1) Ensure mask is BOOL
             mdt = s.builder.get_dtype(mask_sym)
             if mdt is None or np.dtype(mdt) != np.dtype(bool):
                 mask_bool = s.get_unique_name("mask_bool")
                 s.add_node(
-                    helper.make_node(
-                        "Cast", [mask_sym], [mask_bool], to=TensorProto.BOOL
-                    )
+                    helper.make_node("Cast", [mask_sym], [mask_bool], to=TensorProto.BOOL)
                 )
                 s.add_shape_info(mask_bool, (B, N, T, S), bool)
                 mask_sym = mask_bool
-            big_neg = s.get_constant_name(
-                np.array(np.finfo(np_dtype).min, dtype=np_dtype)
+
+            # 2) Build a finite negative constant and cast it to logits dtype if needed
+            neg_name = s.builder.add_initializer_from_scalar(
+                s.builder.get_unique_instance_name("neg_large"),
+                -1e9,  # finite (avoids -inf → NaNs)
             )
+            logits_dt_enum = s.builder._vi_dtype(cur_logits)
+            if logits_dt_enum not in (None, 0) and s.builder._vi_dtype(neg_name) != logits_dt_enum:
+                neg_name = s.builder._insert_cast_node(neg_name, logits_dt_enum)
+
+            # 3) IMPORTANT: True ⇒ masked ⇒ take NEG; False ⇒ keep logits
             masked = s.get_unique_name("masked_logits")
             s.add_node(
-                helper.make_node("Where", [mask_sym, cur_logits, big_neg], [masked])
+                helper.make_node("Where", [mask_sym, neg_name, cur_logits], [masked])
             )
             s.add_shape_info(masked, (B, N, T, S), np_dtype)
             cur_logits = masked

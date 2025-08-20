@@ -6,6 +6,7 @@ import logging
 
 import numpy as np
 import onnx
+import math
 from jax.extend.core import Literal, ClosedJaxpr
 from onnx import (
     FunctionProto,
@@ -18,6 +19,7 @@ from onnx import (
     TensorShapeProto,
     helper,
     AttributeProto,
+    numpy_helper,
 )
 
 # === Import name generators ===
@@ -120,7 +122,6 @@ def _symbol_name(obj, dim) -> str:
     logger.debug("[_symbol_name] dim=%s (%s)  →  %s", dim, type(dim).__name__, final)
     # ──────────────────────────────────
     return final
-
 
 def _canonical_symbol(builder, dim):
     """Return either an int or a user-friendly symbolic name."""
@@ -258,6 +259,305 @@ class OnnxBuilder:
         self.converter = converter  # <-- Store converter reference
         self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
 
+
+
+ 
+
+    def is_initializer(self, name: str) -> bool:
+        return any(init.name == name for init in self.initializers)
+
+    def _insert_cast_node(self, name: str, target_dt: int) -> str:
+        if not name:  # guard
+            return name
+        from onnx import helper
+        out = self.get_unique_instance_name(f"{name}_cast")
+        self.nodes.append(helper.make_node(
+            "Cast", [name], [out],
+            name=self.get_unique_instance_name("Cast"),
+            to=target_dt,
+        ))
+        # best-effort: keep shape, set dtype
+        shp = self.value_info_metadata.get(name, ((), None))[0]
+        self.add_value_info(out, shp, target_dt)
+        return out
+
+    def _choose_numeric_target(self, dtypes: list[int | None]) -> int | None:
+        from onnx import TensorProto
+        ds = [d for d in dtypes if d not in (None, 0)]
+        if not ds:
+            return None
+        # prefer float if any float present; DOUBLE beats FLOAT
+        if any(d == TensorProto.DOUBLE for d in ds):
+            return TensorProto.DOUBLE
+        if any(d == TensorProto.FLOAT for d in ds):
+            return TensorProto.FLOAT
+        # otherwise pick a wide int
+        for pref in (TensorProto.INT64, TensorProto.UINT64,
+                    TensorProto.INT32, TensorProto.UINT32):
+            if any(d == pref for d in ds):
+                return pref
+        return ds[0]
+
+    def coerce_binop_literals(self, a: str, b: str) -> tuple[str, str, int | None]:
+        """
+        For SAME-T arithmetic ops: if either input is an initializer/literal and the
+        two dtypes differ, insert a Cast on the *initializer* to match the other.
+        Never touches graph inputs / subgraph IO.
+        Returns (new_a, new_b, target_dtype_enum or None).
+        """
+        da, db = self._vi_dtype(a), self._vi_dtype(b)
+        target = self._choose_numeric_target([da, db])
+        if target is None:
+            return a, b, None
+
+        # Only cast the initializer side, so we don't alter carry/IO contracts.
+        if da not in (None, 0) and da != target and self.is_initializer(a):
+            a = self._insert_cast_node(a, target)
+            da = target
+        if db not in (None, 0) and db != target and self.is_initializer(b):
+            b = self._insert_cast_node(b, target)
+            db = target
+
+        # If both sides are non-initializers and still differ, leave them as-is.
+        # (We’ll handle broader cases later if needed; this keeps control-flow safe.)
+        return a, b, target
+
+
+
+
+
+
+
+    def _as_onnx_enum(self, dt: Any) -> int | None:
+        if dt is None:
+            return None
+        return dt if isinstance(dt, int) else self._numpy_dtype_to_onnx(dt)
+
+    def _lookup_dtype_enum(self, name: str) -> int | None:
+        # 1) metadata
+        meta = self.value_info_metadata.get(name)
+        if meta is not None:
+            _, dt = meta
+            return self._as_onnx_enum(dt)
+
+        # 2) graph IO / intermediates
+        for vi in (self.inputs + self.value_info + self.outputs):
+            if vi.name == name and vi.type.HasField("tensor_type"):
+                return vi.type.tensor_type.elem_type
+
+        # 3) initializers
+        for init in self.initializers:
+            if init.name == name:
+                return init.data_type
+
+        return None
+
+    def _override_output_vi_dtype(self, name: str, dtype_enum: int) -> None:
+        # update metadata if present
+        if name in self.value_info_metadata:
+            shape, _ = self.value_info_metadata[name]
+            self.value_info_metadata[name] = (shape, dtype_enum)
+
+        # update any existing ValueInfoProto we've already emitted
+        for coll in (self.value_info, self.inputs, self.outputs):
+            for vi in coll:
+                if vi.name == name and vi.type.HasField("tensor_type"):
+                    vi.type.tensor_type.elem_type = dtype_enum
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Small helpers to read/write dtype of a VI name consistently
+    # ─────────────────────────────────────────────────────────────────────────
+    def _vi_dtype(self, name: str) -> int | None:
+        """
+        Return ONNX enum dtype for a given value name, or None if unknown.
+        Checks metadata, then graph IO + intermediates, then initializers.
+        """
+        meta = self.value_info_metadata.get(name)
+        if meta is not None:
+            _, dt = meta
+            return self._as_onnx_enum(dt)
+
+        for vi in (self.inputs + self.value_info + self.outputs):
+            if vi.name == name and vi.type.HasField("tensor_type"):
+                return vi.type.tensor_type.elem_type
+
+        for init in self.initializers:
+            if init.name == name:
+                return init.data_type
+
+        return None
+
+    def _set_vi_dtype(self, name: str, onnx_dt: int) -> None:
+        """
+        Set dtype for a value only in metadata + existing VI objects.
+        (Used to fill unknowns; callers must ensure it's safe to set.)
+        """
+        if name in self.value_info_metadata:
+            shp, _ = self.value_info_metadata[name]
+            self.value_info_metadata[name] = (shp, onnx_dt)
+
+        for coll in (self.value_info, self.inputs, self.outputs):
+            for vi in coll:
+                if vi.name == name and vi.type.HasField("tensor_type"):
+                    vi.type.tensor_type.elem_type = onnx_dt
+
+    def _fix_dtype_for_broadcast_reshapes_in_functions(self) -> None:
+        """
+        For every registered FunctionProto, ensure outputs of broadcast helper
+        reshapes have the same dtype as their first input within the function.
+        Only edits function.value_info entries.
+        """
+        for fname, func in self.functions.items():
+            # Build a quick dtype map from function value_infos
+            f_vi_map: dict[str, int] = {}
+            for vi in func.value_info:
+                if vi.type.HasField("tensor_type"):
+                    f_vi_map[vi.name] = vi.type.tensor_type.elem_type
+
+            def _f_dt(name: str) -> int | None:
+                return f_vi_map.get(name)
+
+            changed = False
+            for n in func.node:
+                if n.op_type != "Reshape":
+                    continue
+                is_broadcast_helper = (
+                    (n.name or "").startswith("reshape_for_broadcast")
+                    or any((o or "").startswith("reshape_output_") for o in n.output)
+                )
+                if not is_broadcast_helper or not n.input:
+                    continue
+
+                in_dt = _f_dt(n.input[0])
+                if in_dt is None:
+                    continue
+
+                for out in n.output:
+                    if not out:
+                        continue
+                    out_dt = _f_dt(out)
+                    if out_dt == in_dt:
+                        continue
+                    # update the matching VI inside the function body
+                    for vi in func.value_info:
+                        if vi.name == out and vi.type.HasField("tensor_type"):
+                            vi.type.tensor_type.elem_type = in_dt
+                            f_vi_map[out] = in_dt
+                            changed = True
+                            logger.debug(
+                                "[dtype-fix] function %s reshape_for_broadcast: %s: %s -> dtype %s",
+                                fname, n.name, out, in_dt
+                            )
+            if changed:
+                logger.debug("[dtype-fix] applied to FunctionProto '%s'", fname)
+
+
+    def _fix_dtype_for_broadcast_reshapes_in_graph(self) -> None:
+        """
+        For top-level nodes only: ensure outputs of our broadcast helper reshapes
+        advertise the same dtype as their data input. Only updates value_info
+        (not graph inputs/outputs).
+        """
+        def _dtype_of_vi(name: str) -> int | None:
+            meta = self.value_info_metadata.get(name)
+            if meta is not None:
+                _, dt = meta
+                return dt if isinstance(dt, int) else self._numpy_dtype_to_onnx(dt)
+            for vi in self.value_info:
+                if vi.name == name and vi.type.HasField("tensor_type"):
+                    return vi.type.tensor_type.elem_type
+            for init in self.initializers:
+                if init.name == name:
+                    return init.data_type
+            # inputs/outputs are intentionally ignored here to avoid regressions
+            return None
+
+        def _set_vi_dtype(name: str, dt_enum: int) -> None:
+            # update metadata
+            if name in self.value_info_metadata:
+                shp, _ = self.value_info_metadata[name]
+                self.value_info_metadata[name] = (shp, dt_enum)
+            # update any existing value_info object in the graph (NOT inputs/outputs)
+            for vi in self.value_info:
+                if vi.name == name and vi.type.HasField("tensor_type"):
+                    vi.type.tensor_type.elem_type = dt_enum
+
+        for n in self.nodes:
+            if n.op_type != "Reshape":
+                continue
+            # strictly target our broadcast helpers
+            is_broadcast_helper = (
+                (n.name or "").startswith("reshape_for_broadcast")
+                or any((o or "").startswith("reshape_output_") for o in n.output)
+            )
+            if not is_broadcast_helper:
+                continue
+            if not n.input:
+                continue
+            in_dt = _dtype_of_vi(n.input[0])
+            if in_dt is None:
+                continue
+            for out in n.output:
+                if not out:
+                    continue
+                out_dt = _dtype_of_vi(out)
+                if out_dt is not None and out_dt == in_dt:
+                    continue
+                # only adjust if we can actually see a mutable value_info for this name
+                if any(vi.name == out for vi in self.value_info):
+                    _set_vi_dtype(out, in_dt)
+                    logger.debug(
+                        "[dtype-fix] graph reshape_for_broadcast: %s: %s -> dtype %s",
+                        n.name, out, in_dt
+                    )
+
+
+
+ 
+    def _harmonize_dtype_preserving_nodes(self) -> None:
+        """
+        Ensure outputs of dtype-preserving ops (Reshape/Identity/etc.)
+        advertise the same dtype as their data input. This only fixes
+        recorded dtype metadata and ValueInfos.
+        """
+        PRESERVING = {
+            "Reshape", "Squeeze", "Unsqueeze", "Flatten",
+            "Identity", "Transpose", "Expand"
+        }
+
+        for n in self.nodes:
+            if n.op_type not in PRESERVING or not n.input:
+                continue
+            # data input is first input
+            in_dt = self._vi_dtype(n.input[0])
+            if in_dt is None:
+                continue
+            for out in n.output:
+                out_dt = self._vi_dtype(out)
+                # If unknown/UNDEFINED, fill it. If concrete but wrong, override.
+                if out_dt in (None, 0) or out_dt != in_dt:
+                    self._set_vi_dtype(out, in_dt)
+                    logger.debug(
+                        "[dtype-fix] %s: set %s dtype=%s (was %s)",
+                        n.op_type, out, in_dt, out_dt
+                    )
+
+    def _retcon_expand_output_dtypes(self) -> None:
+        """
+        Extra safety: Expand must preserve dtype of its data input (input[0]).
+        Force its outputs to match, even if something earlier recorded a wrong dtype.
+        """
+        for n in self.nodes:
+            if n.op_type != "Expand" or not n.input:
+                continue
+            in_dt = self._vi_dtype(n.input[0])
+            if in_dt in (None, 0):
+                continue
+            for out in n.output:
+                if out:
+                    self._set_vi_dtype(out, in_dt)
+                    logger.debug("[dtype-fix] Expand: %s -> %s dtype=%s", n.name, out, in_dt)
+
     # ------------------------------------------------------------------
     # Symbolic‐dimension origin registry
     # ------------------------------------------------------------------
@@ -340,7 +640,7 @@ class OnnxBuilder:
 
         #  ⚠  DO NOT add dims a second time here – they are already
         #     fully populated in the loop above.
-        self.value_info.append(vi)
+ 
         return vi
 
     def register_value_info_metadata(
@@ -400,13 +700,60 @@ class OnnxBuilder:
                     f"  → Shape overridden from symbolic_shapes: {old_shape} → {shape}"
                 )
 
-        # Cast to the expected types to fix type errors
+        # Normalize dtype to ONNX enum (or None)
+        new_dt_enum = self._as_onnx_enum(dtype)
+
+        # If we already have metadata for this name, keep the *more specific* info.
+        prev = self.value_info_metadata.get(name)
+        if prev is not None:
+            prev_shape, prev_dt = prev
+            prev_dt_enum = self._as_onnx_enum(prev_dt)
+
+            # Decide final dtype:
+            #  - keep previous when it's concrete and new is None/UNDEFINED or different
+            #  - take new when previous is None/UNDEFINED and new is concrete
+            def _is_concrete(dt: Optional[int]) -> bool:
+                return dt not in (None, 0)
+
+            if _is_concrete(prev_dt_enum):
+                final_dt = prev_dt_enum
+                if _is_concrete(new_dt_enum) and new_dt_enum != prev_dt_enum:
+                    logger.debug(
+                        "[dtype-keep] '%s': keeping existing dtype=%s over new=%s",
+                        name, prev_dt_enum, new_dt_enum
+                    )
+            else:
+                final_dt = new_dt_enum
+
+            # Choose the more specific shape (prefer concrete dims over unknowns)
+            final_shape = prev_shape
+            try:
+                if _is_shape_more_specific(prev_shape, shape_tuple):
+                    final_shape = shape_tuple
+            except Exception:
+                # If shape comparison fails due to mixed types, fall back to previous
+                pass
+
+            self.value_info_metadata[name] = cast(
+                ValueInfoMetadataType, (final_shape, final_dt if final_dt is not None else prev_dt_enum)
+            )
+            self.value_info_metadata_with_origin[name] = cast(
+                ValueInfoMetadataWithOriginType,
+                (final_shape, final_dt if final_dt is not None else prev_dt_enum, origin or "traced"),
+            )
+            return
+
+        # First-time registration
         self.value_info_metadata[name] = cast(
-            ValueInfoMetadataType, (shape_tuple, dtype)
+            ValueInfoMetadataType, (shape_tuple, new_dt_enum if new_dt_enum is not None else dtype)
         )
         self.value_info_metadata_with_origin[name] = cast(
-            ValueInfoMetadataWithOriginType, (shape_tuple, dtype, origin or "traced")
+            ValueInfoMetadataWithOriginType,
+            (shape_tuple, new_dt_enum if new_dt_enum is not None else dtype, origin or "traced"),
         )
+
+
+
 
     def add_initializer_from_scalar(self, name, value):
         from onnx import TensorProto
@@ -419,36 +766,21 @@ class OnnxBuilder:
             dtype = TensorProto.INT64
             np_value = np.array(value, dtype=np.int64)
         else:  # float
-            dtype = TensorProto.FLOAT
-            np_value = np.array(value, dtype=np.float32)
+            dtype = TensorProto.DOUBLE if self.enable_double_precision else TensorProto.FLOAT
+            np_value = np.array(value, dtype=(np.float64 if self.enable_double_precision else np.float32))
 
-        # Create the tensor with proper boolean handling
-        if np_value.dtype == np.bool_:
-            tensor = helper.make_tensor(
-                name=name,
-                data_type=TensorProto.BOOL,
-                dims=np_value.shape,
-                # Use bool_data instead of int32_data for boolean values
-                vals=np_value.astype(np.bool_).flatten().tolist(),
-            )
-            self.initializers.append(tensor)
-            self.register_value_info_metadata(
-                name, shape=tuple(np_value.shape), dtype=TensorProto.BOOL
-            )
-            return name
-        else:
-            # Regular handling for non-boolean types
-            return self.add_initializer(name, np_value, dtype, [])
-
-    def to_function_proto(self, name):
-        return onnx.helper.make_function(
-            domain="",
+        tensor = helper.make_tensor(
             name=name,
-            inputs=self.input_value_infos,
-            outputs=self.output_value_infos,
-            nodes=self.nodes,
-            opset_imports=[onnx.helper.make_opsetid("", self.opset_version)],
+            data_type=dtype,
+            dims=np_value.shape,
+            vals=np_value.astype(np_value.dtype).flatten().tolist(),
         )
+        self.initializers.append(tensor)
+        self.register_value_info_metadata(name, shape=tuple(np_value.shape), dtype=dtype)
+        return name
+
+
+ 
 
     def get_value_info_metadata_with_origin(
         self, name: str
@@ -760,9 +1092,19 @@ class OnnxBuilder:
         # 1.a Strict topology check: every node input must have been produced already
         self._assert_topologically_sorted()
 
+        # Targeted dtype fix for our broadcast helper reshapes
+        self._fix_dtype_for_broadcast_reshapes_in_graph()
+        self._fix_dtype_for_broadcast_reshapes_in_functions()
+
         if not is_subgraph:
             # For the main graph, filter redundant inputs.
             self._filter_redundant_inputs()
+
+        # 🔧 Fix dtype records for reshape-like helpers before ONNX validation
+        self._harmonize_dtype_preserving_nodes()
+        self._retcon_expand_output_dtypes()
+        
+    
 
         missing = self.find_missing_value_info()
 
@@ -836,14 +1178,17 @@ class OnnxBuilder:
         Convert a numpy dtype to ONNX TensorProto dtype.
         This is a simplified version that leverages the same mapping used in make_value_info.
         """
-        # If dtype is already an integer (ONNX enum), return it directly
+
+
         if isinstance(dtype, int):
             return dtype
+        import numpy as _np
+        from onnx import mapping as _map, TensorProto
+        dt = dtype if isinstance(dtype, _np.dtype) else _np.dtype(dtype)
+        return _map.NP_TYPE_TO_TENSOR_TYPE.get(dt, TensorProto.UNDEFINED)
 
-        # Otherwise use the make_value_info logic for consistency
-        # Create a dummy tensor and extract its dtype
-        dummy_info = self.make_value_info("dummy", (), dtype)
-        return dummy_info.type.tensor_type.elem_type
+
+
 
     def add_function(
         self,
@@ -1064,14 +1409,14 @@ class OnnxBuilder:
                     self.add_value_info(name, (), TensorProto.FLOAT)
 
     def _register_value_info_if_missing(self, name: str):
-        if name not in self.value_info:
+        if not any(vi.name == name for vi in self.value_info): 
             if name not in self.value_info_metadata:
                 raise RuntimeError(f"[STRICT] Missing value_info_metadata for '{name}'")
             shape, dtype = self.value_info_metadata[name]
 
             if shape is None:
                 # fallback for debugging
-                logging.warn(f"[WARN] Missing metadata for: {name} — using fallback")
+                logging.warning(f"[WARN] Missing metadata for: {name} — using fallback")
                 shape = ()  # or None
             # print(
             #    f"[INFO] Registering value_info: {name}, shape={shape}, dtype={dtype}"
@@ -1118,7 +1463,7 @@ class OnnxBuilder:
 
         # ✅ Create function call node
         node = helper.make_node(
-            op_type=op_type or node_name,
+            op_type=op_type or function_name,
             inputs=input_names,
             outputs=output_names,
             name=node_name,
@@ -1182,7 +1527,7 @@ class OnnxBuilder:
                 logging.debug(f"Making dimensions dynamic for input: {tensor.name}")
                 self._adjust_tensor_shape(tensor, input_shapes[i], batch_dims)
             else:
-                logging.warn(f"No shape hint available for input: {tensor.name}")
+                logging.warning(f"No shape hint available for input: {tensor.name}")
 
         # Make all outputs dynamic as well
         for tensor in self.outputs:
@@ -1205,6 +1550,7 @@ class OnnxBuilder:
             for init in self.initializers
             if init.name in used_inputs or init.name in output_names
         ]
+
 
     def get_value_info_origins(self) -> dict[str, str]:
         """
@@ -1355,19 +1701,19 @@ class OnnxBuilder:
             )
 
     # ------------------------------------------------------------------
-    # helper
+    #  Remove "redundant" graph inputs:
+    #   • inputs produced by some node inside the graph,
+    #   • inputs shadowing an initializer with the same name,
+    #   • inputs not consumed by any node (including inside subgraphs),
+    #     unless they are declared graph outputs.
     # ------------------------------------------------------------------
     def _filter_redundant_inputs(self) -> None:
-        """Drop every `graph.input` that
-        * is also produced by some node **or**
-        * duplicates an initializer **or**
-        * is not consumed by any node (including nodes in subgraphs).
-        """
         node_in, node_out = set(), set()
+
+        # Collect inputs/outputs for top-level nodes and nested subgraphs
         for n in self.nodes:
             node_in.update([t for t in n.input if t])
             node_out.update([t for t in n.output if t])
-            # Recursively find inputs in subgraphs
             for attr in n.attribute:
                 if attr.type == AttributeProto.GRAPH:
                     for sub_node in attr.g.node:
@@ -1377,39 +1723,29 @@ class OnnxBuilder:
                         for sub_node in g.node:
                             node_in.update([t for t in sub_node.input if t])
 
-        # Build initializers dictionary if not already done
+        # Initializers and graph outputs
         if not hasattr(self, "initializers_by_name"):
             self.initializers_by_name = {init.name: init for init in self.initializers}
-
-        inits = set(self.initializers_by_name.keys())
-        g_outs = set(o.name for o in self.outputs)
+        init_names = set(self.initializers_by_name.keys())
+        graph_output_names = {o.name for o in self.outputs}
 
         before = len(self.inputs)
         self.inputs = [
             vi
             for vi in self.inputs
             if (
-                # must still be needed
-                vi.name in node_in
-                or vi.name in g_outs
+                # must be used by a node or be a formal graph output
+                vi.name in node_in or vi.name in graph_output_names
             )
-            and (
-                # …but not produced inside
-                vi.name
-                not in node_out
-            )
-            and (
-                # …and not shadow an initializer
-                vi.name
-                not in inits
-            )
+            and vi.name not in node_out         # not produced inside the graph
+            and vi.name not in init_names       # not shadowing an initializer
         ]
 
         if before != len(self.inputs):
             logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
 
     # ------------------------------------------------------------------
-    #  🔍  Utility: find an already-existing graph.input that is “compatible”
+    #  🔍  Utility: find an already-existing graph.input that is "compatible"
     #               with the requested (shape, dtype) tuple.
     # ------------------------------------------------------------------
     def find_compatible_input(
@@ -1469,8 +1805,7 @@ class OnnxBuilder:
         graph while we refactor.  Logs once so we can spot mis-uses later.
         """
         logger.debug("[subgraph-stub] requested ‘%s’ → passthrough", name)
-        return self
-        return self
+        return self 
 
     # ────────────────────────────────────────────────────────────────
     #  Helpers used by the Scan-plugin to inspect symbols
