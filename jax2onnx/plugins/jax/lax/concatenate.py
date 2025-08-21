@@ -1,7 +1,12 @@
+# file: jax2onnx/plugins/jax/lax/concatenate.py
+
+
 from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
+import jax.numpy as jnp
+import numpy as np
+from onnx import helper, TensorProto
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -16,7 +21,11 @@ if TYPE_CHECKING:
         {
             "component": "Concat",
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
-        }
+        },
+        {
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
+        },
     ],
     since="v0.2.0",
     context="primitives.lax",
@@ -50,6 +59,25 @@ if TYPE_CHECKING:
             ),  # Corrected callable
             "input_shapes": [(2, 3, 4), (2, 5, 4)],
         },
+        {
+            # Regression: zero-arg; internal int32s -> concatenate -> cast to f32.
+            # Ensures the Concat value_info dtype is recorded as int32 and ORT loads.
+            "testcase": "concatenate_internal_int32_then_cast_to_f32_zeroarg",
+            "callable": (
+                lambda: jax.lax.concatenate(
+                    (jnp.array([1], dtype=jnp.int32), jnp.array([2], dtype=jnp.int32)),
+                    dimension=0,
+                ).astype(jnp.float32)
+            ),
+            "expected_output_shapes": [(2,)],
+            # In f64 variant the harness tends to expect DOUBLE for floating outputs.
+            # We instead assert explicitly that the graph output type is FLOAT (f32).
+            "post_check_onnx_graph": (
+                lambda m: len(m.graph.output) == 1
+                and m.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
+            ),
+            "run_only_f64_variant": True,
+        },
     ],
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
@@ -63,18 +91,24 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         output_name = s.get_name(node_outputs[0])
         dimension = params["dimension"]
 
-        # Calculate and propagate shape information
-        # Defensive: always use .aval.shape (JAX tracing) or .shape (ShapeDtypeStruct), fallback to tuple(inp) for raw tuples
+        # Shapes & dtypes (prefer aval metadata during tracing)
         input_shapes = []
+        input_dtypes = []
         for inp in node_inputs:
-            if hasattr(inp, "aval") and hasattr(inp.aval, "shape"):
+            if hasattr(inp, "aval"):
                 input_shapes.append(inp.aval.shape)
-            elif hasattr(inp, "shape"):
-                input_shapes.append(inp.shape)
-            elif isinstance(inp, (tuple, list)):
-                input_shapes.append(tuple(inp))
+                input_dtypes.append(np.dtype(inp.aval.dtype))
+            elif hasattr(inp, "shape") and hasattr(inp, "dtype"):
+                input_shapes.append(tuple(inp.shape))
+                input_dtypes.append(np.dtype(inp.dtype))
             else:
-                raise ValueError(f"Input to concatenate has no shape: {inp}")
+                raise ValueError(f"Input to concatenate lacks shape/dtype: {inp!r}")
+
+        # Decide target dtype: promote across inputs (usually identical in JAX)
+        tgt_dtype = input_dtypes[0]
+        for dt in input_dtypes[1:]:
+            tgt_dtype = np.promote_types(tgt_dtype, dt)
+
         output_shape = list(input_shapes[0])  # Start with the shape of the first input
         # Normalize the axis
         rank = len(output_shape)
@@ -104,12 +138,32 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
                 else f"{output_shape[dimension]}+{shape[dimension]}"  # Keep strings
             )
 
+        # Ensure ONNX Concat sees uniform input dtype; insert Casts if needed.
+        norm_inputs = []
+        for name, dt, shp in zip(input_names, input_dtypes, input_shapes):
+            if np.dtype(dt) != np.dtype(tgt_dtype):
+                cast_out = s.builder.get_unique_name("Concat_cast")
+                s.add_node(
+                    helper.make_node(
+                        "Cast",
+                        [name],
+                        [cast_out],
+                        to=int(s.builder._numpy_dtype_to_onnx(tgt_dtype)),
+                        name=s.get_unique_name("Cast"),
+                    )
+                )
+                s.add_shape_info(cast_out, tuple(shp), np.dtype(tgt_dtype))
+                norm_inputs.append(cast_out)
+            else:
+                norm_inputs.append(name)
+
         node = helper.make_node(
             "Concat",
-            inputs=input_names,
+            inputs=norm_inputs,
             outputs=[output_name],
             name=s.get_unique_name("concat"),
             axis=dimension,
         )
         s.add_node(node)
-        s.add_shape_info(output_name, tuple(output_shape))
+        # Record the correct output dtype (fixes #74 regression with zero-arg case)
+        s.add_shape_info(output_name, tuple(output_shape), np.dtype(tgt_dtype))
