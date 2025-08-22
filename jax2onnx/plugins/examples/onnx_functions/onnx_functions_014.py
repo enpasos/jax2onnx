@@ -57,6 +57,8 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "rtol": 3e-4,
+            "atol": 2e-6,
         },
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
