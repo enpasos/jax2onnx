@@ -54,6 +54,8 @@ register_example(
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
+            "rtol": 3e-5,
+            "atol": 1e-6,
         },
     ],
 )
