@@ -1,10 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-#
-# Regression: ensure Loop body remains in SSA when multiple Shape(Add)
-# are needed from the SAME tensor in the body.
-# Pre-fix behavior: two Shape nodes with identical output name like "Add__shape"
-# → ORT load failure: INVALID_GRAPH: Graph must be in SSA form.
-
 import numpy as np
 import jax
 import jax.numpy as jnp

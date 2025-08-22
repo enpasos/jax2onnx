@@ -127,10 +127,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 shape_components.append(const_name)
             elif isinstance(dim, DimExpr):
                 if data_shape_name is None:
-                    data_shape_name = s.get_unique_name(f"{data_input_name}_shape")
-                    s.add_node(
-                        helper.make_node("Shape", [data_input_name], [data_shape_name])
-                    )
+                    # If target is x.shape, ask the builder for a safe helper:
+                    data_shape_name = s.builder.get_or_make_shape_of(data_input_name)
                     s.add_shape_info(
                         data_shape_name, (len(data_input.aval.shape),), np.int64
                     )
@@ -261,5 +259,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         }
 
 
+# Register the abstract evaluation rule with the primitive
+lax.reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
 # Register the abstract evaluation rule with the primitive
 lax.reshape_p.def_abstract_eval(ReshapePlugin.abstract_eval)
