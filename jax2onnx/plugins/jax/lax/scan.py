@@ -769,6 +769,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             # IMPORTANT: keep subgraph symbol mapping isolated to avoid cross-scan leakage
             body_builder.var_to_symbol_map = {}  # do not share with outer builder
             body_conv = Jaxpr2OnnxConverter(body_builder)
+            # Propagate symbolic-dimension origins from the outer converter, so that
+            # Shape()/broadcast ops inside the Loop body can resolve symbols (e.g., "B").
+            if not hasattr(body_conv, "symbolic_dim_to_origin"):
+                body_conv.symbolic_dim_to_origin = {}
+            body_conv.symbolic_dim_to_origin.update(
+                getattr(s, "symbolic_dim_to_origin", {}) or {}
+            )
 
             body_builder.add_input("iter_count", (), _np.int64)
             cond_in = body_builder.get_unique_name("cond_in")
@@ -786,6 +793,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 # symbols to these dtypes just before wiring the Loop inputs.
                 body_builder.add_input(nm, dyn_shape, var.aval.dtype)
                 body_conv.var_to_name[var] = nm
+                # Seed symbolic-dimension origin for any dynamic (non-int) axis.
+                # Write both the raw DimExpr object key and its string form, because
+                # some sites query with the object and others with str(sym_dim).
+                for axis, d in enumerate(getattr(var.aval, "shape", ())):
+                    if not isinstance(d, (int, _np.integer)):
+                        body_conv.symbolic_dim_to_origin[d] = (nm, axis)
+                        body_conv.symbolic_dim_to_origin[str(d)] = (nm, axis)
 
             for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
                 body_conv.var_to_name[var] = body_conv.get_constant_name(val)
@@ -1091,6 +1105,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
         # IMPORTANT: keep subgraph symbol mapping isolated to avoid cross-scan leakage
         body_builder.var_to_symbol_map = {}  # do not share with outer builder
         body_conv = Jaxpr2OnnxConverter(body_builder)
+        # Propagate symbolic-dimension origins so body ops can resolve symbols like "B".
+        if not hasattr(body_conv, "symbolic_dim_to_origin"):
+            body_conv.symbolic_dim_to_origin = {}
+        body_conv.symbolic_dim_to_origin.update(
+            getattr(s, "symbolic_dim_to_origin", {}) or {}
+        )
 
         # declare inputs (exactly the jaxpr.invars; order is [consts, carry, xs])
         for i, var in enumerate(jaxpr.invars):
@@ -1099,6 +1119,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             # Always use the jaxpr aval dtype for body inputs (both state and xs).
             body_builder.add_input(nm, dyn_shp, var.aval.dtype)
             body_conv.var_to_name[var] = nm
+            # Seed symbolic-dimension origin for any dynamic (non-int) axis.
+            # Write both the raw DimExpr object key and its string form, because
+            # some sites query with the object and others with str(sym_dim).
+            for axis, d in enumerate(getattr(var.aval, "shape", ())):
+                if not isinstance(d, (int, _np.integer)):
+                    body_conv.symbolic_dim_to_origin[d] = (nm, axis)
+                    body_conv.symbolic_dim_to_origin[str(d)] = (nm, axis)
 
         body_conv._process_jaxpr(jaxpr, consts)
 
@@ -1557,7 +1584,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     name=s.get_unique_name("ScanOut"),
                 )
             )
-            # Replace any stale VI and set rank/dtype from the requested var.
+            # Replace any stale VI and set rank/dtype from the requested var
             s.builder.value_info[:] = [
                 vi for vi in s.builder.value_info if vi.name != final_name
             ]

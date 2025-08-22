@@ -3,6 +3,7 @@
 from typing import Any, Dict, Sequence, Union, Optional, List, Tuple, cast
 
 import logging
+import os
 
 import numpy as np
 import onnx
@@ -257,6 +258,9 @@ class OnnxBuilder:
         )  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
         self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
+
+        # cache for Shape-of outputs, keyed by input symbol
+        self._shape_of_cache: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Symbolic‐dimension origin registry
@@ -710,6 +714,15 @@ class OnnxBuilder:
         return helper.make_node(op_type, inputs, outputs, **kwargs)
 
     def add_node(self, node: NodeProto) -> None:
+        # Optional SSA guard (env-flagged)
+        if os.getenv("JAX2ONNX_ASSERT_SSA", "").lower() in ("1", "true", "yes", "on"):
+            existing = {o for n in self.nodes for o in n.output}
+            dups = [o for o in node.output if o in existing]
+            if dups:
+                raise RuntimeError(
+                    f"[SSA] Attempt to add node '{node.name or node.op_type}' with "
+                    f"duplicate outputs {dups}."
+                )
         self.nodes.append(node)
 
     def _register_deterministic_parameters(self, missing_names: list[str]) -> list[str]:
@@ -759,6 +772,18 @@ class OnnxBuilder:
 
         # 1.a Strict topology check: every node input must have been produced already
         self._assert_topologically_sorted()
+
+        # Final SSA check (always on for safety)
+        seen = set()
+        dups = []
+        for n in self.nodes:
+            for o in n.output:
+                if o in seen:
+                    dups.append((n.name or n.op_type, o))
+                seen.add(o)
+        if dups:
+            detail = ", ".join([f"{nm}:{out}" for nm, out in dups[:5]])
+            raise RuntimeError(f"[SSA] Graph has duplicate output names: {detail} ...")
 
         if not is_subgraph:
             # For the main graph, filter redundant inputs.
