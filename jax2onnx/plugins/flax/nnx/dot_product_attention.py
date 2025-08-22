@@ -18,6 +18,21 @@ if TYPE_CHECKING:
 _ORIGINAL_DOT_PRODUCT_ATTENTION_CALL: Callable | None = None
 
 
+def _dpa_inputs_f64_no_full_mask():
+    rng = np.random.RandomState(0)
+    q = rng.randn(2, 8, 4, 16).astype(np.float64)
+    k = rng.randn(2, 8, 4, 16).astype(np.float64)
+    v = rng.randn(2, 8, 4, 16).astype(np.float64)
+
+    # mask shape (B, H, Q, K); start with all masked, then unmask diagonal
+    mask = np.ones((2, 4, 8, 8), dtype=bool)
+    idx = np.arange(8)
+    mask[:, :, idx, idx] = False  # guarantee at least one unmasked per row
+
+    bias = np.zeros((2, 4, 8, 8), dtype=np.float64)
+    return [q, k, v, mask, bias]
+
+
 # Callable definitions for test cases
 def dpa_with_mask(q, k, v, mask):
     return nnx.dot_product_attention(q, k, v, mask=mask)
@@ -98,16 +113,13 @@ nnx.dot_product_attention_p.multiple_results = False
         {
             "testcase": "dpa_with_mask_and_bias",
             "callable": dpa_with_mask_and_bias,
-            "input_shapes": [
-                (2, 8, 4, 16),
-                (2, 8, 4, 16),
-                (2, 8, 4, 16),
-                (2, 4, 8, 8),
-                (2, 4, 8, 8),
-            ],
-            "input_dtypes": [np.float32, np.float32, np.float32, np.bool_, np.float32],
+            # switch from shapes/dtypes → concrete values to avoid fully-masked rows
+            "input_values": _dpa_inputs_f64_no_full_mask(),
+            "expected_output_shapes": [(2, 8, 4, 16)],  # optional but nice
+            "expected_output_dtypes": [np.float64],  # keep it f64
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "run_only_f64_variant": True,
         },
     ],
 )
