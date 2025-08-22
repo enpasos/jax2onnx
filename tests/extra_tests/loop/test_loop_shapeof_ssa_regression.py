@@ -19,12 +19,13 @@ def loop_body_ssa_bug(x0):
     On buggy converters, both paths materialize a Shape node with the same
     output name like 'Add__shape', violating SSA inside the Loop body.
     """
+
     def body_fun(i, carry):
-        z = carry + 1.0                          # (B, 4)  -- creates an 'Add' node
-        a = jnp.reshape(z, (z.shape[0], -1))     # (B, 4)  -- shape-of(z) used here
-        b = jnp.reshape(a, z.shape)              # (B, 4)  -- shape-of(z) used again
-        dummy = jnp.zeros(z.shape, z.dtype)      # (B, 4)  -- shape-of(z) used again
-        out = b + dummy                          # keep both paths alive
+        z = carry + 1.0  # (B, 4)  -- creates an 'Add' node
+        a = jnp.reshape(z, (z.shape[0], -1))  # (B, 4)  -- shape-of(z) used here
+        b = jnp.reshape(a, z.shape)  # (B, 4)  -- shape-of(z) used again
+        dummy = jnp.zeros(z.shape, z.dtype)  # (B, 4)  -- shape-of(z) used again
+        out = b + dummy  # keep both paths alive
         return out
 
     # 2 iterations to ensure we hit the Loop path in ONNX
@@ -56,7 +57,7 @@ class TestLoopShapeOfSSARegression:
         sess = ort.InferenceSession(serialized)
 
         # Quick numeric check (sanity): ORT == JAX
-        x = np.random.randn(3, 4).astype(np.float32)   # B=3 at runtime
+        x = np.random.randn(3, 4).astype(np.float32)  # B=3 at runtime
         y_jax = np.asarray(loop_body_ssa_bug(x))
         y_onnx = np.asarray(sess.run(None, {sess.get_inputs()[0].name: x})[0])
         np.testing.assert_allclose(y_jax, y_onnx, rtol=1e-6, atol=1e-6)
