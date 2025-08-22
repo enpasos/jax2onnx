@@ -244,15 +244,23 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             model_name=s.builder.get_unique_name(f"{prefix}_body"),
         )
 
-        # --- CORRECTED FIX START ---
-        # Propagate the double precision flag from the main builder to the subgraph builder.
+        # Propagate outer flags/config into the subgraph builder/converter
+        # (notably double-precision and symbolic-dim origins).
         body_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
         )
-        # --- CORRECTED FIX END ---
+        # Create the body converter and inherit the parent's symbolic origins.
+        body_conv = s.__class__(body_builder)
 
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
-        body_conv = s.__class__(body_builder)
+        # Inherit known origins so Shape() inside the body can resolve outer symbols.
+        if not hasattr(body_conv, "symbolic_dim_to_origin"):
+            body_conv.symbolic_dim_to_origin = {}
+        if hasattr(s, "symbolic_dim_to_origin") and getattr(
+            s, "symbolic_dim_to_origin"
+        ):
+            # copy so we can safely mutate in the body
+            body_conv.symbolic_dim_to_origin.update(dict(s.symbolic_dim_to_origin))
 
         # ► inputs:   (iter, cond_in, s1_in … sk_in)
         iter64 = body_builder.name_generator.get(f"{prefix}_iter64")
@@ -270,6 +278,26 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             body_builder.add_input(sym, dyn_shape, _dt)
             # Map to Jaxpr input (skip the first invar which is the loop-index)
             body_conv.var_to_name[body_closed.jaxpr.invars[idx + 1]] = sym
+
+            # Register symbolic-dimension origins for this carried state.
+            # If shape has symbolic dims (e.g., 'B'), record that they come
+            # from this tensor at the corresponding axis. This allows any
+            # Shape()/broadcast ops in the body to resolve symbols like 'B'.
+            aval_shape = getattr(v.aval, "shape", ())
+            for axis, dim in enumerate(aval_shape):
+                if not isinstance(dim, int):
+                    # Drop any inherited entries that refer to the same symbol
+                    # (match by str equality) so we don't keep outer names like 'var_0'.
+                    keys_to_drop = [
+                        k
+                        for k in list(body_conv.symbolic_dim_to_origin.keys())
+                        if str(k) == str(dim)
+                    ]
+                    for k in keys_to_drop:
+                        del body_conv.symbolic_dim_to_origin[k]
+                    # Register both the object key (DimExpr) and its string form.
+                    body_conv.symbolic_dim_to_origin[dim] = (sym, axis)
+                    body_conv.symbolic_dim_to_origin[str(dim)] = (sym, axis)
 
         # iterator cast if body expects int32
         iter_target_dtype = (
