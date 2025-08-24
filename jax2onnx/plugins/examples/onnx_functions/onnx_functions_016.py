@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 @onnx_function
@@ -48,7 +48,7 @@ register_example(
     testcases=[
         {
             "testcase": "016_internal_function_with_input_param_with_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
             "run_only_f32_variant": True,

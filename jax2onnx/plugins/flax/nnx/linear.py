@@ -24,7 +24,11 @@ from flax import nnx
 from jax.extend.core import Primitive
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_primitive,
+    construct_and_call,
+)
 from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
 
 if TYPE_CHECKING:  # only for static analysis / IDEs
@@ -58,27 +62,45 @@ nnx.linear_p.multiple_results = False
     testcases=[
         {
             "testcase": "linear_symbolic_batch",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear, in_features=128, out_features=64, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [("B", 128)],
         },
         {
             "testcase": "linear_high_rank",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear, in_features=128, out_features=64, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [("B", 10, 128)],
         },
         {
             "testcase": "linear_no_bias",
-            "callable": nnx.Linear(128, 64, use_bias=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                in_features=128,
+                out_features=64,
+                use_bias=False,
+                rngs=nnx.Rngs(0),
+            ),
             "input_shapes": [("B", 128)],
         },
         {
             "testcase": "linear_high_rank_no_bias",
-            "callable": nnx.Linear(128, 64, use_bias=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                in_features=128,
+                out_features=64,
+                use_bias=False,
+                rngs=nnx.Rngs(0),
+            ),
             "input_shapes": [("B", 10, 128)],
         },
         {
             "testcase": "linear_merge_symbolic_dim",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear, in_features=128, out_features=64, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [("B", 10, 128)],  # B is symbolic
             "run_only_dynamic": True,
             "run_only_f32_variant": True,

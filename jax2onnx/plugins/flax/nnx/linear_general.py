@@ -25,7 +25,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive, construct_and_call
 
 
 # ------------------------------------------------------------------
@@ -87,7 +87,8 @@ _ORIGINAL_LG_CALL: Callable | None = None
     testcases=[
         {
             "testcase": "linear_general_merge_symbolic_dim",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(4, 16),  # ⟨4,16⟩ are the contracting dims
                 out_features=32,
                 axis=(-2, -1),
@@ -97,7 +98,7 @@ _ORIGINAL_LG_CALL: Callable | None = None
             "input_shapes": [("B", 8, 4, 16)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            # Validate *all* shape‑infos: input, two intermediates, and output
+            # Validate *all* shape-infos: input, two intermediates, and output
             "post_check_onnx_graph": lambda m: (
                 # var_0  (graph input)  should be B×8×4×16
                 _shape_of(m.graph.input, "var_0") == ("B", 8, 4, 16)
@@ -115,7 +116,8 @@ _ORIGINAL_LG_CALL: Callable | None = None
         },
         {
             "testcase": "linear_general",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
@@ -126,7 +128,8 @@ _ORIGINAL_LG_CALL: Callable | None = None
         },
         {
             "testcase": "linear_general_2",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(30,),
                 out_features=(20,),
                 axis=(-1,),
@@ -137,7 +140,8 @@ _ORIGINAL_LG_CALL: Callable | None = None
         },
         {
             "testcase": "linear_general_3",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
@@ -148,7 +152,8 @@ _ORIGINAL_LG_CALL: Callable | None = None
         },
         {
             "testcase": "linear_general_4",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
@@ -159,24 +164,26 @@ _ORIGINAL_LG_CALL: Callable | None = None
         },
         {
             "testcase": "linear_general_abstract_eval_axes",
-            "callable": nnx.LinearGeneral(
+            # Lazy construction so no modules are created at import time
+            "callable": (lambda *a, **k: nnx.LinearGeneral(
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
                 rngs=nnx.Rngs(0),
-            ),
+            )(*a, **k)),
             "input_shapes": [(3, 10, 256)],
             "expected_output_shape": (3, 10, 8, 32),
             "run_only_f32_variant": True,
         },
         {
             "testcase": "linear_general_abstract_eval_axes_pair",
-            "callable": nnx.LinearGeneral(
+            # Lazy construction so no modules are created at import time
+            "callable": (lambda *a, **k: nnx.LinearGeneral(
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
                 rngs=nnx.Rngs(0),
-            ),
+            )(*a, **k)),
             "input_shapes": [(3, 10, 8, 32)],
             "expected_output_shape": (3, 10, 256),
             "run_only_f32_variant": True,

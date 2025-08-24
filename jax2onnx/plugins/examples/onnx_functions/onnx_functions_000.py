@@ -4,7 +4,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 class MLPBlock(nnx.Module):
@@ -50,7 +50,8 @@ register_example(
     testcases=[
         {
             "testcase": "000_one_function_on_outer_layer",
-            "callable": SuperBlock(),
+            # Strict late-construction pattern
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,

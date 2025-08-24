@@ -4,7 +4,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 @onnx_function
@@ -48,7 +48,8 @@ register_example(
     testcases=[
         {
             "testcase": "002_two_nested_functions",
-            "callable": SuperBlock(),
+            # Strict late-construction pattern (no import-time init)
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
             "run_only_f32_variant": True,

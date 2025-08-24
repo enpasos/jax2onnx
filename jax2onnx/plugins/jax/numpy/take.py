@@ -9,7 +9,11 @@ from jax import core
 from jax.extend.core import Primitive, Var
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_primitive,
+    construct_and_call,
+)
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -54,7 +58,8 @@ class ArangeTakeModule(nnx.Module):
     testcases=[
         {
             "testcase": "take_data_dependent_indices",
-            "callable": ArangeTakeModule(
+            "callable": construct_and_call(
+                ArangeTakeModule,
                 num_embeddings=10,  # Must be >= the sequence length
                 features=16,
                 rngs=nnx.Rngs(0),

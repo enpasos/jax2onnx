@@ -1,11 +1,9 @@
 # file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_001.py
-# Note: Original header comment mentioned sandbox, corrected path
-
-
+ 
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 # === Renamed ===
@@ -43,7 +41,7 @@ class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
     def __call__(self, x):
         # Apply LayerNorm (not part of ONNX function), then call the @onnx_function MLPBlock
         # Note: LayerNorm would be part of the main graph, MLP call becomes a function call node.
-        return self.mlp(self.layer_norm2(x))
+        return self.mlp(self.layer_norm2(x), deterministic=True)
 
 
 register_example(
@@ -56,7 +54,8 @@ register_example(
     testcases=[
         {
             "testcase": "001_one_function_inner",
-            "callable": SuperBlock(),  # Callable is the outer block
+            # Strict late-construction pattern
+            "callable": construct_and_call(SuperBlock),  # Callable is the outer block
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,

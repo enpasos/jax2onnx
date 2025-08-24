@@ -9,7 +9,7 @@ from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive, construct_and_call
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -39,14 +39,24 @@ einsum_module_p.multiple_results = False
     testcases=[  # Keep existing testcases
         {
             "testcase": "einsum_module_with_bias",
-            "callable": nnx.Einsum(
-                "nta,hab->nthb", (8, 2, 4), (8, 4), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Einsum,
+                einsum_str="nta,hab->nthb",
+                kernel_shape=(8, 2, 4),
+                bias_shape=(8, 4),
+                rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(16, 11, 2)],
         },
         {
             "testcase": "einsum_module_no_bias",
-            "callable": nnx.Einsum("nta,hab->nthb", (8, 2, 4), None, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Einsum,
+                einsum_str="nta,hab->nthb",
+                kernel_shape=(8, 2, 4),
+                bias_shape=None,
+                rngs=nnx.Rngs(0),
+            ),
             "input_shapes": [(16, 11, 2)],
         },
     ],

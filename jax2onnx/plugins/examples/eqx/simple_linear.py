@@ -1,35 +1,41 @@
 # file: jax2onnx/plugins/examples/eqx/simple_linear.py
 
-import equinox as eqx
+from __future__ import annotations
 import jax
+import jax.numpy as jnp
+import equinox as eqx
 
 from jax2onnx.plugin_system import register_example
 
 
 class Linear(eqx.Module):
-    weight: jax.Array
-    bias: jax.Array
+    weight: jnp.ndarray
+    bias: jnp.ndarray
 
-    def __init__(self, in_size, out_size, key):
+    def __init__(self, in_size: int, out_size: int, *, key):
         wkey, bkey = jax.random.split(key)
-        self.weight = jax.random.normal(wkey, (out_size, in_size))
-        self.bias = jax.random.normal(bkey, (out_size,))
+        # JAX 0.7 prefers explicit dtype; default is fine but being explicit is safest
+        self.weight = jax.random.normal(wkey, (out_size, in_size), dtype=jnp.float32)
+        self.bias = jax.random.normal(bkey, (out_size,), dtype=jnp.float32)
 
     def __call__(self, x):
-        return self.weight @ x + self.bias
+        return x @ self.weight.T + self.bias
 
 
 # --- Test Case Definition ---
-# 1. Create the model instance once, outside the testcase's callable.
-#    This ensures that the random weight initialization is not part of the
-#    function that gets traced for ONNX conversion.
-# 2. We also apply jax.vmap here to create a batched version of the model.
-model = jax.vmap(Linear(30, 3, key=jax.random.PRNGKey(0)))
+# ✅ GOOD: build the model when the testcase actually runs
+def _run_simple_linear(x):
+    # Create params lazily, not at import
+    model = jax.vmap(Linear(x.shape[-1], 3, key=jax.random.PRNGKey(0)))
+    return model(x)
 
 # Example using eqx.nn.Linear
-model_nn = jax.vmap(
-    eqx.nn.Linear(in_features=30, out_features=3, key=jax.random.PRNGKey(1))
-)
+def _run_nn_linear(x):
+    # Create params lazily, not at import
+    model_nn = jax.vmap(
+        eqx.nn.Linear(in_features=x.shape[-1], out_features=3, key=jax.random.PRNGKey(1))
+    )
+    return model_nn(x)
 
 
 register_example(
@@ -42,12 +48,12 @@ register_example(
     testcases=[
         {
             "testcase": "simple_linear",
-            "callable": model,
+            "callable": _run_simple_linear,
             "input_shapes": [("B", 30)],
         },
         {
             "testcase": "nn_linear",
-            "callable": model_nn,
+            "callable": _run_nn_linear,
             "input_shapes": [("B", 30)],
         },
     ],

@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 def create_sinusoidal_embeddings(num_patches: int, num_hiddens: int) -> jnp.ndarray:
@@ -352,7 +352,8 @@ register_example(
     testcases=[
         {
             "testcase": "012_vit_conv_embedding",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,

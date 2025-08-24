@@ -6,8 +6,7 @@ import os
 import pkgutil
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from typing import Any, Union
+from typing import Any, Union, Callable
 
 import jax
 from jax.core import ShapedArray
@@ -32,6 +31,18 @@ ONNX_FUNCTION_PRIMITIVE_REGISTRY: dict[str, tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY: dict[str, "FunctionPlugin"] = {}
 
 INSTANCE_MAP: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
+
+
+
+
+
+def construct_and_call(ctor: Callable[..., Any], /, **init_kwargs) -> Callable[..., Any]:
+    """Return a callable that constructs `ctor(**init_kwargs)` on each call, then calls it."""
+    def _call(*args, **call_kwargs):
+        module = ctor(**init_kwargs)
+        return module(*args, **call_kwargs)
+    _call.__name__ = f"construct_and_call_{getattr(ctor, '__name__', 'callable')}"
+    return _call
 
 
 #####################################

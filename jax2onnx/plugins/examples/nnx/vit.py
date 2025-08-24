@@ -4,8 +4,9 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
+import numpy as np
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +69,9 @@ register_example(
     testcases=[
         {
             "testcase": "patch_embedding",
-            "callable": PatchEmbedding(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                PatchEmbedding,
                 height=28,
                 width=28,
                 patch_size=4,
@@ -77,6 +80,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -163,13 +167,16 @@ register_example(
     testcases=[
         {
             "testcase": "mnist_conv_embedding",
-            "callable": ConvEmbedding(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                ConvEmbedding,
                 embed_dims=[32, 64, 128],
                 kernel_size=3,
                 strides=[1, 2, 2],
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -208,10 +215,16 @@ register_example(
     testcases=[
         {
             "testcase": "feed_forward",
-            "callable": FeedForward(
-                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                FeedForward,
+                num_hiddens=256,
+                mlp_dim=512,
+                dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 10, 256)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         },
     ],
@@ -297,7 +310,9 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_block",
-            "callable": TransformerBlock(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
@@ -356,7 +371,9 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack",
-            "callable": TransformerStack(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                TransformerStack,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
@@ -427,7 +444,9 @@ register_example(
     testcases=[
         {
             "testcase": "classification_head",
-            "callable": ClassificationHead(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                ClassificationHead,
                 num_hiddens=256,
                 num_classes=10,
                 rngs=nnx.Rngs(0),
@@ -469,7 +488,9 @@ register_example(
     testcases=[
         {
             "testcase": "concat_cls_token",
-            "callable": ConcatClsToken(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                ConcatClsToken,
                 num_hiddens=256,
                 rngs=nnx.Rngs(0),
             ),
@@ -503,7 +524,9 @@ register_example(
     testcases=[
         {
             "testcase": "positional_embedding",
-            "callable": PositionalEmbedding(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                PositionalEmbedding,
                 num_patches=49,
                 num_hiddens=256,
             ),
@@ -632,7 +655,9 @@ register_example(
     testcases=[
         {
             "testcase": "vit_conv_embedding",
-            "callable": VisionTransformer(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -651,7 +676,9 @@ register_example(
         },
         {
             "testcase": "vit_patch_embedding",
-            "callable": VisionTransformer(
+            # Defer construction to call-time to avoid RNG/initializer work at import.
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -669,5 +696,30 @@ register_example(
             },
             "run_only_f32_variant": True,
         },
+    ],
+)
+
+
+register_example(
+    component="ViT_PatchEmbedding",
+    description="Vision Transformer patch embedding (Conv → flatten).",
+    context="examples.nnx.vit",
+    since="v0.7.0",
+    testcases=[
+        {
+            "testcase": "vit_patch_embedding",
+            # Defer construction to call time to avoid JAX RNG/initializer work at import.
+            "callable": construct_and_call(
+                PatchEmbedding,
+                height=32,
+                width=32,
+                patch_size=4,
+                num_hiddens=64,
+                in_features=3,
+                rngs=nnx.Rngs(0),
+            ),
+            "input_values": [np.random.randn(2, 32, 32, 3).astype(np.float32)],
+            "run_only_f32_variant": True,
+        }
     ],
 )

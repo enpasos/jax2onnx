@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
 from einops import reduce
 
 
@@ -105,12 +105,12 @@ register_example(
     since="v0.6.5",
     context="examples.nnx",
     testcases=[
-        # TODO: enable test
-        # {
-        #     "testcase": "simple_cnn_inference",
-        #     "callable": CNN2(num_classes=10, rngs=nnx.Rngs(0)),
-        #     "input_shapes": [("B", 28, 28, 1)],
-        #     "run_only_f32_variant": True,
-        # },
+        {
+            "testcase": "simple_cnn2_inference",
+            # Late-construction to avoid RNG/initializer work at import time.
+            "callable": construct_and_call(CNN2, num_classes=10, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 28, 28, 1)],
+            "run_only_f32_variant": True,
+        },
     ],
 )

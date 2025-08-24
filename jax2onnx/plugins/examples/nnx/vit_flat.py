@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,8 @@ register_example(
     testcases=[
         {
             "testcase": "patch_embedding_flat",
-            "callable": PatchEmbedding(
+            "callable": construct_and_call(
+                PatchEmbedding,
                 height=28,
                 width=28,
                 patch_size=4,
@@ -78,6 +79,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -163,13 +165,15 @@ register_example(
     testcases=[
         {
             "testcase": "mnist_conv_embedding_flat",
-            "callable": ConvEmbedding(
+            "callable": construct_and_call(
+                ConvEmbedding,
                 embed_dims=[32, 64, 128],
                 kernel_size=3,
                 strides=[1, 2, 2],
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],
@@ -207,10 +211,15 @@ register_example(
     testcases=[
         {
             "testcase": "feed_forward_flat",
-            "callable": FeedForward(
-                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                FeedForward,
+                num_hiddens=256,
+                mlp_dim=512,
+                dropout_rate=0.1,
+                rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 10, 256)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         },
     ],
@@ -293,7 +302,8 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_block_flat",
-            "callable": TransformerBlock(
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
@@ -351,7 +361,8 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack_flat",
-            "callable": TransformerStack(
+            "callable": construct_and_call(
+                TransformerStack,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
@@ -419,7 +430,8 @@ register_example(
     testcases=[
         {
             "testcase": "classification_head_flat",
-            "callable": ClassificationHead(
+            "callable": construct_and_call(
+                ClassificationHead,
                 num_hiddens=256,
                 num_classes=10,
                 rngs=nnx.Rngs(0),
@@ -460,7 +472,8 @@ register_example(
     testcases=[
         {
             "testcase": "concat_cls_token_flat",
-            "callable": ConcatClsToken(
+            "callable": construct_and_call(
+                ConcatClsToken,
                 num_hiddens=256,
                 rngs=nnx.Rngs(0),
             ),
@@ -493,7 +506,8 @@ register_example(
     testcases=[
         {
             "testcase": "positional_embedding_flat",
-            "callable": PositionalEmbedding(
+            "callable": construct_and_call(
+                PositionalEmbedding,
                 num_patches=49,
                 num_hiddens=256,
             ),
@@ -621,7 +635,8 @@ register_example(
     testcases=[
         {
             "testcase": "vit_conv_embedding_flat",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -640,7 +655,8 @@ register_example(
         },
         {
             "testcase": "vit_patch_embedding_flat",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,

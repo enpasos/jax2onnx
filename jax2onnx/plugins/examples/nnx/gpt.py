@@ -1,10 +1,19 @@
 # file: jax2onnx/plugins/examples/nnx/gpt.py
 
+import jax
 import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
+
+def normal_init(stddev=0.02):
+    def _init(key, shape, dtype=jnp.float32):
+        return jax.random.normal(key, shape, dtype) * stddev
+    return _init
+
+def _safe_kernel_init(key, shape, dtype=jax.numpy.float32):
+    return jax.random.normal(key, shape, dtype) * 0.02
 
 
 # TODO - GPT attention with @onnx_function
@@ -51,7 +60,7 @@ class CausalSelfAttention(nnx.Module):
         rngs: nnx.Rngs,
     ):
         super().__init__()
-        # Attention‐weight dropout (“attn_dropout”) built into MultiHeadAttention:
+        # Attention‐weight dropout ("attn_dropout") built into MultiHeadAttention:
         self.attn = nnx.MultiHeadAttention(
             num_heads=n_head,
             in_features=n_embd,
@@ -59,10 +68,11 @@ class CausalSelfAttention(nnx.Module):
             out_features=n_embd,
             broadcast_dropout=True,
             dropout_rate=dropout,
+            kernel_init=_safe_kernel_init,
             attention_fn=lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
             rngs=rngs,
         )
-        # Residual/output dropout (“resid_dropout”):
+        # Residual/output dropout ("resid_dropout"):
         self.resid_dropout = nnx.Dropout(dropout)
         self.causal_mask = nnx.Param(
             jnp.tril(jnp.ones((block_size, block_size))).reshape(
@@ -95,7 +105,8 @@ register_example(
     testcases=[
         {
             "testcase": "causal_self_attention",
-            "callable": CausalSelfAttention(
+            "callable": construct_and_call(
+                CausalSelfAttention,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
@@ -113,8 +124,8 @@ register_example(
 class MLP(nnx.Module):
     def __init__(self, n_embd: int, dropout: float, *, rngs: nnx.Rngs):
         super().__init__()
-        self.c_fc = nnx.Linear(n_embd, 4 * n_embd, rngs=rngs)
-        self.c_proj = nnx.Linear(4 * n_embd, n_embd, rngs=rngs)
+        self.c_fc = nnx.Linear(n_embd, 4 * n_embd, kernel_init=_safe_kernel_init, rngs=rngs)
+        self.c_proj = nnx.Linear(4 * n_embd, n_embd, kernel_init=_safe_kernel_init, rngs=rngs)
         self.dropout = nnx.Dropout(dropout)
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
@@ -135,7 +146,8 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_mlp",
-            "callable": MLP(
+            "callable": construct_and_call(
+                MLP,
                 n_embd=768,
                 dropout=0.0,
                 rngs=nnx.Rngs(0),
@@ -188,7 +200,8 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_block",
-            "callable": Block(
+            "callable": construct_and_call(
+                Block,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
@@ -228,10 +241,8 @@ register_example(
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": TokenEmbedding(
-                vocab_size=3144,
-                n_embd=768,
-                rngs=nnx.Rngs(0),
+            "callable": construct_and_call(
+                TokenEmbedding, vocab_size=3144, n_embd=768, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 1024)],
             "input_dtypes": [jnp.int32],
@@ -265,10 +276,8 @@ register_example(
     testcases=[
         {
             "testcase": "position_embedding",
-            "callable": PositionEmbedding(
-                block_size=1024,
-                n_embd=768,
-                rngs=nnx.Rngs(0),
+            "callable": construct_and_call(
+                PositionEmbedding, block_size=1024, n_embd=768, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [],  # ③ no inputs
             "expected_output_shapes": [(1, 1024, 768)],
@@ -317,7 +326,8 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack",
-            "callable": GPTTransformerStack(
+            "callable": construct_and_call(
+                GPTTransformerStack,
                 n_layer=2,
                 n_head=12,
                 n_embd=768,
@@ -395,7 +405,8 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_embeddings",
-            "callable": GPTEmbeddings(
+            "callable": construct_and_call(
+                GPTEmbeddings,
                 vocab_size=3144,
                 n_embd=768,
                 block_size=1024,
@@ -423,7 +434,8 @@ class GPTHead(nnx.Module):
     ):
         super().__init__()
         self.ln_f = nnx.LayerNorm(n_embd, rngs=rngs)
-        self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False, rngs=rngs)
+        self.lm_head = nnx.Linear(n_embd, vocab_size, use_bias=False,
+                                 kernel_init=_safe_kernel_init, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = self.ln_f(x)
@@ -444,10 +456,8 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_head",
-            "callable": GPTHead(
-                vocab_size=3144,
-                n_embd=768,
-                rngs=nnx.Rngs(0),
+            "callable": construct_and_call(
+                GPTHead, vocab_size=3144, n_embd=768, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 1024, 768)],
             "expected_output_shape": ("B", 1024, 3144),
@@ -516,12 +526,13 @@ register_example(
     testcases=[
         {
             "testcase": "gpt",
-            "callable": GPT(
-                vocab_size=3144,  # downsampled from 50304 to 50304/16=3144 for testing
-                n_layer=2,  # downsampled from 12 to 2 layers for testing
+            "callable": construct_and_call(
+                GPT,
+                vocab_size=3144,
+                n_layer=2,
                 n_head=12,
                 n_embd=768,
-                block_size=1024,  # context window size
+                block_size=1024,
                 dropout=0.0,
                 rngs=nnx.Rngs(0),
             ),

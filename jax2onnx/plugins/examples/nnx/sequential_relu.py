@@ -2,17 +2,22 @@
 #
 # Examples that exercise support for `nnx.Sequential`.
 
+import jax
 from flax import nnx
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
+
+
+# Use a normal initializer instead of truncated_normal in JAX 0.7.1
+def _safe_kernel_init(key, shape, dtype=jax.numpy.float32):
+    return jax.random.normal(key, shape, dtype) * 0.02
 
 
 # ---------------------------------------------------------------------------
 # STATELESS EXAMPLE: Two ReLU activations in a row.
 # ---------------------------------------------------------------------------
-double_relu = nnx.Sequential(
-    nnx.relu,  # first ReLU
-    nnx.relu,  # second ReLU
-)
+class DoubleReLU(nnx.Module):
+    def __call__(self, x):
+        return nnx.relu(nnx.relu(x))
 
 register_example(
     component="SequentialReLU",
@@ -24,7 +29,7 @@ register_example(
     testcases=[
         {
             "testcase": "sequential_double_relu",
-            "callable": double_relu,
+            "callable": construct_and_call(DoubleReLU),
             "input_shapes": [(5,)],
         },
     ],
@@ -33,11 +38,17 @@ register_example(
 
 class ComplexParentWithResidual(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs):
-        self.initial_op = nnx.Linear(in_features=16, out_features=16, rngs=rngs)
+        self.initial_op = nnx.Linear(
+            in_features=16, out_features=16,
+            kernel_init=_safe_kernel_init, rngs=rngs
+        )
         self.ffn = nnx.Sequential(
-            nnx.Linear(in_features=16, out_features=32, rngs=rngs),
+            nnx.Linear(in_features=16, out_features=32, kernel_init=_safe_kernel_init, rngs=rngs),
             lambda x: nnx.relu(x),
-            nnx.Linear(in_features=32, out_features=16, rngs=rngs),
+            nnx.Linear(
+                in_features=32, out_features=16,
+                kernel_init=_safe_kernel_init, rngs=rngs
+            ),
         )
         self.layernorm = nnx.LayerNorm(num_features=16, rngs=rngs)
 
@@ -47,7 +58,6 @@ class ComplexParentWithResidual(nnx.Module):
         # The residual connection around the nested Sequential is the key to reproducing the bug.
         output = self.layernorm(x_residual + ffn_output)
         return output
-
 
 register_example(
     component="SequentialWithResidual",
@@ -59,7 +69,10 @@ register_example(
     testcases=[
         {
             "testcase": "sequential_nested_with_residual",
-            "callable": ComplexParentWithResidual(rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                ComplexParentWithResidual,
+                rngs=nnx.Rngs(0),
+            ),
             "input_shapes": [(1, 16)],
             "run_only_f32_variant": True,
         },

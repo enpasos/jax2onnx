@@ -2,7 +2,7 @@
 import jax
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
 
 
 def Encoder(rngs):
@@ -25,6 +25,11 @@ class AutoEncoder(nnx.Module):
         return self.encoder(x)
 
 
+# ✅ build the model when the testcase actually runs
+def _run_autoencoder(x):
+    model = AutoEncoder(rngs=nnx.Rngs(0))
+    return model(x)
+
 register_example(
     component="AutoEncoder",
     description="A simple autoencoder example.",
@@ -35,7 +40,8 @@ register_example(
     testcases=[
         {
             "testcase": "simple_autoencoder",
-            "callable": AutoEncoder(rngs=nnx.Rngs(0)),
+            # Late-construct the module at call time (no RNG/params at import).
+            "callable": construct_and_call(AutoEncoder, rngs=nnx.Rngs(0)),
             "input_shapes": [(1, 2)],
         }
     ],

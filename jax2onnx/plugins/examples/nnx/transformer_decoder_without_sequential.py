@@ -1,8 +1,9 @@
-# file: jax2onnx/examples/nnx/transformer_decoder2.py
+# file: jax2onnx/examples/nnx/transformer_decoder_without_sequential.py
 
 import jax
+import numpy as np
 from flax import nnx
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
 
 
 # ------------------------------------------------------------------------------
@@ -136,8 +137,8 @@ register_example(
     component="TransformerDecoderWithoutSequential",
     description="A single-layer Transformer decoder built with nnx primitives (MHA, LayerNorm, Feed-Forward, Dropout).",
     source="https://github.com/google/flax/tree/main/flax/nnx",
-    since="v0.7.1",
-    context="examples.nnx",
+    since="v0.7.0",
+    context="examples.nnx.transformer_decoder_without_sequential",
     children=[
         "nnx.MultiHeadAttention",
         "nnx.LayerNorm",
@@ -147,8 +148,29 @@ register_example(
     ],
     testcases=[
         {
+            "testcase": "transformer_decoder",
+            # Strict late-construction pattern (no wrapper/factory dicts)
+            "callable": construct_and_call(
+                TransformerDecoder,
+                num_layers=2,
+                embed_dim=64,
+                num_heads=4,
+                ff_dim=128,
+                rngs=nnx.Rngs(0),
+                attention_dropout=0.0,
+                encoder_attention_dropout=0.0,
+            ),
+            "input_values": [
+                np.random.randn(2, 16, 64).astype(np.float32),  # x
+                np.random.randn(2, 16, 64).astype(np.float32),  # encoder_output
+            ],
+            "input_params": {"deterministic": True},
+            "run_only_f32_variant": True,
+        },
+        {
             "testcase": "tiny_decoder_without_sequential",
-            "callable": TransformerDecoder(
+            "callable": construct_and_call(
+                TransformerDecoder,
                 num_layers=1,
                 embed_dim=16,
                 num_heads=4,
@@ -158,6 +180,7 @@ register_example(
                 encoder_attention_dropout=0.5,
             ),
             "input_shapes": [("B", 8, 16), ("B", 4, 16)],
+            "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
         }
     ],

@@ -4,7 +4,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 @onnx_function
@@ -99,7 +99,8 @@ register_example(
     testcases=[
         {
             "testcase": "009_transformer_block",
-            "callable": TransformerBlock(
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,

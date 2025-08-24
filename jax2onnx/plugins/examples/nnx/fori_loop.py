@@ -34,12 +34,4 @@ register_example(
     ],
 )
 
-
-# main function
-# def main():
-#     x = jnp.array([1.0, 2.0], dtype=jnp.float32)
-#     y = model_fn(x)
-
-
-# if __name__ == "__main__":
-#     main()
+ 

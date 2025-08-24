@@ -8,7 +8,7 @@ from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive, construct_and_call
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -35,13 +35,17 @@ nnx.embed_p.multiple_results = False
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": nnx.Embed(num_embeddings=3144, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed, num_embeddings=3144, features=48, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
         },
         {
             "testcase": "positional_embedding",
-            "callable": nnx.Embed(num_embeddings=64, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed, num_embeddings=64, features=48, rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
         },

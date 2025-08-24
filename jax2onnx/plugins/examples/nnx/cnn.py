@@ -2,16 +2,22 @@
 import jax
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
+
+
+def _safe_kernel_init(key, shape, dtype=jax.numpy.float32):
+    return jax.random.normal(key, shape, dtype) * 0.02
 
 
 class CNN(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs):
-        self.conv1 = nnx.Conv(1, 32, kernel_size=(3, 3), rngs=rngs)
-        self.conv2 = nnx.Conv(32, 64, kernel_size=(3, 3), rngs=rngs)
+        self.conv1 = nnx.Conv(1, 32, kernel_size=(3, 3),
+                              kernel_init=_safe_kernel_init, rngs=rngs)
+        self.conv2 = nnx.Conv(32, 64, kernel_size=(3, 3),
+                              kernel_init=_safe_kernel_init, rngs=rngs)
         self.avg_pool = lambda x: nnx.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
         self.linear1 = nnx.Linear(3136, 256, rngs=rngs)
-        self.linear2 = nnx.Linear(256, 10, rngs=rngs)
+        self.linear2 = nnx.Linear(256, 10, kernel_init=_safe_kernel_init, rngs=rngs)
 
     def __call__(self, x: jax.Array):
         x = self.avg_pool(nnx.relu(self.conv1(x)))
@@ -21,6 +27,15 @@ class CNN(nnx.Module):
         x = self.linear2(x)
         return x
 
+
+# ✅ build the model only when the testcase runs
+def _run_cnn_explicit_dimensions(x):
+    model = CNN(rngs=nnx.Rngs(0))
+    return model(x)
+
+def _run_cnn(x):
+    model = CNN(rngs=nnx.Rngs(0))
+    return model(x)
 
 register_example(
     component="CNN",
@@ -38,13 +53,15 @@ register_example(
     testcases=[
         {
             "testcase": "simple_cnn_explicit_dimensions",
-            "callable": CNN(rngs=nnx.Rngs(0)),
+            # Late-construct to avoid RNG/initializer work at import time.
+            "callable": construct_and_call(CNN, rngs=nnx.Rngs(0)),
             "input_shapes": [(3, 28, 28, 1)],
             "run_only_f32_variant": True,
         },
         {
             "testcase": "simple_cnn",
-            "callable": CNN(rngs=nnx.Rngs(0)),
+            # Same late construction; supports dynamic batch dim "B".
+            "callable": construct_and_call(CNN, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
         },

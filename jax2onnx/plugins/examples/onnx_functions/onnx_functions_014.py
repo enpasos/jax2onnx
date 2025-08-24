@@ -1,10 +1,10 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_000.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_014.py
 
 
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 class MLPBlock(nnx.Module):
@@ -50,7 +50,7 @@ register_example(
     testcases=[
         {
             "testcase": "014_one_function_with_input_param_with_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [(5, 10, 3)],
             "expected_number_of_function_instances": 1,
             "input_params": {
@@ -62,7 +62,7 @@ register_example(
         },
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,

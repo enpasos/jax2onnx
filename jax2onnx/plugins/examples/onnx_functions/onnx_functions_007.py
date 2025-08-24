@@ -4,7 +4,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugin_system import onnx_function, register_example, construct_and_call
 
 
 # === Renamed ===
@@ -103,8 +103,9 @@ register_example(
     testcases=[
         {
             "testcase": "007_transformer_block",
-            # === Updated callable name ===
-            "callable": TransformerBlock(
+            # Late construction using the required construct_and_call pattern
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,

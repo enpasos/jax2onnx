@@ -1,8 +1,9 @@
 # file: jax2onnx/examples/multi_head_attention.py
 
+import jax
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugin_system import register_example, construct_and_call
 
 
 register_example(
@@ -15,11 +16,16 @@ register_example(
     testcases=[
         {
             "testcase": "multihead_attention_nn",
-            "callable": nnx.MultiHeadAttention(
+            # Lazy construction + safe init to avoid jax.random.truncated_normal in JAX 0.7.1
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=8,
                 in_features=256,
                 qkv_features=256,
                 out_features=256,
+                kernel_init=(lambda key, shape, dtype=jax.numpy.float32:
+                             jax.random.normal(key, shape, dtype) * 0.02),
+                dropout_rate=0.0,
                 rngs=nnx.Rngs(0),
                 decode=False,
             ),
@@ -28,11 +34,16 @@ register_example(
         },
         {
             "testcase": "multihead_attention_nnx",
-            "callable": nnx.MultiHeadAttention(
+            # Lazy construction + safe init to avoid jax.random.truncated_normal in JAX 0.7.1
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=8,
                 in_features=256,
                 qkv_features=256,
                 out_features=256,
+                kernel_init=(lambda key, shape, dtype=jax.numpy.float32:
+                             jax.random.normal(key, shape, dtype) * 0.02),
+                dropout_rate=0.0,
                 rngs=nnx.Rngs(0),
                 attention_fn=lambda *args, **kwargs: nnx.dot_product_attention(
                     *args, **kwargs
@@ -43,14 +54,19 @@ register_example(
             "run_only_f32_variant": True,
         },
         # ---------------------------------------------------------------
-        # Symbolic‑batch attention: ensure √dₖ constant is scalar (rank‑0)
+        # Symbolic-batch attention: ensure √dₖ constant is scalar (rank-0)
         {
             "testcase": "multihead_attention_2_nnx",
-            "callable": nnx.MultiHeadAttention(
+            # Lazy construction + safe init to avoid jax.random.truncated_normal in JAX 0.7.1
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=4,
                 in_features=16,
                 qkv_features=16,
                 out_features=16,
+                kernel_init=(lambda key, shape, dtype=jax.numpy.float32:
+                             jax.random.normal(key, shape, dtype) * 0.02),
+                dropout_rate=0.0,
                 rngs=nnx.Rngs(0),
                 decode=False,
             ),

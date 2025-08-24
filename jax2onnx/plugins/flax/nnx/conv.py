@@ -14,7 +14,7 @@ from jax.extend.core import Primitive, Literal
 from onnx import helper
 import logging  # Added logging
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive, construct_and_call
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -48,7 +48,8 @@ if not hasattr(nnx, "conv_p"):
     testcases=[
         {
             "testcase": "conv_basic_bias",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=16,
                 kernel_size=(3, 3),
@@ -66,7 +67,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_basic_bias_2",
-            "callable": nnx.Conv(1, 32, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=1, out_features=32, kernel_size=(3, 3), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 28, 28, 1)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -74,7 +77,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_basic_bias_3",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=1,
                 out_features=32,
                 kernel_size=(3, 3),
@@ -90,7 +94,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_stride2_bias",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=32,
                 out_features=64,
                 kernel_size=(3, 3),
@@ -106,7 +111,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_no_bias",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=16,
                 kernel_size=(3, 3),
@@ -122,7 +128,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_valid_padding",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(5, 5),
@@ -138,7 +145,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_stride1",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(3, 3),
@@ -154,7 +162,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_stride2",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(3, 3),
@@ -170,7 +179,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_different_kernel",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(1, 5),
@@ -186,7 +196,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_float64",  # This test case explicitly initializes Conv with float64 params
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(3, 3),
@@ -203,7 +214,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_single_batch",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(3, 3),
@@ -219,7 +231,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_large_batch",
-            "callable": nnx.Conv(
+            "callable": construct_and_call(
+                nnx.Conv,
                 in_features=3,
                 out_features=8,
                 kernel_size=(3, 3),
@@ -235,7 +248,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d",
-            "callable": nnx.Conv(28, 4, kernel_size=(3,), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=28, out_features=4, kernel_size=(3,), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 28, 28)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -243,7 +258,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_more_1d_inputs",
-            "callable": nnx.Conv(28, 4, kernel_size=(3,), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=28, out_features=4, kernel_size=(3,), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 4, 4, 28)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -251,7 +268,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_more_2d_inputs",
-            "callable": nnx.Conv(28, 4, kernel_size=(3,), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=28, out_features=4, kernel_size=(3,), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 4, 4, 8, 28)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -259,8 +278,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_large_kernel",
-            "callable": nnx.Conv(
-                16, 8, kernel_size=(5,), strides=(2,), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=16, out_features=8, kernel_size=(5,), strides=(2,), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(4, 32, 16)],
             "run_only_f32_variant": True,
@@ -269,8 +288,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_dilation",
-            "callable": nnx.Conv(
-                8, 16, kernel_size=(3,), kernel_dilation=(2,), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=8, out_features=16, kernel_size=(3,), kernel_dilation=(2,), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 24, 8)],
             "run_only_f32_variant": True,
@@ -279,9 +298,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_stride_dilation",
-            "callable": nnx.Conv(
-                12,
-                6,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=12,
+                out_features=6,
                 kernel_size=(7,),
                 strides=(3,),
                 kernel_dilation=(2,),
@@ -294,8 +314,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_asymmetric_kernel",
-            "callable": nnx.Conv(
-                4, 8, kernel_size=(2, 5), strides=(1, 2), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=4, out_features=8, kernel_size=(2, 5), strides=(1, 2), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 20, 20, 4)],
             "run_only_f32_variant": True,
@@ -304,8 +324,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_asymmetric_stride",
-            "callable": nnx.Conv(
-                6, 12, kernel_size=(3, 3), strides=(1, 3), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=6, out_features=12, kernel_size=(3, 3), strides=(1, 3), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 18, 24, 6)],
             "run_only_f32_variant": True,
@@ -314,8 +334,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_asymmetric_dilation",
-            "callable": nnx.Conv(
-                3, 9, kernel_size=(3, 3), kernel_dilation=(1, 2), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=3, out_features=9, kernel_size=(3, 3), kernel_dilation=(1, 2), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
@@ -324,8 +344,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_large_dilation",
-            "callable": nnx.Conv(
-                8, 16, kernel_size=(3, 3), kernel_dilation=(3, 3), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=8, out_features=16, kernel_size=(3, 3), kernel_dilation=(3, 3), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 32, 32, 8)],
             "run_only_f32_variant": True,
@@ -334,8 +354,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_large_stride",
-            "callable": nnx.Conv(
-                4, 8, kernel_size=(5, 5), strides=(4, 4), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=4, out_features=8, kernel_size=(5, 5), strides=(4, 4), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 32, 32, 4)],
             "run_only_f32_variant": True,
@@ -344,9 +364,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_mixed_params",
-            "callable": nnx.Conv(
-                5,
-                10,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=5,
+                out_features=10,
                 kernel_size=(4, 6),
                 strides=(2, 3),
                 kernel_dilation=(2, 1),
@@ -360,7 +381,9 @@ if not hasattr(nnx, "conv_p"):
         # 3D Convolutions
         {
             "testcase": "conv_3d_basic",
-            "callable": nnx.Conv(2, 4, kernel_size=(3, 3, 3), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=2, out_features=4, kernel_size=(3, 3, 3), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 8, 8, 8, 2)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -368,8 +391,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_3d_stride",
-            "callable": nnx.Conv(
-                4, 8, kernel_size=(3, 3, 3), strides=(2, 2, 2), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=4, out_features=8, kernel_size=(3, 3, 3), strides=(2, 2, 2), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 16, 16, 16, 4)],
             "run_only_f32_variant": True,
@@ -378,8 +401,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_3d_asymmetric",
-            "callable": nnx.Conv(
-                3, 6, kernel_size=(2, 3, 4), strides=(1, 2, 1), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=3, out_features=6, kernel_size=(2, 3, 4), strides=(1, 2, 1), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 12, 14, 16, 3)],
             "run_only_f32_variant": True,
@@ -388,8 +411,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_3d_dilation",
-            "callable": nnx.Conv(
-                2, 4, kernel_size=(3, 3, 3), kernel_dilation=(2, 1, 2), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=2, out_features=4, kernel_size=(3, 3, 3), kernel_dilation=(2, 1, 2), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 16, 12, 16, 2)],
             "run_only_f32_variant": True,
@@ -398,7 +421,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_small_input",
-            "callable": nnx.Conv(1, 4, kernel_size=(2, 2), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=1, out_features=4, kernel_size=(2, 2), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(1, 4, 4, 1)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -406,7 +431,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_many_channels",
-            "callable": nnx.Conv(64, 128, kernel_size=(3, 3), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=64, out_features=128, kernel_size=(3, 3), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(2, 16, 16, 64)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -414,8 +441,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_wide_input",
-            "callable": nnx.Conv(
-                8, 16, kernel_size=(7,), strides=(1,), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=8, out_features=16, kernel_size=(7,), strides=(1,), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 128, 8)],
             "run_only_f32_variant": True,
@@ -424,7 +451,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_kernel_1x1",
-            "callable": nnx.Conv(16, 32, kernel_size=(1, 1), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=16, out_features=32, kernel_size=(1, 1), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(4, 14, 14, 16)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -432,7 +461,9 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_kernel_1",
-            "callable": nnx.Conv(8, 16, kernel_size=(1,), rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Conv, in_features=8, out_features=16, kernel_size=(1,), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(3, 20, 8)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda model: "Conv"
@@ -441,8 +472,8 @@ if not hasattr(nnx, "conv_p"):
         # Group convolution test cases
         {
             "testcase": "conv_2d_group_conv",
-            "callable": nnx.Conv(
-                16, 32, kernel_size=(3, 3), feature_group_count=4, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=16, out_features=32, kernel_size=(3, 3), feature_group_count=4, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 14, 14, 16)],
             "run_only_f32_variant": True,
@@ -451,8 +482,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_group_conv_more_dims",
-            "callable": nnx.Conv(
-                12, 24, kernel_size=(5,), feature_group_count=3, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=12, out_features=24, kernel_size=(5,), feature_group_count=3, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 8, 6, 12)],  # 1D conv on 3D spatial input
             "run_only_f32_variant": True,
@@ -461,8 +492,8 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_depthwise",
-            "callable": nnx.Conv(
-                8, 8, kernel_size=(3, 3), feature_group_count=8, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=8, out_features=8, kernel_size=(3, 3), feature_group_count=8, rngs=nnx.Rngs(0)
             ),  # Depthwise conv
             "input_shapes": [(2, 16, 16, 8)],
             "run_only_f32_variant": True,
@@ -472,9 +503,10 @@ if not hasattr(nnx, "conv_p"):
         # Mixed dimension cases with complex parameters
         {
             "testcase": "conv_1d_complex_on_4d",
-            "callable": nnx.Conv(
-                20,
-                40,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=20,
+                out_features=40,
                 kernel_size=(7,),
                 strides=(2,),
                 kernel_dilation=(3,),
@@ -487,9 +519,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_complex_on_5d",
-            "callable": nnx.Conv(
-                15,
-                30,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=15,
+                out_features=30,
                 kernel_size=(3, 5),
                 strides=(1, 2),
                 kernel_dilation=(2, 1),
@@ -502,9 +535,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_high_dilation_on_3d",
-            "callable": nnx.Conv(
-                24,
-                12,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=24,
+                out_features=12,
                 kernel_size=(9,),
                 strides=(3,),
                 kernel_dilation=(4,),
@@ -518,9 +552,10 @@ if not hasattr(nnx, "conv_p"):
         # Group convolution with complex parameters
         {
             "testcase": "conv_2d_group_stride_dilation",
-            "callable": nnx.Conv(
-                32,
-                64,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=32,
+                out_features=64,
                 kernel_size=(5, 3),
                 strides=(2, 1),
                 kernel_dilation=(1, 3),
@@ -534,9 +569,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_group_on_higher_dim",
-            "callable": nnx.Conv(
-                18,
-                36,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=18,
+                out_features=36,
                 kernel_size=(4,),
                 strides=(2,),
                 kernel_dilation=(2,),
@@ -551,9 +587,10 @@ if not hasattr(nnx, "conv_p"):
         # Edge cases with SAME padding and complex configurations
         {
             "testcase": "conv_1d_same_padding_on_3d",
-            "callable": nnx.Conv(
-                16,
-                8,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=16,
+                out_features=8,
                 kernel_size=(5,),
                 strides=(2,),
                 kernel_dilation=(3,),
@@ -567,9 +604,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_same_padding_mixed_dilation",
-            "callable": nnx.Conv(
-                10,
-                20,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=10,
+                out_features=20,
                 kernel_size=(3, 7),
                 strides=(1, 2),
                 kernel_dilation=(4, 1),
@@ -584,8 +622,8 @@ if not hasattr(nnx, "conv_p"):
         # Large kernel and high-dimensional cases
         {
             "testcase": "conv_1d_large_kernel_on_4d",
-            "callable": nnx.Conv(
-                25, 50, kernel_size=(11,), strides=(4,), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Conv, in_features=25, out_features=50, kernel_size=(11,), strides=(4,), rngs=nnx.Rngs(0)
             ),
             "input_shapes": [(2, 8, 12, 25)],  # 1D conv on 3D spatial input
             "run_only_f32_variant": True,
@@ -594,9 +632,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_2d_asymmetric_on_5d",
-            "callable": nnx.Conv(
-                14,
-                28,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=14,
+                out_features=28,
                 kernel_size=(2, 8),
                 strides=(3, 1),
                 kernel_dilation=(1, 2),
@@ -610,9 +649,10 @@ if not hasattr(nnx, "conv_p"):
         # Complex combinations with groups
         {
             "testcase": "conv_3d_group_complex",
-            "callable": nnx.Conv(
-                24,
-                48,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=24,
+                out_features=48,
                 kernel_size=(2, 3, 4),
                 strides=(1, 2, 1),
                 kernel_dilation=(2, 1, 3),
@@ -626,9 +666,10 @@ if not hasattr(nnx, "conv_p"):
         },
         {
             "testcase": "conv_1d_unit_group_on_multi_dim",
-            "callable": nnx.Conv(
-                21,
-                21,
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=21,
+                out_features=21,
                 kernel_size=(6,),
                 strides=(3,),
                 kernel_dilation=(2,),
