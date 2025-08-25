@@ -8,7 +8,7 @@ from jax import lax, numpy as jnp
 from jax.extend.core import ClosedJaxpr, Literal, Var
 from types import SimpleNamespace
 from onnx import helper, GraphProto, TensorProto
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 import logging
 

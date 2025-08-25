@@ -1,38 +1,38 @@
 # jax2onnx → onnx\_ir migration plan (Draft RFC)
 
-*Last updated: 2025‑08‑25*
+*Last updated: 2025-08-25*
 
 ## 1) Context & goals
 
-**Goal:** Introduce an alternative converter pipeline based on an ONNX IR builder ("onnx\_ir"), while keeping the existing pipeline fully functional. We migrate incrementally, testcase‑by‑testcase (or component‑by‑component), without breaking users and without regressing CI.
+**Goal:** Introduce an alternative converter pipeline based on an ONNX IR builder (“onnx\_ir”), while keeping the existing pipeline fully functional. We migrate incrementally, testcase-by-testcase (or component-by-component), without breaking users and without regressing CI.
 
-**Non‑goals (for now):**
+**Non-goals (for now):**
 
-* Changing the public user‑facing API beyond an optional feature flag.
+* Changing the public user-facing API beyond an optional feature flag.
 * Rewriting all plugins at once.
 * Forcing all tests to run through the new pipeline immediately.
 
-## 2) High‑level approach
+## 2) High-level approach
 
-* Run two pipelines side‑by‑side:
+* Run two pipelines side-by-side:
 
   * **Old**: `converter/` + `plugins/` (status quo)
   * **New**: `converter2/` + `plugin2/` using `onnx_ir` builder
 * Introduce a **feature flag** (`use_onnx_ir`) that routes calls to either pipeline.
-* Start migrating the smallest, low‑risk testcases first; keep CI green by isolating failures to the new path (xfail/skip where appropriate).
+* Migrate the smallest, low-risk testcases first; keep CI green by isolating failures to the new path (xfail/skip where appropriate).
 * When parity is reached, flip the default to the new pipeline, then remove the old code.
 
 ## 3) Terminology & naming
 
-* **onnx\_ir**: The new internal IR builder layer we use to construct ONNX graphs/models (may wrap onnx‑script or a custom builder; exact implementation is an internal detail of `converter2`).
+* **onnx\_ir**: The new internal IR builder layer used to construct ONNX graphs/models.
 * **plugin2**: New plugin API for the `onnx_ir` pipeline.
 * **converter2**: New converter stack that emits `onnx_ir` and serializes to ONNX.
 
-> ⚠️ **Naming consistency**: keep `plugin2` / `converter2` names stable throughout the migration to avoid churn. We can rename after the old stack is deleted.
+> ⚠️ Keep `plugin2` / `converter2` names stable until the legacy stack is removed.
 
 ## 4) Repository layout changes
 
-**Target structure** (additions in *bold*):
+**Target structure** (additions in *bold*; no duplicate tests folder):
 
 ```
 jax2onnx/
@@ -41,25 +41,33 @@ jax2onnx/
   plugins/
   converter2/
   plugin2/
-  plugin/__init__.py         # new location of the registry (see §5)
+  plugin/__init__.py         # new, shared registry (see §5)
   ir/                        # optional: shared onnx_ir utilities/builders
   sandbox/
-    onnx_ir_*.py             # existing/new sandbox cases
-  tests/                     # legacy pipeline (default: use_onnx_ir=False)
-    ...
-  tests2/                    # onnx_ir pipeline (forced: use_onnx_ir=True via conftest)
-    conftest.py
-    ...
+    onnx_ir_*.py
+  tests/
+    t_generator.py           # SINGLE generator used by all subtrees
+    conftest.py              # legacy-wide config (does NOT force IR)
+    primitives/
+    examples/
+    extra_tests/
+    # onnx_ir-focused subtrees (flag forced via local conftest.py):
+    primitives2/
+      conftest.py            # forces JAX2ONNX_USE_ONNX_IR=1 for this subtree
+    examples2/
+      conftest.py            # same
+    extra_tests2/
+      conftest.py            # same
   scripts/
-    generate_tests.py        # legacy generator
-  scripts2/
-    generate_tests2.py       # IR-aware generator emitting tests for tests2/
+    generate_tests.py        # SINGLE script to (re)generate tests via t_generator
 ```
+
+> **No duplicated scripts**: one `t_generator.py`, one `generate_tests.py`. Both legacy and `*2` subtrees use the same generator.
 
 ## 5) Moving `plugin_system.py`
 
-* **Action:** Move `plugin_system.py` to `jax2onnx/plugin/__init__.py` (or `jax2onnx/plugin/registry.py`).
-* **Back‑compat shim:** Keep a tiny `jax2onnx/plugin_system.py` that re‑exports from the new location and emits a `DeprecationWarning`.
+* **Action:** Move `plugin_system.py` → `jax2onnx/plugin/__init__.py` (or `plugin/registry.py`).
+* **Shim:** Keep `jax2onnx/plugin_system.py` that re-exports from `jax2onnx/plugin` and emits a `DeprecationWarning`.
 
 ```python
 # jax2onnx/plugin_system.py (shim)
@@ -72,52 +80,20 @@ warn(
 from jax2onnx.plugin import *
 ```
 
-* **Why now?** We need a neutral package (`jax2onnx/plugin`) that both old `plugins/` and new `plugin2/` can rely on.
-
 ## 6) Feature flag & routing
 
-> **Gap fixed:** The initial proposal had a contradiction. To keep behavior unchanged for users, the default **must be `use_onnx_ir=False`** during migration. Later, we can flip to `True`.
+**Default must remain `use_onnx_ir=False`** during migration. We’ll flip later.
 
 ### 6.1 Flag surface
 
-* **In tests (legacy tree `tests/`):** each testcase may set `use_onnx_ir: bool` (default `False`).
-* **In tests2:** the flag is **forced to `True` via `tests2/conftest.py`**; individual tests usually don’t specify it.
-* **In API:** `to_onnx(*, use_onnx_ir: bool | None = None, ... )` (unchanged).
-* **Env toggles:** `JAX2ONNX_USE_ONNX_IR` overrides both trees; `JAX2ONNX_SHADOW_COMPARE` optional for dev/CI.
+* **In tests (legacy subtrees):** each testcase may set `use_onnx_ir: bool` (default `False`).
+* **In `tests/*2` subtrees:** the flag is **forced to `True`** via each subtree’s `conftest.py`.
+* **In API:** `to_onnx(*, use_onnx_ir: bool | None = None, ...)`.
+* **Env toggles:** `JAX2ONNX_USE_ONNX_IR` overrides both; `JAX2ONNX_SHADOW_COMPARE` optional for dev/CI.
 
-### 6.2 Routing in `user_interface.to_onnx`
-
-```python
-# user_interface.py
-from .converter import to_onnx as _to_onnx_v1
-from .converter2 import to_onnx as _to_onnx_v2
-
-def to_onnx(func, *inputs, use_onnx_ir: bool | None = None, **kw):
-    if use_onnx_ir is None:
-        use_onnx_ir = bool(int(os.getenv("JAX2ONNX_USE_ONNX_IR", "0"))) or DEFAULT_USE_ONNX_IR
-    return (_to_onnx_v2 if use_onnx_ir else _to_onnx_v1)(func, *inputs, **kw)
-```
-
-### 6.3 Optional "shadow mode"
-
-* Add an internal env switch `JAX2ONNX_SHADOW_COMPARE=1` to run **both** pipelines, then compare:
-
-  * graph structure (node counts, op types)
-  * model inference equality (ORT run – only when cheap)
-  * metadata parity (input/output shapes/dtypes)
-* Only used in CI/nightly; does not affect users.
-
-## 7) Test strategy
-
-### 7.1 Dual-tree layout
-
-* **`tests/`** → Legacy pipeline. Default `use_onnx_ir=False`. Keep existing parametrization style where helpful.
-* **`tests2/`** → ONNX IR pipeline. **Always uses `use_onnx_ir=True`** enforced via a session fixture.
-
-**tests2/conftest.py (sketch):**
+**Subtree conftest sketch (e.g., `tests/examples2/conftest.py`):**
 
 ```python
-# tests2/conftest.py
 import os, pytest
 
 @pytest.fixture(autouse=True, scope="session")
@@ -125,167 +101,146 @@ def force_onnx_ir():
     os.environ["JAX2ONNX_USE_ONNX_IR"] = "1"
 ```
 
+### 6.2 Routing in `user_interface.to_onnx`
+
+```python
+from .converter import to_onnx as _to_onnx_v1
+from .converter2 import to_onnx as _to_onnx_v2
+
+DEFAULT_USE_ONNX_IR = False
+
+def to_onnx(func, inputs, *, use_onnx_ir: bool | None = None, **kw):
+    if use_onnx_ir is None:
+        use_onnx_ir = os.getenv("JAX2ONNX_USE_ONNX_IR", "").strip().lower() in ("1","true","yes") or DEFAULT_USE_ONNX_IR
+    return (_to_onnx_v2 if use_onnx_ir else _to_onnx_v1)(func, inputs, **kw)
+```
+
+### 6.3 Optional "shadow mode"
+
+`JAX2ONNX_SHADOW_COMPARE=1` → run **both** pipelines (where cheap), compare structure, metadata, and ORT outputs. CI/nightly only.
+
+## 7) Test strategy
+
+### 7.1 Single tests/ tree with dual subtrees
+
+* `tests/primitives|examples|extra_tests/` → legacy path, default `use_onnx_ir=False`.
+* `tests/primitives2|examples2|extra_tests2/` → IR path, **forced `use_onnx_ir=True`** via local `conftest.py`.
+
 ### 7.2 Markers & discipline
 
-* `@pytest.mark.ir_only` → skip on legacy tree if accidentally collected.
-* `@pytest.mark.legacy_only` → skip on tests2 if a file is temporarily shared.
-* `@pytest.mark.ir_xfail(reason=...)` → convenience alias for `pytest.mark.xfail` used **only** in tests2 where the legacy test passes but the IR path is WIP.
+* `@pytest.mark.ir_only` to skip in legacy subtrees if shared.
+* `@pytest.mark.legacy_only` to skip under `*2` subtrees if shared.
+* `@pytest.mark.ir_xfail(reason=...)` for known WIP in `*2`.
 
-### 7.3 Generators
+### 7.3 Generation flow (single source)
 
-* **`scripts/generate_tests.py`** remains for legacy.
-* **`scripts2/generate_tests2.py`** generates IR-focused tests into `tests2/` (may mirror structure/names from `tests/`). Prefer **one source of truth** for each migrated case to avoid drift; if duplication is unavoidable, add a comment at the top of both files pointing to its counterpart.
+* `tests/t_generator.py` is the single source of truth, capable of emitting tests for both legacy and `*2` subtrees.
+* `scripts/generate_tests.py` calls the generator for all targets. No `scripts2/`.
 
-### 7.4 CI matrix
+### 7.4 Numeric checks / dtypes
 
-* **PR (fast):** run `pytest tests/` fully; run a **smoke subset** of `tests2/` (e.g., via `-k ir_smoke or -m "not slow and not network"`).
-* **Nightly:** run full `tests/` + full `tests2/`; optionally enable `JAX2ONNX_SHADOW_COMPARE=1` on a curated subset.
+* The generator synthesizes inputs for shape-only cases, respects per-variant tolerances, and threads testcase-level `use_onnx_ir` into `to_onnx`.
 
-### 7.5 Migration mechanics
+### 7.5 CI matrix
 
-* When a testcase/component is migrated, add/port it to `tests2/` first. Keep the legacy copy in `tests/` until parity is reached for that area, then decide whether to:
-
-  * keep both (to guard against regressions in routing), or
-  * remove the legacy duplicate to reduce maintenance (recommended once IR is default).
+* **PR (fast):** full `tests/` legacy; smoke subset from `*2`.
+* **Nightly:** full legacy + full `*2`; optional shadow compare on a curated set.
 
 ## 8) Sandbox tests
 
-* Keep exploratory notebooks/scripts under `jax2onnx/sandbox/onnx_ir_*.py`.
-
-* Have at least one script that builds a tiny model with `converter2` and runs ORT to validate outputs. This acts as a reproducible example for contributors.
-
-* Keep exploratory notebooks/scripts under `jax2onnx/sandbox/onnx_ir_*.py`.
-
-* Have at least one script that builds a tiny model with `converter2` and runs ORT to validate outputs. This acts as a reproducible example for contributors.
+* Keep exploratory scripts under `jax2onnx/sandbox/onnx_ir_*.py`.
+* Include a tiny `converter2` + ORT example as a reproducible contributor sample.
 
 ## 9) `plugin2` design (v2 API)
 
-**Goals:**
-
-* Clean, minimal emitters that return `onnx_ir` nodes (not raw protobuf unless necessary).
-* Explicit shape/dtype contracts (return types) to facilitate static checks.
-* Clear separation of concerns: op selection, attribute building, shape/dtype inference, and name scoping.
-
-**Sketch:**
-
-```python
-# jax2onnx/plugin2/base.py
-class EmitterCtx:
-    def const(self, name, value, dtype, shape=None): ...
-    def op(self, op_type: str, *inputs, **attrs) -> "Value": ...  # returns IR Value
-    def infer(self, value: "Value"): ...  # shape/dtype
-
-class PrimitivePluginV2(Protocol):
-    jax_primitive: str
-    def lower(self, ctx: EmitterCtx, *args, **params) -> "Value | tuple[Value,...]": ...
-```
-
-* **Registration**: central registry in `jax2onnx/plugin` with separate namespaces for v1 and v2 to avoid collisions.
-* **Versioning**: plugins may advertise minimal opset and constraints; `converter2` resolves compatible patterns.
+* Emit `onnx_ir` nodes (not raw protobuf unless necessary).
+* Make shape/dtype contracts explicit.
+* Separate op selection, attribute building, shape/dtype inference, and name scoping.
+* Central registry lives under `jax2onnx/plugin` with v1/v2 namespaces.
 
 ## 10) `converter2` architecture
 
-Pipeline stages:
-
-1. **Front‑end**: JAX tracing → Jaxpr (same as legacy) + capture constants/metadata.
-2. **Lowering**: Map JAX primitives to `plugin2` emitters, yielding `onnx_ir` graph fragments.
-3. **IR passes** (optional, small and fast): constant folding, dead‑node elimination, attribute canonicalization, name‑hygiene.
-4. **Serialization**: `onnx_ir` → ModelProto, fill opset/imports, run ONNX checker.
-5. **Debuggability**: Stable names for nodes/values, and hooks to dump IR.
-
-**Shape/dtype management:**
-
-* Central `ShapeEnv` shared across emitters; all outputs register their inferred type.
-* Fallback to runtime shape capture is allowed for dynamic dims but must be explicit in logs.
+Stages: (1) JAX tracing → jaxpr; (2) lower via `plugin2` to `onnx_ir`; (3) light IR passes; (4) serialize to ModelProto; (5) debuggability hooks and stable naming.
 
 ## 11) Public API & docs
 
-* `to_onnx(..., use_onnx_ir: bool | None = None)` documented as **experimental**.
-* Add docs page: “Adopting the ONNX IR pipeline (experimental)” with examples and caveats.
+* `to_onnx(..., use_onnx_ir: bool | None = None)` is **experimental**.
+* Add doc page: “Adopting the ONNX IR pipeline (experimental)”.
 
 ## 12) Migration phases & milestones
 
-**Phase 0 – Framing (PR 1–2)**
+**Phase 0 – Framing**
 
-* [ ] Move `plugin_system.py` → `jax2onnx/plugin`, add shim & warnings.
+* [x] Move `plugin_system.py` → `jax2onnx/plugin`, add shim & warnings.
 * [ ] Add `converter2/` skeleton + `plugin2/` base & registry.
-* [ ] `user_interface.to_onnx` routing + env var.
-* [ ] **Scaffold dual trees**: create `tests2/` with `conftest.py` that forces IR; create `scripts2/` with a minimal `generate_tests2.py`.
-* [ ] CI: introduce `ONNX_IR_SMOKE=1` job that runs a tiny subset of `tests2/`.
+* [x] `user_interface.to_onnx` routing + env var.
+* [ ] Scaffold `tests/*2/` subtrees, each with a small `conftest.py` that forces IR.
+* [ ] CI: introduce a smoke job for `*2`.
+* [ ] **Unify generators/scripts**: keep a *single* `tests/t_generator.py` and a *single* `scripts/generate_tests.py`.
 
-**Phase 1 – Core math & tensor ops (PRs 3–N)**
+**Phase 1 – Core math & tensor ops**
 
-* [ ] Implement emitters for core ops (`add`, `mul`, `sub`, `div`, `neg`, `cast`, `reshape`, `transpose`, `concat`, `slice`, `gather`, `matmul`).
-* [ ] Port a **tiny** curated subset of primitives tests into `tests2/`.
-* [ ] Establish optional shadow compare on a few cases.
+* [ ] Implement emitters for core ops (add/mul/sub/div/neg/cast/reshape/transpose/concat/slice/gather/matmul).
+* [ ] Port a tiny curated subset into `*2` subtrees; add shadow compare where cheap.
 
 **Phase 2 – Shape/Index ops + NNX basics**
 
-* [ ] Add `arange`, `where`, `select`, `cumsum`, `reduce_*`.
-* [ ] Minimal NNX path: `linear`, `conv`, `batch_norm` happy path with static shapes.
-* [ ] Grow `tests2/` coverage accordingly; trim legacy duplicates where safe.
+* [ ] Add arange/where/select/cumsum/reduce\_\*.
+* [ ] Minimal NNX path: linear/conv/batch\_norm happy path with static shapes.
 
 **Phase 3 – Control flow & dynamic shapes**
 
-* [ ] `while_loop`, `scan`, `cond` emitters (static → dynamic).
-* [ ] Broaden NNX coverage; start Equinox subset as separate tracks.
+* [ ] while\_loop/scan/cond emitters; expand NNX coverage; begin Equinox track.
 
 **Phase 4 – Parity & flip**
 
-* [ ] Parity criteria met (see §14).
-* [ ] Flip default: `DEFAULT_USE_ONNX_IR=True` in one release.
-* [ ] Deprecate legacy via warnings for one minor release; then **remove `converter/`, `plugins/`, and consolidate `tests2/` → `tests/`** with a final rename.
+* [ ] Reach parity (see §14), flip default to IR, deprecate legacy, then remove legacy stack and collapse `*2` subtrees back into main.
 
 ## 13) Risks & mitigations
 
-* **Flag confusion**: Wrong default breaks users. → Keep default `False` until parity; add explicit release notes.
-* **Import churn**: Moving `plugin_system.py` breaks contributors. → Provide shim + warnings + codemod note.
-* **Test flakiness** with dual runs. → Keep PR CI minimal for `onnx_ir`; run the heavy compare nightly.
-* **Shape/dtype drift** between pipelines. → Shadow compare hooks; central `ShapeEnv`.
+* **Flag confusion** → keep default `False` until parity; loud release notes.
+* **Import churn** → shim + deprecation warning + codemod note.
+* **Flaky dual runs** → keep PR CI minimal for IR; heavier compare nightly.
+* **Shape/dtype drift** → shadow compare + central `ShapeEnv`.
 
-## 14) Parity definition (Definition of Done for flip)
+## 14) Parity definition (flip DoD)
 
-* **Functional**: All tests that pass on legacy also pass on `onnx_ir` (no xfails) for the supported feature set.
-* **Performance**: Within ±10% conversion time for representative models (documented sample set).
-* **Stability**: No new issues filed for `onnx_ir` for two weeks after enabling on `main`.
+* **Functional**: All legacy-passing tests pass on IR (no xfails) for covered features.
+* **Performance**: Conversion time within ±10% on a representative set.
+* **Stability**: No new IR issues for two weeks after enabling on `main`.
 
 ## 15) Developer ergonomics
 
 * Logging categories: `jax2onnx.ir`, `jax2onnx.converter2`, `jax2onnx.plugin2`.
-* `JAX2ONNX_DEBUG_IR_DUMP=1` → write IR and final ModelProto to `./.artifacts/latest/`.
-* Error messages should include: primitive name, shapes/dtypes, and hint to file a repro.
+* `JAX2ONNX_DEBUG_IR_DUMP=1` → dump IR + ModelProto to `./.artifacts/latest/`.
+* Errors include primitive name, shapes/dtypes, and “file a repro” hint.
 
 ## 16) Example snippets
 
-**Test parametrization**
+**Subtree conftest (forces IR only in that subtree)**
 
 ```python
-import pytest
-
-@pytest.mark.parametrize("use_onnx_ir", [False, True])
-def test_add_scalar(use_onnx_ir):
-    if use_onnx_ir and not os.getenv("ON_CI", "0"):  # keep local runs fast
-        pytest.skip("IR path only on CI smoke by default")
-    model = to_onnx(lambda x: x + 1, jnp.ones((3,)), use_onnx_ir=use_onnx_ir)
-    assert run_ort(model, [np.ones((3,), np.float32)]) is not None
+# tests/primitives2/conftest.py
+import os, pytest
+@pytest.fixture(autouse=True, scope="session")
+def force_onnx_ir():
+    os.environ["JAX2ONNX_USE_ONNX_IR"] = "1"
 ```
 
-**Per‑testcase flag in generators**
+**Per-testcase flag in metadata (consumed by t\_generator)**
 
 ```python
 case = {
     "testcase": "linear",
     "callable": my_linear,
     "input_shapes": [("B", 30)],
-    "use_onnx_ir": True,  # opt‑in early
+    "use_onnx_ir": True,   # opt-in early from legacy subtree if desired
 }
 ```
 
 **Minimal routing**
 
 ```python
-# user_interface.py
-
 def to_onnx(..., use_onnx_ir: bool | None = None):
     use_onnx_ir = _resolve_flag(use_onnx_ir)
     return converter2.to_onnx(...) if use_onnx_ir else converter.to_onnx(...)
@@ -293,22 +248,24 @@ def to_onnx(..., use_onnx_ir: bool | None = None):
 
 ## 17) Documentation & comms
 
-* Add a README section: “Experimental ONNX IR pipeline”.
-* Release notes for each phase with a short status line (what’s supported, what’s not).
-* Invite contributors to migrate specific primitives/components with a checklist in the issue tracker.
+* README section: “Experimental ONNX IR pipeline”.
+* Release notes per phase: supported vs. not-yet-supported.
+* Invite contributors to migrate specific primitives/components with a checklist.
 
-## 18) Open questions (to resolve early)
+## 18) Previously open questions → **Decisions**
 
-1. **IR implementation**: Are we standardizing on onnx‑script as the builder, or a thin custom IR wrapper? (Impacts developer experience.)
-2. **Opset strategy**: Do we target a single minimum opset for `converter2`, or allow per‑op emitters to pick higher opsets? (Recommend per‑op with a global floor.)
-3. **NNX/Equinox scope**: Which minimal subset do we guarantee first so downstream users feel the benefit quickly?
-4. **Performance budgets**: Do we set conversion time/memory budgets for `converter2` now or after parity?
-5. **Trace determinism**: Any differences in naming/scoping that could affect reproducibility or cached artifacts?
+1. **IR implementation:** base the new stack on the **onnx\_ir** library
+   → [https://github.com/onnx/ir-py](https://github.com/onnx/ir-py)
+2. **Opset strategy:** **same as the old generator world (for now)**.
+3. **Scope:** convert **all existing plugins and examples step by step** (publish as we go).
+4. **Performance:** measure **after implementation** (or earlier if it looks problematic) for speed & memory.
+5. **Trace determinism:** **no expected problems**; monitor and adjust if anything crops up.
 
 ---
 
 ### TL;DR
 
-* Keep legacy as default (`use_onnx_ir=False`).
-* Add `converter2`/`plugin2`, route via a flag, keep CI green with targeted xfails.
-* Migrate incrementally; flip default after parity; then remove legacy.
+* Legacy stays default (`use_onnx_ir=False`) while we migrate.
+* Single `tests/` tree with `primitives2/examples2/extra_tests2` forcing IR via local `conftest.py`.
+* One generator + one script power both sets.
+* Incremental migration; flip default after parity; then remove legacy.

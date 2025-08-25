@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 # This test isolates a pattern where `scatter_add` and `scatter_mul` are used
 # within the branches of a `jnp.where` conditional. This pattern was identified

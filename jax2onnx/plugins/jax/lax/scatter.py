@@ -14,7 +14,7 @@ from jax.lax import (
 import onnx
 from onnx import numpy_helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_converters import convert_lax_scatter
 
 import logging

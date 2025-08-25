@@ -16,7 +16,7 @@ from onnx import onnx_ml_pb2 as om
 from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX
 from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE as _ONNX2NP
 from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter

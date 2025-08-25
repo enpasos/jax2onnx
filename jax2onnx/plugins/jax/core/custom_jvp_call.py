@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins/jax/core/custom_jvp_call.py
 from typing import TYPE_CHECKING
 import jax
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     pass

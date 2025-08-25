@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 from jax import lax
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 
 def model_with_cond_and_scatter():

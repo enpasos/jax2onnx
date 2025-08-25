@@ -10,7 +10,7 @@ from jax import (
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
 
 # Correctly import from the plugin_system module based on your provided files
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_converters import convert_lax_scatter_add
 import logging
 

@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import onnx_function, register_example
 
 
 @onnx_function

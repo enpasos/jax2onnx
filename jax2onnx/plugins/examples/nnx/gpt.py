@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import onnx_function, register_example
 
 
 # TODO - GPT attention with @onnx_function

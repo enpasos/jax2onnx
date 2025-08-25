@@ -16,15 +16,23 @@ from logging_config import (
 
 from jax2onnx import allclose
 from jax2onnx.user_interface import to_onnx
-from jax2onnx.plugin_system import (
+from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,
+)
+from jax2onnx.plugins2.plugin_system import (
+    PLUGIN_REGISTRY2,
+    import_all_plugins as import_all_plugins2
+    ,
 )
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
 PLUGINS_DIR = os.path.join(
     TESTS_DIR, "../jax2onnx/plugins"
+)  # Corrected path assuming plugins are one level up from jax2onnx/tests
+PLUGINS_DIR2 = os.path.join(
+    TESTS_DIR, "../jax2onnx/plugins2"
 )  # Corrected path assuming plugins are one level up from jax2onnx/tests
 
 # Configure logger for this module
@@ -70,12 +78,19 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
 
 def load_metadata_from_plugins() -> list[dict[str, Any]]:
     import_all_plugins()
-    return [
+    import_all_plugins2()
+ 
+    items1 = [
         {**plugin.metadata, "jaxpr_primitive": name}
         for name, plugin in PLUGIN_REGISTRY.items()
         if hasattr(plugin, "metadata")
     ]
-
+    items2 = [
+        {**plugin.metadata, "jaxpr_primitive": name}
+        for name, plugin in PLUGIN_REGISTRY2.items()
+        if hasattr(plugin, "metadata")
+    ]
+    return items1 + items2
 
 def load_plugin_metadata() -> list[dict[str, Any]]:
     md = load_metadata_from_plugins()
@@ -438,6 +453,9 @@ def make_test_function(tp: dict[str, Any]):
 
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 21)
+        # Optional: allow a testcase to force legacy/IR pipeline selection.
+        # Only pass it through if explicitly present to avoid overriding env/module defaults.
+        use_onnx_ir_from_testcase = tp.get("use_onnx_ir")
 
         model_folder_path = os.path.join("docs", "onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
@@ -446,16 +464,22 @@ def make_test_function(tp: dict[str, Any]):
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
             f"enable_double_precision: {current_enable_double_precision}"
+            + (f", use_onnx_ir={use_onnx_ir_from_testcase}" if "use_onnx_ir" in tp else "")
         )
         try:
-            onnx_model = to_onnx(
-                callable_obj,
-                processed_input_specs_for_to_onnx,
+            to_onnx_kwargs = dict(
+                fn=callable_obj,
+                inputs=processed_input_specs_for_to_onnx,
                 input_params=input_params_from_testcase,
                 model_name=testcase_name,
                 opset=opset_version,
                 enable_double_precision=current_enable_double_precision,
             )
+            # Only thread this through if the testcase explicitly provided it.
+            if "use_onnx_ir" in tp:
+                to_onnx_kwargs["use_onnx_ir"] = use_onnx_ir_from_testcase
+
+            onnx_model = to_onnx(**to_onnx_kwargs)
         except Exception as e:
             logger.error(
                 f"Failed during to_onnx conversion for '{testcase_name}' with enable_double_precision={current_enable_double_precision}: {e}",

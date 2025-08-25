@@ -8,7 +8,7 @@ import onnx
 from flax import nnx
 
 from jax2onnx import to_onnx
-from jax2onnx.plugin_system import onnx_function
+from jax2onnx.plugins.plugin_system import onnx_function
 
 
 @onnx_function

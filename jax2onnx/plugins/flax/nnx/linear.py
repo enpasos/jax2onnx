@@ -24,7 +24,7 @@ from flax import nnx
 from jax.extend.core import Primitive
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
 
 if TYPE_CHECKING:  # only for static analysis / IDEs

@@ -3,13 +3,15 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import argparse
 import logging
+import os
 
 import onnx
 from jax import config, core
-from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
+from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl_v1
 from jax2onnx.converter.validation import allclose as allclose_impl
-from jax2onnx.plugin_system import onnx_function as onnx_function_impl
-
+from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
+from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl_v2
+ 
 config.update("jax_dynamic_shapes", True)
 
 # NEW -----------------------------------------------------------------
@@ -38,6 +40,7 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
+    use_onnx_ir: bool = False,
     enable_double_precision: bool = False,
     loosen_internal_shapes: bool = False,
     record_primitive_calls_file: Optional[str] = None,
@@ -56,6 +59,7 @@ def to_onnx(
                      'deterministic' flags.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
+        use_onnx_ir: If True, route to the new ONNX IR pipeline (converter2). Default: False (legacy).
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
         loosen_internal_shapes: If True, relax internal value_info in Loop/Scan/If bodies to rank-only and drop "
             "shape/dtype-sensitive producer VIs so ORT can infer safely (helps nested control-flow). "
@@ -84,6 +88,7 @@ def to_onnx(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
+        f"use_onnx_ir={use_onnx_ir}, "
         f"enable_double_precision={enable_double_precision}, loosen_internal_shapes={loosen_internal_shapes}, "
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
@@ -130,7 +135,10 @@ def to_onnx(
                         f"Got an element of type {type(inputs[0]) if inputs else 'Unknown'} in the list. Error: {e}"
                     )
 
-    return to_onnx_impl(
+    # Route to legacy or IR pipeline based on the boolean flag
+    _impl = to_onnx_impl_v2 if use_onnx_ir else to_onnx_impl_v1
+
+    return _impl(
         fn=fn,
         inputs=processed_inputs_for_impl,
         input_params=input_params,
@@ -218,34 +226,6 @@ def run_command_line():
         record_primitive_calls_file=args.record_primitive_calls_file,
     )
 
-
-def convert(
-    *,
-    enable_double_precision: bool = False,
-    loosen_internal_shapes: bool = False,
-    record_primitive_calls_file: Optional[str] = None,
-    **kwargs,
-):
-    """
-    Python API thin-wrapper around :pyfunc:`jax2onnx.to_onnx`.
-
-    Parameters
-    ----------
-    enable_double_precision : bool, optional
-        If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
-    loosen_internal_shapes : bool, optional
-        If *True*, relax internal Loop/Scan/If shapes to rank-only and drop sensitive-producer VIs to improve ORT "
-        "robustness for nested control-flow. Defaults to *False*. Can also be enabled via env var "
-        "JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1.
-    record_primitive_calls_file : str, optional
-        Path to a file to record JAX primitive calls during conversion. Defaults to None.
-    """
-    return to_onnx(
-        enable_double_precision=enable_double_precision,
-        loosen_internal_shapes=loosen_internal_shapes,
-        record_primitive_calls_file=record_primitive_calls_file,
-        **kwargs,
-    )
 
 
 def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:

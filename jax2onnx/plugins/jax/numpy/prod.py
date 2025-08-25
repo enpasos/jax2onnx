@@ -8,7 +8,7 @@ from jax import numpy as jnp
 from jax.extend.core import Primitive
 
 from jax2onnx.plugins.jax.lax._reduce_utils import add_reduce_node
-from jax2onnx.plugin_system import (
+from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )

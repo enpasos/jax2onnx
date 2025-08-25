@@ -6,7 +6,7 @@ import jax.random as jr
 import numpy as np
 from onnx import numpy_helper
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 
 class Mlp(eqx.Module):

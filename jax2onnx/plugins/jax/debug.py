@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 # Instead of importing, we create a Primitive object with the known name.
 from jax.extend.core import Primitive
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter

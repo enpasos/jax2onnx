@@ -13,7 +13,7 @@ from jax import numpy as jnp
 from jax.extend.core import Literal, Primitive
 from jax._src.export.shape_poly import _DimExpr as DimExpr
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.tile")
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 from jax import lax, core
 import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax.core import Var

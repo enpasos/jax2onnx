@@ -18,7 +18,7 @@ import numpy as np
 from onnx import helper as onnx_helper
 from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter

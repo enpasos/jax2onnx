@@ -1,10 +1,10 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_000.py
+# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_014.py
 
 
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import onnx_function, register_example
 
 
 class MLPBlock(nnx.Module):

@@ -9,7 +9,7 @@ from jax2onnx import to_onnx
 
 # FIX: Import and call `import_all_plugins` to load the necessary
 # conversion logic for complex nnx modules like MultiHeadAttention.
-from jax2onnx.plugin_system import import_all_plugins
+from jax2onnx.plugins.plugin_system import import_all_plugins
 
 import_all_plugins()
 

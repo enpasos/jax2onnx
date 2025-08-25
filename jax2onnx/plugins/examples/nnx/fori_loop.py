@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins/examples/nnx/fori_loop.py
 
 import jax
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 
 def model_fn(x):

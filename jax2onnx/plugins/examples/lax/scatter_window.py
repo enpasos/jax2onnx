@@ -4,7 +4,7 @@ import numpy as np
 import jax
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 
 def scatter_window_function(operand, indices, updates):

@@ -9,7 +9,7 @@ from jax import core, lax
 from jax.extend.core import Var
 from onnx import helper, TensorProto
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 

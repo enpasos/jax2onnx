@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax2onnx.converter.user_interface import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 HAS_ORT = True
 try:

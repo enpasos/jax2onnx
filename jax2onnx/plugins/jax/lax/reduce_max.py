@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 import jax.numpy as jnp
 from jax import lax
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from ._reduce_utils import add_reduce_node  # shared helper
 

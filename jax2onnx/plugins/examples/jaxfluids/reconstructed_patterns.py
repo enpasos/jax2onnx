@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 # This file contains self-contained test cases for computational patterns
 # extracted from the JAXPR of a larger jaxfluids simulation. The goal is

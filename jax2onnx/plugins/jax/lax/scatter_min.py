@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax import lax, core
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from .scatter_converters import convert_lax_scatter_min
 import logging
 

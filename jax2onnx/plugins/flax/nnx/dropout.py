@@ -9,8 +9,9 @@ from flax import nnx
 from jax.core import ShapedArray
 from jax.extend.core import Literal, Primitive
 from onnx import helper
+from onnx import numpy_helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 import logging
 
 if TYPE_CHECKING:
@@ -38,6 +39,19 @@ nnx.dropout_p.multiple_results = False  # Single output
             "testcase": "dropout_init_params",
             "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(5)),
             "input_shapes": [("B", 10)],
+            # If deterministic is statically True, either:
+            #  (A) Dropout is emitted with training_mode == False (as a constant), and ratio == 0.5, OR
+            #  (B) The converter elides Dropout to Identity.
+            "post_check_onnx_graph": lambda m: (
+                (
+                    (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
+                    and (tm_init := next((i for i in m.graph.initializer if i.name == drop.input[2]), None)) is not None
+                    and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                    and (numpy_helper.to_array(tm_init) == np.array(False)).all()
+                    and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
+                )
+                or any(n.op_type == "Identity" for n in m.graph.node)
+            ),
         },
         {
             "testcase": "dropout_call_params",
@@ -46,6 +60,16 @@ nnx.dropout_p.multiple_results = False  # Single output
             "input_params": {
                 "deterministic": True,
             },
+            # Dynamic deterministic: ensure a Not feeds Dropout.training_mode and ratio==0.5
+            "post_check_onnx_graph": lambda m: (
+                (
+                    (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
+                    and (notn := next((n for n in m.graph.node if n.op_type == "Not"), None)) is not None
+                    and drop.input[2] == notn.output[0]
+                    and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                    and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
+                )
+            ),
         },
     ],
 )

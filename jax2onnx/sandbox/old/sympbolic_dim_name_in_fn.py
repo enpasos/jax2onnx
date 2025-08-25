@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import onnx
 from jax2onnx import to_onnx
-from jax2onnx.plugin_system import onnx_function
+from jax2onnx.plugins.plugin_system import onnx_function
 from logging_config import configure_logging
 
 

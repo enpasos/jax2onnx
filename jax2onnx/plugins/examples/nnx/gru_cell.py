@@ -2,7 +2,7 @@
 
 from flax import nnx
 from flax.nnx.nn.activations import tanh
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 import numpy as np
 
 

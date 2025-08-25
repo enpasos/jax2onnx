@@ -10,7 +10,7 @@ import contextlib
 import inspect
 from typing import Any, Callable, Generator, Mapping
 
-from jax2onnx.plugin_system import (
+from jax2onnx.plugins.plugin_system import (
     FunctionPlugin,
     ExamplePlugin,
     PrimitiveLeafPlugin,

@@ -15,7 +15,7 @@ import numpy as np
 from jax import lax
 from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 logger = logging.getLogger("jax2onnx.plugins.jax.lax.bitwise_not")
 
