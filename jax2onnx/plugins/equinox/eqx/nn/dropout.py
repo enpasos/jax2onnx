@@ -10,11 +10,13 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 import equinox as eqx
+import jax
+import jax.numpy as jnp
 import numpy as np
 from jax import core
 from jax.extend.core import Literal, Primitive, Var
 from jax.interpreters import batching
-from onnx import helper
+from onnx import helper, numpy_helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -39,129 +41,128 @@ eqx.nn.dropout_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Not.html",
         },
     ],
-    since="v0.7.3",
+    since="v0.8.0",
     context="primitives.eqx",
     component="dropout",
-    testcases=[
-        # TODO: enable testcases
-        # {
-        #     "testcase": "eqx_dropout_inference_mode",
-        #     "callable": eqx.nn.Dropout(p=0.42, inference=True),
-        #     "input_shapes": [(64,)],
-        #     "post_check_onnx_graph": lambda m: (
-        #         (
-        #             dropout_node := next(
-        #                 (n for n in m.graph.node if n.op_type == "Dropout"),
-        #                 None,
-        #             )
-        #         )
-        #         and (
-        #             ratio_init := next(
-        #                 (
-        #                     i
-        #                     for i in m.graph.initializer
-        #                     if i.name == dropout_node.input[1]
-        #                 ),
-        #                 None,
-        #             )
-        #         )
-        #         and np.isclose(numpy_helper.to_array(ratio_init), 0.42).all()
-        #         and (
-        #             training_mode_init := next(
-        #                 (
-        #                     i
-        #                     for i in m.graph.initializer
-        #                     if i.name == dropout_node.input[2]
-        #                 ),
-        #                 None,
-        #             )
-        #         )
-        #         and not numpy_helper.to_array(training_mode_init)
-        #     ),
-        # },
-        # {
-        #     "testcase": "eqx_dropout_training_mode",
-        #     "callable": lambda x, key, model=eqx.nn.Dropout(
-        #         p=0.5, inference=False
-        #     ): model(x, key=key),
-        #     "input_shapes": [
-        #         (64),
-        #     ],
-        #     "input_params": {
-        #         "key": jax.random.PRNGKey(0),
-        #     },
-        #     "post_check_onnx_graph": lambda m: (
-        #         (
-        #             dropout_node := next(
-        #                 (n for n in m.graph.node if n.op_type == "Dropout"),
-        #                 None,
-        #             )
-        #         )
-        #         and (
-        #             training_mode_init := next(
-        #                 (
-        #                     i
-        #                     for i in m.graph.initializer
-        #                     if i.name == dropout_node.input[2]
-        #                 ),
-        #                 None,
-        #             )
-        #         )
-        #         and numpy_helper.to_array(training_mode_init)
-        #     ),
-        #     "skip_numeric_validation": True,
-        # },
-        # {
-        #     "testcase": "eqx_dropout_dynamic_inference",
-        #     "callable": lambda x, inference, key=None, model=eqx.nn.Dropout(
-        #         p=0.5
-        #     ): model(x, key=key, inference=inference),
-        #     "input_shapes": [(64,)],
-        #     "input_params": {
-        #         "inference": np.array(True, dtype=bool),
-        #     },
-        #     "post_check_onnx_graph": lambda m: (
-        #         (
-        #             not_node := next(
-        #                 (n for n in m.graph.node if n.op_type == "Not"), None
-        #             )
-        #         )
-        #         and (
-        #             dropout_node := next(
-        #                 (n for n in m.graph.node if n.op_type == "Dropout"),
-        #                 None,
-        #             )
-        #         )
-        #         and dropout_node.input[2] == not_node.output[0]
-        #         and not_node.input[0] == "inference"
-        #         and (
-        #             ratio_init := next(
-        #                 (
-        #                     i
-        #                     for i in m.graph.initializer
-        #                     if i.name == dropout_node.input[1]
-        #                 ),
-        #                 None,
-        #             )
-        #         )
-        #         and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
-        #     ),
-        # },
-        # {
-        #     "testcase": "eqx_dropout_batched_inference",
-        #     # Create one Dropout module where inference is fixed to True, then vmap it.
-        #     "callable": (
-        #         lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(_mod)(
-        #             xs
-        #         )
-        #     ),
-        #     # Symbolic batch dimension "B"
-        #     "input_shapes": [("B", 64)],
-        #     # Inference mode → training_mode == False must appear as a constant in ONNX
-        #     "post_check_onnx_graph": lambda m: (
-        #         any(n.op_type == "Dropout" for n in m.graph.node)
-        #     ),
-        # },
+    testcases=[ 
+        {
+            "testcase": "eqx_dropout_inference_mode",
+            "callable": eqx.nn.Dropout(p=0.42, inference=True),
+            "input_shapes": [(64,)],
+            "post_check_onnx_graph": lambda m: (
+                (
+                    dropout_node := next(
+                        (n for n in m.graph.node if n.op_type == "Dropout"),
+                        None,
+                    )
+                )
+                and (
+                    ratio_init := next(
+                        (
+                            i
+                            for i in m.graph.initializer
+                            if i.name == dropout_node.input[1]
+                        ),
+                        None,
+                    )
+                )
+                and np.isclose(numpy_helper.to_array(ratio_init), 0.42).all()
+                and (
+                    training_mode_init := next(
+                        (
+                            i
+                            for i in m.graph.initializer
+                            if i.name == dropout_node.input[2]
+                        ),
+                        None,
+                    )
+                )
+                and not numpy_helper.to_array(training_mode_init)
+            ),
+        },
+        {
+            "testcase": "eqx_dropout_training_mode",
+            "callable": lambda x, key, model=eqx.nn.Dropout(
+                p=0.5, inference=False
+            ): model(x, key=key),
+            "input_shapes": [
+                (64),
+            ],
+            "input_params": {
+                "key": jax.random.PRNGKey(0),
+            },
+            "post_check_onnx_graph": lambda m: (
+                (
+                    dropout_node := next(
+                        (n for n in m.graph.node if n.op_type == "Dropout"),
+                        None,
+                    )
+                )
+                and (
+                    training_mode_init := next(
+                        (
+                            i
+                            for i in m.graph.initializer
+                            if i.name == dropout_node.input[2]
+                        ),
+                        None,
+                    )
+                )
+                and numpy_helper.to_array(training_mode_init)
+            ),
+            "skip_numeric_validation": True,
+        },
+        {
+            "testcase": "eqx_dropout_dynamic_inference",
+            "callable": lambda x, inference, key=None, model=eqx.nn.Dropout(
+                p=0.5
+            ): model(x, key=key, inference=inference),
+            "input_shapes": [(64,)],
+            "input_params": {
+                "inference": np.array(True, dtype=bool),
+            },
+            "post_check_onnx_graph": lambda m: (
+                (
+                    not_node := next(
+                        (n for n in m.graph.node if n.op_type == "Not"), None
+                    )
+                )
+                and (
+                    dropout_node := next(
+                        (n for n in m.graph.node if n.op_type == "Dropout"),
+                        None,
+                    )
+                )
+                and dropout_node.input[2] == not_node.output[0]
+                and not_node.input[0] == "inference"
+                and (
+                    ratio_init := next(
+                        (
+                            i
+                            for i in m.graph.initializer
+                            if i.name == dropout_node.input[1]
+                        ),
+                        None,
+                    )
+                )
+                and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
+            ),
+        },
+        {
+            "testcase": "eqx_dropout_batched_inference",
+            # Create one Dropout module where inference is fixed to True, then vmap it.
+            "callable": (
+                lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(_mod)(
+                    xs
+                )
+            ),
+            # Symbolic batch dimension "B"
+            "input_shapes": [("B", 64)],
+            # Inference mode → training_mode == False must appear as a constant in ONNX
+            "post_check_onnx_graph": lambda m: (
+                any(n.op_type == "Dropout" for n in m.graph.node)
+            ),
+        },
     ],
 )
 class EqxDropoutPlugin(PrimitiveLeafPlugin):

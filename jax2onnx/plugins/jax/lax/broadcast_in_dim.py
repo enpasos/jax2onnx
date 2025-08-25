@@ -241,9 +241,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         f"Axis {axis} out of bounds for tensor '{t_name}' shape {t_shape}"
                     )
 
-                shape_node_out = s.get_unique_name(f"shape_of_{t_name}")
-                s.add_node(helper.make_node("Shape", [t_name], [shape_node_out]))
-                s.add_shape_info(shape_node_out, (len(t_shape),), TensorProto.INT64)
+                # new (safe) way – cached and SSA-unique
+                shape_node_out = s.builder.get_or_make_shape_of(t_name)
 
                 gather_idx_const = s.get_constant_name(np.array(axis, dtype=np.int64))
                 gather_node_out = s.get_unique_name(f"dim_{t_name}_{axis}")
@@ -299,4 +298,5 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         )
         s.add_node(node_expand)
         # Add metadata for the final output, using the JAX aval's shape
+        s.add_shape_info(output_name, output_target_shape, output_dtype)
         s.add_shape_info(output_name, output_target_shape, output_dtype)

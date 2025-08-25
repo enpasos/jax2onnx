@@ -9,8 +9,11 @@ from typing import Any, Sequence, Union, Optional
 import jax
 import jax.numpy as jnp
 from jax import core, lax
-from onnx import TensorProto, helper
-from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX
+from onnx import helper, TensorProto
+from onnx.mapping import (
+    NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX,
+    TENSOR_TYPE_TO_NP_TYPE as _ONNX2NP,
+)
 
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -674,6 +677,65 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
 class ScanPlugin(PrimitiveLeafPlugin):
     """Lower `lax.scan` to an ONNX Scan operator."""
 
+    def _scalar_const(self, s, value, dtype, base):
+        """
+        Create a scalar Constant of `dtype` in the current graph.
+        Register shape+dtype (value_info) and return the produced name.
+        """
+        out = s.get_unique_name(base)
+        if dtype == TensorProto.BOOL:
+            vals = [1 if bool(value) else 0]
+        elif dtype in (
+            TensorProto.INT64,
+            TensorProto.INT32,
+            TensorProto.INT16,
+            TensorProto.UINT64,
+            TensorProto.UINT32,
+            TensorProto.UINT16,
+            TensorProto.INT8,
+            TensorProto.UINT8,
+        ):
+            vals = [int(value)]
+        else:
+            vals = [float(value)]
+        t = helper.make_tensor(name=f"{out}_value", data_type=dtype, dims=[], vals=vals)
+        s.add_node(
+            helper.make_node(
+                "Constant",
+                inputs=[],
+                outputs=[out],
+                value=t,
+                name=s.get_unique_name(f"{base}_const"),
+            )
+        )
+        # Always register shape+dtype using builder's canonical path.
+        # `add_shape_info` expects NumPy dtypes; map from TensorProto if needed.
+        try:
+            np_dt = _ONNX2NP[dtype] if isinstance(dtype, int) else dtype
+        except Exception:
+            # Very defensive fallback (should not trigger in practice)
+            np_dt = (
+                _np.bool_
+                if dtype == TensorProto.BOOL
+                else (_np.int64 if dtype == TensorProto.INT64 else _np.float32)
+            )
+        s.add_shape_info(out, (), np_dt)
+
+        # Also try legacy value_info registrations if available (harmless duplicates).
+        b = getattr(s, "builder", None)
+        if b is not None:
+            if hasattr(b, "register_value_info_metadata"):
+                try:
+                    b.register_value_info_metadata(out, [], dtype)
+                except Exception:
+                    pass
+            elif hasattr(b, "add_value_info"):
+                try:
+                    b.add_value_info(out, [], dtype)
+                except Exception:
+                    pass
+        return out
+
     # --------------------------- abstract_eval ---------------------------
     @staticmethod
     def abstract_eval(
@@ -748,14 +810,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
         # Thread consts **and** carry as Loop state (M = num_consts + num_carry)
         # ------------------------------------------------------------------
         if num_scan == 0:
-            trip_name = s.builder.get_unique_name("trip_count")
-            s.builder.add_initializer(
-                trip_name, [length], data_type=TensorProto.INT64, dims=[]
+            # Create Loop control scalars as Constant nodes (not initializers/inputs).
+            # Also registers value_info so the top-level graph is fully annotated.
+            trip_name = self._scalar_const(
+                s, int(length), TensorProto.INT64, "trip_count"
             )
-            cond_name = s.builder.get_unique_name("cond_init")
-            s.builder.add_initializer(
-                cond_name, [1], data_type=TensorProto.BOOL, dims=[]
-            )
+            cond_name = self._scalar_const(s, True, TensorProto.BOOL, "cond_init")
 
             prefix = s.builder.name_generator.get("loop")
             body_builder = OnnxBuilder(
@@ -1245,6 +1305,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         # Final pass to sanitize the Scan body VIs (always on, like Loop)
         _loosen_graph_value_infos_to_rank_only(body_graph)
+
+        if os.getenv("JAX2ONNX_SSA_DIAG") == "1":
+            # local import to avoid cycles
+            from jax2onnx.converter.onnx_builder import _walk_graphs_and_assert_ssa
+
+            _walk_graphs_and_assert_ssa(body_graph, path="Loop.body")
 
         # Debug-only invariants for early detection of wiring errors
         if os.getenv("JAX2ONNX_DEBUG_SCAN_ASSERTS", "").lower() in (

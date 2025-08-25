@@ -60,40 +60,39 @@ eqx.nn.linear_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         },
     ],
-    since="v0.7.3",
+    since="v0.8.0",
     context="primitives.eqx",
     component="linear",
-    testcases=[
-        # TODO: enable testcases
-        # {
-        #     "testcase": "eqx_linear_symbolic_batch",
-        #     "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
-        #     "input_shapes": [("B", 128)],
-        #     "post_check_onnx_graph": lambda m: (
-        #         any(node.op_type == "Gemm" for node in m.graph.node)
-        #     ),
-        # },
-        # {
-        #     "testcase": "eqx_linear_high_rank",
-        #     # Two vmaps: first over the inner axis (size 10), then over the batch axis (size 32).
-        #     # For more details, see docs/equinox_linear.md.
-        #     "callable": (
-        #         lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(jax.vmap(_mod))(x)
-        #     ),
-        #     "input_shapes": [(32, 10, 128)],
-        #     "post_check_onnx_graph": lambda m: (
-        #         any(node.op_type == "Gemm" for node in m.graph.node)
-        #     ),
-        # },
-        # {
-        #     "testcase": "eqx_linear_vector",
-        #     # directly call the module (no vmap) on a 1‑D input
-        #     "callable": _eqx_linear_symbolic_mod,
-        #     "input_shapes": [(128,)],
-        #     "post_check_onnx_graph": lambda m: (
-        #         any(n.op_type == "Gemm" for n in m.graph.node)
-        #     ),
-        # },
+    testcases=[ 
+        {
+            "testcase": "eqx_linear_symbolic_batch",
+            "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
+            "input_shapes": [("B", 128)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Gemm" for node in m.graph.node)
+            ),
+        },
+        {
+            "testcase": "eqx_linear_high_rank",
+            # Two vmaps: first over the inner axis (size 10), then over the batch axis (size 32).
+            # For more details, see docs/equinox_linear.md.
+            "callable": (
+                lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(jax.vmap(_mod))(x)
+            ),
+            "input_shapes": [(32, 10, 128)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Gemm" for node in m.graph.node)
+            ),
+        },
+        {
+            "testcase": "eqx_linear_vector",
+            # directly call the module (no vmap) on a 1‑D input
+            "callable": _eqx_linear_symbolic_mod,
+            "input_shapes": [(128,)],
+            "post_check_onnx_graph": lambda m: (
+                any(n.op_type == "Gemm" for n in m.graph.node)
+            ),
+        },
     ],
 )
 class EqxLinearPlugin(PrimitiveLeafPlugin):
