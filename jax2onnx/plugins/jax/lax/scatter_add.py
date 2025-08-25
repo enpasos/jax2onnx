@@ -8,12 +8,14 @@ from jax import (
     core,
 )
 from jax.lax import ScatterDimensionNumbers, GatherScatterMode
-from onnx import helper
 
 # Correctly import from the plugin_system module based on your provided files
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from .scatter_utils import _prepare_scatter_inputs_for_onnx
+from .scatter_converters import convert_lax_scatter_add
 import logging
+
+# Import jnp for the new test case
+import jax.numpy as jnp
 
 if TYPE_CHECKING:
     # This is the correct way to type hint the converter
@@ -244,6 +246,84 @@ logger = logging.getLogger("jax2onnx.plugins.jax.lax.scatter_add")
         #     ],
         #     "run_only_f64_variant": True,
         # },
+        # ────────────────────────────────────────────────────────────────
+        # NEW: fp64 regression test – verifies dtype is preserved
+        #      through GatherND / ScatterND helper path.
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_add_fp64_dtype_mismatch",
+            "callable": (
+                lambda: lax.scatter_add(
+                    jnp.zeros((4, 3), dtype=jnp.float64),  # operand
+                    jnp.array([[0, 0], [2, 1]], dtype=jnp.int32),  # indices
+                    jnp.ones((2,), dtype=jnp.float64),  # updates
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(),
+                        inserted_window_dims=(0, 1),
+                        scatter_dims_to_operand_dims=(0, 1),
+                    ),
+                )
+            ),
+            "input_shapes": [],
+            "run_only_f64_variant": True,  # makes exporter choose fp64
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
+        {
+            "testcase": "scatter_add_depth2_depth2_helper_regression",
+            "callable": (
+                lambda: lax.scatter_add(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand fp64
+                    jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),  # indices (N,2)
+                    jnp.ones((2, 4, 5), dtype=jnp.float64),  # updates now fp64
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(1, 2),
+                        inserted_window_dims=(0, 1),
+                        scatter_dims_to_operand_dims=(0, 1),
+                    ),
+                )
+            ),
+            "input_shapes": [],
+            "run_only_f64_variant": True,
+        },
+        # ────────────────────────────────────────────────────────────────
+        # REGRESSION: fp64 ScatterND-helper dtype mismatch
+        #
+        #  • operand lives in **float64**
+        #  • generalised "depth-2 indices" path is chosen
+        #  • old helper records GatherND output as float32
+        #    → onnx.check_model fails with
+        #      "Type (tensor(float)) of output arg (…) does not match
+        #       expected type (tensor(double))"
+        # ────────────────────────────────────────────────────────────────
+        {
+            "testcase": "scatter_depth2_fp64_type_mismatch",
+            "callable": (
+                # tiny tensor just large enough to trigger depth-2 logic
+                lambda: lax.scatter(
+                    jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),  # operand (double)
+                    jnp.array([[1]], dtype=jnp.int32),  # indices  shape (1, depth=1)
+                    jnp.ones(
+                        (1, 2, 3, 4, 5), dtype=jnp.float64
+                    ),  # updates  shape = indices[:-1] + window
+                    dimension_numbers=lax.ScatterDimensionNumbers(
+                        update_window_dims=(
+                            1,
+                            2,
+                            3,
+                            4,
+                        ),  # window-dims = all operand dims
+                        inserted_window_dims=(),  # ⇒ generalised depth-2 route
+                        scatter_dims_to_operand_dims=(
+                            1,
+                        ),  # scatter along 2-nd operand dim
+                    ),
+                )
+            ),
+            "input_shapes": [],  # no runtime inputs – everything is literal
+            "run_only_f64_variant": True,  # exporter stays in float64
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):
@@ -283,37 +363,24 @@ class ScatterAddPlugin(PrimitiveLeafPlugin):
         operand_v, indices_v, updates_v = node_inputs
         out_v = node_outputs[0]
         out_name = s.get_name(out_v)
-        operand_aval = operand_v.aval
 
-        dimension_numbers: ScatterDimensionNumbers = params["dimension_numbers"]
         logger.info(
-            f"Converting lax.scatter_add with dimension_numbers: {dimension_numbers}"
+            f"Converting lax.scatter_add with dimension_numbers: {params.get('dimension_numbers')}"
         )
 
-        # This utility function contains the core fix and returns the final ONNX tensor names
-        final_operand_name, final_indices_name, final_updates_name = (
-            _prepare_scatter_inputs_for_onnx(
-                s, operand_v, indices_v, updates_v, dimension_numbers
-            )
-        )
+        # Style B: delegate to the shared converter
+        class _Eqn:
+            # mypy: declare the attribute so assignments are type-checked
+            params: dict[str, Any]
 
+        _e = _Eqn()
+        _e.params = params
+        convert_lax_scatter_add(
+            s,
+            _e,
+            (operand_v, indices_v, updates_v),
+            (out_v,),
+        )
         logger.debug(
-            "[ScatterAddPlugin] Final inputs to ScatterND: operand=%s, indices=%s, updates=%s",
-            final_operand_name,
-            final_indices_name,
-            final_updates_name,
+            "[ScatterAddPlugin] Emitted ScatterND(reduction='add') → %s", out_name
         )
-
-        # Create the ONNX ScatterND node with the 'add' reduction.
-        s.add_node(
-            helper.make_node(
-                "ScatterND",
-                inputs=[final_operand_name, final_indices_name, final_updates_name],
-                outputs=[out_name],
-                name=s.get_unique_name(f"scatter_nd_add_{out_name}"),
-                reduction="add",
-            )
-        )
-
-        # The output shape of scatter_add is always the same as the operand's shape.
-        s.add_shape_info(out_name, operand_aval.shape, operand_aval.dtype)

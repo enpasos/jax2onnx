@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import jax
@@ -11,6 +12,9 @@ from jax import config
 from jax import core, lax
 from jax.extend.core import Primitive
 from onnx import helper, TensorProto
+from onnx import onnx_ml_pb2 as om
+from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX
+from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE as _ONNX2NP
 from jax2onnx.converter.onnx_builder import OnnxBuilder
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,6 +30,96 @@ _USE_INT64 = bool(config.read("jax_enable_x64"))
 
 def _canon_int(x: int | np.integer) -> np.integer:
     return np.int64(x) if _USE_INT64 else np.int32(x)
+
+
+def _loosen_graph_value_infos_to_rank_only(g) -> None:
+    """
+    For a Loop body:
+      • Drop VIs for outputs of shape/dtype-sensitive ops (let ORT infer).
+      • Drop VIs that correspond to initializers (constants) or Constant/ConstantOfShape.
+      • For remaining VIs, keep elem_type but clear dim_value *and* dim_param (rank-only).
+    """
+    produced_by_type = {o: n.op_type for n in g.node for o in n.output}
+    produced_by_name = {o: n.name for n in g.node for o in n.output}
+
+    sensitive = {
+        # dtype/shape changers
+        "Cast",
+        "Reshape",
+        "Squeeze",
+        "Unsqueeze",
+        "Expand",
+        "Concat",
+        # shape/index-ish
+        "Range",
+        "Shape",
+        "NonZero",
+        "Gather",
+        "GatherND",
+        "Slice",
+        # constants
+        "Constant",
+        "ConstantOfShape",
+        # dtype troublemaker
+        "Pow",
+        # arithmetic can re-tighten dims (e.g., add_* / mul_* intermediates)
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+    }
+
+    # Heuristics by node name (useful if op_type is missing/opaque)
+    def looks_sensitive_by_name(nm: str, vi: om.ValueInfoProto) -> bool:
+        nm = (nm or "").lower()
+        # reshape-ish helpers
+        if any(tok in nm for tok in ("reshape", "squeeze", "unsqueeze", "expand")):
+            return True
+        # index arithmetic naming pattern; only relevant for int tensors
+        if vi.type.HasField("tensor_type"):
+            et = vi.type.tensor_type.elem_type
+            if et in (TensorProto.INT64, TensorProto.INT32):
+                if any(tok in nm for tok in ("add_start", "start_col", "start_row")):
+                    return True
+        return False
+
+    initializer_names = {init.name for init in g.initializer}
+
+    keep: list[om.ValueInfoProto] = []
+    for vi in list(g.value_info):
+        name = vi.name
+
+        # Drop constants immediately
+        if name in initializer_names:
+            continue
+
+        op_type = produced_by_type.get(name)
+        node_nm = produced_by_name.get(name, "")
+
+        # Drop VIs for sensitive producers (or when the name gives it away)
+        if (op_type in sensitive) or looks_sensitive_by_name(node_nm, vi):
+            continue
+
+        # Only handle tensor types
+        if not vi.type.HasField("tensor_type"):
+            continue
+
+        # Rebuild a fresh, rank-only VI (preserve dtype, clear dims)
+        ttype = vi.type.tensor_type
+        elem = ttype.elem_type
+        rank = len(ttype.shape.dim) if ttype.HasField("shape") else 0
+
+        new_vi = om.ValueInfoProto()
+        new_vi.name = name
+        new_vi.type.tensor_type.elem_type = elem
+        if rank:
+            shp = new_vi.type.tensor_type.shape
+            for _ in range(rank):
+                shp.dim.add()  # leave dim_value/param unset -> dynamic
+        keep.append(new_vi)
+
+    del g.value_info[:]
+    g.value_info.extend(keep)
 
 
 # ─────────────────────────────── primitive stub ──────────────────────────────
@@ -150,15 +244,23 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             model_name=s.builder.get_unique_name(f"{prefix}_body"),
         )
 
-        # --- CORRECTED FIX START ---
-        # Propagate the double precision flag from the main builder to the subgraph builder.
+        # Propagate outer flags/config into the subgraph builder/converter
+        # (notably double-precision and symbolic-dim origins).
         body_builder.enable_double_precision = getattr(
             s.builder, "enable_double_precision", False
         )
-        # --- CORRECTED FIX END ---
+        # Create the body converter and inherit the parent's symbolic origins.
+        body_conv = s.__class__(body_builder)
 
         body_builder.var_to_symbol_map = s.builder.var_to_symbol_map
-        body_conv = s.__class__(body_builder)
+        # Inherit known origins so Shape() inside the body can resolve outer symbols.
+        if not hasattr(body_conv, "symbolic_dim_to_origin"):
+            body_conv.symbolic_dim_to_origin = {}
+        if hasattr(s, "symbolic_dim_to_origin") and getattr(
+            s, "symbolic_dim_to_origin"
+        ):
+            # copy so we can safely mutate in the body
+            body_conv.symbolic_dim_to_origin.update(dict(s.symbolic_dim_to_origin))
 
         # ► inputs:   (iter, cond_in, s1_in … sk_in)
         iter64 = body_builder.name_generator.get(f"{prefix}_iter64")
@@ -166,12 +268,36 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         body_builder.add_scalar_input(iter64, TensorProto.INT64)
         body_builder.add_scalar_input(cond_in, TensorProto.BOOL)
 
-        # add the k state inputs
+        # add the k state inputs as rank-only to prevent ORT from over-constraining
         for idx, v in enumerate(node_inputs):
             sym = body_builder.name_generator.get(f"{prefix}_state{idx}_in")
-            body_builder.add_input(sym, v.aval.shape, v.aval.dtype)
-            # Map to Jaxpr input (skip the first invar which is the loop‑index)
+            rank = len(getattr(v.aval, "shape", ()))
+            dyn_shape = (None,) * rank
+            # IMPORTANT: carried-state dtype must follow the jaxpr exactly.
+            _dt = np.dtype(v.aval.dtype).type
+            body_builder.add_input(sym, dyn_shape, _dt)
+            # Map to Jaxpr input (skip the first invar which is the loop-index)
             body_conv.var_to_name[body_closed.jaxpr.invars[idx + 1]] = sym
+
+            # Register symbolic-dimension origins for this carried state.
+            # If shape has symbolic dims (e.g., 'B'), record that they come
+            # from this tensor at the corresponding axis. This allows any
+            # Shape()/broadcast ops in the body to resolve symbols like 'B'.
+            aval_shape = getattr(v.aval, "shape", ())
+            for axis, dim in enumerate(aval_shape):
+                if not isinstance(dim, int):
+                    # Drop any inherited entries that refer to the same symbol
+                    # (match by str equality) so we don't keep outer names like 'var_0'.
+                    keys_to_drop = [
+                        k
+                        for k in list(body_conv.symbolic_dim_to_origin.keys())
+                        if str(k) == str(dim)
+                    ]
+                    for k in keys_to_drop:
+                        del body_conv.symbolic_dim_to_origin[k]
+                    # Register both the object key (DimExpr) and its string form.
+                    body_conv.symbolic_dim_to_origin[dim] = (sym, axis)
+                    body_conv.symbolic_dim_to_origin[str(dim)] = (sym, axis)
 
         # iterator cast if body expects int32
         iter_target_dtype = (
@@ -201,6 +327,142 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         # ► convert the body jaxpr
         body_conv._process_jaxpr(body_closed.jaxpr, body_closed.consts)
 
+        # --- dtype harmonization for numeric ops in Loop body -----------------
+        # Align ANY numeric mismatch (ints or floats) on binary ops (and Pow)
+        # by casting the RHS to the LHS dtype. Can be disabled via env var.
+        _disable_cast_env = os.getenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "").lower()
+        _disable_cast = _disable_cast_env in ("1", "true", "yes", "on")
+        if not _disable_cast:
+            # ops whose *output* dtype equals the inputs' dtype
+            _same_type_ops = {"Add", "Sub", "Mul", "Div", "Min", "Max", "Pow"}
+            _compare_ops = {"Less", "LessOrEqual", "Greater", "GreaterOrEqual", "Equal"}
+            _need_same_dtype = _same_type_ops | _compare_ops
+            _PASS_THROUGH = {
+                "Identity",
+                "Reshape",
+                "Squeeze",
+                "Unsqueeze",
+                "Expand",
+                "Transpose",
+                "Flatten",
+            }
+            _CONSTISH = {"Constant", "ConstantOfShape"}
+
+            def _robust_dtype(sym: str, produced_by: dict[str, Any]):
+                """
+                Resolve dtype of 'sym'. If a dtype is recorded but the producer
+                is a pass-through shape op, DO NOT trust it — walk back to the
+                true source (e.g., constants) and derive from there.
+                """
+                seen = set()
+                cur = sym
+                while cur not in seen:
+                    seen.add(cur)
+                    n = produced_by.get(cur)
+                    dt = body_builder.get_dtype(cur)
+                    if dt is not None:
+                        # If the producer is pass-through OR a same-type numeric op,
+                        # the stored dtype may be stale. Prefer to walk to the source.
+                        if n is not None and (
+                            n.op_type in _PASS_THROUGH or n.op_type in _same_type_ops
+                        ):
+                            if n.input:
+                                cur = n.input[0]
+                                continue
+                        return np.dtype(dt)
+                    if n is None:
+                        break
+                    if n.op_type == "Cast":
+                        to_attr = next((a for a in n.attribute if a.name == "to"), None)
+                        if to_attr is not None:
+                            onnx_t = to_attr.i
+                            np_t = _ONNX2NP.get(onnx_t)
+                            if np_t is not None:
+                                return np.dtype(np_t)
+                        cur = n.input[0]
+                        continue
+                    if n.op_type in _PASS_THROUGH and n.input:
+                        cur = n.input[0]
+                        continue
+                    break
+                return None
+
+            def _is_constantish(sym: str, produced_by: dict[str, Any]) -> bool:
+                seen = set()
+                cur = sym
+                while cur not in seen:
+                    seen.add(cur)
+                    n = produced_by.get(cur)
+                    if n is None:
+                        return False
+                    if n.op_type in _CONSTISH:
+                        return True
+                    # traverse through benign wrappers
+                    if n.op_type in _PASS_THROUGH or n.op_type == "Cast":
+                        if n.input:
+                            cur = n.input[0]
+                            continue
+                    return False
+                return False
+
+            # Iterate to a fixed point because dtype changes upstream can
+            # create new mismatches downstream (e.g., Add after a Mul upcast).
+            MAX_PASSES = 4
+            for _ in range(MAX_PASSES):
+                changed = False
+                produced_by = {o: n for n in body_builder.nodes for o in n.output}
+                for n in list(body_builder.nodes):  # snapshot; we may insert new nodes
+                    if n.op_type not in _need_same_dtype or len(n.input) < 2:
+                        continue
+                    a, b = n.input[0], n.input[1]
+                    ta = _robust_dtype(a, produced_by)
+                    tb = _robust_dtype(b, produced_by)
+                    if (
+                        ta is not None
+                        and tb is not None
+                        and np.issubdtype(ta, np.number)
+                        and np.issubdtype(tb, np.number)
+                        and ta != tb
+                    ):
+                        # Prefer casting the constantish side (if exactly one is).
+                        if _is_constantish(a, produced_by) and not _is_constantish(
+                            b, produced_by
+                        ):
+                            a, b, ta, tb = b, a, tb, ta
+                            # also swap in the node for clarity
+                            n.input[0], n.input[1] = a, b
+                        cast_out = body_builder.name_generator.get(
+                            f"{b}_cast_{ta.name}"
+                        )
+                        to_enum = _NP2ONNX[ta]
+                        cast_node = helper.make_node(
+                            "Cast",
+                            [b],
+                            [cast_out],
+                            name=body_builder.name_generator.get("CastAlignLoopBody"),
+                            to=to_enum,
+                        )
+                        idx = body_builder.nodes.index(n)
+                        body_builder.nodes.insert(idx, cast_node)
+                        # keep a sensible rank hint (prefer known ranks, else 0)
+                        r = body_builder.get_rank(b)
+                        if r is None:
+                            r = body_builder.get_rank(a) or 0
+                        body_builder.add_value_info(cast_out, (None,) * r, ta.type)
+                        n.input[1] = cast_out
+
+                        # For same-type ops (incl. Pow), set outputs' dtype to ta as well.
+                        if n.op_type in _same_type_ops:
+                            for outsym in n.output:
+                                r_o = body_builder.get_rank(outsym)
+                                if r_o is None:
+                                    r_o = body_builder.get_rank(a) or 0
+                                body_builder.add_value_info(
+                                    outsym, (None,) * r_o, ta.type
+                                )
+                        changed = True
+                if not changed:
+                    break
         # ► outputs: (cond_out, s1_out … sk_out)
         body_builder.outputs.clear()
 
@@ -218,11 +480,15 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         for idx, v in enumerate(body_closed.jaxpr.outvars):
             sym_out = body_conv.get_name(v)
             aval = v.aval
-            body_builder.add_output(sym_out, aval.shape, aval.dtype)
+            # Outputs must mirror the carried-state dtype from the jaxpr.
+            _dt = np.dtype(aval.dtype).type
+            body_builder.add_output(sym_out, aval.shape, _dt)
 
         body_graph = body_builder.create_graph(
             body_builder.model_name, is_subgraph=True
         )
+        # Always sanitize Loop-body VIs to avoid ORT type/shape re-tightening issues
+        _loosen_graph_value_infos_to_rank_only(body_graph)
 
         # stub: register the fori_loop body subgraph (no real graph yet)
         s.subgraph(
@@ -233,23 +499,55 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             jaxpr=body_closed.jaxpr,
         )
 
+        # Defensive re-apply (harmless if nothing changed)
+        _loosen_graph_value_infos_to_rank_only(body_graph)
+
         # ---------------------------------------------------------------------------
-        # Emit the outer Loop node
+        # Emit the outer Loop node
         # ---------------------------------------------------------------------------
+        # (1) Optionally align carried-state inputs (only if dtype truly differs).
+        aligned_state_inputs: list[str] = []
+        for sym, v in zip(in_names, node_inputs):
+            want_dt = np.dtype(v.aval.dtype).type
+            current_dt = s.builder.get_dtype(sym)
+            if (current_dt is not None) and (np.dtype(current_dt) != np.dtype(want_dt)):
+                cast_sym = s.get_unique_name(f"{sym}_to_{np.dtype(want_dt).name}")
+                s.add_node(
+                    helper.make_node(
+                        "Cast",
+                        [sym],
+                        [cast_sym],
+                        to=_NP2ONNX[np.dtype(want_dt)],
+                        name=s.get_unique_name("CastLoopIn"),
+                    )
+                )
+                # keep a shape hint for the casted tensor
+                s.add_shape_info(cast_sym, getattr(v.aval, "shape", ()), want_dt)
+                aligned_state_inputs.append(cast_sym)
+            else:
+                aligned_state_inputs.append(sym)
+
+        # (2) Emit the Loop with outputs wired straight to the final names.
+        #     By ONNX spec, each carried-state output type must match the corresponding
+        #     carried-state *input* type. We already aligned the inputs above, so we just
+        #     wire outputs to `out_names` and record their metadata.
         loop_node = helper.make_node(
             "Loop",
             inputs=[
                 s.get_constant_name(np.asarray(trip_count, np.int64)),
                 s.get_constant_name(np.asarray(True, np.bool_)),
-                *in_names,
+                *aligned_state_inputs,
             ],
             outputs=out_names,
             body=body_graph,
             name=s.get_unique_name("fori_loop"),
         )
         s.add_node(loop_node)
-        for sym, v in zip(out_names, node_outputs):
-            s.add_shape_info(sym, v.aval.shape, v.aval.dtype)
+
+        # (3) Record final output metadata using the jaxpr dtype.
+        for final, v in zip(out_names, node_outputs):
+            desired_dt = np.dtype(v.aval.dtype).type
+            s.add_shape_info(final, v.aval.shape, desired_dt)
 
     # ─────────────────── monkey‑patch (bind primitive) ───────────────────────
     @staticmethod

@@ -1,13 +1,13 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.7.1"
+version = "0.7.5"
 description = "export JAX to ONNX - focus on flax nnx"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "jax>=0.6.0",
+    "jax (>=0.6.0,<0.7.0)", # TODO switch to 0.7.0 when dependencies live with it 
     "flax>=0.10.6",
     "ml_dtypes==0.5.1",
     "optax>=0.2.4",
@@ -87,8 +87,8 @@ enable_x64 = true
 
 [tool.jax2onnx.logging]
 default_level = "WARNING"
-format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+format = "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s"
 
 [tool.jax2onnx.logging.levels]
 "jax2onnx" = "INFO"
- 
+

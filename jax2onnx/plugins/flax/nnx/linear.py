@@ -25,6 +25,7 @@ from jax.extend.core import Primitive
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
 
 if TYPE_CHECKING:  # only for static analysis / IDEs
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -74,6 +75,27 @@ nnx.linear_p.multiple_results = False
             "testcase": "linear_high_rank_no_bias",
             "callable": nnx.Linear(128, 64, use_bias=False, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 10, 128)],
+        },
+        {
+            "testcase": "linear_merge_symbolic_dim",
+            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 10, 128)],  # B is symbolic
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: (
+                # input  B×10×128
+                _shape_of(m.graph.input, "var_0") == ("B", 10, 128)
+                # after flatten   ?×128
+                and (lambda s: s[0] is None and s[1] == 128)(
+                    _shape_prefix_of(m.graph.value_info, "x2d")
+                )
+                # gemm out       ?×64
+                and (lambda s: s[0] is None and s[1] == 64)(
+                    _shape_prefix_of(m.graph.value_info, "gemm_out")
+                )
+                # final output   B×10×64
+                and _shape_of(m.graph.output, "var_3") == ("B", 10, 64)
+            ),
         },
     ],
 )
@@ -167,7 +189,6 @@ class LinearPlugin(PrimitiveLeafPlugin):
         out_features = kernel_var.aval.shape[1]
 
         need_flatten = len(x_shape) > 2
-
         if need_flatten:
             flat_name = s.get_unique_name("x2d")
             reshape_shape = s.get_constant_name(
@@ -176,7 +197,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
             s.add_node(
                 helper.make_node("Reshape", [x_name, reshape_shape], [flat_name])
             )
-            s.add_shape_info(flat_name, (-1, in_features), dtype)
+            # ---------- key line: anonymous batch dim = None ----------
+            s.add_shape_info(flat_name, (None, in_features), dtype)
             x_name = flat_name
 
         gemm_out = s.get_unique_name("gemm_out")
@@ -186,7 +208,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         s.add_node(helper.make_node("Gemm", gemm_inputs, [gemm_out]))
 
-        batch_dim_gemm = -1 if need_flatten else (x_shape[0] if x_shape else None)
+        # After flattening an (unknown) batch we want “?” not "unk__0"
+        batch_dim_gemm = None if need_flatten else (x_shape[0] if x_shape else None)
         s.add_shape_info(gemm_out, (batch_dim_gemm, out_features), dtype)
 
         if need_flatten:

@@ -14,6 +14,27 @@ if TYPE_CHECKING:
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
 
+# --------------------------------------------------------------------------- #
+# 🧪 regression helper: verify ReduceMax axes handling for opset ≥ 18
+# --------------------------------------------------------------------------- #
+def _check_reduce_max_axes_input(onnx_model) -> bool:
+    """
+    Return **True** iff every ReduceMax node in *onnx_model*:
+      • carries **no** 'axes' attribute, and
+      • has a 2-input (data, axes) signature.
+
+    That is the required format since opset-18.
+    """
+    for node in onnx_model.graph.node:
+        if node.op_type != "ReduceMax":
+            continue
+        has_axes_attr = any(attr.name == "axes" for attr in node.attribute)
+        correct_input_count = len(node.input) == 2
+        if has_axes_attr or not correct_input_count:
+            return False
+    return True
+
+
 reduce_max_p = lax.reduce_max_p
 
 
@@ -44,6 +65,14 @@ reduce_max_p = lax.reduce_max_p
             "testcase": "reduce_max_keepdims",
             "callable": lambda x: jnp.max(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "reduce_max_axes_input",
+            "callable": lambda x: jnp.max(x, axis=(1,)),
+            "input_shapes": [(2, 3)],
+            # structural assertion only – fails with current implementation
+            "post_check_onnx_graph": _check_reduce_max_axes_input,
+            "skip_numeric_validation": True,
         },
     ],
 )

@@ -1,4 +1,5 @@
-# file: jax2onnx/plugins/flax/nnx/linear_general.py
+# jax2onnx/plugins/flax/nnx/linear_general.py
+
 """
 Linear General Plugin for JAX to ONNX conversion.
 
@@ -13,7 +14,7 @@ The conversion process involves:
   4. Monkey-patching LinearGeneral.__call__ to redirect calls to our primitive.
 """
 
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 from types import SimpleNamespace
 
 import jax
@@ -23,10 +24,42 @@ from jax import core
 from jax.extend.core import Primitive
 from onnx import helper
 
+from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+# ------------------------------------------------------------------
+# Helpers for shape‑info assertions in the “merge symbolic dim” test
+# ------------------------------------------------------------------
+def _shape_of(coll, name: str):
+    """Return tuple of dims (could be int, str or None) for the tensor named `name`."""
+    for vi in coll:
+        if vi.name == name:
+            return tuple(
+                (
+                    d.dim_param
+                    if d.HasField("dim_param") and d.dim_param
+                    else (d.dim_value if d.HasField("dim_value") else None)
+                )
+                for d in vi.type.tensor_type.shape.dim
+            )
+    raise KeyError(f"Cannot find '{name}' in ValueInfo collection")
+
+
+def _shape_prefix_of(coll, prefix: str):
+    """Return tuple of dims for the first tensor whose name starts with `prefix`."""
+    for vi in coll:
+        if vi.name.startswith(prefix):
+            return tuple(
+                (
+                    d.dim_param
+                    if d.HasField("dim_param") and d.dim_param
+                    else (d.dim_value if d.HasField("dim_value") else None)
+                )
+                for d in vi.type.tensor_type.shape.dim
+            )
+    raise KeyError(f"No tensor name starting with '{prefix}'")
+
 
 # Define the primitive for linear_general operations.
 nnx.linear_general_p = Primitive("nnx.linear_general")
@@ -52,6 +85,34 @@ _ORIGINAL_LG_CALL: Callable | None = None
     context="primitives.nnx",
     component="linear_general",
     testcases=[
+        {
+            "testcase": "linear_general_merge_symbolic_dim",
+            "callable": nnx.LinearGeneral(
+                in_features=(4, 16),  # ⟨4,16⟩ are the contracting dims
+                out_features=32,
+                axis=(-2, -1),
+                rngs=nnx.Rngs(0),
+            ),
+            # B is symbolic
+            "input_shapes": [("B", 8, 4, 16)],
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+            # Validate *all* shape‑infos: input, two intermediates, and output
+            "post_check_onnx_graph": lambda m: (
+                # var_0  (graph input)  should be B×8×4×16
+                _shape_of(m.graph.input, "var_0") == ("B", 8, 4, 16)
+                # input_reshape  flatten → ?×64
+                and (lambda s: s[0] is None and s[1] == 64)(
+                    _shape_prefix_of(m.graph.value_info, "input_reshape")
+                )
+                # gemm_output     → ?×32
+                and (lambda s: s[0] is None and s[1] == 32)(
+                    _shape_prefix_of(m.graph.value_info, "gemm_output")
+                )
+                # var_3  (graph output)  B×8×32
+                and _shape_of(m.graph.output, "var_3") == ("B", 8, 32)
+            ),
+        },
         {
             "testcase": "linear_general",
             "callable": nnx.LinearGeneral(
@@ -120,6 +181,16 @@ _ORIGINAL_LG_CALL: Callable | None = None
             "expected_output_shape": (3, 10, 256),
             "run_only_f32_variant": True,
         },
+        {
+            "testcase": "dynamic_batch_and_feature_dims",
+            # Use the plugin's static method to bind the primitive
+            "callable": lambda x, k, b: LinearGeneralPlugin._linear_general(
+                x, k, b, dimension_numbers=(((2,), (0,)), ((), ()))
+            ),
+            "input_shapes": [("B", "H", 16), (16, 4, 4), (4, 4)],
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class LinearGeneralPlugin(PrimitiveLeafPlugin):
@@ -180,24 +251,26 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         # Handle input dimensions with care for symbolic dimensions
         # Batch dimensions
+        # If a flatten merges   B × 8   we can no longer expose a single
+        # symbolic letter → mark it “unknown” so Netron shows “?”.
+        # ── Batch‑dimension handling ───────────────────────────────────
+        # After flattening (B, 8) →   ?   we do **not** want a *new*
+        # symbol – we want a fully anonymous dynamic dim so Netron
+        # shows “?” (no dim_param, no dim_value).
         has_symbolic_batch = any(
-            not isinstance(dim, (int, float)) for dim in x_batch_dims_sizes
+            not isinstance(d, (int, float)) for d in x_batch_dims_sizes
         )
         if has_symbolic_batch:
-            # If there's a symbolic dimension, preserve it
-            for dim in x_batch_dims_sizes:
-                if not isinstance(dim, (int, float)):
-                    # Use the symbolic dimension as the batch size
-                    batch_size = dim
-                    break
-            else:
-                # Fallback if no symbolic dim is found
-                batch_size = x_batch_dims_sizes[0] if x_batch_dims_sizes else 1
+            batch_size = (
+                x_batch_dims_sizes[0]
+                if len(x_batch_dims_sizes) == 1
+                and not isinstance(x_batch_dims_sizes[0], (int, float))
+                else None  # ← anonymous dynamic dimension
+            )
         else:
-            # Safe multiplication for concrete dimensions
-            batch_size = 1
-            for dim in x_batch_dims_sizes:
-                batch_size *= dim
+            batch_size = (
+                np.prod(x_batch_dims_sizes, dtype=int) if x_batch_dims_sizes else 1
+            )
 
         # Contract dimensions - these are usually concrete
         x_contract_dims = [x_shape[i] for i in lhs_contract]
@@ -273,6 +346,8 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         out = jax.tree_util.tree_leaves(out)[0]
         return core.ShapedArray(out.shape, out.dtype)
 
+    # ... inside the LinearGeneralPlugin class
+
     def to_onnx(
         self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, dimension_params
     ):
@@ -282,32 +357,22 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         input_name = s.get_name(input_var)
         output_name = s.get_name(output_var)
-
-        # Get kernel and bias - support both constants and literals
         kernel_name = s.get_name(kernel_var)
+
+        # Handle both constant and variable kernels
         kernel_const = None
         if kernel_name in s.name_to_const:
             kernel_const = s.name_to_const[kernel_name]
+            kernel_shape = kernel_const.shape
         elif hasattr(kernel_var, "val"):
             kernel_const = np.asarray(kernel_var.val)
-
-        if kernel_const is None:
-            raise ValueError(
-                f"Expected kernel to be a constant tensor, got {kernel_var}"
-            )
-
-        # Handle bias - it may be None or a constant
-        bias_const = None
-        if bias_var is not None:
-            bias_name = s.get_name(bias_var)
-            if bias_name in s.name_to_const:
-                bias_const = s.name_to_const[bias_name]
-            elif hasattr(bias_var, "val"):
-                bias_const = np.asarray(bias_var.val)
+            kernel_shape = kernel_const.shape
+        else:
+            kernel_shape = kernel_var.aval.shape
 
         shape_info = LinearGeneralPlugin._shape_linear_general(
             input_var.aval.shape,
-            kernel_const.shape,
+            kernel_shape,
             dimension_params["dimension_numbers"],
         )
         output_shape = shape_info["output"]
@@ -315,77 +380,151 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         input_gemm_shape = shape_info["input_gemm"]
         output_gemm_shape = shape_info["output_gemm"]
 
-        # Transform and register kernel as constant
-        reshaped_kernel = kernel_const.reshape(new_kernel_shape)
-        weights_name = s.get_constant_name(reshaped_kernel)
-
-        # Create reshape for input if needed
-        target_input_shape = (-1,) + input_gemm_shape[1:]
-        if LinearGeneralPlugin._is_noop_reshape(
-            input_var.aval.shape, target_input_shape
-        ):
-            input_reshape_name = input_name
+        # Transform kernel (constant or variable)
+        if kernel_const is not None:
+            weights_name = s.get_constant_name(kernel_const.reshape(new_kernel_shape))
         else:
+            weights_name = s.get_unique_name("reshaped_kernel")
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    [
+                        kernel_name,
+                        s.get_constant_name(np.array(new_kernel_shape, dtype=np.int64)),
+                    ],
+                    [weights_name],
+                )
+            )
+            s.add_shape_info(weights_name, new_kernel_shape)
+
+        # Reshape input for Gemm
+        target_input_shape = (-1,) + input_gemm_shape[1:]
+        if len(input_var.aval.shape) > 2 or input_var.aval.shape != input_gemm_shape:
             input_reshape_name = s.get_unique_name("input_reshape")
             s.add_node(
                 helper.make_node(
                     "Reshape",
-                    inputs=[
+                    [
                         input_name,
                         s.get_constant_name(
                             np.array(target_input_shape, dtype=np.int64)
                         ),
                     ],
-                    outputs=[input_reshape_name],
-                    name=s.get_unique_name("reshape_input"),
+                    [input_reshape_name],
                 )
             )
             s.add_shape_info(input_reshape_name, input_gemm_shape)
-
-        # Prepare bias: reshape if necessary or create zero bias
-        bias_shape = (output_gemm_shape[1],)
-        if bias_const is not None:
-            if bias_const.shape != bias_shape:
-                bias_const = bias_const.reshape(bias_shape)
-            bias_name = s.get_constant_name(bias_const)
         else:
-            # Create zero bias with appropriate dtype
+            input_reshape_name = input_name
+
+        # Prepare bias for Gemm
+        bias_shape = (output_gemm_shape[-1],)
+
+        bias_const = None
+        is_bias_present = bias_var is not None and s.get_name(bias_var) != "onnx::None"
+
+        if is_bias_present:
+            bias_name = s.get_name(bias_var)
+            if bias_name in s.name_to_const:
+                bias_const = s.name_to_const[bias_name]
+            elif hasattr(bias_var, "val"):
+                bias_const = np.asarray(bias_var.val)
+
+        if bias_const is not None:
+            bias_gemm_name = s.get_constant_name(bias_const.reshape(bias_shape))
+        elif is_bias_present:
+            bias_gemm_name = s.get_unique_name("bias_for_gemm")
+            bias_shape_tensor = s.get_constant_name(
+                np.array(bias_shape, dtype=np.int64)
+            )
+            s.add_node(
+                helper.make_node(
+                    "Reshape",
+                    [s.get_name(bias_var), bias_shape_tensor],
+                    [bias_gemm_name],
+                )
+            )
+            s.add_shape_info(bias_gemm_name, bias_shape)
+        else:
             zero_bias = np.zeros(bias_shape, dtype=input_var.aval.dtype)
-            bias_name = s.get_constant_name(zero_bias)
+            bias_gemm_name = s.get_constant_name(zero_bias)
 
         # Build ONNX Gemm operation
-        gemm_inputs = [input_reshape_name, weights_name, bias_name]
+        gemm_inputs = [input_reshape_name, weights_name, bias_gemm_name]
         gemm_output_name = (
             output_name
-            if LinearGeneralPlugin._is_noop_reshape(output_gemm_shape, output_shape)
+            if tuple(output_gemm_shape) == tuple(output_shape)
             else s.get_unique_name("gemm_output")
         )
         s.add_node(
-            helper.make_node(
-                "Gemm",
-                inputs=gemm_inputs,
-                outputs=[gemm_output_name],
-                name=s.get_unique_name("gemm"),
-            )
+            helper.make_node("Gemm", inputs=gemm_inputs, outputs=[gemm_output_name])
         )
         s.add_shape_info(gemm_output_name, output_gemm_shape)
 
         # Final reshape if needed
         if gemm_output_name != output_name:
-            target_output_shape = [-1] + list(output_shape[1:])
+            if all(isinstance(d, (int, np.integer)) for d in output_shape):
+                shape_tensor = s.get_constant_name(
+                    np.array(output_shape, dtype=np.int64)
+                )
+            else:
+                (
+                    (_, rhs_contract),
+                    (_, _),
+                ) = dimension_params["dimension_numbers"]
+                kernel_rank = len(kernel_shape)
+                kernel_out_dims_indices = [
+                    i for i in range(kernel_rank) if i not in rhs_contract
+                ]
+                kernel_out_dims = [kernel_shape[i] for i in kernel_out_dims_indices]
+                num_batch_dims = len(output_shape) - len(kernel_out_dims)
+
+                input_shape_tensor = s.get_unique_name("input_shape")
+                s.add_node(
+                    helper.make_node("Shape", [input_name], [input_shape_tensor])
+                )
+                s.add_shape_info(
+                    input_shape_tensor, (len(input_var.aval.shape),), np.int64
+                )
+
+                batch_dims_tensor = s.get_unique_name("batch_dims")
+                s.add_node(
+                    helper.make_node(
+                        "Slice",
+                        [
+                            input_shape_tensor,
+                            s.get_constant_name(np.array([0], dtype=np.int64)),
+                            s.get_constant_name(
+                                np.array([num_batch_dims], dtype=np.int64)
+                            ),
+                        ],
+                        [batch_dims_tensor],
+                    )
+                )
+                s.add_shape_info(batch_dims_tensor, (num_batch_dims,), np.int64)
+
+                static_dims_tensor = s.get_constant_name(
+                    np.array(kernel_out_dims, dtype=np.int64)
+                )
+
+                shape_tensor = s.get_unique_name("final_shape")
+                s.add_node(
+                    helper.make_node(
+                        "Concat",
+                        [batch_dims_tensor, static_dims_tensor],
+                        [shape_tensor],
+                        axis=0,
+                    )
+                )
+                s.add_shape_info(shape_tensor, (len(output_shape),), np.int64)
+
             s.add_node(
                 helper.make_node(
-                    "Reshape",
-                    inputs=[
-                        gemm_output_name,
-                        s.get_constant_name(
-                            np.array(target_output_shape, dtype=np.int64)
-                        ),
-                    ],
-                    outputs=[output_name],
-                    name=s.get_unique_name("reshape_output"),
+                    "Reshape", [gemm_output_name, shape_tensor], [output_name]
                 )
             )
+
+        s.add_shape_info(output_name, output_shape)
 
     @staticmethod
     def _linear_general(x, kernel, bias, dimension_numbers):
@@ -452,3 +591,20 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
 # Register abstract evaluation function.
 nnx.linear_general_p.def_abstract_eval(LinearGeneralPlugin.abstract_eval)
+
+
+# ------------------------------------------------------------------
+# 🔑 Define and register the *concrete implementation* for the primitive.
+# This tells JAX how to execute the operation.
+# ------------------------------------------------------------------
+def _linear_general_impl(x, kernel, bias, dimension_numbers):
+    """The actual implementation of the linear_general primitive."""
+    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
+    if bias is not None:
+        # Add bias if provided
+        y += bias
+    return y
+
+
+# Register the implementation function
+nnx.linear_general_p.def_impl(_linear_general_impl)

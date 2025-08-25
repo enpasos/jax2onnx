@@ -138,6 +138,25 @@ def create_problematic_where_sequence(cond_input, data_input):
             "run_only_f64_variant": True,
         },
         {
+            # Regression: mismatch between true/false branch dtypes (f64 vs i32).
+            # Mirrors:
+            #   jax.config.update("jax_enable_x64", True)
+            #   def mismatch_where(x):
+            #       cond = x > 0
+            #       return jnp.where(cond, x, jnp.array([1, 2, 3], dtype=jnp.int32))
+            #   x = jnp.array([1.0, -2.0, 3.0], dtype=jnp.float64)
+            "testcase": "where_dtype_mismatch_f64_vs_i32_promote",
+            "callable": lambda x: jnp.where(
+                x > 0, x, jnp.array([1, 2, 3], dtype=jnp.int32)
+            ),
+            "input_values": [np.array([1.0, -2.0, 3.0], dtype=np.float64)],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [
+                np.float64
+            ],  # promote(int32, float64) -> float64
+            "run_only_f64_variant": True,
+        },
+        {
             "testcase": "where_simple",
             "callable": lambda x, y: jnp.where(x > 0, x, y),
             "input_values": [
@@ -185,12 +204,11 @@ class WherePlugin(PrimitiveLeafPlugin):
         out_v = node_outputs[0]
         out_name = s.get_name(out_v)
 
-        # --- PATCH: Ensure condition is cast to BOOL for ONNX ---
-        import numpy as np
+        # --- Ensure condition is BOOL for ONNX ---
         from onnx import TensorProto
 
         cond_dtype = getattr(cond_v.aval, "dtype", None)
-        if cond_dtype is not None and cond_dtype != np.bool_:
+        if cond_dtype is not None and np.dtype(cond_dtype) != np.bool_:
             cond_cast_name = s.builder.get_unique_name("where_cond_cast")
             s.builder.add_node(
                 helper.make_node(
@@ -204,6 +222,38 @@ class WherePlugin(PrimitiveLeafPlugin):
             s.add_shape_info(cond_cast_name, cond_v.aval.shape, np.bool_)
             cond_name = cond_cast_name
 
+        # --- Harmonize X and Y dtypes (numpy-style promotion) ---
+        # Minimal, regression-safe fix: only add Cast nodes when needed.
+        x_dtype = getattr(x_v.aval, "dtype", None)
+        y_dtype = getattr(y_v.aval, "dtype", None)
+        target_dtype = None
+        if x_dtype is not None and y_dtype is not None:
+            # Use NumPy's promotion so float64 vs int32 -> float64, etc.
+            target_dtype = np.promote_types(np.dtype(x_dtype), np.dtype(y_dtype))
+
+            def _maybe_cast(inp_name: str, aval, tag: str) -> str:
+                cur = np.dtype(getattr(aval, "dtype", target_dtype))
+                if cur == target_dtype:
+                    return inp_name
+                casted = s.builder.get_unique_name(
+                    f"where_{tag}_cast_{target_dtype.name}"
+                )
+                s.builder.add_node(
+                    helper.make_node(
+                        "Cast",
+                        inputs=[inp_name],
+                        outputs=[casted],
+                        to=int(s.builder._numpy_dtype_to_onnx(target_dtype)),
+                        name=s.builder.get_unique_name(f"cast_where_{tag}"),
+                    )
+                )
+                s.add_shape_info(casted, getattr(aval, "shape", ()), target_dtype)
+                return casted
+
+            x_name = _maybe_cast(x_name, x_v.aval, "x")
+            y_name = _maybe_cast(y_name, y_v.aval, "y")
+        # (If either dtype is unknown, defer to abstract_eval result.)
+
         # Create ONNX Where node
         node = helper.make_node(
             "Where",
@@ -212,7 +262,19 @@ class WherePlugin(PrimitiveLeafPlugin):
             name=s.builder.get_unique_name("WhereOp"),
         )
         s.add_node(node)
-        s.add_shape_info(out_name, out_v.aval.shape, out_v.aval.dtype)
+        # Record the promoted dtype if we computed one; otherwise use abstract dtype.
+        out_dtype = (
+            target_dtype
+            if target_dtype is not None
+            else getattr(out_v.aval, "dtype", None)
+        )
+        if out_dtype is None:
+            out_dtype = (
+                getattr(x_v.aval, "dtype", None)
+                or getattr(y_v.aval, "dtype", None)
+                or np.float32
+            )
+        s.add_shape_info(out_name, out_v.aval.shape, out_dtype)
 
     @staticmethod
     def patch_info():

@@ -3,6 +3,7 @@
 from typing import Any, Dict, Sequence, Union, Optional, List, Tuple, cast
 
 import logging
+import os
 
 import numpy as np
 import onnx
@@ -224,6 +225,9 @@ class OnnxBuilder:
         # maps {DimVar-object-or-id → canonical user symbol, e.g. "B"}
         self.var_to_symbol_map: dict[Any, str] = {}
 
+        # Optional: used by subgraph plugins to decide whether to relax internal VIs.
+        self.loosen_internal_shapes: bool = False
+
         self.nodes: list[NodeProto] = []
         self.inputs: list[ValueInfoProto] = []
         self.outputs: list[ValueInfoProto] = []
@@ -254,6 +258,9 @@ class OnnxBuilder:
         )  # Add mapping by string representation
         self.converter = converter  # <-- Store converter reference
         self.symbolic_shapes: dict[str, tuple[Any, ...]] = {}
+
+        # cache for Shape-of outputs, keyed by input symbol
+        self._shape_of_cache: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Symbolic‐dimension origin registry
@@ -306,14 +313,27 @@ class OnnxBuilder:
         tensor_shape = TensorShapeProto()
         for i, dim in enumerate(shape_tuple):
             dim_proto = TensorShapeProto.Dimension()
+            # ── 1) concrete integer dimension ──────────────────────────────
             if isinstance(dim, int):
                 dim_proto.dim_value = dim
                 logger.debug(f"  - dim[{i}] = {dim} (int value)")
+
+            # ── 2) unknown / dynamic dimension → leave fields unset ────────
+            #     Treat JAX `_UnknownDim` strings like "unk__0", "unk__1", … the
+            #     same way we treat None/‑1/"" so Netron renders them as “?”.
+            elif dim in (None, -1) or (
+                isinstance(dim, str) and (dim == "" or dim.startswith("unk__"))
+            ):
+                logger.debug(f"  - dim[{i}] = {dim} (dynamic → '?')")
+
+            # ── 3) symbolic dimension (e.g. 'B') ───────────────────────────
             else:
                 friendly = _resolve_symbol(self, dim)
-                if friendly is None:
-                    friendly = _symbol_name(self, dim)  # ← current fallback
-                dim_proto.dim_param = friendly
+                if friendly in ("None", "none", ""):
+                    # Treat stray literal 'None' the same as dynamic
+                    logger.debug("    » treating literal 'None' as dynamic")
+                else:
+                    dim_proto.dim_param = friendly
                 logger.debug(f"  - dim[{i}] = {dim} (type={type(dim).__name__})")
                 logger.debug(f"    → final dim_param = '{friendly}'")
 
@@ -321,6 +341,10 @@ class OnnxBuilder:
 
         tensor_type.shape.CopyFrom(tensor_shape)
         vi.type.tensor_type.CopyFrom(tensor_type)
+
+        #  ⚠  DO NOT add dims a second time here – they are already
+        #     fully populated in the loop above.
+        self.value_info.append(vi)
         return vi
 
     def register_value_info_metadata(
@@ -602,15 +626,28 @@ class OnnxBuilder:
         if any(name in n.output for n in self.nodes):
             # internal tensor – only record shape information if missing
             self.add_value_info(name, shape, dtype)
+            if name not in self.value_info_metadata:
+                self.register_value_info_metadata(name, shape, dtype)
             return
 
         if any(vi.name == name for vi in self.inputs):
             # already a formal input – keep first declaration
+            if name not in self.value_info_metadata:
+                self.register_value_info_metadata(name, shape, dtype)
             return
 
+        # ❶ add the actual input
         self.dtype_env[name] = dtype
         self._add_tensor(self.inputs, name, shape, dtype)
-        # ─── register any symbolic dims on this new input ───────────────
+
+        # ❷ guarantee metadata registration for this input
+        try:
+            # dtype may be a numpy dtype or ONNX enum; register as-is
+            self.register_value_info_metadata(name, shape, dtype)
+        except Exception as e:
+            logger.debug(f"[add_input] could not register metadata for '{name}': {e}")
+
+        # ❸ still record any symbolic dims so we can track their origin
         if shape is not None:
             for axis, dim in enumerate(shape):
                 if not isinstance(dim, int):
@@ -677,6 +714,15 @@ class OnnxBuilder:
         return helper.make_node(op_type, inputs, outputs, **kwargs)
 
     def add_node(self, node: NodeProto) -> None:
+        # Optional SSA guard (env-flagged)
+        if os.getenv("JAX2ONNX_ASSERT_SSA", "").lower() in ("1", "true", "yes", "on"):
+            existing = {o for n in self.nodes for o in n.output}
+            dups = [o for o in node.output if o in existing]
+            if dups:
+                raise RuntimeError(
+                    f"[SSA] Attempt to add node '{node.name or node.op_type}' with "
+                    f"duplicate outputs {dups}."
+                )
         self.nodes.append(node)
 
     def _register_deterministic_parameters(self, missing_names: list[str]) -> list[str]:
@@ -726,6 +772,18 @@ class OnnxBuilder:
 
         # 1.a Strict topology check: every node input must have been produced already
         self._assert_topologically_sorted()
+
+        # Final SSA check (always on for safety)
+        seen = set()
+        dups = []
+        for n in self.nodes:
+            for o in n.output:
+                if o in seen:
+                    dups.append((n.name or n.op_type, o))
+                seen.add(o)
+        if dups:
+            detail = ", ".join([f"{nm}:{out}" for nm, out in dups[:5]])
+            raise RuntimeError(f"[SSA] Graph has duplicate output names: {detail} ...")
 
         if not is_subgraph:
             # For the main graph, filter redundant inputs.
@@ -839,23 +897,21 @@ class OnnxBuilder:
                 missing = sub_builder.find_missing_value_info()
 
         # Raise error if there are still missing items
-        if missing:  # Existing code
-            raise RuntimeError(  # Existing code
-                f"Missing value_info in function '{name}': {missing}\n\nFix the corresponding plugin using `register_value_info_metadata(...)`"
+        if missing:
+            raise RuntimeError(
+                f"Missing value_info in function '{name}': {missing}\n\n"
+                "Fix the corresponding plugin using `register_value_info_metadata(...)`"
             )
 
-        function_graph = sub_builder.create_graph(name + "_graph")  # Existing code
-        # These are the internal names used for function outputs
-        internal_output_names = [
-            vi.name for vi in function_graph.output
-        ]  # Modified variable name for clarity
+        function_graph = sub_builder.create_graph(name + "_graph")
+        # Internal outputs for the function proto
+        internal_output_names = [vi.name for vi in function_graph.output]
 
         # --- START REFINED CHANGE ---
-        # Construct the final input names list, handling both generic and descriptive names
-        final_input_names = []
-        seen_names = set()
+        # 1) Compute `final_input_names`, deduplicating via sub_converter if available
+        final_input_names: list[str] = []
+        seen_names: set[str] = set()
 
-        # If we have access to the sub_converter, use it to resolve descriptive names
         if (
             sub_converter is not None
             and hasattr(sub_converter, "jaxpr")
@@ -865,26 +921,18 @@ class OnnxBuilder:
                 f"Using sub_converter to deduplicate function inputs for '{name}'"
             )
 
-            # Get the original input variables from the sub_converter's jaxpr
-            original_internal_input_vars = sub_converter.jaxpr.invars
-
-            # Map all original input variables to their FINAL descriptive names
-            for var in original_internal_input_vars:
-                # Use the sub_converter's map to get the potentially renamed final name
-                final_name = sub_converter.var_to_name.get(var, None)
+            # Use the jaxpr invars to preserve original ordering
+            for var in sub_converter.jaxpr.invars:
+                final_name = sub_converter.var_to_name.get(var)
                 if final_name is None:
-                    # Handle cases where a var might not be in the map
                     logging.warning(
                         f"Could not find final name for input var: {var}. Skipping."
                     )
                     continue
-
-                # Ensure uniqueness in the final list
                 if final_name not in seen_names:
                     final_input_names.append(final_name)
                     seen_names.add(final_name)
-
-                    # Always ensure deterministic parameter is registered with BOOL
+                    # Force BOOL for deterministic parameters
                     if final_name == "deterministic":
                         from onnx import TensorProto
 
@@ -903,21 +951,16 @@ class OnnxBuilder:
                 else:
                     logging.debug(f"Deduplicating function input name: {final_name}")
 
-            # Add any extra parameter inputs (like weights/constants)
+            # Append any user-supplied scalar or tensor parameters
             for param_name in param_input_names:
                 if param_name not in seen_names:
-                    # Generalize: always register user-supplied scalar parameters as scalar inputs
-                    # Check if we have metadata for this parameter
                     try:
                         shape, dtype_enum = self.get_shape_dtype(param_name)
-                        # If scalar (shape == ()), register as scalar input
                         if shape == ():
                             sub_builder.add_scalar_input(param_name, dtype_enum)
                         else:
-                            # For non-scalars, add as normal input
                             sub_builder.add_input(param_name, shape, dtype_enum)
-                    except Exception:
-                        # If metadata is missing, fallback to add as scalar input with default float32
+                    except ValueError:
                         from onnx import TensorProto
 
                         sub_builder.add_scalar_input(param_name, TensorProto.FLOAT)
@@ -928,54 +971,50 @@ class OnnxBuilder:
                 f"Final computed input names for function '{name}': {final_input_names}"
             )
         else:
-            # Fallback to the original approach if sub_converter is not available
+            # Fallback: use the function_graph inputs + parameters
             internal_data_input_names = [vi.name for vi in function_graph.input]
             final_input_names = internal_data_input_names + param_input_names
 
-        # 1. Get ValueInfo for intermediate/output tensors from the sub-builder
-        intermediate_and_output_value_info = sub_builder.value_info
+        # 2) Gather intermediate/output ValueInfoProto from sub_builder
+        intermediate_value_info = sub_builder.value_info
 
-        # 2. Create ValueInfo for the function's inputs
-        input_value_infos = []
-
-        for input_name in final_input_names:
+        # 3) Build ValueInfoProto for each final input
+        input_value_infos: list[ValueInfoProto] = []
+        for in_name in final_input_names:
             try:
-                # Look up shape/dtype in the main builder's metadata
-                shape, dtype_enum = self.get_shape_dtype(input_name)
-
-                # If this is the deterministic parameter, always use BOOL
-                if input_name == "deterministic":
+                shape, dtype_enum = self.get_shape_dtype(in_name)
+                # Ensure deterministic is always BOOL
+                if in_name == "deterministic":
                     from onnx import TensorProto
 
                     dtype_enum = TensorProto.BOOL
-
-                # Create ValueInfoProto for this input
-                vi = helper.make_tensor_value_info(input_name, dtype_enum, shape)
+                vi = helper.make_tensor_value_info(in_name, dtype_enum, shape)
                 input_value_infos.append(vi)
             except ValueError:
-                pass
+                # Skip names without metadata
+                continue
 
-        # 3. Combine input ValueInfo with intermediate/output ValueInfo
-        combined_value_info_dict = {vi.name: vi for vi in input_value_infos}
-        for vi in intermediate_and_output_value_info:
-            if vi.name not in combined_value_info_dict:
-                combined_value_info_dict[vi.name] = vi
+        # 4) Merge all ValueInfoProto, overriding deterministic if needed
+        combined_vi: dict[str, ValueInfoProto] = {
+            vi.name: vi for vi in input_value_infos
+        }
+        for vi in intermediate_value_info:
+            combined_vi.setdefault(vi.name, vi)
 
-        # Special handling for 'deterministic' parameter - CRITICAL FIX
-        # Override any existing deterministic ValueInfo to ensure it uses BOOL
-        if "deterministic" in combined_value_info_dict:
+        if "deterministic" in combined_vi:
             from onnx import TensorProto
 
-            deterministic_vi = helper.make_tensor_value_info(
+            det_vi = helper.make_tensor_value_info(
                 "deterministic", TensorProto.BOOL, ()
             )
-            combined_value_info_dict["deterministic"] = deterministic_vi
+            combined_vi["deterministic"] = det_vi
             logging.debug(
                 f"Forced deterministic parameter to BOOL type in function '{name}'"
             )
 
-        final_function_value_info = list(combined_value_info_dict.values())
+        final_value_info = list(combined_vi.values())
 
+        # 5) Create and register the refined function proto
         function_proto = helper.make_function(
             domain=CUSTOM_DOMAIN,
             fname=name,
@@ -986,12 +1025,12 @@ class OnnxBuilder:
                 helper.make_opsetid("", self.opset),
                 helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION),
             ],
-            value_info=final_function_value_info,
+            value_info=final_value_info,
         )
 
         self.functions[name] = function_proto
-
         return name
+        # --- END REFINED CHANGE ---
 
     def _get_shape(self, vi):
         if hasattr(vi, "type") and hasattr(vi.type, "tensor_type"):
@@ -1394,21 +1433,98 @@ class OnnxBuilder:
         if before != len(self.inputs):
             logger.debug("Pruned %d redundant graph inputs.", before - len(self.inputs))
 
+    # ------------------------------------------------------------------
+    #  🔍  Utility: find an already-existing graph.input that is “compatible”
+    #               with the requested (shape, dtype) tuple.
+    # ------------------------------------------------------------------
+    def find_compatible_input(
+        self, shape: tuple[Any, ...] | None, dtype: Any
+    ) -> str | None:
+        """
+        Return the name of a *graph input* that can safely be aliased instead
+        of creating a brand-new one, or **None** if no such input exists.
+
+        Two tensors are considered *compatible* when:
+          • they have the same rank;
+          • each dimension matches *or* one side is dynamic/-1/None/""/symbolic;
+          • dtypes match exactly (after mapping NumPy→ONNX enum if needed).
+        """
+        # Ensure shape is always a tuple, never None
+        shape_tuple = () if shape is None else _as_tuple(shape)
+
+        # Normalise dtype to ONNX enum for stable comparison
+        dtype_enum = (
+            dtype if isinstance(dtype, int) else self._numpy_dtype_to_onnx(dtype)
+        )
+
+        def _dims_match(a, b):
+            return a == b or _is_unknown_dim(a) or _is_unknown_dim(b)
+
+        for inp in self.inputs:
+            meta = self.value_info_metadata.get(inp.name)
+            if meta is None:
+                continue
+            shp_meta, dt_meta = meta
+            if dtype_enum != (
+                dt_meta
+                if isinstance(dt_meta, int)
+                else self._numpy_dtype_to_onnx(dt_meta)
+            ):
+                continue
+            if len(shp_meta) != len(shape_tuple):
+                continue
+            if all(_dims_match(sa, sb) for sa, sb in zip(shp_meta, shape_tuple)):
+                return inp.name
+        return None
+
+    # ------------------------------------------------------------------
+    #  Experimental stub so older plugins (fori_loop, if, scan, …) that
+    #  still call builder.subgraph() don’t explode.  Until we land full
+    #  nested-graph support it just returns `self`.
+    # ------------------------------------------------------------------
+
     def subgraph(
         self,
         name: str,
         invars: Sequence[str],
-        jaxpr: "ClosedJaxpr",
+        jaxpr: "ClosedJaxpr",  # noqa: F821  (forward reference)
     ) -> "OnnxBuilder":
         """
-        Lightweight stub so that experimental control-flow code can call
-        `builder.subgraph()` without breaking the current stable path.
-
-        * Returns **self** for now – i.e. the caller keeps using the parent
-          builder context.
-        * Adds **no** nodes, **no** IO, **no** metadata.
-        * Logs a DEBUG line so we know if it ever gets hit in production
-          before the real implementation lands.
+        Temporary no-op: lets callers keep emitting nodes into the parent
+        graph while we refactor.  Logs once so we can spot mis-uses later.
         """
-        logger.debug("subgraph(%s) called in stub mode – no graph emitted", name)
+        logger.debug("[subgraph-stub] requested ‘%s’ → passthrough", name)
         return self
+        return self
+
+    # ────────────────────────────────────────────────────────────────
+    #  Helpers used by the Scan-plugin to inspect symbols
+    # ────────────────────────────────────────────────────────────────
+    def get_rank(self, sym: str) -> int | None:
+        """
+        Return the tensor *rank* of **sym** if it is known from
+        ``value_info``, graph IO or an initializer.
+        """
+
+        for vi in self.value_info + self.inputs + self.outputs:
+            if vi.name == sym:
+                return len(vi.type.tensor_type.shape.dim)
+        for init in self.initializers:
+            if init.name == sym:
+                return len(init.dims)
+        return None
+
+    def get_dtype(self, sym: str):
+        """
+        Return the NumPy dtype of **sym** when determinable, otherwise
+        ``None`` (caller should fall back on a reasonable default).
+        """
+        from onnx import mapping as _map
+
+        for vi in self.value_info + self.inputs + self.outputs:
+            if vi.name == sym:
+                return _map.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
+        for init in self.initializers:
+            if init.name == sym:
+                return _map.TENSOR_TYPE_TO_NP_TYPE[init.data_type]
+        return None

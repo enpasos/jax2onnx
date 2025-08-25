@@ -18,6 +18,18 @@ _FLOAT64_HELP = (
     "If omitted, tensors are exported in single precision (tensor(float))."
 )
 
+_LOOSEN_HELP = (
+    "Relax internal shapes inside control-flow subgraphs (Loop/Scan/If). "
+    "This keeps internal value_info entries at rank-only (dtype + rank, dims are dynamic) "
+    "and drops value_info for outputs of shape/dtype-sensitive ops (Reshape, (Un)Squeeze, "
+    "Expand, Concat, Gather/GatherND, Slice, Cast, Constant/ConstantOfShape, Range, Shape, "
+    "NonZero, and a light heuristic for index Add). "
+    "Effect: ONNX Runtime is far less likely to fail with shape/type inference errors in "
+    "nested loops. Trade-off: Netron will show fewer concrete dims inside loop bodies. "
+    "Default is off for backward compatibility. You can also enable via "
+    "JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1."
+)
+
 
 def to_onnx(
     fn: Callable,
@@ -27,6 +39,7 @@ def to_onnx(
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
     enable_double_precision: bool = False,
+    loosen_internal_shapes: bool = False,
     record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
@@ -44,6 +57,10 @@ def to_onnx(
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
+        loosen_internal_shapes: If True, relax internal value_info in Loop/Scan/If bodies to rank-only and drop "
+            "shape/dtype-sensitive producer VIs so ORT can infer safely (helps nested control-flow). "
+            "Default False. You can also enable globally via env var JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1. "
+            "Trade-off: Netron shows fewer concrete dims inside loop bodies.
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be
             recorded to this file. This log can be used by developers to manually
@@ -66,7 +83,8 @@ def to_onnx(
     logging.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}, enable_double_precision={enable_double_precision}, "
+        f"input_params={input_params}, "
+        f"enable_double_precision={enable_double_precision}, loosen_internal_shapes={loosen_internal_shapes}, "
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
 
@@ -119,6 +137,7 @@ def to_onnx(
         model_name=model_name,
         opset=opset,
         enable_double_precision=enable_double_precision,
+        loosen_internal_shapes=loosen_internal_shapes,
         record_primitive_calls_file=record_primitive_calls_file,
     )
 
@@ -141,6 +160,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=_FLOAT64_HELP,
+    )
+    # ──────────────── NEW FLAG ────────────────
+    p.add_argument(
+        "--loosen-internal-shapes",
+        dest="loosen_internal_shapes",
+        action="store_true",
+        default=False,
+        help=_LOOSEN_HELP,
     )
     # ──────────────────────────────────────────
 
@@ -187,15 +214,15 @@ def run_command_line():
         model_name=args.fn,
         opset=args.opset,
         enable_double_precision=args.enable_double_precision,
+        loosen_internal_shapes=getattr(args, "loosen_internal_shapes", False),
         record_primitive_calls_file=args.record_primitive_calls_file,
     )
-
-    # ...existing code...
 
 
 def convert(
     *,
     enable_double_precision: bool = False,
+    loosen_internal_shapes: bool = False,
     record_primitive_calls_file: Optional[str] = None,
     **kwargs,
 ):
@@ -206,11 +233,16 @@ def convert(
     ----------
     enable_double_precision : bool, optional
         If *True*, export tensors as ``tensor(double)``.  Defaults to *False*.
+    loosen_internal_shapes : bool, optional
+        If *True*, relax internal Loop/Scan/If shapes to rank-only and drop sensitive-producer VIs to improve ORT "
+        "robustness for nested control-flow. Defaults to *False*. Can also be enabled via env var "
+        "JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1.
     record_primitive_calls_file : str, optional
         Path to a file to record JAX primitive calls during conversion. Defaults to None.
     """
     return to_onnx(
         enable_double_precision=enable_double_precision,
+        loosen_internal_shapes=loosen_internal_shapes,
         record_primitive_calls_file=record_primitive_calls_file,
         **kwargs,
     )

@@ -24,11 +24,13 @@ def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
     # Remove pairs of transpose operations that cancel each other out.
     onnx_model = remove_redundant_transpose_pairs(onnx_model)
 
+    _validate_loops(onnx_model)
+
     # Perform shape inference again to ensure consistency after optimizations.
     onnx_model = shape_inference.infer_shapes(onnx_model)
 
-    # Uncomment the following line to strip unknown dimension names if needed.
-    # onnx_model = strip_unk_dim_names(onnx_model)
+    # strip unknown dimension names if needed.
+    onnx_model = strip_unk_dim_names(onnx_model)
 
     return onnx_model
 
@@ -48,6 +50,33 @@ def strip_unk_dim_names(model):
         scrub_dims(vi)
 
     return model
+
+
+def _validate_loops(model: onnx.ModelProto) -> None:
+    """
+    Sanity-check every Loop node:
+      required_outputs = len(body.output) - 1  # minus cond_out
+      actual_outputs   = len(loop_node.output)
+    They must match. If not, raise a clear error *before* ONNX does.
+    """
+    for n in model.graph.node:
+        if n.op_type != "Loop":
+            continue
+        body = None
+        for a in n.attribute:
+            if a.name == "body":
+                body = a.g
+                break
+        if body is None:
+            raise ValueError(f"Loop node {n.name} missing body graph")
+
+        required = len(body.output) - 1
+        actual = len(n.output)
+        if actual != required:
+            raise ValueError(
+                f"Invalid Loop '{n.name}': has {actual} outputs but body "
+                f"produces {required} (plus cond_out)."
+            )
 
 
 def remove_redundant_casts(onnx_model: onnx.ModelProto) -> onnx.ModelProto:

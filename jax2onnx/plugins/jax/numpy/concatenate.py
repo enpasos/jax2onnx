@@ -2,18 +2,20 @@
 
 # --- Imports ---------------------------------------------------------------
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, Any, Sequence
+from typing import TYPE_CHECKING, Callable, Any, Iterable, Sequence
 
-import jax
 import jax.numpy as jnp
 from jax import core
 from jax.extend.core import Primitive
+import numpy as np
 from onnx import helper
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
 
 import logging
+
+from jax2onnx.plugins.jax.lax.mul import _np_dt
 
 logger = logging.getLogger("jax2onnx.plugins.jax.numpy.concatenate")
 
@@ -35,6 +37,18 @@ def concat_dynamic_tile_func(x):
     return jnp.concatenate([tiled_token, x], axis=1)  # (B, 1+N, D)
 
 
+def concat_mixed_dtypes_noargs():
+    """
+    Regression repro: concatenating int32 and float32 without inputs.
+    Used to fail ORT load with:
+      Type Error: Type parameter (T) of Concat bound to different types
+    Our post-build sanitizer should cast to a common type so it loads & runs.
+    """
+    a = jnp.array([1, 2, 3], dtype=jnp.int32)
+    b = jnp.array([1.1, 2.2, 3.3], dtype=jnp.float32)
+    return jnp.concatenate((a, b), axis=0)
+
+
 # ---------------------------------------------------------------------------
 #  Primitive definition
 # ---------------------------------------------------------------------------
@@ -53,16 +67,41 @@ if not hasattr(jnp, "concatenate_p"):
         {
             "component": "Concat",
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
-        }
+        },
+        {
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
+        },
     ],
-    since="v0.1.0",
+    since="v0.2.0",
     context="primitives.jnp",
     component="concatenate",
     testcases=[
         {
-            "testcase": "concatenate",
-            "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
+            "testcase": "concatenate_basic",
+            "callable": lambda a, b: jnp.concatenate([a, b], axis=0),
             "input_shapes": [(3,), (3,)],
+        },
+        {
+            "testcase": "concatenate_mixed_dtypes",
+            "callable": lambda a, b: jnp.concatenate([a, b], axis=0),
+            "input_shapes": [(3,), (3,)],
+            "input_dtypes": [np.float32, np.int32],
+        },
+        {
+            "testcase": "concatenate_with_explicit_dtype",
+            "callable": lambda a, b: jnp.concatenate([a, b], axis=0, dtype=np.float64),
+            "input_shapes": [(3,), (3,)],
+            "input_dtypes": [np.float32, np.int32],
+        },
+        {
+            "testcase": "concatenate_with_explicit_dtype_casts_inputs",
+            "callable": lambda a, b: jnp.concatenate([a, b], axis=1, dtype=jnp.float32),
+            # Two int32 inputs of shape (5, 1) concatenated along axis=1 -> (5, 2)
+            "input_shapes": [(5, 1), (5, 1)],
+            "input_dtypes": [np.int32, np.int32],
+            "expected_output_shapes": [(5, 2)],
+            "run_only_f64_variant": True,
         },
         {
             "testcase": "concatenate_abstract_middle_dim",
@@ -79,74 +118,99 @@ if not hasattr(jnp, "concatenate_p"):
     ],
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
-    """
-    Symbolic-shape aware converter for `jax.numpy.concatenate`.
-    Its `abstract_eval` rule defers shape inference to **jax.eval_shape**,
-    which is safe to call while the outer `jax.make_jaxpr` trace is live.
-    """
-
-    # Will be filled the first time we patch `jnp.concatenate`
-    _ORIGINAL_CONCATENATE: Callable | None = None
-
-    # ---------------------------------------------------------------------
-    #  abstract_eval  (⇐ **now uses jax.eval_shape**)
-    # ---------------------------------------------------------------------
     @staticmethod
-    def abstract_eval(*avals: core.ShapedArray, axis: int):
-        logger.debug("ConcatenatePlugin.abstract_eval – start")
+    def abstract_eval(*xs, axis=0, dtype=None, **params):
+        # Normalize inputs: either (xs) or a single list/tuple
+        arrays: Iterable[core.ShapedArray]
+        arrays = xs[0] if len(xs) == 1 and isinstance(xs[0], (list, tuple)) else xs
 
-        # ---- sanity checks ------------------------------------------------
-        if not avals:
-            raise ValueError("concatenate expects at least one input")
-        if not all(isinstance(a, core.ShapedArray) for a in avals):
-            raise TypeError(
-                "All inputs to concatenate must be ShapedArray, got "
-                f"{[type(a) for a in avals]}"
-            )
-        if not isinstance(axis, int):
-            raise TypeError(f"`axis` must be an int, got {type(axis)}")
+        rank = len(arrays[0].shape)
+        ax = axis if axis >= 0 else axis + rank
 
-        # ---- original function reference ---------------------------------
-        orig = ConcatenatePlugin._ORIGINAL_CONCATENATE
-        if orig is None:
-            raise RuntimeError("Original jnp.concatenate was not captured.")
+        # Output shape: sum along concat axis, keep others
+        out_shape = list(arrays[0].shape)
+        out_shape[ax] = sum(int(a.shape[ax]) for a in arrays)
 
-        # ---- ShapeDtypeStruct specs --------------------------------------
-        specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
+        # Target dtype: explicit dtype wins; otherwise JAX-style promotion
+        if dtype is not None:
+            out_dtype = _np_dt(dtype)
+        else:
+            out_dtype = arrays[0].dtype
+            for a in arrays[1:]:
+                out_dtype = np.promote_types(out_dtype, a.dtype)
 
-        # ---- helper that calls the *un-patched* concatenate --------------
-        def _helper(*xs):
-            return orig(xs, axis=axis)
-
-        # ---- delegate to jax.eval_shape ----------------------------------
-        try:
-            result_spec = jax.eval_shape(_helper, *specs)
-            result_spec = jax.tree_util.tree_leaves(result_spec)[0]
-            return core.ShapedArray(result_spec.shape, result_spec.dtype)
-        except Exception as exc:
-            logger.debug("eval_shape failed, using manual rule: %s", exc)
-            shape = ConcatenatePlugin._manual_shape(avals, axis=axis)
-            dtype = jax.dtypes.result_type(*[a.dtype for a in avals])
-            return core.ShapedArray(shape, dtype)
+        return core.ShapedArray(tuple(out_shape), out_dtype)
 
     # ---------------------------------------------------------------------
     #  to_onnx – unchanged
     # ---------------------------------------------------------------------
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        axis = int(params.get("axis", 0))
-        node = helper.make_node(
-            "Concat",
-            inputs=[s.get_name(v) for v in node_inputs],
-            outputs=[s.get_name(node_outputs[0])],
-            name=s.get_unique_name("concat"),
-            axis=axis,
+    def to_onnx(
+        self,
+        s: "Jaxpr2OnnxConverter",
+        node_inputs: Sequence[Any],
+        node_outputs: Sequence[Any],
+        params: dict[str, Any],
+    ):
+        # Inputs may be given as a list (from the wrapper) or as varargs
+        in_vals = (
+            list(node_inputs[0])
+            if isinstance(node_inputs[0], (list, tuple))
+            else list(node_inputs)
         )
-        s.add_node(node)
 
-        out_aval = node_outputs[0].aval
-        s.add_shape_info(
-            s.get_name(node_outputs[0]), tuple(out_aval.shape), out_aval.dtype
+        axis = int(params.get("axis", 0))
+        dtype_param = params.get("dtype", None)
+
+        names = [s.get_name(v) for v in in_vals]
+        avals = [v.aval for v in in_vals]
+        dtypes = [_np_dt(v.aval.dtype) for v in in_vals]
+
+        # Decide target dtype
+        if dtype_param is not None:
+            tgt_dt = _np_dt(dtype_param)
+        else:
+            tgt_dt = dtypes[0]
+            for dt in dtypes[1:]:
+                tgt_dt = np.promote_types(tgt_dt, dt)
+
+        # Normalize axis to non-negative
+        rank = len(avals[0].shape)
+        ax = axis if axis >= 0 else axis + rank
+
+        # Cast inputs as needed to satisfy ONNX Concat type constraints
+        casted_names: list[str] = []
+        for name, dt, aval in zip(names, dtypes, avals):
+            if _np_dt(dt) != tgt_dt:
+                cast_out = s.builder.get_unique_name("Concat_cast")
+                s.add_node(
+                    helper.make_node(
+                        "Cast",
+                        [name],
+                        [cast_out],
+                        to=int(s.builder._numpy_dtype_to_onnx(tgt_dt)),
+                        name=s.builder.get_unique_name("Cast"),
+                    )
+                )
+                s.add_shape_info(cast_out, aval.shape, tgt_dt)
+                casted_names.append(cast_out)
+            else:
+                casted_names.append(name)
+
+        out_name = s.get_name(node_outputs[0])
+        s.add_node(
+            helper.make_node(
+                "Concat",
+                casted_names,
+                [out_name],
+                axis=ax,
+                name=s.builder.get_unique_name("Concat"),
+            )
         )
+
+        # Output shape & dtype
+        out_shape = list(avals[0].shape)
+        out_shape[ax] = sum(a.shape[ax] for a in avals)
+        s.add_shape_info(out_name, tuple(out_shape), tgt_dt)
 
     # ---------------------------------------------------------------------
     #  patch_info – capture original fn & inject wrapper
@@ -155,7 +219,7 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
     def patch_info() -> dict[str, Any]:
         def _creator(orig_fn: Callable):
             logger.info("Storing original jnp.concatenate reference")
-            ConcatenatePlugin._ORIGINAL_CONCATENATE = orig_fn
+            _ORIGINAL_JNP_CONCATENATE = orig_fn
             return PatchedCallableWrapper(orig_fn, jnp.concatenate_p)
 
         return {

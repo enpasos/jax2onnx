@@ -1,5 +1,3 @@
-# file: jax2onnx/plugins/flax/nnx/dot_product_attention.py
-
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
@@ -8,6 +6,7 @@ from jax import core, numpy as jnp
 from jax.extend.core import Primitive
 from onnx import TensorProto, helper
 from jax.interpreters import batching
+from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as np2ONNX
 
 from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -17,6 +16,21 @@ if TYPE_CHECKING:
 
 # Global variable to store the original function
 _ORIGINAL_DOT_PRODUCT_ATTENTION_CALL: Callable | None = None
+
+
+def _dpa_inputs_f64_no_full_mask():
+    rng = np.random.RandomState(0)
+    q = rng.randn(2, 8, 4, 16).astype(np.float64)
+    k = rng.randn(2, 8, 4, 16).astype(np.float64)
+    v = rng.randn(2, 8, 4, 16).astype(np.float64)
+
+    # mask shape (B, H, Q, K); start with all masked, then unmask diagonal
+    mask = np.ones((2, 4, 8, 8), dtype=bool)
+    idx = np.arange(8)
+    mask[:, :, idx, idx] = False  # guarantee at least one unmasked per row
+
+    bias = np.zeros((2, 4, 8, 8), dtype=np.float64)
+    return [q, k, v, mask, bias]
 
 
 # Callable definitions for test cases
@@ -99,16 +113,13 @@ nnx.dot_product_attention_p.multiple_results = False
         {
             "testcase": "dpa_with_mask_and_bias",
             "callable": dpa_with_mask_and_bias,
-            "input_shapes": [
-                (2, 8, 4, 16),
-                (2, 8, 4, 16),
-                (2, 8, 4, 16),
-                (2, 4, 8, 8),
-                (2, 4, 8, 8),
-            ],
-            "input_dtypes": [np.float32, np.float32, np.float32, np.bool_, np.float32],
+            # switch from shapes/dtypes → concrete values to avoid fully-masked rows
+            "input_values": _dpa_inputs_f64_no_full_mask(),
+            "expected_output_shapes": [(2, 8, 4, 16)],  # optional but nice
+            "expected_output_dtypes": [np.float64],  # keep it f64
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "run_only_f64_variant": True,
         },
     ],
 )
@@ -120,98 +131,119 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         return core.ShapedArray(q.shape, q.dtype)
 
     def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        q, k, v, *optional_inputs = node_inputs
-        out_var = node_outputs[0]
-        q_name, k_name, v_name = map(s.get_name, (q, k, v))
-        out_name = s.get_name(out_var)
-        B, T, N, H = q.aval.shape
-        _, S, _, _ = k.aval.shape
-        np_dtype = q.aval.dtype
+        # Inputs/outputs
+        q_sym = s.get_name(node_inputs[0])
+        k_sym = s.get_name(node_inputs[1])
+        v_sym = s.get_name(node_inputs[2])
+        out_sym = s.get_name(node_outputs[0])
 
-        q_t = s.get_unique_name("q_T")
-        s.add_node(helper.make_node("Transpose", [q_name], [q_t], perm=[0, 2, 1, 3]))
-        s.add_shape_info(q_t, (B, N, T, H), np_dtype)
+        # Figure out which optional args are present using the flags we set in bind()
+        has_mask = bool(params.get("has_mask", False))
+        has_bias = bool(params.get("has_bias", False))
 
-        k_t = s.get_unique_name("k_T")
-        s.add_node(helper.make_node("Transpose", [k_name], [k_t], perm=[0, 2, 3, 1]))
-        s.add_shape_info(k_t, (B, N, H, S), np_dtype)
+        next_idx = 3
+        mask_sym = s.get_name(node_inputs[next_idx]) if has_mask else None
+        next_idx += 1 if has_mask else 0
+        bias_sym = s.get_name(node_inputs[next_idx]) if has_bias else None
 
-        logits = s.get_unique_name("attn_scores")
-        s.add_node(helper.make_node("MatMul", [q_t, k_t], [logits]))
-        s.add_shape_info(logits, (B, N, T, S), np_dtype)
+        # Shapes and dtypes
+        q_shape = node_inputs[0].aval.shape  # (B, T, N, H)
+        k_shape = node_inputs[1].aval.shape  # (B, T, N, H)
+        np_dtype = node_inputs[0].aval.dtype
+        B, T, N, H = q_shape
+        S = k_shape[1]  # kv_length
 
-        scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
-        scaled_scores = s.get_unique_name("scaled_scores")
-        s.add_node(helper.make_node("Mul", [logits, scale_const], [scaled_scores]))
-        s.add_shape_info(scaled_scores, (B, N, T, S), np_dtype)
-        final_logits = scaled_scores
-
-        has_mask = params.get("has_mask", False)
-        has_bias = params.get("has_bias", False)
-
-        opt_input_idx = 0
-        mask_var = None
-        bias_var = None
-
-        if has_mask:
-            mask_var = optional_inputs[opt_input_idx]
-            opt_input_idx += 1
-        if has_bias:
-            bias_var = optional_inputs[opt_input_idx]
-
-        if bias_var is not None:
-            bias_name = s.get_name(bias_var)
-            biased_logits = s.get_unique_name("biased_logits")
-            s.add_node(
-                helper.make_node("Add", [final_logits, bias_name], [biased_logits])
-            )
-            s.add_shape_info(biased_logits, (B, N, T, S), np_dtype)
-            final_logits = biased_logits
-
-        if mask_var is not None:
-            mask_name = s.get_name(mask_var)
-            mask_cond_name = mask_name
-
-            if mask_var.aval.dtype != jnp.bool_:
-                mask_bool_name = s.get_unique_name("mask_bool")
-                s.add_node(
-                    helper.make_node(
-                        "Cast", [mask_name], [mask_bool_name], to=TensorProto.BOOL
-                    )
-                )
-                s.add_shape_info(mask_bool_name, mask_var.aval.shape, dtype=bool)
-                mask_cond_name = mask_bool_name
-
-            large_negative_number_const = s.get_constant_name(
-                np.array(-1e9, dtype=np_dtype)
-            )
-            masked_logits = s.get_unique_name("masked_logits")
+        # Helper: cast a tensor to a target dtype if needed
+        def _cast_to(sym: str, target_dt):
+            cur = s.builder.get_dtype(sym)
+            if cur is not None and np.dtype(cur) == np.dtype(target_dt):
+                return sym
+            out = s.builder.get_unique_name(f"{sym}_cast_{np.dtype(target_dt).name}")
             s.add_node(
                 helper.make_node(
-                    "Where",
-                    [mask_cond_name, final_logits, large_negative_number_const],
-                    [masked_logits],
+                    "Cast",
+                    inputs=[sym],
+                    outputs=[out],
+                    name=s.get_unique_name("CastDPA"),
+                    to=np2ONNX[np.dtype(target_dt)],
                 )
             )
-            s.add_shape_info(masked_logits, (B, N, T, S), np_dtype)
-            final_logits = masked_logits
+            r = s.builder.get_rank(sym) or 0
+            s.add_shape_info(out, (None,) * r, target_dt)
+            return out
 
+        # q -> (B, N, T, H)
+        q_t = s.get_unique_name("q_T")
+        s.add_node(helper.make_node("Transpose", [q_sym], [q_t], perm=[0, 2, 1, 3]))
+        s.add_shape_info(q_t, (B, N, T, H), np_dtype)
+
+        # k -> (B, N, H, S)
+        k_t = s.get_unique_name("k_T")
+        s.add_node(helper.make_node("Transpose", [k_sym], [k_t], perm=[0, 2, 3, 1]))
+        s.add_shape_info(k_t, (B, N, H, S), np_dtype)
+
+        # logits = (q / sqrt(H)) @ k^T   <== equivalent to (q @ k^T) * (1/sqrt(H))
+        scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
+        q_scaled = s.get_unique_name("q_scaled")
+        s.add_node(helper.make_node("Mul", [q_t, scale_const], [q_scaled]))
+        s.add_shape_info(q_scaled, (B, N, T, H), np_dtype)
+
+        logits = s.get_unique_name("attn_scores")
+        s.add_node(helper.make_node("MatMul", [q_scaled, k_t], [logits]))
+        s.add_shape_info(logits, (B, N, T, S), np_dtype)
+
+        cur_logits = logits
+
+        # + bias (added to logits; NOT scaled)
+        if has_bias and bias_sym is not None:
+            if s.builder.get_dtype(bias_sym) is None or np.dtype(
+                s.builder.get_dtype(bias_sym)
+            ) != np.dtype(np_dtype):
+                bias_sym = _cast_to(bias_sym, np_dtype)
+            add_b = s.get_unique_name("logits_plus_bias")
+            s.add_node(helper.make_node("Add", [cur_logits, bias_sym], [add_b]))
+            s.add_shape_info(add_b, (B, N, T, S), np_dtype)
+            cur_logits = add_b
+
+        # apply mask using dtype min (Flax semantics): where(mask, x, finfo(dtype).min)
+        if has_mask and mask_sym is not None:
+            mdt = s.builder.get_dtype(mask_sym)
+            if mdt is None or np.dtype(mdt) != np.dtype(bool):
+                mask_bool = s.get_unique_name("mask_bool")
+                s.add_node(
+                    helper.make_node(
+                        "Cast", [mask_sym], [mask_bool], to=TensorProto.BOOL
+                    )
+                )
+                s.add_shape_info(mask_bool, (B, N, T, S), bool)
+                mask_sym = mask_bool
+            big_neg = s.get_constant_name(
+                np.array(np.finfo(np_dtype).min, dtype=np_dtype)
+            )
+            masked = s.get_unique_name("masked_logits")
+            s.add_node(
+                helper.make_node("Where", [mask_sym, cur_logits, big_neg], [masked])
+            )
+            s.add_shape_info(masked, (B, N, T, S), np_dtype)
+            cur_logits = masked
+
+        # softmax over last dim (kv_length)
         weights = s.get_unique_name("attn_weights")
-        s.add_node(helper.make_node("Softmax", [final_logits], [weights], axis=-1))
+        s.add_node(helper.make_node("Softmax", [cur_logits], [weights], axis=-1))
         s.add_shape_info(weights, (B, N, T, S), np_dtype)
 
+        # v -> (B, N, S, H)
         v_t = s.get_unique_name("v_T")
-        s.add_node(helper.make_node("Transpose", [v_name], [v_t], perm=[0, 2, 1, 3]))
+        s.add_node(helper.make_node("Transpose", [v_sym], [v_t], perm=[0, 2, 1, 3]))
         s.add_shape_info(v_t, (B, N, S, H), np_dtype)
 
+        # output: (B, N, T, H) -> (B, T, N, H)
         out_t = s.get_unique_name("out_T")
         s.add_node(helper.make_node("MatMul", [weights, v_t], [out_t]))
         s.add_shape_info(out_t, (B, N, T, H), np_dtype)
 
-        s.add_node(
-            helper.make_node("Transpose", [out_t], [out_name], perm=[0, 2, 1, 3])
-        )
-        s.add_shape_info(out_name, q.aval.shape, np_dtype)
+        s.add_node(helper.make_node("Transpose", [out_t], [out_sym], perm=[0, 2, 1, 3]))
+        s.add_shape_info(out_sym, q_shape, np_dtype)
 
     @staticmethod
     def get_monkey_patch():

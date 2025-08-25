@@ -105,7 +105,7 @@ register_example(
     since="v0.6.5",
     context="examples.nnx",
     testcases=[
-        # TODO: enable testcases
+        # TODO: enable test
         # {
         #     "testcase": "simple_cnn_inference",
         #     "callable": CNN2(num_classes=10, rngs=nnx.Rngs(0)),
