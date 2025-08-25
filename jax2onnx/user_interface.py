@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/user_interface.py
+# file: jax2onnx/user_interface.py
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import argparse
