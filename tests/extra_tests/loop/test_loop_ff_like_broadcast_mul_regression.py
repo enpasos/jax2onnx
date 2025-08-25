@@ -6,7 +6,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
-from jax2onnx.converter.user_interface import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _ff_like_loop_broadcast_mul_repro():

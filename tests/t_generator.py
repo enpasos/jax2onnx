@@ -15,7 +15,7 @@ from logging_config import (
 )  # Assuming this is handled elsewhere or not strictly needed for this fix
 
 from jax2onnx import allclose
-from jax2onnx.converter.user_interface import to_onnx
+from jax2onnx.user_interface import to_onnx
 from jax2onnx.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax import lax
 import onnxruntime as ort
 
-from jax2onnx.converter.user_interface import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _fn_loop_gather_const_f32():
