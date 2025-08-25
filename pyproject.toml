@@ -1,8 +1,8 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.7.5"
-description = "export JAX to ONNX - focus on flax nnx"
+version = "0.8.0"
+description = "export JAX to ONNX"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.10"
