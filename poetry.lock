@@ -339,14 +339,14 @@ files = [
 
 [[package]]
 name = "equinox"
-version = "0.12.2"
+version = "0.13.0"
 description = "Elegant easy-to-use neural networks in JAX."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "equinox-0.12.2-py3-none-any.whl", hash = "sha256:0d9c09c077e7895a5334930ddb9ecd7d39840c3ad252cf8262aa8ddc6bb8ae97"},
-    {file = "equinox-0.12.2.tar.gz", hash = "sha256:648e4206bbc53b228922e8f18cd3cffe543ddda1172c0002f8954e484bab0023"},
+    {file = "equinox-0.13.0-py3-none-any.whl", hash = "sha256:66720e6f39b4907812e2c5912ca523d698293f6f1d25736362b174f426b02c49"},
+    {file = "equinox-0.13.0.tar.gz", hash = "sha256:d59615be722373e9d66e0ba78462964e6357fb76a8b1b98c2c6027961b778a69"},
 ]
 
 [package.dependencies]
@@ -2898,4 +2898,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10"
-content-hash = "6c265c80a31469d7a2b959b698567497f51a535a5b3abf8c3a0b9d33b617e3f0"
+content-hash = "ad3a3978e4f39026c16d976f0ae456b666450fbc59ea3c4ba9d74a5ae20fcc8d"
