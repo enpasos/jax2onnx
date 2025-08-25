@@ -114,7 +114,7 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 - **0.8.0** *(initial Equinox support, PyPI)*:
 
   * Added initial support for Equinox components: `eqx.dropout`, `eqx.layer_norm`, and `eqx.linear`. Introduced an Equinox `MlpExample` showcasing Linear + Dropout composition.
-  * Stabilized SSA and shape handling across `lax.scan` and `lax.fori_loop` bodies, preventing duplicate `__shape` helpers and dtype leaks.
+  * Stabilized SSA and shape handling across `lax.scan` and `lax.fori_loop` bodies, preventing dtype leaks.
   * Improved dtype propagation in `lax.gather`, `lax.concatenate`.
   * Added plugin support for `lax.pad`.
 
