@@ -4,3 +4,30 @@ from tests.t_generator import generate_test_class
 # Tests for primitives2.lax.tanh
 generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
 
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+

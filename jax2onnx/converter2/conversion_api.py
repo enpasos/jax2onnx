@@ -1,28 +1,28 @@
+# file: jax2onnx/converter2/conversion_api.py
+
+
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple, Union
 import os
 import tempfile
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import onnx
-import numpy as np
 import jax
 import jax.numpy as jnp
-from jax import core as jcore
+from jax import config as jax_config
+
+# ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
+# We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
+from jax.extend import core as jcore_ext  # type: ignore
+_LITERAL_TYPES = (jcore_ext.Literal,)
 
 # NOTE: onnx_ir: https://github.com/onnx/ir-py
 # We use it as the builder backend.
-try:
-    import onnx_ir as ir
-except Exception as e:  # pragma: no cover
-    ir = None
-    _IR_IMPORT_ERROR = e
+import onnx_ir as ir
 
-# --- JAX core type compatibility (JAX >= 0.6 moved these) --------------------
-try:  # JAX 0.6+
-    from jax.extend.core import Literal as JaxLiteral, Var as JaxVar
-except Exception:  # Older JAX
-    from jax.core import Literal as JaxLiteral, Var as JaxVar
+# For optional type hints; avoid jax.core on 0.6.x
+from jax.extend.core import Literal as JaxLiteral, Var as JaxVar  # type: ignore
 
 # plugin2 registry (old registry stays untouched)
 from jax2onnx.plugins2.plugin_system import PLUGIN_REGISTRY2
@@ -86,8 +86,9 @@ def _as_sds_list(
 # Minimal IR Build Context
 # ---------------------------
 class _IRBuildContext:
-    def __init__(self, *, opset: int):
+    def __init__(self, *, opset: int, default_float_dtype: np.dtype):
         self.opset = opset
+        self._default_float_dtype = np.dtype(default_float_dtype)
         self._var2val: Dict[Any, ir.Value] = {}
         self._inputs: List[ir.Value] = []
         self._initializers: List[ir.Value] = []
@@ -99,35 +100,44 @@ class _IRBuildContext:
         self._name_counter += 1
         return f"{prefix}_{self._name_counter}"
 
-    def add_node(self, op_type: str, inputs: List[ir.Value], outputs: List[ir.Value], **attrs):
-        # attributes dict can be empty
-        node = ir.node(op_type=op_type, inputs=inputs, outputs=outputs, attributes=attrs or None)
+    def add_node(self, node, inputs=None, outputs=None):
+        # Accept both (node) and (node, inputs, outputs) forms
         self._nodes.append(node)
         return node
 
-    def get_value_for_var(self, var, *, name_hint: Optional[str] = None) -> "ir.Value":
+    def get_value_for_var(
+        self,
+        var,
+        *,
+        name_hint: Optional[str] = None,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> "ir.Value":
+        # Handle Literals first; don't touch the dict (Literals are unhashable).
+        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
+            arr = np.asarray(var.val)
+            # For floating literals, align to either caller's preferred dtype
+            # (e.g., the other operand) or our default float dtype.
+            if np.issubdtype(arr.dtype, np.floating):
+                target = np.dtype(prefer_np_dtype) if prefer_np_dtype is not None else self._default_float_dtype
+                arr = np.asarray(var.val, dtype=target)
+            c_ir = ir.Value(
+                name=name_hint or self.fresh_name("const"),
+                type=ir.TensorType(_to_ir_dtype_from_np(arr.dtype)),
+                shape=_to_ir_shape(arr.shape),
+                const_value=ir.tensor(arr),
+            )
+            self._initializers.append(c_ir)
+            return c_ir
         # If we've already materialized it, return it.
         if var in self._var2val:
             return self._var2val[var]
-        # Literals become constants
-        if isinstance(var, JaxLiteral):
-            np_c = np.asarray(var.val)
-            v = ir.Value(
-                name=self.fresh_name("const") if name_hint is None else name_hint,
-                type=ir.TensorType(_to_ir_dtype_from_np(np_c.dtype)),
-                shape=_to_ir_shape(np_c.shape),
-                const_value=ir.tensor(np_c),
-            )
-            self._initializers.append(v)
-            self._var2val[var] = v
-            return v
-        # Regular JAX Var with aval describes shape & dtype
+        # Otherwise create a fresh Value (outvar or intermediate)
         aval = getattr(var, "aval", None)
         if aval is None:
-            raise TypeError(f"Unsupported var without aval: {var!r}")
+            raise TypeError(f"Unsupported var type: {type(var)}")
         v = ir.Value(
-            name=self.fresh_name("v") if name_hint is None else name_hint,
-            type=ir.TensorType(_to_ir_dtype_from_np(getattr(aval, "dtype", None))),
+            name=name_hint or self.fresh_name("v"),
+            type=ir.TensorType(_to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))),
             shape=_to_ir_shape(getattr(aval, "shape", ())),
         )
         self._var2val[var] = v
@@ -174,15 +184,33 @@ def to_onnx(
     def _wrapped(*xs):
         return fn(*xs, **(input_params or {}))
 
-    closed = jax.make_jaxpr(_wrapped)(*sds_list)  # ClosedJaxpr
+    # Temporarily enable x64 for tracing when double precision was requested.
+    prev_x64 = None
+    if enable_double_precision:
+        try:
+            prev_x64 = jax_config.read("jax_enable_x64")
+        except Exception:
+            prev_x64 = None
+        if prev_x64 is False:
+            jax_config.update("jax_enable_x64", True)
+    try:
+        closed = jax.make_jaxpr(_wrapped)(*sds_list)  # ClosedJaxpr
+    finally:
+        if enable_double_precision and prev_x64 is False:
+            jax_config.update("jax_enable_x64", False)
     jpr = closed.jaxpr
 
     # 3) Build IR context and materialize graph inputs (+ consts if any)
-    ctx = _IRBuildContext(opset=opset)
+    ctx = _IRBuildContext(
+        opset=opset,
+        default_float_dtype=np.float64 if enable_double_precision else np.float32,
+    )
 
     # consts (rare in tanh path), map constvars → initializers
     for cv, cval in zip(jpr.constvars, closed.consts):
         np_c = np.asarray(cval)
+        if np.issubdtype(np_c.dtype, np.floating):
+            np_c = np_c.astype(ctx._default_float_dtype, copy=False)
         c_ir = ir.Value(
             name=ctx.fresh_name("const"),
             type=ir.TensorType(_to_ir_dtype_from_np(np_c.dtype)),
@@ -237,7 +265,7 @@ def to_onnx(
                 os.remove(tmp_path)
             except OSError:
                 pass
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+            tmp_path = f.name
+        ir.save(model, tmp_path)
+        return onnx.load_model(tmp_path)
+

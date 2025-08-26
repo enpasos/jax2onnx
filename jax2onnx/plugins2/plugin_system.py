@@ -1,4 +1,4 @@
-# file: jax2onnx/plugin_system.py
+# file: jax2onnx/plugins2/plugin_system.py
 from __future__ import annotations
 from typing import Any, Dict, Callable
 import functools
@@ -74,12 +74,12 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
             converter, eqn.invars, eqn.outvars, params
         )
 
-    @abstractmethod
-    def to_onnx(
-        self, converter: Any, node_inputs: Any, node_outputs: Any, params: Any
-    ) -> None:
-        """Convert the plugin to ONNX format."""
-        pass
+    # @abstractmethod
+    # def to_onnx(
+    #     self, converter: Any, node_inputs: Any, node_outputs: Any, params: Any
+    # ) -> None:
+    #     """Convert the plugin to ONNX format."""
+    #     pass
 
 
 class FunctionPlugin(PrimitivePlugin):

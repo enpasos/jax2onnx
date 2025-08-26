@@ -4,12 +4,9 @@ from typing import TYPE_CHECKING
 
 import jax
 from onnx import helper
-
+  
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
+import onnx_ir as ir
 
 @register_primitive(
     jaxpr_primitive=jax.lax.tanh_p.name,
@@ -25,28 +22,17 @@ if TYPE_CHECKING:
     component="tanh",
     testcases=[
         {
-            "testcase": "tanh",
+            "testcase": "tanh",  
             "callable": lambda x: jax.lax.tanh(x),
             "input_shapes": [(3,)],
             "use_onnx_ir": True
         }
     ],
 )
+ 
 class TanhPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.tanh to ONNX Tanh."""
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX tanh primitive."""
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Tanh",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("tanh"),
-        )
-        s.add_node(node)
-
+ 
     # ─────────────────────────────────────────────────────────────────────────
     # IR path (converter2): optional hook the new converter can call.
     # This keeps the old decorator & metadata (test discovery) unchanged.
@@ -63,11 +49,16 @@ class TanhPlugin(PrimitiveLeafPlugin):
             y = Tanh(x)
         """
         x_var = eqn.invars[0]
-        y_var = eqn.outvars[0]
+        out_var = eqn.outvars[0]
 
-        # Map jaxpr vars to IR values (the ctx owns the value table)
-        x_val = ctx.get_value_for_var(x_var)
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("tanh_out"))
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("tanh_in"))
+        y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tanh_out"))
 
-        # Emit the ONNX op into the IR graph
-        ctx.add_node("Tanh", [x_val], [y_val])
+        node = ir.Node(
+            op_type="Tanh",
+            domain="",  # default ONNX domain
+            inputs=[x_val],
+            outputs=[y_val],
+            name=ctx.fresh_name("tanh"),
+        )
+        ctx.add_node(node)
