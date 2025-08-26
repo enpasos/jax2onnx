@@ -225,8 +225,10 @@ def to_onnx(
         ctx.add_input_for_invar(v, i)
 
     # 4) Walk equations and dispatch to plugin.lower
+    _seen_prims: list[str] = []
     for eqn in jpr.eqns:
         prim_name = eqn.primitive.name
+        _seen_prims.append(prim_name)
         plugin_ref = PLUGIN_REGISTRY2.get(prim_name)
         if plugin_ref is None:
             raise NotImplementedError(f"[converter2] No plugins2 registered for primitive '{prim_name}'")
@@ -258,7 +260,17 @@ def to_onnx(
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
             tmp_path = f.name
         ir.save(model, tmp_path)
-        return onnx.load_model(tmp_path)
+        onnx_model = onnx.load_model(tmp_path)
+        # optional: write primitive call list for debugging
+        if record_primitive_calls_file:
+            try:
+                with open(record_primitive_calls_file, "w", encoding="utf-8") as fh:
+                    for p in _seen_prims:
+                        fh.write(f"{p}\n")
+            except Exception:
+                # best-effort: don’t fail conversion if logging fails
+                pass
+        return onnx_model
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:

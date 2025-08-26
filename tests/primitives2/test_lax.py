@@ -31,3 +31,21 @@ generate_test_class(context='primitives2.lax', component='add', namespace=global
 # Tests for primitives2.lax.tanh
 generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
 
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.broadcast_in_dim
+generate_test_class(context='primitives2.lax', component='broadcast_in_dim', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+
+# Tests for primitives2.lax.add
+generate_test_class(context='primitives2.lax', component='add', namespace=globals())
+
+# Tests for primitives2.lax.broadcast_in_dim
+generate_test_class(context='primitives2.lax', component='broadcast_in_dim', namespace=globals())
+
+# Tests for primitives2.lax.tanh
+generate_test_class(context='primitives2.lax', component='tanh', namespace=globals())
+

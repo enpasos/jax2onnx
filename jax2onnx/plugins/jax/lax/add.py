@@ -26,7 +26,12 @@ if TYPE_CHECKING:
             "testcase": "add",
             "callable": lambda x1, x2: x1 + x2,
             "input_shapes": [(3,), (3,)],
-        }
+        },
+        {
+            "testcase": "add_const",
+            "callable": lambda x: x + 1.0,
+            "input_shapes": [(3,)]
+        },
     ],
 )
 class AddPlugin(PrimitiveLeafPlugin):

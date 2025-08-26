@@ -2,8 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-import jax
-from onnx import helper
+import jax 
   
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 import onnx_ir as ir
