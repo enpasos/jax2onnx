@@ -195,6 +195,33 @@ class _IRBuildContext:
 
 
 
+    # ------------------------------------------------------------------
+    # Tiny helper: Cast one tensor to the element dtype of another.
+    # Keeps the original shape; creates a CastLike node.
+    # ------------------------------------------------------------------
+    def cast_like(self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None) -> ir.Value:
+        """
+        Return a new Value that is `tensor` cast to the element dtype of `exemplar`
+        using ONNX CastLike. Shape is preserved from `tensor`.
+        """
+        out = ir.Value(
+            name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
+            type=exemplar.type,
+            shape=tensor.shape,
+        )
+        self.add_node(
+            ir.Node(
+                op_type="CastLike",
+                domain="",
+                inputs=[tensor, exemplar],
+                outputs=[out],
+                name=self.fresh_name("CastLike"),
+            )
+        )
+        return out
+
+    # ... rest of _IRBuildContext ...
+
 @contextmanager
 def _activate_plugin_worlds():
     """

@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins2/flax/nnx/linear.py
+
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 from contextlib import contextmanager
@@ -113,29 +115,29 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if use_bias:
             b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
 
-        # Cast weights/bias to input dtype to mirror JAX promotion (esp. f64 paths).
-        k_cast = ir.Value(
-            name=ctx.fresh_name("kernel_cast"),
-            type=x_val.type,                 # use same element dtype as input
-            shape=k_val.shape,
-        )
-        ctx.add_node(ir.Node(
-            op_type="CastLike", domain="",
-            inputs=[k_val, x_val], outputs=[k_cast],
-            name=ctx.fresh_name("CastLike")))
-        k_val = k_cast
-
+        # Unify dtypes: cast *parameters* to the input dtype (mirrors JAX promotion).
+        # NOTE: previously the CastLike ended up applied to the INPUT (down-casting
+        # fp64 to fp32). Do the opposite: cast params to x's dtype.
+        def _cast_param_to_input(val, name_hint):
+            x_dtype = getattr(x_val.type, "dtype", None)
+            v_dtype = getattr(val.type, "dtype", None)
+            if x_dtype is not None and v_dtype is not None and v_dtype != x_dtype:
+                out = ir.Value(
+                    name=ctx.fresh_name(name_hint),
+                    type=ir.TensorType(x_dtype),
+                    shape=val.shape,
+                )
+                ctx.add_node(ir.Node(
+                    op_type="CastLike", domain="",
+                    inputs=[val, x_val],  # cast VAL to like X
+                    outputs=[out],
+                    name=ctx.fresh_name("CastLike"),
+                ))
+                return out
+            return val
+        k_val = _cast_param_to_input(k_val, "kernel_cast")
         if use_bias:
-            b_cast = ir.Value(
-                name=ctx.fresh_name("bias_cast"),
-                type=x_val.type,             # match input dtype
-                shape=b_val.shape,
-            )
-            ctx.add_node(ir.Node(
-                op_type="CastLike", domain="",
-                inputs=[b_val, x_val], outputs=[b_cast],
-                name=ctx.fresh_name("CastLike")))
-            b_val = b_cast
+            b_val = _cast_param_to_input(b_val, "bias_cast")
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
@@ -168,7 +170,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if need_flatten:
             gemm_out = ir.Value(
                 name=ctx.fresh_name("gemm_out"),
-                type=x_val.type,
+                type=x_val.type,  # output dtype = input dtype (params are cast to it)
                 shape=ir.Shape((None, out_features)),
             )
         else:
@@ -183,7 +185,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 ir.Attr("beta",   ir.AttributeType.FLOAT, 1.0),
                 ir.Attr("transA", ir.AttributeType.INT,   0),
                 ir.Attr("transB", ir.AttributeType.INT,   0),
-            ]))
+            ],
+        ))
 
         # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
         if need_flatten:
@@ -288,4 +291,3 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     pass
             else:
                 setattr(nnx, "linear_p", prev_prim)
- 
