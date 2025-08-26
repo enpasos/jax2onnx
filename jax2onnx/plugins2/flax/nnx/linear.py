@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         {"component": "Shape", "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html"},
         {"component": "Slice", "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html"},
         {"component": "Concat", "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html"},
+        {"component": "CastLike", "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html"},
     ],
     since="v0.1.0",
     context="primitives2.nnx",
@@ -100,8 +101,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(out.shape, out.dtype)
 
     # ---------- lowering (IR) ----------
-    def to_onnx(self, *_, **__):  # pragma: no cover
-        raise NotImplementedError
+ 
 
     def lower(self, ctx: "IRBuildContext", eqn):
         x_var, kernel_var, bias_var = eqn.invars
@@ -112,6 +112,30 @@ class LinearPlugin(PrimitiveLeafPlugin):
         k_val = ctx.get_value_for_var(kernel_var, name_hint=ctx.fresh_name("kernel"))
         if use_bias:
             b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
+
+        # Cast weights/bias to input dtype to mirror JAX promotion (esp. f64 paths).
+        k_cast = ir.Value(
+            name=ctx.fresh_name("kernel_cast"),
+            type=x_val.type,                 # use same element dtype as input
+            shape=k_val.shape,
+        )
+        ctx.add_node(ir.Node(
+            op_type="CastLike", domain="",
+            inputs=[k_val, x_val], outputs=[k_cast],
+            name=ctx.fresh_name("CastLike")))
+        k_val = k_cast
+
+        if use_bias:
+            b_cast = ir.Value(
+                name=ctx.fresh_name("bias_cast"),
+                type=x_val.type,             # match input dtype
+                shape=b_val.shape,
+            )
+            ctx.add_node(ir.Node(
+                op_type="CastLike", domain="",
+                inputs=[b_val, x_val], outputs=[b_cast],
+                name=ctx.fresh_name("CastLike")))
+            b_val = b_cast
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
@@ -140,9 +164,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("Reshape")))
             gemm_in = x2d
 
-        # Gemm
-        # If we will reshape later, write GEMM into a temporary Value.
-        # Only bind the final out_var when no reshape is needed.
+        # Gemm: if we will reshape later, write into a fresh temp Value
         if need_flatten:
             gemm_out = ir.Value(
                 name=ctx.fresh_name("gemm_out"),
@@ -155,7 +177,13 @@ class LinearPlugin(PrimitiveLeafPlugin):
         ctx.add_node(ir.Node(
             op_type="Gemm", domain="",
             inputs=inputs, outputs=[gemm_out],
-            name=ctx.fresh_name("Gemm")))
+            name=ctx.fresh_name("Gemm"),
+            attributes=[
+                ir.Attr("alpha",  ir.AttributeType.FLOAT, 1.0),
+                ir.Attr("beta",   ir.AttributeType.FLOAT, 1.0),
+                ir.Attr("transA", ir.AttributeType.INT,   0),
+                ir.Attr("transB", ir.AttributeType.INT,   0),
+            ]))
 
         # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
         if need_flatten:
@@ -200,21 +228,19 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 type=ir.TensorType(ir.DataType.INT64),
                 shape=ir.Shape((len(x_shape),)),
             )
-            ctx.add_node(
-            ir.Node(
+            ctx.add_node(ir.Node(
                 op_type="Concat",
                 domain="",
                 inputs=[batch_dims, of],
                 outputs=[final_shape],
                 name=ctx.fresh_name("Concat"),
                 attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-            )
-)
+            ))
 
-            out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+            reshaped_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
             ctx.add_node(ir.Node(
                 op_type="Reshape", domain="",
-                inputs=[gemm_out, final_shape], outputs=[out_val],
+                inputs=[gemm_out, final_shape], outputs=[reshaped_out],
                 name=ctx.fresh_name("Reshape")))
 
     # ---------- monkey-patch helper (single, non-duplicated) ----------
@@ -262,3 +288,4 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     pass
             else:
                 setattr(nnx, "linear_p", prev_prim)
+ 
