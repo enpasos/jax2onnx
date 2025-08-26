@@ -46,3 +46,28 @@ class TanhPlugin(PrimitiveLeafPlugin):
             name=s.get_unique_name("tanh"),
         )
         s.add_node(node)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # IR path (converter2): optional hook the new converter can call.
+    # This keeps the old decorator & metadata (test discovery) unchanged.
+    # The converter2 should look for `lower(ctx, eqn)` on the plugin.
+    # `ctx` is expected to offer:
+    #   - get_value_for_var(var, name_hint: str | None = None) -> ir.Value
+    #   - add_node(op_type: str, inputs: list[ir.Value], outputs: list[ir.Value], **attrs) -> None
+    #   - fresh_name(prefix: str) -> str
+    # `eqn` is a JAX jaxpr equation with `.invars` and `.outvars`.
+    # ─────────────────────────────────────────────────────────────────────────
+    def lower(self, ctx, eqn):
+        """
+        Lower a single jaxpr equation for tanh to onnx_ir:
+            y = Tanh(x)
+        """
+        x_var = eqn.invars[0]
+        y_var = eqn.outvars[0]
+
+        # Map jaxpr vars to IR values (the ctx owns the value table)
+        x_val = ctx.get_value_for_var(x_var)
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("tanh_out"))
+
+        # Emit the ONNX op into the IR graph
+        ctx.add_node("Tanh", [x_val], [y_val])

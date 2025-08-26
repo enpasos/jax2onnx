@@ -1,4 +1,6 @@
 # file: jax2onnx/plugin_system.py
+from __future__ import annotations
+from typing import Any, Dict, Callable
 import functools
 import importlib
 import inspect
@@ -379,3 +381,13 @@ def import_all_plugins() -> None:
     ):
         importlib.import_module(module_name)
     _already_imported_plugins2 = True
+
+
+def register_primitive2(jax_primitive_name: str):
+    """
+    Decorator to register an IR emitter for a JAX primitive by name.
+    """
+    def _wrap(cls):
+        PLUGIN_REGISTRY2[jax_primitive_name] = cls()
+        return cls
+    return _wrap

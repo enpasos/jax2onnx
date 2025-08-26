@@ -1,0 +1,113 @@
+{
+  "meta": {
+    "title": "jax2onnx — onnx_ir MVP",
+    "version": "0.1",
+    "default_opset": 21
+  },
+  "components": [
+    {
+      "id": "ui",
+      "name": "API Router",
+      "layer": "api",
+      "owns": ["flag resolution", "input normalization", "error surface"],
+      "provides": ["to_onnx: route to converter1/2"],
+      "depends_on": ["converter2", "converter"]
+    },
+    {
+      "id": "converter2",
+      "name": "IR Converter (MVP)",
+      "layer": "converter",
+      "owns": ["build IR model", "serialize"],
+      "provides": ["to_onnx: ModelProto"],
+      "depends_on": ["onnx_ir", "onnx"]
+    },
+    {
+      "id": "onnx_ir",
+      "name": "onnx_ir library",
+      "layer": "third-party",
+      "provides": ["IR builder"],
+      "depends_on": []
+    },
+    {
+      "id": "onnx",
+      "name": "onnx",
+      "layer": "third-party",
+      "provides": ["ModelProto", "IR_VERSION"],
+      "depends_on": []
+    },
+    {
+      "id": "converter",
+      "name": "Converter v1",
+      "layer": "converter",
+      "owns": ["trace to Jaxpr", "drive plugins", "finalize ModelProto"],
+      "provides": ["to_onnx: ModelProto"],
+      "depends_on": ["jax", "plugins", "builder", "onnx"]
+    },
+    {
+      "id": "plugins",
+      "name": "Plugins v1 (registry)",
+      "layer": "plugins",
+      "provides": ["primitive -> emitter"],
+      "depends_on": []
+    },
+    {
+      "id": "builder",
+      "name": "ONNX Graph Builder",
+      "layer": "converter",
+      "provides": ["value_info, nodes, opset, model"],
+      "depends_on": ["onnx"]
+    },
+    {
+      "id": "jax",
+      "name": "jax",
+      "layer": "third-party",
+      "provides": ["make_jaxpr, eval_shape"],
+      "depends_on": []
+    },
+    {
+      "id": "onnxruntime",
+      "name": "onnxruntime",
+      "layer": "third-party",
+      "provides": ["inference engine (ORT)"],
+      "depends_on": []
+    },
+    {
+      "id": "tests",
+      "name": "tests/t_generator",
+      "layer": "tests",
+      "owns": ["numeric validation (ORT)"],
+      "depends_on": ["ui", "onnxruntime"]
+    }
+  ],
+  "flows": [
+    {
+      "id": "tanh_mvp",
+      "title": "tanh conversion via IR",
+      "actors": ["tests"],
+      "steps": [
+        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=True)" },
+        { "from": "ui", "to": "converter2", "message": "normalize → call" },
+        { "from": "converter2", "to": "onnx_ir", "message": "build Value/Graph/Model(ir_version=10)" },
+        { "from": "converter2", "to": "onnx", "message": "save → load as ModelProto" },
+        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+      ]
+    },
+    {
+      "id": "tanh_legacy",
+      "title": "tanh conversion via legacy pipeline",
+      "actors": ["tests"],
+      "steps": [
+        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=False)" },
+        { "from": "ui", "to": "converter", "message": "normalize → call v1" },
+        { "from": "converter", "to": "jax", "message": "trace function → Jaxpr" },
+        { "from": "jax", "to": "converter", "message": "return Jaxpr (eqns: tanh)" },
+        { "from": "converter", "to": "builder", "message": "register graph inputs (shape/dtype)" },
+        { "from": "converter", "to": "plugins", "message": "lookup 'tanh' plugin" },
+        { "from": "plugins", "to": "builder", "message": "emit Node('Tanh', x→y)" },
+        { "from": "converter", "to": "builder", "message": "register outputs, opset imports" },
+        { "from": "converter", "to": "onnx", "message": "build ModelProto" },
+        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+      ]
+    }
+  ]
+}
