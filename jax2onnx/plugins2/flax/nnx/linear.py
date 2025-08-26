@@ -4,11 +4,7 @@ from contextlib import contextmanager
 import numpy as np
 import jax
 import jax.numpy as jnp
-try:
-    # JAX ≥ 0.6
-    from jax.extend.core import Primitive  # type: ignore
-except Exception:  # pragma: no cover
-    from jax.core import Primitive
+from jax.extend.core import Primitive  
 from flax import nnx
 import onnx_ir as ir
 
@@ -145,7 +141,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
             gemm_in = x2d
 
         # Gemm
-        gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gemm_out"))
+        # If we will reshape later, write GEMM into a temporary Value.
+        # Only bind the final out_var when no reshape is needed.
+        if need_flatten:
+            gemm_out = ir.Value(
+                name=ctx.fresh_name("gemm_out"),
+                type=x_val.type,
+                shape=ir.Shape((None, out_features)),
+            )
+        else:
+            gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
         inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
         ctx.add_node(ir.Node(
             op_type="Gemm", domain="",
@@ -195,16 +200,21 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 type=ir.TensorType(ir.DataType.INT64),
                 shape=ir.Shape((len(x_shape),)),
             )
-            ctx.add_node(ir.Node(
-                op_type="Concat", domain="",
-                inputs=[batch_dims, of], outputs=[final_shape],
+            ctx.add_node(
+            ir.Node(
+                op_type="Concat",
+                domain="",
+                inputs=[batch_dims, of],
+                outputs=[final_shape],
                 name=ctx.fresh_name("Concat"),
-                attributes=[ir.Attr("axis", 0)]))
+                attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
+            )
+)
 
-            reshaped_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+            out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
             ctx.add_node(ir.Node(
                 op_type="Reshape", domain="",
-                inputs=[gemm_out, final_shape], outputs=[reshaped_out],
+                inputs=[gemm_out, final_shape], outputs=[out_val],
                 name=ctx.fresh_name("Reshape")))
 
     # ---------- monkey-patch helper (single, non-duplicated) ----------
