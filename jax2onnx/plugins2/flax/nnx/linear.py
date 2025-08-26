@@ -199,7 +199,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 op_type="Concat", domain="",
                 inputs=[batch_dims, of], outputs=[final_shape],
                 name=ctx.fresh_name("Concat"),
-                attributes={"axis": 0}))
+                attributes=[ir.Attr("axis", 0)]))
 
             reshaped_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
             ctx.add_node(ir.Node(
