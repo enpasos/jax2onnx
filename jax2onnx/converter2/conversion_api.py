@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
+from jax import export as jax_export
 
 import numpy as np
 import onnx
 import jax
 import jax.numpy as jnp
 from jax import config as jax_config
+from jax import export as jax_export  # NEW
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -33,6 +35,8 @@ _ORT_SAFE_IR_VERSION = 10
 # ---------------------------
 # Helpers
 # ---------------------------
+
+
 def _np_float_dtype(enable_double_precision: bool):
     return np.float64 if enable_double_precision else np.float32
 
@@ -64,22 +68,39 @@ def _to_ir_shape(shape_tuple) -> "ir.Shape":
     )
     return ir.Shape(dims)
 
-def _as_sds_list(
-    inputs: List[Any], enable_double_precision: bool
-) -> List["jax.ShapeDtypeStruct"]:
+def _as_sds_list(inputs: List[Any], enable_double_precision: bool) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
+
+    # 1) Collect all symbol names that appear as strings in the input shapes
+    symnames: list[str] = []
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            # ShapedArray / ShapeDtypeStruct already
+            # Already a ShapeDtypeStruct / ShapedArray; nothing to collect here.
+            continue
+        if isinstance(spec, (list, tuple)):
+            for d in spec:
+                if isinstance(d, str) and d not in symnames:
+                    symnames.append(d)
+
+    # 2) Create JAX symbolic DimSize objects one-by-one (strings only)
+    #    and remember them by name so equal names map to the same symbol.
+    name2sym: dict[str, object] = {n: jax_export.symbolic_shape(n)[0] for n in symnames}
+
+    # 3) Build the ShapeDtypeStructs
+    for spec in inputs:
+        if hasattr(spec, "shape") and hasattr(spec, "dtype"):
             sds_list.append(jax.ShapeDtypeStruct(tuple(spec.shape), spec.dtype))
         elif isinstance(spec, (list, tuple)):
-            # plain shape → choose float dtype based on flag
             dt = jnp.float64 if enable_double_precision else jnp.float32
-            sds_list.append(jax.ShapeDtypeStruct(tuple(spec), dt))
+            dims = tuple(name2sym[d] if isinstance(d, str) else int(d) for d in spec)
+            sds_list.append(jax.ShapeDtypeStruct(dims, dt))
         else:
             raise TypeError(f"Unsupported input spec: {type(spec)}")
     return sds_list
+
+
+
 
 
 # ---------------------------
@@ -94,6 +115,10 @@ class _IRBuildContext:
         self._initializers: List[ir.Value] = []
         self._nodes: List[ir.Node] = []
         self._name_counter = 0
+        # Map a symbolic dimension to the input Value/axis that defines it.
+        # Keep both the actual dim object (preferred) and its string repr as a fallback.
+        self._symdim_origin: dict[object, tuple[ir.Value, int]] = {}
+        self._symdim_origin_str: dict[str, tuple[ir.Value, int]] = {}
 
     # API used by plugins2
     def fresh_name(self, prefix: str) -> str:
@@ -153,7 +178,19 @@ class _IRBuildContext:
         )
         self._var2val[var] = val
         self._inputs.append(val)
+
+        # Remember which input/axis supplies each symbolic dim
+        for ax, d in enumerate(getattr(aval, "shape", ())):
+            if not isinstance(d, (int, np.integer)):
+                self._symdim_origin[d] = (val, ax)
+                self._symdim_origin_str[str(d)] = (val, ax)
         return val
+
+    def get_symbolic_dim_origin(self, dim: object) -> Optional[tuple[ir.Value, int]]:
+        """Return (Value, axis) that provides the given symbolic dim."""
+        if dim in self._symdim_origin:
+            return self._symdim_origin[dim]
+        return self._symdim_origin_str.get(str(dim))
 
 
 def to_onnx(

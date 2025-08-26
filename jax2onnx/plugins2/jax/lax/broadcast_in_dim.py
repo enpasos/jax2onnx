@@ -6,7 +6,9 @@ import jax.numpy as jnp
 from jax import lax
 import numpy as np
 import onnx_ir as ir
+# from onnx_ir import Attribute as IRAttr  # NEW: proper Attr objects
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType  # FIX: correct attr types
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import IRBuildContext  # for hints
@@ -72,6 +74,7 @@ if TYPE_CHECKING:
                 ("B", 49, 256)
             ],  # Use a concrete batch for non-dynamic test
             "expected_output_shapes": [("B", 1, 256)],
+            "use_onnx_ir": True,
         },
         # ------------------------------------------------------------------
         # dynamic-batch test: symbolic B
@@ -84,6 +87,7 @@ if TYPE_CHECKING:
             "post_check_onnx_graph": lambda m: (
                 __import__("onnx").checker.check_model(m) or True
             ),
+            "use_onnx_ir": True,
         },
     ],
 )
@@ -104,21 +108,82 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         shape = tuple(eqn.params["shape"])
         bdims = tuple(eqn.params["broadcast_dimensions"])
 
-        # Target shape constant (INT64)
-        try:
-            tgt_np = np.asarray(shape, dtype=np.int64)
-        except Exception as e:  # pragma: no cover
-            raise NotImplementedError(
-                "broadcast_in_dim with non-integer (symbolic) target dims is not supported yet on IR path."
-            ) from e
+        # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
+        # Each dimension becomes a length-1 vector; we Concat along axis=0.
+        dim_pieces: list[ir.Value] = []
+        for d in shape:
+            if isinstance(d, (int, np.integer)):
+                c = ir.Value(
+                    name=ctx.fresh_name("bcast_dim_c"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.array([int(d)], dtype=np.int64)),
+                )
+                ctx._initializers.append(c)
+                dim_pieces.append(c)
+            else:
+                # Dynamic/symbolic dimension: fetch from its recorded origin.
+                origin = getattr(ctx, "get_symbolic_dim_origin", None)
+                if origin is None:
+                    raise NotImplementedError("symbolic dims require ctx.get_symbolic_dim_origin")
+                src = origin(d)
+                if src is None:
+                    raise NotImplementedError(f"no origin recorded for symbolic dim '{d}'")
+                src_val, axis = src
+                # Shape(src) → Gather(…, [axis]) → length-1 vector
+                src_rank = len(getattr(getattr(src_val, "shape", None), "dims", ()) or ())
+                shp = ir.Value(
+                    name=ctx.fresh_name("bcast_src_shape"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((src_rank,)),
+                )
+                shape_node = ir.Node(
+                    op_type="Shape",
+                    domain="",
+                    inputs=[src_val],
+                    outputs=[shp],
+                    name=ctx.fresh_name("Shape"),
+                )
+                ctx.add_node(shape_node)
+
+                idx = ir.Value(
+                    name=ctx.fresh_name("bcast_idx"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.array([int(axis)], dtype=np.int64)),
+                )
+                ctx._initializers.append(idx)
+
+                dim1 = ir.Value(
+                    name=ctx.fresh_name("bcast_dim_dyn"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                )
+                gather_node = ir.Node(
+                    op_type="Gather",
+                    domain="",
+                    inputs=[shp, idx],
+                    outputs=[dim1],
+                    name=ctx.fresh_name("Gather"),
+                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],  # FIX
+                )
+                ctx.add_node(gather_node)
+                dim_pieces.append(dim1)
 
         tgt_shape_val = ir.Value(
             name=ctx.fresh_name("bcast_target_shape"),
             type=ir.TensorType(ir.DataType.INT64),
             shape=ir.Shape((len(shape),)),
-            const_value=ir.tensor(tgt_np),
         )
-        ctx._initializers.append(tgt_shape_val)
+        concat_node = ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=dim_pieces,
+            outputs=[tgt_shape_val],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],  # FIX
+        )
+        ctx.add_node(concat_node)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
 
