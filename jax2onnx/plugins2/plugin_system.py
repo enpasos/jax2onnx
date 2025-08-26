@@ -1,11 +1,12 @@
 # file: jax2onnx/plugins2/plugin_system.py
-from __future__ import annotations
-from typing import Any, Dict, Callable
+from __future__ import annotations 
 import functools
 import importlib
 import inspect
 import os
 import pkgutil
+from typing import Any, Callable, Dict, Optional, Type, Union
+from contextlib import contextmanager
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -20,8 +21,7 @@ import logging
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
 
-logger = logging.getLogger("jax2onnx.plugin_system")
-
+PLUGIN_REGISTRY2: Dict[str, Any] = {}
 # A global registry to store plugins for extending functionality.
 # Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
 PLUGIN_REGISTRY2: dict[
@@ -344,12 +344,12 @@ def register_example(**metadata: Any) -> ExamplePlugin:
     return instance
 
 
-def register_primitive(
+def register_primitive( 
     **metadata: Any,
 ) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
     primitive = metadata.get("jaxpr_primitive", "")
 
-    def decorator(cls: type[PrimitiveLeafPlugin]) -> type[PrimitiveLeafPlugin]:
+    def _decorator(cls: type[PrimitiveLeafPlugin]) -> type[PrimitiveLeafPlugin]:
         if not issubclass(cls, PrimitiveLeafPlugin):
             raise TypeError("Plugin must subclass PrimitivePlugin")
 
@@ -364,7 +364,7 @@ def register_primitive(
             PLUGIN_REGISTRY2[primitive] = instance
         return cls
 
-    return decorator
+    return _decorator
 
 
 _already_imported_plugins2 = False
@@ -391,3 +391,52 @@ def register_primitive2(jax_primitive_name: str):
         PLUGIN_REGISTRY2[jax_primitive_name] = cls()
         return cls
     return _wrap
+
+# Conversion-scoped monkey patching
+_PATCH_STATE: dict[tuple[type, str], dict[str, Any]] = {}
+
+def _iter_patch_specs():
+    for cls in PLUGIN_REGISTRY2.values():
+        info_fn = getattr(cls, "patch_info", None)
+        if info_fn is None:
+            continue
+        try:
+            info = info_fn()
+        except Exception:
+            continue
+        if not info:
+            continue
+        patch_fn = info.get("patch_function")
+        targets = info.get("patch_targets", [])
+        attr = info.get("target_attribute", "__call__")
+        if callable(patch_fn) and targets:
+            yield patch_fn, targets, attr
+
+@contextmanager
+def apply_monkey_patches():
+    """Temporarily apply all plugin-provided monkey patches (reentrant)."""
+    touched: list[tuple[type, str]] = []
+    for patch_fn, targets, attr in _iter_patch_specs():
+        for tgt in targets:
+            key = (tgt, attr)
+            st = _PATCH_STATE.get(key)
+            if st is None:
+                orig = getattr(tgt, attr)
+                new = patch_fn(orig)
+                setattr(tgt, attr, new)
+                _PATCH_STATE[key] = {"orig": orig, "count": 1}
+            else:
+                st["count"] += 1
+            touched.append(key)
+    try:
+        yield
+    finally:
+        for key in reversed(touched):
+            st = _PATCH_STATE.get(key)
+            if not st:
+                continue
+            st["count"] -= 1
+            if st["count"] == 0:
+                tgt, attr = key
+                setattr(tgt, attr, st["orig"])
+                del _PATCH_STATE[key]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
+from contextlib import contextmanager, ExitStack
 from jax import export as jax_export
 
 import numpy as np
@@ -12,7 +13,7 @@ import onnx
 import jax
 import jax.numpy as jnp
 from jax import config as jax_config
-from jax import export as jax_export  # NEW
+from jax import export as jax_export   
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -193,6 +194,25 @@ class _IRBuildContext:
         return self._symdim_origin_str.get(str(dim))
 
 
+
+@contextmanager
+def _activate_plugin_worlds():
+    """
+    Enter all plugin-provided 'world activation' scopes (e.g., temporarily
+    assign framework-level variables like flax.nnx.linear_p, apply monkey
+    patches), and restore everything afterwards.
+    """
+    with ExitStack() as stack:
+        for plugin_ref in PLUGIN_REGISTRY2.items():
+            # plugin_ref may be (name, ref) if iterating items(); support both
+            ref = plugin_ref[1] if isinstance(plugin_ref, tuple) else plugin_ref
+            cls = ref if isinstance(ref, type) else ref.__class__
+            cm_fn = getattr(cls, "world_activation", None)
+            if cm_fn is not None:
+                stack.enter_context(cm_fn())
+        yield
+
+
 def to_onnx(
     *,
     fn: Any,
@@ -231,7 +251,9 @@ def to_onnx(
         if prev_x64 is False:
             jax_config.update("jax_enable_x64", True)
     try:
-        closed = jax.make_jaxpr(_wrapped)(*sds_list)  # ClosedJaxpr
+        # Apply high-level bindings/patches *only* for the trace.
+        with _activate_plugin_worlds():
+            closed = jax.make_jaxpr(_wrapped)(*sds_list)  # ClosedJaxpr
     finally:
         if enable_double_precision and prev_x64 is False:
             jax_config.update("jax_enable_x64", False)
@@ -298,15 +320,15 @@ def to_onnx(
             tmp_path = f.name
         ir.save(model, tmp_path)
         onnx_model = onnx.load_model(tmp_path)
-        # optional: write primitive call list for debugging
+
         if record_primitive_calls_file:
             try:
                 with open(record_primitive_calls_file, "w", encoding="utf-8") as fh:
                     for p in _seen_prims:
                         fh.write(f"{p}\n")
             except Exception:
-                # best-effort: don’t fail conversion if logging fails
-                pass
+                pass  # best-effort
+
         return onnx_model
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -314,7 +336,6 @@ def to_onnx(
                 os.remove(tmp_path)
             except OSError:
                 pass
-            tmp_path = f.name
         ir.save(model, tmp_path)
         return onnx.load_model(tmp_path)
 
