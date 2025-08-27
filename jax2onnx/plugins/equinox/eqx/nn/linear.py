@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Callable
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jax import core
 from jax.extend.core import Primitive
@@ -38,6 +39,11 @@ logger = logging.getLogger("jax2onnx.plugins.equinox.eqx.nn.linear")
 # happens now, not inside the traced function.
 _eqx_linear_symbolic_mod = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
 _eqx_linear_highrank_mod = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
+# Reproducer for issue #85: no-bias Linear (bias=None) should be supported.
+# We add dedicated modules so the testcases can import-time freeze parameters.
+_eqx_linear_nobias_mod = eqx.nn.Linear(
+    128, 64, use_bias=False, key=jax.random.PRNGKey(0)
+)
 # --------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
@@ -63,7 +69,7 @@ eqx.nn.linear_p.multiple_results = False
     since="v0.8.0",
     context="primitives.eqx",
     component="linear",
-    testcases=[ 
+    testcases=[
         {
             "testcase": "eqx_linear_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
@@ -73,8 +79,27 @@ eqx.nn.linear_p.multiple_results = False
             ),
         },
         {
+            "testcase": "eqx_linear_no_bias_symbolic_batch",
+            # Reproduce the no-bias path (bias=None) under vmap/batched input.
+            # This used to fail during tracing because None was bound to the primitive.
+            "callable": lambda x, _mod=_eqx_linear_nobias_mod: jax.vmap(_mod)(x),
+            "input_shapes": [("B", 128)],
+            "post_check_onnx_graph": lambda m: (
+                any(node.op_type == "Gemm" for node in m.graph.node)
+            ),
+        },
+        {
+            "testcase": "eqx_linear_no_bias_vector",
+            # Also cover the rank-1 no-bias case (no vmap).
+            "callable": _eqx_linear_nobias_mod,
+            "input_shapes": [(128,)],
+            "post_check_onnx_graph": lambda m: (
+                any(n.op_type == "Gemm" for n in m.graph.node)
+            ),
+        },
+        {
             "testcase": "eqx_linear_high_rank",
-            # Two vmaps: first over the inner axis (size 10), then over the batch axis (size 32).
+            # Two vmaps: first over the inner axis (size 10), then over the batch axis (size 32).
             # For more details, see docs/equinox_linear.md.
             "callable": (
                 lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(jax.vmap(_mod))(x)
@@ -181,14 +206,19 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         for n, v in [(x_name, x_var), (w_name, w_var), (b_name, b_var)]:
             self._ensure_graph_input(s, n, v)
 
+        # Harmonize dtypes: Gemm requires all inputs to share the same dtype.
+        x_dtype = x_var.aval.dtype
+        w_dtype = w_var.aval.dtype
+        b_dtype = b_var.aval.dtype
+
         x_shape = x_var.aval.shape
         out_shape = y_var.aval.shape
-        dtype = x_var.aval.dtype
+        dtype = x_dtype
 
         in_features = w_var.aval.shape[1]
         out_features = w_var.aval.shape[0]
         batch_dims = x_shape[:-1]
-        need_reshape = len(x_shape) != 2  # rank‑1  OR  rank > 2
+        need_reshape = len(x_shape) != 2  # rank-1  OR  rank > 2
 
         # -- Step 1: bring input to 2‑D --------------------------------------
         if need_reshape:
@@ -206,6 +236,35 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
             )
             x_name = flat_name
             s.add_shape_info(x_name, tuple(reshape_shape), dtype)
+
+        # -- Step 1b: ensure W and b match X dtype (insert Casts if needed) --
+        target_enum = s.builder._numpy_dtype_to_onnx(dtype)
+        if w_dtype != dtype:
+            w_cast = s.get_unique_name("w_cast")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[w_name],
+                    outputs=[w_cast],
+                    name=s.get_unique_name("cast_weight_to_xdtype"),
+                    to=target_enum,
+                )
+            )
+            s.add_shape_info(w_cast, w_var.aval.shape, dtype)
+            w_name = w_cast
+        if b_dtype != dtype:
+            b_cast = s.get_unique_name("b_cast")
+            s.add_node(
+                helper.make_node(
+                    "Cast",
+                    inputs=[b_name],
+                    outputs=[b_cast],
+                    name=s.get_unique_name("cast_bias_to_xdtype"),
+                    to=target_enum,
+                )
+            )
+            s.add_shape_info(b_cast, b_var.aval.shape, dtype)
+            b_name = b_cast
 
         # -- Step 2: Gemm  (note: transB = 1 !) ------------------------------
         gemm_out = s.get_unique_name("gemm_out")
@@ -252,7 +311,25 @@ class EqxLinearPlugin(PrimitiveLeafPlugin):
         EqxLinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
 
         def patched_call(self, x):
-            return eqx.nn.linear_p.bind(x, self.weight, self.bias)
+            # When use_bias=False, Equinox sets self.bias to None.
+            # JAX primitives cannot accept None; substitute a zero bias.
+            #
+            # Important for export/numeric parity: choose the *promoted* dtype,
+            # which in practice matches x.dtype (since JAX promotes matmul).
+            # This avoids downstream ONNX type mismatches in f64 tests.
+            b = self.bias
+            if b is None:
+                # self.weight shape is (out_features, in_features)
+                out_features = self.weight.shape[0]
+                # Prefer x.dtype; fall back to weight dtype if x has no dtype attr.
+                try:
+                    target_dtype = x.dtype
+                except AttributeError:
+                    target_dtype = self.weight.dtype
+                b = jnp.zeros((out_features,), dtype=target_dtype)
+
+            # Always bind three array args: x, weight, bias
+            return eqx.nn.linear_p.bind(x, self.weight, b)
 
         return patched_call
 

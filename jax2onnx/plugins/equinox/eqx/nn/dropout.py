@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import numpy as np
 from jax import core
 from jax.extend.core import Literal, Primitive, Var
@@ -44,7 +43,7 @@ eqx.nn.dropout_p.multiple_results = False
     since="v0.8.0",
     context="primitives.eqx",
     component="dropout",
-    testcases=[ 
+    testcases=[
         {
             "testcase": "eqx_dropout_inference_mode",
             "callable": eqx.nn.Dropout(p=0.42, inference=True),

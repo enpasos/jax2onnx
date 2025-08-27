@@ -52,4 +52,3 @@ register_example(
         },
     ],
 )
-
