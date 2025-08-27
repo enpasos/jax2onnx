@@ -282,8 +282,11 @@ def to_onnx(
 def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
     """
     Walk all subgraphs (Loop/Scan/If, recursively) and:
-      1) Make *internal* value_info rank-only (keep rank; clear dim_value/dim_param).
-      2) DO NOT touch subgraph inputs/outputs (preserves Loop control scalar shapes).
+      1) Make *internal* value_info rank-only (keep rank; clear dim_value/param).
+      2) Also relax Loop/Scan body INPUTS/OUTPUTS **except control scalars** to rank-only.
+         - Loop body inputs: [iter_num (i64 scalar), cond_in (bool scalar), carried..., scan_args...]
+           outputs: [cond_out (bool scalar), carried..., scan_outputs...]
+         - We leave the control scalars intact and relax the rest if they are non-scalars.
       3) Guard elementwise broadcasts by inserting Shape(ref) → Expand(other, shape) on:
          - binary ops: Mul, Add, Sub, Div, Pow
          - variadic:   Sum (expand all non-ref operands)
@@ -291,6 +294,7 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
     logger = logging.getLogger("jax2onnx.relax_and_align")
 
     # ---------- helpers ----------
+
     def _rank_only_type(tp: om.TypeProto) -> om.TypeProto:
         if not tp.HasField("tensor_type"):
             return tp
@@ -359,10 +363,154 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
                         ranks[n.output[0]] = len(list(a.t.dims))
         return ranks
 
+    def _shape_lookup(g: onnx.GraphProto) -> dict[str, tuple | None]:
+        """Collect best-effort per-tensor shapes as tuples of ints/str/None."""
+        shapes: dict[str, tuple | None] = {}
+
+        def _dims_from_type(tp: om.TypeProto) -> tuple | None:
+            if not tp.HasField("tensor_type") or not tp.tensor_type.HasField("shape"):
+                return None
+            dims = []
+            for d in tp.tensor_type.shape.dim:
+                if d.HasField("dim_value"):
+                    dims.append(d.dim_value)
+                elif d.HasField("dim_param"):
+                    dims.append(d.dim_param)
+                else:
+                    dims.append(None)
+            return tuple(dims)
+
+        for vi in list(g.input) + list(g.output) + list(g.value_info):
+            shapes[vi.name] = _dims_from_type(vi.type)
+        for init in g.initializer:
+            shapes[init.name] = tuple(init.dims)
+        for n in g.node:
+            if n.op_type == "Constant" and n.output:
+                for a in n.attribute:
+                    if (
+                        a.name == "value"
+                        and a.type == onnx.AttributeProto.TENSOR
+                        and a.t is not None
+                    ):
+                        shapes[n.output[0]] = tuple(a.t.dims)
+        return shapes
+
     def _relax_internals(g: onnx.GraphProto) -> None:
         for vi in g.value_info:
             if vi.type.HasField("tensor_type"):
                 vi.type.CopyFrom(_rank_only_type(vi.type))
+
+    def _is_scalar_vi(vi: om.ValueInfoProto) -> bool:
+        if not vi.type.HasField("tensor_type"):
+            return False
+        tt = vi.type.tensor_type
+        if not tt.HasField("shape"):
+            return False
+        return len(tt.shape.dim) == 0
+
+    def _relax_graph_ios_for(parent_op: str, sub: onnx.GraphProto) -> int:
+        """
+        For Loop/Scan body graphs, relax non-scalar inputs/outputs to rank-only.
+        Keep Loop control scalars intact:
+          - Loop body inputs: idx 0 (iter_num), idx 1 (cond_in)
+          - Loop body outputs: idx 0 (cond_out)
+        Returns count of VI entries relaxed.
+        """
+        changed = 0
+        if parent_op == "Loop":
+            # inputs
+            for idx, vi in enumerate(sub.input):
+                # skip control scalars
+                if idx in (0, 1):
+                    continue
+                if vi.type.HasField("tensor_type"):
+                    # only relax non-scalars
+                    if not _is_scalar_vi(vi):
+                        vi.type.CopyFrom(_rank_only_type(vi.type))
+                        changed += 1
+            # outputs
+            for idx, vi in enumerate(sub.output):
+                # skip cond_out
+                if idx == 0:
+                    continue
+                if vi.type.HasField("tensor_type"):
+                    if not _is_scalar_vi(vi):
+                        vi.type.CopyFrom(_rank_only_type(vi.type))
+                        changed += 1
+        elif parent_op == "Scan":
+            # Scan bodies have no control scalars; relax all non-scalars
+            for vi in sub.input:
+                if vi.type.HasField("tensor_type") and not _is_scalar_vi(vi):
+                    vi.type.CopyFrom(_rank_only_type(vi.type))
+                    changed += 1
+            for vi in sub.output:
+                if vi.type.HasField("tensor_type") and not _is_scalar_vi(vi):
+                    vi.type.CopyFrom(_rank_only_type(vi.type))
+                    changed += 1
+        return changed
+
+    def _build_shape_db(g: onnx.GraphProto) -> dict[str, Tuple[Any, ...]]:
+        """
+        Collect best-effort shape tuples for tensors known in this graph:
+        - graph inputs/outputs/value_info (dim_value / dim_param / unknown)
+        - initializers (use .dims)
+        - Constant node outputs (tensor attr dims)
+        Each dim is one of: int, str (symbolic), or None (unknown).
+        """
+        shapes: dict[str, Tuple[Any, ...]] = {}
+
+        def _shape_from_vi(vi: onnx.ValueInfoProto) -> Tuple[Any, ...] | None:
+            if not vi.type.HasField("tensor_type"):
+                return None
+            shp = vi.type.tensor_type.shape
+            dims: list[Any] = []
+            for d in shp.dim:
+                if d.HasField("dim_value"):
+                    dims.append(d.dim_value)
+                elif d.dim_param:
+                    dims.append(d.dim_param)  # keep symbolic label (e.g., "B")
+                else:
+                    dims.append(None)  # unknown
+            return tuple(dims)
+
+        for vi in list(g.input) + list(g.output) + list(g.value_info):
+            st = _shape_from_vi(vi)
+            if st is not None:
+                shapes[vi.name] = st
+
+        for init in g.initializer:
+            shapes[init.name] = tuple(init.dims)
+
+        for n in g.node:
+            if n.op_type == "Constant" and n.output:
+                for a in n.attribute:
+                    if (
+                        a.name == "value"
+                        and a.type == onnx.AttributeProto.TENSOR
+                        and a.t is not None
+                    ):
+                        shapes[n.output[0]] = tuple(a.t.dims)
+        return shapes
+
+    def _can_expand(fr: Tuple[Any, ...] | None, to: Tuple[Any, ...] | None) -> bool:
+        """
+        True iff 'fr' can be broadcast-expanded to 'to' per ONNX (numpy) rules.
+        Unknown dims (None or empty string) are treated permissively.
+        Symbolic strings are treated as unknown (permissive) to avoid false negatives.
+        """
+        if fr is None or to is None:
+            return False  # don't assert safety if we don't know both shapes
+        i, j = len(fr) - 1, len(to) - 1
+        while i >= 0 or j >= 0:
+            a = fr[i] if i >= 0 else 1
+            b = to[j] if j >= 0 else 1
+            if isinstance(a, int) and isinstance(b, int):
+                if not (a == 1 or a == b):
+                    return False
+            # non-int (symbolic/unknown) → permissive
+            i -= 1
+            j -= 1
+        return True
 
     def _align_elementwise(g: onnx.GraphProto) -> tuple[int, int]:
         BIN = {"Mul", "Add", "Sub", "Div", "Pow"}
@@ -370,6 +518,7 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
         used_node_names, used_tensor_names = _collect_used_names(g)
         init_names, const_outs = _constant_like_sets(g)
         ranks = _rank_lookup(g)
+        shapes = _shape_lookup(g)
         rewrites = 0
         expands = 0
 
@@ -391,7 +540,7 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
                 new_nodes.append(n)
                 continue
 
-            # choose ref: highest known rank, prefer non-constants
+            # choose target: highest known rank, prefer non-constants
             idxs = list(range(len(ins)))
             nonc = [
                 i for i in idxs if not _is_constant_like(ins[i], init_names, const_outs)
@@ -403,21 +552,59 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
                 if r > best:
                     best = r
                     ref_idx = i
-            ref = ins[ref_idx]
+            target_idx = ref_idx
+            target = ins[target_idx]
 
-            shape_out = _fresh(f"{(n.name or n.op_type)}__shape", used_tensor_names)
-            shape_node = helper.make_node(
-                "Shape",
-                inputs=[ref],
-                outputs=[shape_out],
-                name=_fresh(f"{(n.name or n.op_type)}__shape", used_node_names),
+            # base the helper name on the SSA value, not a display/op name
+            _src = (
+                n.output[0]
+                if len(n.output) > 0 and n.output[0]
+                else (n.name or n.op_type)
             )
-            new_nodes.append(shape_node)
+            # We’ll add the Shape(target) helper lazily, but only if an expand is needed.
+            shape_out = None
+            did_any_expand = False
 
             new_inputs = list(ins)
+            target_rank = ranks.get(target, -1)
+            target_shape = shapes.get(target)
+
             for i, t in enumerate(ins):
-                if i == ref_idx:
+                if i == target_idx:
                     continue
+                r_i = ranks.get(t, -1)
+                s_i = shapes.get(t)
+
+                need_expand = False
+                # (A) classic case: strictly smaller known rank
+                if r_i >= 0 and target_rank >= 0 and r_i < target_rank:
+                    need_expand = True
+                # (B) same-rank but per-axis broadcast needed (1 -> target dim)
+                elif (
+                    s_i is not None
+                    and target_shape is not None
+                    and len(s_i) == len(target_shape)
+                ):
+                    # Expand if there exists an axis where input has 1 and target has a different known dim
+                    for d_in, d_tgt in zip(s_i, target_shape):
+                        if d_in == 1 and (d_tgt not in (None, 1)):
+                            need_expand = True
+                            break
+
+                if not need_expand:
+                    continue
+
+                # Lazily create Shape(target) once we know we need it
+                if shape_out is None:
+                    shape_out = _fresh(f"{_src}__shape", used_tensor_names)
+                    shape_node = helper.make_node(
+                        "Shape",
+                        inputs=[target],
+                        outputs=[shape_out],
+                        name=_fresh(f"{_src}__shape", used_node_names),
+                    )
+                    new_nodes.append(shape_node)
+
                 exp_out = _fresh(f"{t}__exp", used_tensor_names)
                 exp = helper.make_node(
                     "Expand",
@@ -428,21 +615,26 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
                 new_nodes.append(exp)
                 new_inputs[i] = exp_out
                 expands += 1
+                did_any_expand = True
 
-            new_op = helper.make_node(
-                n.op_type,
-                inputs=new_inputs,
-                outputs=list(n.output),
-                name=(
-                    (n.name + "__expanded")
-                    if n.name
-                    else _fresh(f"{n.op_type}__expanded", used_node_names)
-                ),
-            )
-            for a in n.attribute:
-                new_op.attribute.extend([a])
-            new_nodes.append(new_op)
-            rewrites += 1
+            if did_any_expand:
+                new_op = helper.make_node(
+                    n.op_type,
+                    inputs=new_inputs,
+                    outputs=list(n.output),
+                    name=(
+                        (n.name + "__expanded")
+                        if n.name
+                        else _fresh(f"{n.op_type}__expanded", used_node_names)
+                    ),
+                )
+                for a in n.attribute:
+                    new_op.attribute.extend([a])
+                new_nodes.append(new_op)
+                rewrites += 1
+            else:
+                # No change necessary
+                new_nodes.append(n)
 
         del g.node[:]
         g.node.extend(new_nodes)
@@ -476,26 +668,37 @@ def _relax_internal_value_infos_in_subgraphs(model: onnx.ModelProto) -> None:
                         prod.get(t) == "Expand"
                     ), f"Elementwise '{n.name}' expects Expand on non-ref input '{t}'"
 
-    def _walk_graph(g: onnx.GraphProto) -> tuple[int, int]:
+    def _walk_graph(
+        g: onnx.GraphProto, *, parent_op: str | None = None
+    ) -> tuple[int, int, int]:
         _relax_internals(g)  # <— keep internal VIs rank-only
         rw, ex = _align_elementwise(g)  # <— make broadcasting explicit
+        ios_relaxed = 0
         for n in g.node:  # recurse into ALL subgraphs
             for a in n.attribute:
                 if a.type == onnx.AttributeProto.GRAPH:
                     sub = onnx.helper.get_attribute_value(a)
-                    srw, sex = _walk_graph(sub)
+                    # If we know the parent op (Loop/Scan), first relax its body I/O shapes.
+                    ios_relaxed += _relax_graph_ios_for(n.op_type, sub)
+                    srw, sex, srel = _walk_graph(sub, parent_op=n.op_type)
                     rw += srw
                     ex += sex
+                    ios_relaxed += srel
                 elif a.type == onnx.AttributeProto.GRAPHS:
                     for sub in onnx.helper.get_attribute_value(a):
-                        srw, sex = _walk_graph(sub)
+                        ios_relaxed += _relax_graph_ios_for(n.op_type, sub)
+                        srw, sex, srel = _walk_graph(sub, parent_op=n.op_type)
                         rw += srw
                         ex += sex
+                        ios_relaxed += srel
         _post_assertions(g)
-        return rw, ex
+        return rw, ex, ios_relaxed
 
-    total_rw, total_ex = _walk_graph(model.graph)
-    logger.info(f"[relax_and_align] rewrites={total_rw}, expands_inserted={total_ex}")
+    total_rw, total_ex, total_ios = _walk_graph(model.graph)
+    logger.info(
+        f"[relax_and_align] rewrites={total_rw}, expands_inserted={total_ex}, "
+        f"subgraph_io_relaxed={total_ios}"
+    )
 
 
 def analyze_constants(model: onnx.ModelProto) -> None:

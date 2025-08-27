@@ -1,13 +1,16 @@
 # file: jax2onnx/converter/onnx_builder.py
 
-from typing import Any, Dict, Sequence, Union, Optional, List, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
+import os
+import traceback
 
 import logging
-import os
 
 import numpy as np
 import onnx
 from jax.extend.core import Literal, ClosedJaxpr
+from collections import Counter
+
 from onnx import (
     FunctionProto,
     GraphProto,
@@ -37,6 +40,49 @@ ValueInfoMetadataType = Tuple[Tuple[Any, ...], Any]
 ValueInfoMetadataWithOriginType = Tuple[Tuple[Any, ...], Any, Optional[str]]
 
 DIMVAR_STR2SYMBOL: dict[str, str] = {}  # populated by converter
+
+
+def _find_dupe_outputs(g):
+    outs = []
+    for n in g.node:
+        outs.extend([o for o in n.output if o])
+    c = Counter(outs)
+    return [name for name, cnt in c.items() if cnt > 1]
+
+
+def _explain_dupes(g):
+    producers = {}
+    for n in g.node:
+        for o in n.output:
+            if not o:
+                continue
+            producers.setdefault(o, []).append((n.name or n.op_type, n.op_type))
+    return producers
+
+
+def _walk_graphs_and_assert_ssa(g, path="(main)"):
+    dupes = _find_dupe_outputs(g)
+    if dupes:
+        detail = []
+        producers = _explain_dupes(g)
+        for name in dupes:
+            who = ", ".join([f"{nm}:{op}" for nm, op in producers.get(name, [])])
+            detail.append(f"  • '{name}' at {path} produced by [{who}]")
+        raise RuntimeError("[SSA/diag] duplicate output names:\n" + "\n".join(detail))
+    # recurse into subgraphs
+    from onnx import AttributeProto
+
+    for n in g.node:
+        for a in n.attribute:
+            if a.type == AttributeProto.GRAPH and a.g is not None:
+                _walk_graphs_and_assert_ssa(
+                    a.g, path=f"{path} → {n.name or n.op_type}.body"
+                )
+            elif a.type == AttributeProto.GRAPHS and a.graphs:
+                for i, sg in enumerate(a.graphs):
+                    _walk_graphs_and_assert_ssa(
+                        sg, path=f"{path} → {n.name or n.op_type}.graphs[{i}]"
+                    )
 
 
 def _as_tuple(x):
@@ -261,6 +307,64 @@ class OnnxBuilder:
 
         # cache for Shape-of outputs, keyed by input symbol
         self._shape_of_cache: dict[str, str] = {}
+        # strict SSA toggle
+        self._strict_ssa: bool = os.getenv("JAX2ONNX_STRICT_SSA", "").strip() not in (
+            "",
+            "0",
+        )
+
+    # ------------------------------------------------------------------
+    #  Shape-of helpers (cached + SSA-safe)
+    # ------------------------------------------------------------------
+    def _is_name_used(self, name: str) -> bool:
+        if any(
+            name == vi.name for vi in (self.inputs + self.outputs + self.value_info)
+        ):
+            return True
+        if any(name == init.name for init in self.initializers):
+            return True
+        if any(name in n.output for n in self.nodes):
+            return True
+        return False
+
+    def get_or_make_shape_of(self, src: str) -> str:
+        """
+        Return a value name that holds `Shape(src)`:
+          • reuses an existing helper if we already created one for `src`;
+          • otherwise emits a new Shape node with a unique, human-friendly name.
+        """
+        # Fast path: reuse
+        cached = self._shape_of_cache.get(src)
+        if cached:
+            return cached
+
+        # SSA-safe: one canonical helper name per source value in this graph
+        out_name = self.get_shape_helper_name(src)
+        # Extremely defensive: if that name is already used, re-unique and update cache
+        if self._is_name_used(out_name):
+            out_name = self.get_unique_instance_name(out_name)
+            self._shape_of_cache[src] = out_name
+
+        # Emit the node
+        shp_node = helper.make_node(
+            "Shape",
+            inputs=[src],
+            outputs=[out_name],
+            name=self.get_unique_instance_name("shape_of"),
+        )
+        self.nodes.append(shp_node)
+
+        # Try to register minimal ValueInfo (rank unknown → 1-D dynamic)
+        from onnx import TensorProto
+
+        try:
+            self.add_value_info(out_name, shape=(-1,), dtype=TensorProto.INT64)
+        except Exception:
+            # Don't block conversion if metadata fails for exotic cases
+            pass
+
+        self._shape_of_cache[src] = out_name
+        return out_name
 
     # ------------------------------------------------------------------
     # Symbolic‐dimension origin registry
@@ -713,16 +817,25 @@ class OnnxBuilder:
     ) -> NodeProto:
         return helper.make_node(op_type, inputs, outputs, **kwargs)
 
-    def add_node(self, node: NodeProto) -> None:
-        # Optional SSA guard (env-flagged)
-        if os.getenv("JAX2ONNX_ASSERT_SSA", "").lower() in ("1", "true", "yes", "on"):
-            existing = {o for n in self.nodes for o in n.output}
-            dups = [o for o in node.output if o in existing]
+    def add_node(self, node) -> None:
+        if self._strict_ssa:
+            # Collect names that actually *define* tensors in this graph:
+            #  • graph inputs
+            #  • initializers
+            #  • outputs of prior nodes
+            # (value_info and graph outputs are metadata/sinks, not definitions)
+            used = {vi.name for vi in self.inputs}
+            used |= {init.name for init in self.initializers}
+            used |= {out for n in self.nodes for out in n.output if out}
+            dups = [o for o in node.output if o and o in used]
             if dups:
-                raise RuntimeError(
-                    f"[SSA] Attempt to add node '{node.name or node.op_type}' with "
-                    f"duplicate outputs {dups}."
+                msg = (
+                    f"SSA duplicate value names {dups} when adding node "
+                    f"op={getattr(node, 'op_type', '?')} name={getattr(node, 'name', '') or '(none)'}\n"
+                    f"(Graph='{self.model_name}')\n"
+                    "Stack:\n" + "".join(traceback.format_stack(limit=18))
                 )
+                raise RuntimeError(msg)
         self.nodes.append(node)
 
     def _register_deterministic_parameters(self, missing_names: list[str]) -> list[str]:
@@ -808,7 +921,7 @@ class OnnxBuilder:
         # Otherwise, use the builder's current inputs.
         final_inputs = [] if empty_inputs else self.inputs
 
-        return helper.make_graph(
+        g = helper.make_graph(
             nodes=self.nodes,
             name=name,
             inputs=final_inputs,
@@ -816,6 +929,14 @@ class OnnxBuilder:
             initializer=self.initializers,
             value_info=self.value_info,
         )
+
+        # Development-only: deep SSA check incl. subgraphs
+        import os
+
+        if os.getenv("JAX2ONNX_SSA_DIAG") == "1":
+            _walk_graphs_and_assert_ssa(g, path=name)
+
+        return g
 
     def create_model(self, graph: GraphProto) -> ModelProto:
         return self._finalize_model(graph)
@@ -825,36 +946,209 @@ class OnnxBuilder:
         return self._finalize_model(graph)
 
     def _finalize_model(self, graph: GraphProto) -> ModelProto:
+        # ─────────────────────────────────────────────────────────────
+        # SSA sanitizer (graph + subgraphs) with Shape-node de-dup
+        # ─────────────────────────────────────────────────────────────
+        def _sanitize_graph(g: GraphProto):
+            defined = {vi.name for vi in g.input} | {
+                init.name for init in g.initializer
+            }
+            renames: Dict[str, str] = {}
+            shape_canon: Dict[str, str] = (
+                {}
+            )  # input tensor name → canonical shape-of name
+
+            def _remap(nm: str) -> str:
+                return renames.get(nm, nm)
+
+            new_nodes: List[NodeProto] = []
+            for n in g.node:
+                # remap inputs first
+                n.input[:] = [_remap(i) if i else i for i in n.input]
+
+                # drop duplicate Shape-of for same source; map its output to the canonical one
+                if n.op_type == "Shape" and n.input and n.output:
+                    src = n.input[0]
+                    if src in shape_canon:
+                        canon = shape_canon[src]
+                        out0 = n.output[0]
+                        if out0 and out0 != canon:
+                            renames[out0] = canon
+                        # do not emit this duplicate Shape node
+                        continue
+
+                # ensure node outputs are SSA-unique in this graph
+                for i, o in enumerate(list(n.output)):
+                    if not o:
+                        continue
+                    if o in defined:
+                        new_o = self.get_unique_instance_name(o)
+                        renames[o] = new_o
+                        n.output[i] = new_o
+                        defined.add(new_o)
+                    else:
+                        defined.add(o)
+
+                # register canonical name for first Shape-of after outputs are finalized
+                if n.op_type == "Shape" and n.input and n.output and n.output[0]:
+                    shape_canon.setdefault(n.input[0], n.output[0])
+
+                # recurse into subgraphs
+                for a in n.attribute:
+                    if a.type == AttributeProto.GRAPH and a.g is not None:
+                        _sanitize_graph(a.g)
+                    elif a.type == AttributeProto.GRAPHS and a.graphs:
+                        for sg in a.graphs:
+                            _sanitize_graph(sg)
+
+                new_nodes.append(n)
+
+            # remap graph outputs and value_info names
+            for vo in g.output:
+                vo.name = _remap(vo.name)
+            for vi in g.value_info:
+                if vi.name in renames:
+                    vi.name = renames[vi.name]
+
+            # replace node list (nodes may have been dropped)
+            del g.node[:]
+            g.node.extend(new_nodes)
+
+        # sanitize the main graph and all nested subgraphs
+        _sanitize_graph(graph)
+
+        # ─────────────────────────────────────────────────────────────
+        # Also sanitize FunctionProto bodies (if any)
+        # ─────────────────────────────────────────────────────────────
+        def _sanitize_function(func: FunctionProto) -> FunctionProto:
+            # treat function inputs as already-defined
+            defined = set(func.input)
+            renames: Dict[str, str] = {}
+            shape_canon: Dict[str, str] = {}
+
+            def _remap(nm: str) -> str:
+                return renames.get(nm, nm)
+
+            new_nodes: List[NodeProto] = []
+            for n in list(func.node):
+                n.input[:] = [_remap(i) if i else i for i in n.input]
+                if n.op_type == "Shape" and n.input and n.output:
+                    src = n.input[0]
+                    if src in shape_canon:
+                        canon = shape_canon[src]
+                        out0 = n.output[0]
+                        if out0 and out0 != canon:
+                            renames[out0] = canon
+                        continue  # drop duplicate Shape
+                for i, o in enumerate(list(n.output)):
+                    if not o:
+                        continue
+                    if o in defined:
+                        new_o = self.get_unique_instance_name(o)
+                        renames[o] = new_o
+                        n.output[i] = new_o
+                        defined.add(new_o)
+                    else:
+                        defined.add(o)
+                if n.op_type == "Shape" and n.input and n.output and n.output[0]:
+                    shape_canon.setdefault(n.input[0], n.output[0])
+                # subgraphs inside function nodes (rare)
+                for a in n.attribute:
+                    if a.type == AttributeProto.GRAPH and a.g is not None:
+                        _sanitize_graph(a.g)
+                    elif a.type == AttributeProto.GRAPHS and a.graphs:
+                        for sg in a.graphs:
+                            _sanitize_graph(sg)
+                new_nodes.append(n)
+
+            # rebuild the function with sanitized nodes and remapped outputs
+            new_outputs = [_remap(o) for o in func.output]
+            new_value_info = list(func.value_info)
+            for vi in new_value_info:
+                if vi.name in renames:
+                    vi.name = renames[vi.name]
+            return helper.make_function(
+                domain=func.domain,
+                fname=func.name,
+                inputs=list(func.input),
+                outputs=new_outputs,
+                nodes=new_nodes,
+                opset_imports=list(func.opset_import),
+                value_info=new_value_info,
+            )
+
+        # sanitize functions before attaching to the model
+        unique_function_protos = list(
+            {f.name: f for f in self.functions.values()}.values()
+        )
+        if unique_function_protos:
+            unique_function_protos = [
+                _sanitize_function(f) for f in unique_function_protos
+            ]
+
+        # final safety assertion if requested
+        if self._strict_ssa:
+
+            def _assert_ssa_recursive(g: GraphProto, where: str):
+                defined = {vi.name for vi in g.input} | {
+                    init.name for init in g.initializer
+                }
+                for n in g.node:
+                    bad = [o for o in n.output if o and o in defined]
+                    if bad:
+                        raise RuntimeError(
+                            f"[SSA] Duplicate outputs {bad} in {where}, node '{n.name or n.op_type}'"
+                        )
+                defined.update([o for o in n.output if o])
+                for a in n.attribute:
+                    if a.type == AttributeProto.GRAPH and a.g is not None:
+                        _assert_ssa_recursive(
+                            a.g, where + f" → {n.name or n.op_type}.<body>"
+                        )
+                    elif a.type == AttributeProto.GRAPHS and a.graphs:
+                        for idx, sg in enumerate(a.graphs):
+                            _assert_ssa_recursive(
+                                sg, where + f" → {n.name or n.op_type}.graphs[{idx}]"
+                            )
+
+            _assert_ssa_recursive(graph, self.model_name or "<main>")
+
+        # build the final model
         opset_imports = [
             helper.make_opsetid("", self.opset),
             *(
                 [helper.make_opsetid(CUSTOM_DOMAIN, CUSTOM_DOMAIN_VERSION)]
-                if self.functions
+                if unique_function_protos
                 else []
             ),
         ]
-
-        unique_function_protos = list(
-            {f.name: f for f in self.functions.values()}.values()
-        )
-
-        names = [f.name for f in unique_function_protos]
-        seen, duplicates = set(), set()
-        for n in names:
-            if n in seen:
-                duplicates.add(n)
-            seen.add(n)
-        if duplicates:
-            logging.warning(f"Duplicate ONNX functions detected: {sorted(duplicates)}")
-        else:
-            logging.debug("✅ No duplicate ONNX function names")
-
         model = helper.make_model(
             graph,
             opset_imports=opset_imports,
             functions=unique_function_protos,
         )
         return model
+
+    def get_shape_helper_name(
+        self, producer_value: str, display_hint: Optional[str] = None
+    ) -> str:
+        """
+        Return a unique, SSA-safe name for a Shape-of helper produced from `producer_value`.
+        Reuses one name per source value within the current graph via `_shape_of_cache`.
+        """
+        # ensure cache exists (older objects may not have it yet)
+        if not hasattr(self, "_shape_of_cache"):
+            self._shape_of_cache = {}
+        if producer_value in self._shape_of_cache:
+            return self._shape_of_cache[producer_value]
+
+        hint = (
+            display_hint or self.display_name_map.get(producer_value) or producer_value
+        )
+        base = f"{hint}__shape"
+        unique = self.get_unique_instance_name(base)
+        self._shape_of_cache[producer_value] = unique
+        return unique
 
     def _numpy_dtype_to_onnx(self, dtype: Any) -> int:
         """
@@ -975,7 +1269,7 @@ class OnnxBuilder:
             internal_data_input_names = [vi.name for vi in function_graph.input]
             final_input_names = internal_data_input_names + param_input_names
 
-        # 2) Gather intermediate/output ValueInfoProto from sub_builder
+        # 2) Gather intermediate/value_info from sub_builder
         intermediate_value_info = sub_builder.value_info
 
         # 3) Build ValueInfoProto for each final input
@@ -1347,6 +1641,32 @@ class OnnxBuilder:
             # Add this node's outputs to available tensors
             available_tensors.update(node.output)
 
+    def _walk_graphs_and_assert_ssa(g, path="(main)"):
+        dupes = _find_dupe_outputs(g)
+        if dupes:
+            detail = []
+            producers = _explain_dupes(g)
+            for name in dupes:
+                who = ", ".join([f"{nm}:{op}" for nm, op in producers.get(name, [])])
+                detail.append(f"  • '{name}' at {path} produced by [{who}]")
+            raise RuntimeError(
+                "[SSA/diag] duplicate output names:\n" + "\n".join(detail)
+            )
+        # recurse into subgraphs
+        from onnx import AttributeProto
+
+        for n in g.node:
+            for a in n.attribute:
+                if a.type == AttributeProto.GRAPH and a.g is not None:
+                    _walk_graphs_and_assert_ssa(
+                        a.g, path=f"{path} → {n.name or n.op_type}.body"
+                    )
+                elif a.type == AttributeProto.GRAPHS and a.graphs:
+                    for i, sg in enumerate(a.graphs):
+                        _walk_graphs_and_assert_ssa(
+                            sg, path=f"{path} → {n.name or n.op_type}.graphs[{i}]"
+                        )
+
     # ------------------------------------------------------------------
     #  Remove any ValueInfo that is *not* referenced by nodes, outputs
     #  or initializers.  This prevents compile-time constants that were
@@ -1500,19 +1820,6 @@ class OnnxBuilder:
     # ────────────────────────────────────────────────────────────────
     #  Helpers used by the Scan-plugin to inspect symbols
     # ────────────────────────────────────────────────────────────────
-    def get_rank(self, sym: str) -> int | None:
-        """
-        Return the tensor *rank* of **sym** if it is known from
-        ``value_info``, graph IO or an initializer.
-        """
-
-        for vi in self.value_info + self.inputs + self.outputs:
-            if vi.name == sym:
-                return len(vi.type.tensor_type.shape.dim)
-        for init in self.initializers:
-            if init.name == sym:
-                return len(init.dims)
-        return None
 
     def get_dtype(self, sym: str):
         """
@@ -1527,4 +1834,23 @@ class OnnxBuilder:
         for init in self.initializers:
             if init.name == sym:
                 return _map.TENSOR_TYPE_TO_NP_TYPE[init.data_type]
+        return None
+        return None
+
+    # ────────────────────────────────────────────────────────────────
+    #  Helpers used by the Scan-plugin to inspect symbols
+    # ────────────────────────────────────────────────────────────────
+    def get_rank(self, sym: str) -> int | None:
+        """
+        Return the tensor *rank* of **sym** if it is known from
+        ``value_info``, graph IO or an initializer.
+        """
+
+        for vi in self.value_info + self.inputs + self.outputs:
+            if vi.name == sym:
+                return len(vi.type.tensor_type.shape.dim)
+        for init in self.initializers:
+            if init.name == sym:
+                return len(init.dims)
+        return None
         return None

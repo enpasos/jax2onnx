@@ -30,7 +30,7 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
     since="v0.8.0",
     context="primitives.eqx",
     component="layer_norm",
-    testcases=[ 
+    testcases=[
         {
             "testcase": "layer_norm",
             "callable": eqx.nn.LayerNorm(32, eps=1e-5),

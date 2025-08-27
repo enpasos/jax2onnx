@@ -1,8 +1,8 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.7.5"
-description = "export JAX to ONNX - focus on flax nnx"
+version = "0.8.0"
+description = "export JAX to ONNX"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ dependencies = [
     "orbax-checkpoint>=0.11.6",
     "orbax-export>=0.0.6",
     "netron>=8.2.9",
-    "onnx>=1.17.0",
+    "onnx (>=1.17.0,<1.19.0)",
     "onnxruntime>=1.22.0",
     "einops (>=0.8.1,<0.9.0)",
     "equinox>=0.12.2",
