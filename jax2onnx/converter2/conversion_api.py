@@ -257,9 +257,8 @@ def to_onnx(
       - map invars to graph inputs
       - dispatch each eqn to its plugins2.lower(ctx, eqn)
       - collect outvars as graph outputs
-    """
-    if ir is None:
-        raise ImportError("onnx_ir is required for converter2 but could not be imported") from _IR_IMPORT_ERROR
+    """ 
+   
 
     # 1) Prepare abstract inputs for tracing
     sds_list = _as_sds_list(inputs, enable_double_precision)
