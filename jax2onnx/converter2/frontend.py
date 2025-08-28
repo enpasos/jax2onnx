@@ -1,23 +1,30 @@
+# file: jax2onnx/converter2/frontend.py
+
+
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
-
 import jax
+import numpy as np
 
 
-def _normalize_inputs_for_tracing(inputs: List[Any]) -> Tuple[Any, ...]:
+def _normalize_inputs_for_tracing(
+    inputs: List[Any],
+    default_float: Any | None = None,  # <- optional, positional or keyword
+) -> Tuple[Any, ...]:
     """
     Ensure we hand jax.make_jaxpr abstract values with shape + dtype where possible.
     Accepts jax.ShapeDtypeStruct / jax.core.ShapedArray / (tuple|list) shape.
     If only a shape is given, default to float32 for tracing purposes.
     """
-    import numpy as np
+    if default_float is None:
+        default_float = np.float32
 
     xs = []
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
             xs.append(spec)  # already a ShapeDtypeStruct/ShapedArray-like
         elif isinstance(spec, (tuple, list)):
-            xs.append(jax.ShapeDtypeStruct(tuple(spec), np.float32))
+            xs.append(jax.ShapeDtypeStruct(tuple(spec), default_float))
         else:
             raise TypeError(f"Unsupported input spec type for tracing: {type(spec)}")
     return tuple(xs)

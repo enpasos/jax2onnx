@@ -7,6 +7,7 @@ from typing import Any, Callable, Iterator, Union, Tuple
 
 _MISSING = object()
 
+
 def _resolve(target: Union[str, Any]) -> Any:
     if not isinstance(target, str):
         return target
@@ -15,12 +16,14 @@ def _resolve(target: Union[str, Any]) -> Any:
     obj = import_module(mod_path) if mod_path else globals()
     return getattr(obj, attr) if attr else obj
 
+
 @dataclass
 class AssignSpec:
     target: Union[str, Any]
     attr: str
     value: Any
     delete_if_missing: bool = True  # if original missing, restore by deleting
+
 
 @dataclass
 class MonkeyPatchSpec:
@@ -29,7 +32,9 @@ class MonkeyPatchSpec:
     make_value: Callable[[Any], Any]  # receives original value, returns new value
     delete_if_missing: bool = False
 
+
 PatchSpec = Union[AssignSpec, MonkeyPatchSpec]
+
 
 @contextmanager
 def apply_patches(specs: list[PatchSpec]) -> Iterator[None]:

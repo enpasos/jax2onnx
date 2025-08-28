@@ -2,8 +2,6 @@
 
 
 from __future__ import annotations
-import os
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
 from contextlib import contextmanager, ExitStack
 from jax import export as jax_export
@@ -19,7 +17,10 @@ import numpy as np
 import onnx
 import jax
 import jax.numpy as jnp
-from jax import config as jax_config
+
+# new imports
+from .ir_context import IRContext
+from .ir_builder import IRBuilder
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -261,65 +262,48 @@ def to_onnx(
     loosen_internal_shapes: bool,
     record_primitive_calls_file: Optional[str],
 ) -> onnx.ModelProto:
-    """
-    Minimal jaxpr → onnx_ir lowering loop:
-      - trace ClosedJaxpr with abstract inputs
-      - map invars to graph inputs
-      - dispatch each eqn to its plugins2.lower(ctx, eqn)
-      - collect outvars as graph outputs
-    """
+    # 1) Prepare abstract inputs for tracing (respect x64 policy)
+    import numpy as np
 
-    # 1) Prepare abstract inputs for tracing
+    default_float = np.float64 if enable_double_precision else np.float32
     sds_list = _as_sds_list(inputs, enable_double_precision)
 
-    # 2) Trace to a ClosedJaxpr (thread input_params during tracing)
+    # 2) Trace to ClosedJaxpr (input_params threaded; plugin worlds already handled above)
     def _wrapped(*xs):
         return fn(*xs, **(input_params or {}))
 
-    # Temporarily enable x64 for tracing when double precision was requested.
-    prev_x64 = None
-    if enable_double_precision:
-        try:
-            prev_x64 = jax_config.read("jax_enable_x64")
-        except Exception:
-            prev_x64 = None
-        if prev_x64 is False:
-            jax_config.update("jax_enable_x64", True)
-    try:
-        # Apply high-level bindings/patches *only* for the trace.
-        with _activate_plugin_worlds():
-            closed = jax.make_jaxpr(_wrapped)(*sds_list)  # ClosedJaxpr
-    finally:
-        if enable_double_precision and prev_x64 is False:
-            jax_config.update("jax_enable_x64", False)
+    with _activate_plugin_worlds():
+        closed = jax.make_jaxpr(_wrapped)(*sds_list)
     jpr = closed.jaxpr
 
-    # 3) Build IR context and materialize graph inputs (+ consts if any)
-    ctx = _IRBuildContext(
+    # 3) Build IR context & bind inputs/consts
+    ctx = IRContext(
         opset=opset,
-        default_float_dtype=np.float64 if enable_double_precision else np.float32,
+        enable_double_precision=enable_double_precision,
+        input_specs=sds_list,
     )
 
-    # consts (rare in tanh path), map constvars → initializers
+    # map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
         np_c = np.asarray(cval)
         if np.issubdtype(np_c.dtype, np.floating):
-            np_c = np_c.astype(ctx._default_float_dtype, copy=False)
-        c_ir = ir.Value(
-            name=ctx.fresh_name("const"),
-            type=ir.TensorType(_to_ir_dtype_from_np(np_c.dtype)),
-            shape=_to_ir_shape(np_c.shape),
-            const_value=ir.tensor(np_c),
-        )
-        ctx._initializers.append(c_ir)
-        ctx._var2val[cv] = c_ir
+            np_c = np_c.astype(default_float, copy=False)
+        ctx.bind_const_for_var(cv, np_c)
 
     # invars → graph inputs
     for i, v in enumerate(jpr.invars):
         ctx.add_input_for_invar(v, i)
 
-    # 4) Walk equations and dispatch to plugin.lower
+    # 4) Walk equations & dispatch to plugin.lower
     _seen_prims: list[str] = []
+
+    # expose builder to FunctionPlugin via a tiny facade
+    class _ConverterFacade:
+        builder: IRBuilder
+
+    converter = _ConverterFacade()
+    converter.builder = ctx.builder
+
     for eqn in jpr.eqns:
         prim_name = eqn.primitive.name
         _seen_prims.append(prim_name)
@@ -328,54 +312,21 @@ def to_onnx(
             raise NotImplementedError(
                 f"[converter2] No plugins2 registered for primitive '{prim_name}'"
             )
-        # Registry may store a class or an instance. Support both.
-        plugin = plugin_ref() if isinstance(plugin_ref, type) else plugin_ref
-        lower = getattr(plugin, "lower", None)
-        if lower is None:
-            ref_name = getattr(plugin_ref, "__name__", plugin_ref.__class__.__name__)
+        # leaf primitive plugins expose .lower(ctx, eqn)
+        # function plugins use FunctionPlugin’s handler via plugin_system
+        if hasattr(plugin_ref, "lower"):
+            plugin_ref.lower(ctx, eqn)
+        elif hasattr(plugin_ref, "get_handler"):
+            handler = plugin_ref.get_handler(converter)
+            handler(converter, eqn, eqn.params)
+        else:
             raise NotImplementedError(
-                f"[converter2] Plugin '{ref_name}' lacks a 'lower(ctx, eqn)' method"
+                f"[converter2] Unsupported plugin type for '{prim_name}'"
             )
-        lower(ctx, eqn)
 
-    # 5) Collect outputs
-    out_vals: List[ir.Value] = [
-        ctx.get_value_for_var(v, name_hint=f"out{i}") for i, v in enumerate(jpr.outvars)
-    ]
+    # 5) Outputs
+    ctx.add_outputs_from_vars(jpr.outvars)
 
-    # 6) Assemble graph & model
-    graph = ir.Graph(
-        inputs=list(ctx._inputs),
-        outputs=out_vals,
-        nodes=list(ctx._nodes),
-        initializers=list(ctx._initializers),
-        name=model_name or "jax2onnx_ir_graph",
-        opset_imports={"": opset},
-    )
-    model = ir.Model(graph, ir_version=_ORT_SAFE_IR_VERSION)
-
-    # 7) Return an onnx.ModelProto (serialize via onnx_ir then load with onnx)
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-            tmp_path = f.name
-        ir.save(model, tmp_path)
-        onnx_model = onnx.load_model(tmp_path)
-
-        if record_primitive_calls_file:
-            try:
-                with open(record_primitive_calls_file, "w", encoding="utf-8") as fh:
-                    for p in _seen_prims:
-                        fh.write(f"{p}\n")
-            except Exception:
-                pass  # best-effort
-
-        return onnx_model
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        ir.save(model, tmp_path)
-        return onnx.load_model(tmp_path)
+    # 6) Model proto
+    model = ctx.to_model_proto(name=model_name)
+    return model

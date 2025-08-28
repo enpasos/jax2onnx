@@ -1,14 +1,13 @@
+# file: jax2onnx/converter2/ir_builder.py
+
+
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 import onnx
 
-try:
-    import onnx_ir as ir
-except Exception as e:  # pragma: no cover
-    ir = None
-    _IR_IMPORT_ERROR = e
+import onnx_ir as ir
 
 
 _NP_TO_IR_BASE = {
@@ -33,10 +32,11 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> "ir.DataType
         return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
     key = np.dtype(dtype)
     name = _NP_TO_IR_BASE.get(key)
-    if not name:
-        # Default to FLOAT/FLOAT64 policy for unknown floatlike, else INT64 is a safe integer default.
-        return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
-    return getattr(ir.DataType, name)
+    if name:
+        return getattr(ir.DataType, name)
+    if np.issubdtype(key, np.integer):
+        return ir.DataType.INT64
+    raise TypeError(f"Unsupported dtype: {dtype}")
 
 
 class IRBuilder:
@@ -46,22 +46,23 @@ class IRBuilder:
     """
 
     def __init__(self, *, opset: int, enable_double_precision: bool):
-        if ir is None:
-            raise ImportError("onnx_ir is required") from _IR_IMPORT_ERROR
         self.opset = opset
         self.enable_double_precision = enable_double_precision
-        self.inputs: List[ir.Value] = []
-        self.outputs: List[ir.Value] = []
-        self.nodes: List[ir.Node] = []
-        self.initializers: List[ir.Value] = []
-        self._var2val: Dict[Any, ir.Value] = {}
-        self._counters: Dict[str, int] = {}
+        self.inputs: list[ir.Value] = []
+        self.outputs: list[ir.Value] = []
+        self.nodes: list[ir.Node] = []
+        self.initializers: list[ir.Value] = []
+        self.initializers_by_name: dict[str, ir.Value] = {}
+        self._var2val: dict[Any, ir.Value] = {}
+        self._counters: dict[str, int] = {}
+        # optional: symbolic dim origins used by some plugins
+        self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
-        return f"{base}{i}"
+        return f"{base}_{i}"
 
     # ---------- values ----------
     def _make_value(
@@ -72,6 +73,30 @@ class IRBuilder:
             name=name, shape=ir.Shape(shape), type=ir.TensorType(dtype_enum)
         )
 
+    # public helpers for initializers (used by FunctionPlugin)
+    def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
+        arr = np.asarray(value)
+        v = ir.Value(
+            name=name,
+            shape=ir.Shape(arr.shape if arr.shape else ()),
+            type=ir.TensorType(_dtype_to_ir(arr.dtype, self.enable_double_precision)),
+            const_value=ir.tensor(arr),
+        )
+        # overwrite-safe: last wins
+        self.initializers_by_name[name] = v
+        # keep list for stable order
+        self.initializers.append(v)
+        return v
+
+    def add_initializer_from_array(self, name: str, array: np.ndarray) -> ir.Value:
+        return self.add_initializer_from_scalar(name, np.asarray(array))
+
+    # convenient I64 consts for shape ops
+    def const_i64(self, name: str, values: Sequence[int]) -> ir.Value:
+        arr = np.asarray(values, dtype=np.int64)
+        return self.add_initializer_from_array(name, arr)
+
+    # bind graph inputs from specs
     def add_inputs_from_specs(
         self, invars: Sequence[Any], specs: Sequence[Any]
     ) -> None:
@@ -111,8 +136,9 @@ class IRBuilder:
             np_dt = np.dtype(aval.dtype)
         except Exception:
             np_dt = None
-        name = name_hint or self.fresh_name("v")
-        v = self._make_value(name=name, shape=shp, np_dtype=np_dt)
+        v = self._make_value(
+            name=name_hint or self.fresh_name("v"), shape=shp, np_dtype=np_dt
+        )
         self._var2val[var] = v
         return v
 
@@ -122,20 +148,34 @@ class IRBuilder:
             self.outputs.append(v)
 
     # ---------- nodes ----------
+    def add_node_obj(self, node: ir.Node) -> None:
+        self.nodes.append(node)
+
     def add_node(
         self,
         op_type: str,
         inputs: Sequence[ir.Value],
         outputs: Sequence[ir.Value],
-        **attrs,
-    ):
-        node = ir.node(
+        attributes: Optional[list[ir.Attr]] = None,
+        name: Optional[str] = None,
+    ) -> ir.Node:
+        n = ir.Node(
             op_type=op_type,
+            domain="",
             inputs=list(inputs),
             outputs=list(outputs),
-            attributes=(attrs or None),
+            name=name or self.fresh_name(op_type),
+            attributes=(attributes or []),
         )
-        self.nodes.append(node)
+        self.nodes.append(n)
+        return n
+
+    # ---------- symbolic dim origin ----------
+    def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None:
+        self._sym_origin[sym] = (src_val, axis)
+
+    def get_symbolic_dim_origin(self, sym: str) -> Optional[tuple[ir.Value, int]]:
+        return self._sym_origin.get(sym)
 
     # ---------- finalize ----------
     def to_model_proto(self, *, name: str, ir_version: int = 10) -> "onnx.ModelProto":
@@ -148,20 +188,18 @@ class IRBuilder:
             opset_imports={"": self.opset},
         )
         model = ir.Model(graph, ir_version=ir_version)
-
-        # Serialize via onnx_ir -> load as ModelProto (keeps caller API unchanged)
         import tempfile
         import os
 
-        tmp_path = None
+        tmp = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-                tmp_path = f.name
-            ir.save(model, tmp_path)
-            return onnx.load_model(tmp_path)
+                tmp = f.name
+            ir.save(model, tmp)
+            return onnx.load_model(tmp)
         finally:
-            if tmp_path and os.path.exists(tmp_path):
+            if tmp and os.path.exists(tmp):
                 try:
-                    os.remove(tmp_path)
+                    os.remove(tmp)
                 except OSError:
                     pass
