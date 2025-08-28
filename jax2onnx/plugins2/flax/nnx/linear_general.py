@@ -161,8 +161,31 @@ def _init_dims(m, name):
     t = next((t for t in m.graph.initializer if t.name == name), None)
     return list(t.dims) if t is not None else None
 
+def _nodes(m, op: str):
+    """Return all nodes with the given op_type."""
+    return [n for n in m.graph.node if n.op_type == op]
 
+def _node_producing(m, tensor_name: str):
+    """Return the node that produces `tensor_name`."""
+    return next(n for n in m.graph.node if tensor_name in n.output)
 
+def _ensure_value_info(ctx, v: ir.Value | None):
+    """
+    Make sure `v` is present in the graph's value_info so tools (e.g. Netron)
+    render the annotated meta shape on the producing node's port. Some viewers
+    prefer value_info over graph.output for node port labels.
+    """
+    if v is None:
+        return
+    try:
+        lst = getattr(ctx, "_value_info", None) or getattr(ctx, "_value_infos", None)
+        if lst is None:
+            return
+        if all(getattr(x, "name", None) != v.name for x in lst):
+            lst.append(v)
+    except Exception:
+        # Best-effort only; never fail conversion on debug cosmetics.
+        pass
 # ------------------------------------------------------------------
 # ONNX primitive registration and plugin for LinearGeneral
 # ------------------------------------------------------------------
@@ -262,6 +285,17 @@ def _init_dims(m, name):
             "input_shapes": [(2, 4, 8, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            # Static case: ensure we eliminated Shape/Slice/Concat and inlined
+            # the final Reshape's shape as a constant of length 3 (3×4×256).
+            "post_check_onnx_graph": lambda m: (lambda final_r:
+                (final_r.op_type == "Reshape")
+                and (len(_nodes(m, "Shape")) == 0)
+                and (len(_nodes(m, "Slice")) == 0)
+                and (len(_nodes(m, "Concat")) == 0)
+                and (len(final_r.input) >= 2)
+                and (_init_dims(m, final_r.input[1]) == [3])    # shape initializer rank=3
+                and (_shape_of(m.graph.output, "out_0") == (2, 4, 256))
+            )(_node_producing(m, "out_0")),
         },
         {
             "testcase": "linear_general_abstract_eval_axes",
@@ -290,7 +324,7 @@ def _init_dims(m, name):
             "use_onnx_ir": True,
         },
         {
-            "testcase": "dynamic_batch_and_feature_dims",
+            "testcase": "linear_general_dynamic_batch_and_feature_dims",
             # Bind our primitive directly with explicit dimension_numbers.
             "callable": lambda x, k, b: LinearGeneralPlugin._linear_general(
                 x, k, b, dimension_numbers=(((2,), (0,)), ((), ()))
@@ -569,6 +603,8 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 )
                 y_val.shape = ir.Shape(y_meta)
 
+                # Create the Reshape and then re-stamp the meta shape so the edge
+                # in viewers (e.g. Netron) shows B×… instead of ?×….
                 ctx.add_node(
                     ir.Node(
                         op_type="Reshape",
@@ -578,6 +614,8 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Reshape"),
                     )
                 )
+                y_val.shape = ir.Shape(y_meta)
+                _ensure_value_info(ctx, y_val)
             else:
                 # --- dynamic path: only create Shape/Slice if a dynamic batch dim exists ---
                 shp = ir.Value(
@@ -628,64 +666,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     const_value=ir.tensor(np.array(k_out_dims, dtype=np.int64)),
                 )
                 ctx._initializers.append(of)
-                batch_parts: list[ir.Value] = []
-                for pos, dim_i in enumerate(batch_dim_vals):
-                    if _is_static_int(dim_i):
-                        c = ir.Value(
-                            name=ctx.fresh_name("batch_const"),
-                            type=ir.TensorType(ir.DataType.INT64),
-                            shape=ir.Shape((1,)),
-                            const_value=ir.tensor(np.array([int(dim_i)], dtype=np.int64)),
-                        )
-                        ctx._initializers.append(c)
-                        batch_parts.append(c)
-                    else:
-                        s_i = ir.Value(
-                            name=ctx.fresh_name("bd_start"),
-                            type=ir.TensorType(ir.DataType.INT64),
-                            shape=ir.Shape((1,)),
-                            const_value=ir.tensor(np.array([pos], dtype=np.int64)),
-                        )
-                        e_i = ir.Value(
-                            name=ctx.fresh_name("bd_end"),
-                            type=ir.TensorType(ir.DataType.INT64),
-                            shape=ir.Shape((1,)),
-                            const_value=ir.tensor(np.array([pos + 1], dtype=np.int64)),
-                        )
-                        ctx._initializers.extend([s_i, e_i])
-                        sl_i = ir.Value(
-                            name=ctx.fresh_name("batch_dyn"),
-                            type=ir.TensorType(ir.DataType.INT64),
-                            shape=ir.Shape((1,)),
-                        )
-                        ctx.add_node(
-                            ir.Node(
-                                op_type="Slice",
-                                domain="",
-                                inputs=[batch_dims, s_i, e_i],
-                                outputs=[sl_i],
-                                name=ctx.fresh_name("Slice"),
-                            )
-                        )
-                        batch_parts.append(sl_i)
-                if len(batch_parts) == 1:
-                    batch_mixed = batch_parts[0]
-                else:
-                    batch_mixed = ir.Value(
-                        name=ctx.fresh_name("batch_mixed"),
-                        type=ir.TensorType(ir.DataType.INT64),
-                        shape=ir.Shape((len(x_batch_idx),)),
-                    )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Concat",
-                            domain="",
-                            inputs=batch_parts,
-                            outputs=[batch_mixed],
-                            name=ctx.fresh_name("Concat"),
-                            attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-                        )
-                    )
+                # Dynamic path: just reuse the sliced batch vector directly.
+                # This matches the “old world” behavior and avoids extra Concat.
+                batch_mixed = batch_dims
                 final_shape = ir.Value(
                     name=ctx.fresh_name("final_shape"),
                     type=ir.TensorType(ir.DataType.INT64),
@@ -716,6 +699,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Reshape"),
                     )
                 )
+                # Re-assert shape and also force a value_info entry so the
+                # Reshape→out_0 node port renders B×… (not ?×…).
+                y_val.shape = ir.Shape(y_meta)
+                _ensure_value_info(ctx, y_val)
         # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 
     # ---------- explicit binding helper for a testcase ----------
