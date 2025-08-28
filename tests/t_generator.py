@@ -22,8 +22,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins2.plugin_system import (
     PLUGIN_REGISTRY2,
-    import_all_plugins as import_all_plugins2
-    ,
+    import_all_plugins as import_all_plugins2,
 )
 
 # Define base directories.
@@ -54,7 +53,9 @@ def clean_generated_dir(directory: str):
 
 def clean_generated_test_dirs():
     clean_generated_dir(os.path.join(TESTS_DIR, "primitives"))
+    clean_generated_dir(os.path.join(TESTS_DIR, "primitives2"))
     clean_generated_dir(os.path.join(TESTS_DIR, "examples"))
+    clean_generated_dir(os.path.join(TESTS_DIR, "examples2"))
 
 
 # --- Metadata Loading ---
@@ -79,7 +80,7 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
 def load_metadata_from_plugins() -> list[dict[str, Any]]:
     import_all_plugins()
     import_all_plugins2()
- 
+
     items1 = [
         {**plugin.metadata, "jaxpr_primitive": name}
         for name, plugin in PLUGIN_REGISTRY.items()
@@ -91,6 +92,7 @@ def load_metadata_from_plugins() -> list[dict[str, Any]]:
         if hasattr(plugin, "metadata")
     ]
     return items1 + items2
+
 
 def load_plugin_metadata() -> list[dict[str, Any]]:
     md = load_metadata_from_plugins()
@@ -105,8 +107,11 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     1. Creating dynamic and concrete shape variants if "B" (batch dim) is present.
     2. For each of those, creating float32 (default) and float64 variants.
     """
-    if "callable" not in entry:
-        logger.debug(f"Skipping entry, no callable: {entry.get('testcase', 'Unknown')}")
+    # Accept either a ready function or a factory that builds it.
+    if ("callable" not in entry) and ("callable_factory" not in entry):
+        logger.debug(
+            f"Skipping entry, no callable/callable_factory: {entry.get('testcase', 'Unknown')}"
+        )
         return []
 
     # ---- Sanity check for the new optional field ---------------------------------
@@ -330,17 +335,31 @@ def make_test_function(tp: dict[str, Any]):
     func_name = f"test_{test_case_name_safe}"
 
     def test_func(self=None):  # Pytest will inject 'self' if it's a method of a class
-        configure_logging()  # Call once if needed, or ensure logger is configured globally
+        configure_logging()
 
-        callable_obj = tp["callable"]
+        # --- move this UP, before any jax/jnp use ---
+        current_enable_double_precision = tp.get(
+            "_enable_double_precision_test_setting", False
+        )
+
+        if current_enable_double_precision:
+            # set x64 early so all downstream jax/jnp ops see it
+            jax.config.update("jax_enable_x64", True)
+        # --------------------------------------------
+
+        callable_factory = tp.get("callable_factory")
+        if callable_factory is not None:
+            desired_dtype = (
+                jnp.float64 if current_enable_double_precision else jnp.float32
+            )
+            callable_obj = callable_factory(desired_dtype)
+        else:
+            callable_obj = tp["callable"]
+
         input_values_from_testcase = tp.get("input_values")
         input_shapes_from_testcase = tp.get("input_shapes")
         input_dtypes_from_testcase = tp.get("input_dtypes")
         expected_output_dtypes_from_testcase = tp.get("expected_output_dtypes")
-
-        current_enable_double_precision = tp.get(
-            "_enable_double_precision_test_setting", False
-        )
 
         processed_input_specs_for_to_onnx: List[Any]
 
@@ -464,7 +483,11 @@ def make_test_function(tp: dict[str, Any]):
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
             f"enable_double_precision: {current_enable_double_precision}"
-            + (f", use_onnx_ir={use_onnx_ir_from_testcase}" if "use_onnx_ir" in tp else "")
+            + (
+                f", use_onnx_ir={use_onnx_ir_from_testcase}"
+                if "use_onnx_ir" in tp
+                else ""
+            )
         )
         try:
             to_onnx_kwargs = dict(
@@ -556,6 +579,9 @@ def make_test_function(tp: dict[str, Any]):
         # comparison.  Assume `jnp.float32` for every tensor unless the
         # testcase overrode it.
         #
+        # NOTE: This branch now also covers zero-arg callables and cases where
+        # `input_shapes_from_testcase == []`. In that situation we still run
+        # numeric validation with an empty input list to exercise ORT.
         elif (input_shapes_from_testcase is not None) or (
             len(inspect.signature(callable_obj).parameters) == 0
         ):
@@ -1212,6 +1238,11 @@ if __name__ == "__main__":
     # This allows the script to be run directly to regenerate tests.
     # Ensure JAX/ONNX and other dependencies are available in the environment.
     # It's good practice to also import and configure logging here if not done by an imported module.
+    # For example:
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+    logger.info("Running t_generator.py script...")
+    generate_all_tests()
     # For example:
     # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 

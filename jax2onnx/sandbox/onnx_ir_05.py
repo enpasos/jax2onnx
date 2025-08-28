@@ -1,7 +1,6 @@
 # file: jax2onnx/sandbox/onnx_ir_05.py
 
 import onnx_ir as ir
-import numpy as np
 import os
 
 # --- Setup ---
@@ -21,7 +20,12 @@ node = ir.node(op_type="Tanh", inputs=[x], outputs=[y])
 
 # === Step 3: Construct the Graph and Model ===
 graph = ir.Graph(
-    inputs=[x], outputs=[y], nodes=[node], initializers=[], name="TanhGraph", opset_imports={"": 18}
+    inputs=[x],
+    outputs=[y],
+    nodes=[node],
+    initializers=[],
+    name="TanhGraph",
+    opset_imports={"": 18},
 )
 model = ir.Model(graph, ir_version=10)
 

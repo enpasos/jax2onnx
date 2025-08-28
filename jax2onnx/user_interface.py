@@ -3,7 +3,6 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import argparse
 import logging
-import os
 
 import onnx
 from jax import config, core
@@ -11,7 +10,7 @@ from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl_v1
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl_v2
- 
+
 config.update("jax_dynamic_shapes", True)
 
 # NEW -----------------------------------------------------------------
@@ -225,7 +224,6 @@ def run_command_line():
         loosen_internal_shapes=getattr(args, "loosen_internal_shapes", False),
         record_primitive_calls_file=args.record_primitive_calls_file,
     )
-
 
 
 def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:

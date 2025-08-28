@@ -5,7 +5,8 @@ import onnx_ir as ir
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter2.conversion_api import IRBuildContext  # hints
+    pass  # hints
+
 
 @register_primitive(
     jaxpr_primitive=jax.lax.mul_p.name,
@@ -30,16 +31,17 @@ if TYPE_CHECKING:
     ],
 )
 class MulPlugin(PrimitiveLeafPlugin):
-    def to_onnx(self, *_, **__):  # pragma: no cover
-        raise NotImplementedError("IR only")
-
     def lower(self, ctx, eqn):
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dt: Optional[np.dtype] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        prefer_dt: Optional[np.dtype] = np.dtype(
+            getattr(x_var.aval, "dtype", np.float32)
+        )
         a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("mul_lhs"))
-        b_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("mul_rhs"), prefer_np_dtype=prefer_dt)
+        b_val = ctx.get_value_for_var(
+            y_var, name_hint=ctx.fresh_name("mul_rhs"), prefer_np_dtype=prefer_dt
+        )
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mul_out"))
 
         node = ir.Node(

@@ -5,10 +5,12 @@ from onnx import helper as oh, numpy_helper
 import hashlib
 from statistics import median
 
+
 def md5_bytes(b: bytes) -> str:
     h = hashlib.md5()
     h.update(b)
     return h.hexdigest()
+
 
 def tensor_md5(t: onnx.TensorProto) -> str:
     # Works for all tensor types stored in raw_data
@@ -17,6 +19,7 @@ def tensor_md5(t: onnx.TensorProto) -> str:
     # Fallback via NumPy
     arr = numpy_helper.to_array(t)
     return md5_bytes(arr.tobytes(order="C"))
+
 
 def summarize(model_path):
     m = onnx.load(model_path)
@@ -27,7 +30,9 @@ def summarize(model_path):
             attrs = {a.name: oh.get_attribute_value(a) for a in n.attribute}
         else:
             attrs = {}
-        nodes.append((n.name or n.op_type, n.op_type, tuple(n.input), tuple(n.output), attrs))
+        nodes.append(
+            (n.name or n.op_type, n.op_type, tuple(n.input), tuple(n.output), attrs)
+        )
 
     init_summ = {}
     for name, t in inits.items():
@@ -41,11 +46,14 @@ def summarize(model_path):
         }
     return m, nodes, init_summ
 
+
 def print_diff_summary(nodes_a, nodes_b, inits_a, inits_b, tag_a="OLD", tag_b="NEW"):
     print(f"\n--- NODE LIST ({tag_a}) ---")
-    for it in nodes_a: print(it)
+    for it in nodes_a:
+        print(it)
     print(f"\n--- NODE LIST ({tag_b}) ---")
-    for it in nodes_b: print(it)
+    for it in nodes_b:
+        print(it)
 
     only_a = set(inits_a) - set(inits_b)
     only_b = set(inits_b) - set(inits_a)
@@ -60,25 +68,33 @@ def print_diff_summary(nodes_a, nodes_b, inits_a, inits_b, tag_a="OLD", tag_b="N
         if Ia["shape"] != Ib["shape"] or Ia["dtype"] != Ib["dtype"]:
             meta_diff.append((k, Ia["shape"], Ib["shape"], Ia["dtype"], Ib["dtype"]))
         if Ia["md5"] != Ib["md5"]:
-            data_diff.append((k, Ia["md5"], Ib["md5"], Ia["min"], Ia["max"], Ib["min"], Ib["max"]))
+            data_diff.append(
+                (k, Ia["md5"], Ib["md5"], Ia["min"], Ia["max"], Ib["min"], Ib["max"])
+            )
 
     if meta_diff:
         print("\n!! Initializer meta differs (shape/dtype):")
-        for row in meta_diff: print(row)
+        for row in meta_diff:
+            print(row)
     if data_diff:
         print("\n!! Initializer DATA differs (md5/min/max):")
-        for row in data_diff: print(row)
+        for row in data_diff:
+            print(row)
     if not meta_diff and not data_diff:
         print("\nInitializers match exactly (shape, dtype, and bytes).")
+
 
 def ort_run(model_path, x, optimize=False):
     so = ort.SessionOptions()
     if not optimize:
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-    sess = ort.InferenceSession(model_path, sess_options=so, providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model_path, sess_options=so, providers=["CPUExecutionProvider"]
+    )
     inp = sess.get_inputs()[0]
     assert inp.type == "tensor(double)", f"Expected fp64 input, got {inp.type}"
     return sess.run(None, {inp.name: x})[0]
+
 
 def choose_input_shape(model_path, override_last_dim=None, seed=0):
     m = onnx.load(model_path)
@@ -111,6 +127,7 @@ def choose_input_shape(model_path, override_last_dim=None, seed=0):
         shp = (override_last_dim or K,)
     return shp
 
+
 def diff_stats(a, b):
     d = np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
     absd = np.abs(d)
@@ -121,6 +138,7 @@ def diff_stats(a, b):
         "median": float(median(absd.ravel())),
         "max_idx": tuple(int(i) for i in max_idx),
     }
+
 
 if __name__ == "__main__":
     OLD = "docs/onnx/primitives/nnx/linear_high_rank_dynamic_f64.onnx"

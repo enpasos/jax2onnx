@@ -57,6 +57,6 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-        } 
+        }
     ],
 )

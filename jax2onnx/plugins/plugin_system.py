@@ -371,8 +371,8 @@ _already_imported_plugins = False
 def import_all_plugins() -> None:
     global _already_imported_plugins
     if _already_imported_plugins:
-        return 
-    plugins_path =  os.path.dirname(__file__) 
+        return
+    plugins_path = os.path.dirname(__file__)
     for _, module_name, _ in pkgutil.walk_packages(
         [plugins_path], prefix="jax2onnx.plugins."
     ):

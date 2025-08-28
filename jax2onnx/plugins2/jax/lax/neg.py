@@ -4,7 +4,8 @@ import onnx_ir as ir
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter2.conversion_api import IRBuildContext  # hints
+    pass  # hints
+
 
 @register_primitive(
     jaxpr_primitive=jax.lax.neg_p.name,
@@ -23,9 +24,6 @@ if TYPE_CHECKING:
     ],
 )
 class NegPlugin(PrimitiveLeafPlugin):
-    def to_onnx(self, *_, **__):  # pragma: no cover
-        raise NotImplementedError("IR only")
-
     def lower(self, ctx, eqn):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]

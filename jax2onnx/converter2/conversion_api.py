@@ -8,27 +8,26 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from contextlib import contextmanager, ExitStack
 from jax import export as jax_export
 
+from jax2onnx.plugins2.plugin_system import PLUGIN_REGISTRY2
+import onnx_ir as ir
 import numpy as np
 import onnx
 import jax
 import jax.numpy as jnp
 from jax import config as jax_config
-from jax import export as jax_export   
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
 from jax.extend import core as jcore_ext  # type: ignore
+
 _LITERAL_TYPES = (jcore_ext.Literal,)
 
 # NOTE: onnx_ir: https://github.com/onnx/ir-py
 # We use it as the builder backend.
-import onnx_ir as ir
 
 # For optional type hints; avoid jax.core on 0.6.x
-from jax.extend.core import Literal as JaxLiteral, Var as JaxVar  # type: ignore
 
 # plugin2 registry (old registry stays untouched)
-from jax2onnx.plugins2.plugin_system import PLUGIN_REGISTRY2
 
 # Keep ORT-compatible IR version (ORT 1.18.x supports IR v10 max in many wheels)
 _ORT_SAFE_IR_VERSION = 10
@@ -40,6 +39,7 @@ _ORT_SAFE_IR_VERSION = 10
 
 def _np_float_dtype(enable_double_precision: bool):
     return np.float64 if enable_double_precision else np.float32
+
 
 def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     np_dtype = np.dtype(np_dtype)
@@ -62,6 +62,7 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     # fallback
     return ir.DataType.FLOAT
 
+
 def _to_ir_shape(shape_tuple) -> "ir.Shape":
     # allow ints or symbolic-like objects → stringify non-ints
     dims: Tuple[Union[int, str], ...] = tuple(
@@ -69,7 +70,10 @@ def _to_ir_shape(shape_tuple) -> "ir.Shape":
     )
     return ir.Shape(dims)
 
-def _as_sds_list(inputs: List[Any], enable_double_precision: bool) -> List["jax.ShapeDtypeStruct"]:
+
+def _as_sds_list(
+    inputs: List[Any], enable_double_precision: bool
+) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
 
@@ -99,9 +103,6 @@ def _as_sds_list(inputs: List[Any], enable_double_precision: bool) -> List["jax.
         else:
             raise TypeError(f"Unsupported input spec: {type(spec)}")
     return sds_list
-
-
-
 
 
 # ---------------------------
@@ -144,7 +145,11 @@ class _IRBuildContext:
             # For floating literals, align to either caller's preferred dtype
             # (e.g., the other operand) or our default float dtype.
             if np.issubdtype(arr.dtype, np.floating):
-                target = np.dtype(prefer_np_dtype) if prefer_np_dtype is not None else self._default_float_dtype
+                target = (
+                    np.dtype(prefer_np_dtype)
+                    if prefer_np_dtype is not None
+                    else self._default_float_dtype
+                )
                 arr = np.asarray(var.val, dtype=target)
             c_ir = ir.Value(
                 name=name_hint or self.fresh_name("const"),
@@ -163,7 +168,9 @@ class _IRBuildContext:
             raise TypeError(f"Unsupported var type: {type(var)}")
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))),
+            type=ir.TensorType(
+                _to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))
+            ),
             shape=_to_ir_shape(getattr(aval, "shape", ())),
         )
         self._var2val[var] = v
@@ -193,13 +200,13 @@ class _IRBuildContext:
             return self._symdim_origin[dim]
         return self._symdim_origin_str.get(str(dim))
 
-
-
     # ------------------------------------------------------------------
     # Tiny helper: Cast one tensor to the element dtype of another.
     # Keeps the original shape; creates a CastLike node.
     # ------------------------------------------------------------------
-    def cast_like(self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None) -> ir.Value:
+    def cast_like(
+        self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
+    ) -> ir.Value:
         """
         Return a new Value that is `tensor` cast to the element dtype of `exemplar`
         using ONNX CastLike. Shape is preserved from `tensor`.
@@ -221,6 +228,7 @@ class _IRBuildContext:
         return out
 
     # ... rest of _IRBuildContext ...
+
 
 @contextmanager
 def _activate_plugin_worlds():
@@ -257,8 +265,7 @@ def to_onnx(
       - map invars to graph inputs
       - dispatch each eqn to its plugins2.lower(ctx, eqn)
       - collect outvars as graph outputs
-    """ 
-   
+    """
 
     # 1) Prepare abstract inputs for tracing
     sds_list = _as_sds_list(inputs, enable_double_precision)
@@ -316,17 +323,23 @@ def to_onnx(
         _seen_prims.append(prim_name)
         plugin_ref = PLUGIN_REGISTRY2.get(prim_name)
         if plugin_ref is None:
-            raise NotImplementedError(f"[converter2] No plugins2 registered for primitive '{prim_name}'")
+            raise NotImplementedError(
+                f"[converter2] No plugins2 registered for primitive '{prim_name}'"
+            )
         # Registry may store a class or an instance. Support both.
         plugin = plugin_ref() if isinstance(plugin_ref, type) else plugin_ref
         lower = getattr(plugin, "lower", None)
         if lower is None:
             ref_name = getattr(plugin_ref, "__name__", plugin_ref.__class__.__name__)
-            raise NotImplementedError(f"[converter2] Plugin '{ref_name}' lacks a 'lower(ctx, eqn)' method")
+            raise NotImplementedError(
+                f"[converter2] Plugin '{ref_name}' lacks a 'lower(ctx, eqn)' method"
+            )
         lower(ctx, eqn)
 
     # 5) Collect outputs
-    out_vals: List[ir.Value] = [ctx.get_value_for_var(v, name_hint=f"out{i}") for i, v in enumerate(jpr.outvars)]
+    out_vals: List[ir.Value] = [
+        ctx.get_value_for_var(v, name_hint=f"out{i}") for i, v in enumerate(jpr.outvars)
+    ]
 
     # 6) Assemble graph & model
     graph = ir.Graph(
@@ -364,4 +377,3 @@ def to_onnx(
                 pass
         ir.save(model, tmp_path)
         return onnx.load_model(tmp_path)
-

@@ -1,11 +1,11 @@
 # file: jax2onnx/plugins2/jax/lax/tanh.py
 
-from typing import TYPE_CHECKING
 
-import jax 
-  
+import jax
+
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 import onnx_ir as ir
+
 
 @register_primitive(
     jaxpr_primitive=jax.lax.tanh_p.name,
@@ -21,17 +21,16 @@ import onnx_ir as ir
     component="tanh",
     testcases=[
         {
-            "testcase": "tanh",  
+            "testcase": "tanh",
             "callable": lambda x: jax.lax.tanh(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True
+            "use_onnx_ir": True,
         }
     ],
 )
- 
 class TanhPlugin(PrimitiveLeafPlugin):
     """Plugin for converting jax.lax.tanh to ONNX Tanh."""
- 
+
     # ─────────────────────────────────────────────────────────────────────────
     # IR path (converter2): optional hook the new converter can call.
     # This keeps the old decorator & metadata (test discovery) unchanged.

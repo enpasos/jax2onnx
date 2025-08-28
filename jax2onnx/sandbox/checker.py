@@ -1,4 +1,6 @@
-import onnx, onnxruntime as ort, numpy as np
+import onnx
+import onnxruntime as ort
+import numpy as np
 from onnx import helper as oh
 
 model = "docs/onnx/primitives2/nnx/linear_no_bias_f64.onnx"
@@ -31,5 +33,5 @@ print("ORT input type (no-opt):", sess_no.get_inputs()[0].type)
 rng = np.random.default_rng(0)
 x = rng.standard_normal((3, 128)).astype(np.float64)
 y_opt = sess_opt.run(None, {sess_opt.get_inputs()[0].name: x})[0]
-y_no  = sess_no.run(None,  {sess_no.get_inputs()[0].name: x})[0]
+y_no = sess_no.run(None, {sess_no.get_inputs()[0].name: x})[0]
 print("opt vs no-opt max diff:", float(np.max(np.abs(y_opt - y_no))))

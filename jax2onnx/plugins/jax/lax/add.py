@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         {
             "testcase": "add_const",
             "callable": lambda x: x + 1.0,
-            "input_shapes": [(3,)]
+            "input_shapes": [(3,)],
         },
     ],
 )

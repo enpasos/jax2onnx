@@ -44,9 +44,26 @@ nnx.dropout_p.multiple_results = False  # Single output
             #  (B) The converter elides Dropout to Identity.
             "post_check_onnx_graph": lambda m: (
                 (
-                    (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
-                    and (tm_init := next((i for i in m.graph.initializer if i.name == drop.input[2]), None)) is not None
-                    and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                    (
+                        drop := next(
+                            (n for n in m.graph.node if n.op_type == "Dropout"), None
+                        )
+                    )
+                    is not None
+                    and (
+                        tm_init := next(
+                            (i for i in m.graph.initializer if i.name == drop.input[2]),
+                            None,
+                        )
+                    )
+                    is not None
+                    and (
+                        ratio_init := next(
+                            (i for i in m.graph.initializer if i.name == drop.input[1]),
+                            None,
+                        )
+                    )
+                    is not None
                     and (numpy_helper.to_array(tm_init) == np.array(False)).all()
                     and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
                 )
@@ -63,10 +80,26 @@ nnx.dropout_p.multiple_results = False  # Single output
             # Dynamic deterministic: ensure a Not feeds Dropout.training_mode and ratio==0.5
             "post_check_onnx_graph": lambda m: (
                 (
-                    (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
-                    and (notn := next((n for n in m.graph.node if n.op_type == "Not"), None)) is not None
+                    (
+                        drop := next(
+                            (n for n in m.graph.node if n.op_type == "Dropout"), None
+                        )
+                    )
+                    is not None
+                    and (
+                        notn := next(
+                            (n for n in m.graph.node if n.op_type == "Not"), None
+                        )
+                    )
+                    is not None
                     and drop.input[2] == notn.output[0]
-                    and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                    and (
+                        ratio_init := next(
+                            (i for i in m.graph.initializer if i.name == drop.input[1]),
+                            None,
+                        )
+                    )
+                    is not None
                     and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
                 )
             ),

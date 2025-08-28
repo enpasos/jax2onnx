@@ -44,6 +44,7 @@ class IRBuilder:
     Minimal IR graph assembler for converter2.
     Holds a mapping from jaxpr vars to ir.Values, and accumulates nodes/inputs/outputs.
     """
+
     def __init__(self, *, opset: int, enable_double_precision: bool):
         if ir is None:
             raise ImportError("onnx_ir is required") from _IR_IMPORT_ERROR
@@ -63,11 +64,17 @@ class IRBuilder:
         return f"{base}{i}"
 
     # ---------- values ----------
-    def _make_value(self, name: str, shape: Tuple[Any, ...], np_dtype: Optional[np.dtype]) -> ir.Value:
+    def _make_value(
+        self, name: str, shape: Tuple[Any, ...], np_dtype: Optional[np.dtype]
+    ) -> ir.Value:
         dtype_enum = _dtype_to_ir(np_dtype, self.enable_double_precision)
-        return ir.Value(name=name, shape=ir.Shape(shape), type=ir.TensorType(dtype_enum))
+        return ir.Value(
+            name=name, shape=ir.Shape(shape), type=ir.TensorType(dtype_enum)
+        )
 
-    def add_inputs_from_specs(self, invars: Sequence[Any], specs: Sequence[Any]) -> None:
+    def add_inputs_from_specs(
+        self, invars: Sequence[Any], specs: Sequence[Any]
+    ) -> None:
         """
         Bind jaxpr invars to graph inputs using the provided input specs.
         """
@@ -80,11 +87,17 @@ class IRBuilder:
                 dt = None
             else:
                 raise TypeError(f"Unsupported spec for graph input: {type(spec)}")
-            v = self._make_value(name=f"x{i}", shape=shp, np_dtype=(np.dtype(dt) if dt is not None else None))
+            v = self._make_value(
+                name=f"x{i}",
+                shape=shp,
+                np_dtype=(np.dtype(dt) if dt is not None else None),
+            )
             self._var2val[var] = v
             self.inputs.append(v)
 
-    def get_value_for_var(self, var: Any, *, name_hint: Optional[str] = None) -> ir.Value:
+    def get_value_for_var(
+        self, var: Any, *, name_hint: Optional[str] = None
+    ) -> ir.Value:
         """
         Return an ir.Value for a jaxpr var; create it from aval if needed.
         """
@@ -109,8 +122,19 @@ class IRBuilder:
             self.outputs.append(v)
 
     # ---------- nodes ----------
-    def add_node(self, op_type: str, inputs: Sequence[ir.Value], outputs: Sequence[ir.Value], **attrs):
-        node = ir.node(op_type=op_type, inputs=list(inputs), outputs=list(outputs), attributes=(attrs or None))
+    def add_node(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value],
+        outputs: Sequence[ir.Value],
+        **attrs,
+    ):
+        node = ir.node(
+            op_type=op_type,
+            inputs=list(inputs),
+            outputs=list(outputs),
+            attributes=(attrs or None),
+        )
         self.nodes.append(node)
 
     # ---------- finalize ----------
@@ -126,7 +150,9 @@ class IRBuilder:
         model = ir.Model(graph, ir_version=ir_version)
 
         # Serialize via onnx_ir -> load as ModelProto (keeps caller API unchanged)
-        import tempfile, os
+        import tempfile
+        import os
+
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:

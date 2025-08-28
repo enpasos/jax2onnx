@@ -30,8 +30,10 @@ def trace_to_jaxpr(fn: Any, inputs: List[Any], input_params: Optional[Dict[str, 
     xs = _normalize_inputs_for_tracing(inputs)
 
     if input_params:
+
         def wrapped(*args):
             return fn(*args, **input_params)
+
         f = wrapped
     else:
         f = fn

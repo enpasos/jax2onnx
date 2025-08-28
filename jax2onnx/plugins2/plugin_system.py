@@ -1,22 +1,20 @@
 # file: jax2onnx/plugins2/plugin_system.py
-from __future__ import annotations 
+from __future__ import annotations
 import functools
 import importlib
 import inspect
+import logging
 import os
 import pkgutil
-from typing import Any, Callable, Dict, Optional, Type, Union
+from typing import Any, Callable, Dict
 from contextlib import contextmanager
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from typing import Any, Union
 
 import jax
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-import logging
 
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
@@ -24,9 +22,7 @@ from jax2onnx.converter.function_handling import function_handler
 PLUGIN_REGISTRY2: Dict[str, Any] = {}
 # A global registry to store plugins for extending functionality.
 # Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
-PLUGIN_REGISTRY2: dict[
-    str, Union["FunctionPlugin", "ExamplePlugin", "PrimitiveLeafPlugin"]
-] = {}
+
 
 # Track ONNX-decorated modules and their plugins
 ONNX_FUNCTION_REGISTRY2: dict[str, Any] = {}
@@ -34,6 +30,9 @@ ONNX_FUNCTION_PRIMITIVE_REGISTRY2: dict[str, tuple[Primitive, Any]] = {}
 ONNX_FUNCTION_PLUGIN_REGISTRY2: dict[str, "FunctionPlugin"] = {}
 
 INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
+
+
+logger = logging.getLogger("jax2onnx.plugins2.plugin_system")
 
 
 #####################################
@@ -48,10 +47,10 @@ class PrimitivePlugin(ABC):
         """Retrieve patch parameters for the plugin."""
         pass
 
-    @abstractmethod
-    def get_handler(self, converter: Any) -> Callable:
-        """Retrieve the handler function for the plugin."""
-        pass
+    # @abstractmethod
+    # def get_handler(self, converter: Any) -> Callable:
+    #     """Retrieve the handler function for the plugin."""
+    #     pass
 
 
 class PrimitiveLeafPlugin(PrimitivePlugin):
@@ -69,10 +68,10 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
         # Return a list entry per patch target
         return [(t, attr, patch_func) for t in targets]
 
-    def get_handler(self, converter: Any) -> Callable:
-        return lambda converter, eqn, params: self.to_onnx(
-            converter, eqn.invars, eqn.outvars, params
-        )
+    # def get_handler(self, converter: Any) -> Callable:
+    #     return lambda converter, eqn, params: self.to_onnx(
+    #         converter, eqn.invars, eqn.outvars, params
+    #     )
 
     # @abstractmethod
     # def to_onnx(
@@ -344,7 +343,7 @@ def register_example(**metadata: Any) -> ExamplePlugin:
     return instance
 
 
-def register_primitive( 
+def register_primitive(
     **metadata: Any,
 ) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
     primitive = metadata.get("jaxpr_primitive", "")
@@ -375,7 +374,7 @@ def import_all_plugins() -> None:
     if _already_imported_plugins2:
         return
     # plugins_path = os.path.join(os.path.dirname(__file__), "plugins")
-    plugins_path =  os.path.dirname(__file__) 
+    plugins_path = os.path.dirname(__file__)
     for _, module_name, _ in pkgutil.walk_packages(
         [plugins_path], prefix="jax2onnx.plugins2."
     ):
@@ -387,13 +386,17 @@ def register_primitive2(jax_primitive_name: str):
     """
     Decorator to register an IR emitter for a JAX primitive by name.
     """
+
     def _wrap(cls):
         PLUGIN_REGISTRY2[jax_primitive_name] = cls()
         return cls
+
     return _wrap
+
 
 # Conversion-scoped monkey patching
 _PATCH_STATE: dict[tuple[type, str], dict[str, Any]] = {}
+
 
 def _iter_patch_specs():
     for cls in PLUGIN_REGISTRY2.values():
@@ -411,6 +414,7 @@ def _iter_patch_specs():
         attr = info.get("target_attribute", "__call__")
         if callable(patch_fn) and targets:
             yield patch_fn, targets, attr
+
 
 @contextmanager
 def apply_monkey_patches():

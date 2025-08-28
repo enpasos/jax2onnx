@@ -7,7 +7,8 @@ import onnx_ir as ir  # IR builder (converter2 lane)
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter2.conversion_api import IRBuildContext  # for type hints
+    pass  # for type hints
+
 
 @register_primitive(
     jaxpr_primitive=jax.lax.add_p.name,
@@ -25,24 +26,26 @@ if TYPE_CHECKING:
         {
             "testcase": "add",
             "callable": lambda x1, x2: x1 + x2,
-            "input_shapes": [(3,), (3,)], 
-            "use_onnx_ir": True
+            "input_shapes": [(3,), (3,)],
+            "use_onnx_ir": True,
         },
         {
             "testcase": "add_const",
             "callable": lambda x: x + 1.0,
             "input_shapes": [(3,)],
-            "use_onnx_ir": True
+            "use_onnx_ir": True,
         },
     ],
 )
-class AddPlugin (PrimitiveLeafPlugin):
+class AddPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx, eqn):
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
         # Prefer the dtype of the first operand for any floating literal on RHS.
-        prefer_dt: Optional[np.dtype] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        prefer_dt: Optional[np.dtype] = np.dtype(
+            getattr(x_var.aval, "dtype", np.float32)
+        )
 
         a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_lhs"))
         b_val = ctx.get_value_for_var(
@@ -58,7 +61,3 @@ class AddPlugin (PrimitiveLeafPlugin):
             name=ctx.fresh_name("add"),
         )
         ctx.add_node(node)
-
-
-
-
