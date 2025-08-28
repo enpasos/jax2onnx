@@ -23,7 +23,7 @@ def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
     return ir.Shape(tuple(out))
 
 
-class IRContext:
+class IRContext: 
     def __init__(
         self,
         *,
@@ -47,7 +47,14 @@ class IRContext:
         self._sym_origin_str: dict[str, tuple[ir.Value, int]] = {}
 
     def fresh_name(self, base: str) -> str:
-        return self.builder.fresh_name(base)
+        # Back-compat: lazily initialize the counter dict if it doesn't exist
+        if not hasattr(self, "_name_counters") or self._name_counters is None:
+            self._name_counters = {}
+        i = self._name_counters.get(base, 0)
+        self._name_counters[base] = i + 1
+        # Use underscore-separated numeric suffixes: in_0, out_0, Reshape_0, ...
+        sep = "" if base.endswith(("_", "/")) else "_"
+        return f"{base}{sep}{i}"
 
     def add_node(self, node: ir.Node, inputs=None, outputs=None):
         # maintain legacy signature; plugins pass a constructed ir.Node
@@ -95,7 +102,7 @@ class IRContext:
         aval = var.aval
         shp = tuple(aval.shape)
         val = ir.Value(
-            name=f"in{index}",
+            name=f"in_{index}",
             type=ir.TensorType(
                 _dtype_to_ir(np.dtype(aval.dtype), self.builder.enable_double_precision)
             ),
@@ -154,7 +161,7 @@ class IRContext:
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):
-            v = self.get_value_for_var(var, name_hint=f"out{i}")
+            v = self.get_value_for_var(var, name_hint=f"out_{i}")
             self.builder.outputs.append(v)
 
     def to_model_proto(self, *, name: str, ir_version: int = 10):

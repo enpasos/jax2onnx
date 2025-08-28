@@ -186,7 +186,7 @@ class _IRBuildContext:
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = var.aval
         val = ir.Value(
-            name=f"in{index}",
+            name=f"in_{index}",
             type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(aval.dtype))),
             shape=_to_ir_shape(tuple(aval.shape)),
         )

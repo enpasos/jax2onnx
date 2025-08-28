@@ -11,6 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins2._utils import cast_param_like
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -91,16 +92,11 @@ if TYPE_CHECKING:
     ],
 )
 class LinearPlugin(PrimitiveLeafPlugin):
-    """
-    IR-only plugin for flax.nnx.Linear:
-      optional Reshape → Gemm → optional Reshape-back.
-    The nnx.linear primitive is installed *scoped* during tracing only.
-    """
-
     # Private primitive for this world (no import-time global assignment)
     _PRIM = Primitive("nnx.linear")
     _PRIM.multiple_results = False
     _ORIGINAL_LINEAR_CALL: Callable | None = None
+    _ABSTRACT_EVAL_BOUND: bool = False
 
     # ---------- abstract eval ----------
     @staticmethod
@@ -163,32 +159,10 @@ class LinearPlugin(PrimitiveLeafPlugin):
             b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
 
         # Unify dtypes: cast *parameters* to the input dtype (mirrors JAX promotion).
-        # NOTE: previously the CastLike ended up applied to the INPUT (down-casting
-        # fp64 to fp32). Do the opposite: cast params to x's dtype.
-        def _cast_param_to_input(val, name_hint):
-            x_dtype = getattr(x_val.type, "dtype", None)
-            v_dtype = getattr(val.type, "dtype", None)
-            if x_dtype is not None and v_dtype is not None and v_dtype != x_dtype:
-                out = ir.Value(
-                    name=ctx.fresh_name(name_hint),
-                    type=ir.TensorType(x_dtype),
-                    shape=val.shape,
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="CastLike",
-                        domain="",
-                        inputs=[val, x_val],  # cast VAL to like X
-                        outputs=[out],
-                        name=ctx.fresh_name("CastLike"),
-                    )
-                )
-                return out
-            return val
-
-        k_val = _cast_param_to_input(k_val, "kernel_cast")
+        # Use the shared helper so all plugins behave consistently.
+        k_val = cast_param_like(ctx, k_val, x_val, "kernel_cast")
         if use_bias:
-            b_val = _cast_param_to_input(b_val, "bias_cast")
+            b_val = cast_param_like(ctx, b_val, x_val, "bias_cast")
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
@@ -342,6 +316,32 @@ class LinearPlugin(PrimitiveLeafPlugin):
             kernel = self.kernel.value
             use_bias = self.bias is not None
             bias = self.bias.value if use_bias else jnp.zeros((), dtype=x.dtype)
+            return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
+
+        return patched
+
+    @classmethod
+    def binding_specs(cls):
+        """
+        Declare what this plugin needs patched while active.
+        - bind flax.nnx.linear_p to our private Primitive
+        - monkey-patch nnx.Linear.__call__ to emit our Primitive
+        """
+        return [
+            AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="flax.nnx.Linear",
+                attr="__call__",
+                make_value=lambda orig: cls.get_monkey_patch(orig),
+                delete_if_missing=False,
+            ),
+        ]
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
             return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
 
         return patched
