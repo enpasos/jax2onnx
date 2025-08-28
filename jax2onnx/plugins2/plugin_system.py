@@ -6,7 +6,7 @@ import inspect
 import logging
 import os
 import pkgutil
-from typing import Any, Callable, Dict
+from typing import Any, Callable, ClassVar, Dict
 from contextlib import contextmanager
 import weakref
 from abc import ABC, abstractmethod
@@ -18,6 +18,7 @@ from jax.extend.core import Primitive
 
 from jax2onnx.converter.name_generator import get_qualified_name
 from jax2onnx.converter.function_handling import function_handler
+from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 
 PLUGIN_REGISTRY2: Dict[str, Any] = {}
 # A global registry to store plugins for extending functionality.
@@ -57,6 +58,34 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     primitive: str
     metadata: dict[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None
+
+    # most plugins will define _PRIM and abstract_eval
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        """Bind abstract eval on first use (idempotent)."""
+        if not getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
+            # Plugins that need it should implement: cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            if hasattr(cls, "_PRIM") and hasattr(cls, "abstract_eval"):
+                cls._PRIM.def_abstract_eval(cls.abstract_eval)  # type: ignore[attr-defined]
+            cls._ABSTRACT_EVAL_BOUND = True
+
+    # Plugins override this to declare their binding needs.
+    @classmethod
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        return []
+
+    @classmethod
+    @contextmanager
+    def plugin_binding(cls):
+        """
+        Scoped patching for this plugin.
+        Centralized, minimal boilerplate in plugins.
+        """
+        cls.ensure_abstract_eval_bound()
+        with apply_patches(cls.binding_specs()):
+            yield
 
     def get_patch_params(self):
         if not self.patch_info:

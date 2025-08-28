@@ -8,7 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from contextlib import contextmanager, ExitStack
 from jax import export as jax_export
 
-from jax2onnx.plugins2.plugin_system import PLUGIN_REGISTRY2
+from jax2onnx.plugins2.plugin_system import (
+    PLUGIN_REGISTRY2,
+    PrimitiveLeafPlugin,
+    apply_monkey_patches,
+    import_all_plugins,
+)
 import onnx_ir as ir
 import numpy as np
 import onnx
@@ -227,24 +232,21 @@ class _IRBuildContext:
         )
         return out
 
-    # ... rest of _IRBuildContext ...
-
 
 @contextmanager
 def _activate_plugin_worlds():
-    """
-    Enter all plugin-provided 'world activation' scopes (e.g., temporarily
-    assign framework-level variables like flax.nnx.linear_p, apply monkey
-    patches), and restore everything afterwards.
-    """
+    # Ensure all plugins are imported so the registry is populated
+    import_all_plugins()
+
     with ExitStack() as stack:
-        for plugin_ref in PLUGIN_REGISTRY2.items():
-            # plugin_ref may be (name, ref) if iterating items(); support both
-            ref = plugin_ref[1] if isinstance(plugin_ref, tuple) else plugin_ref
-            cls = ref if isinstance(ref, type) else ref.__class__
-            cm_fn = getattr(cls, "world_activation", None)
-            if cm_fn is not None:
-                stack.enter_context(cm_fn())
+        # NEW: activate centralized per-plugin bindings
+        for plugin_instance in PLUGIN_REGISTRY2.values():
+            if isinstance(plugin_instance, PrimitiveLeafPlugin):
+                stack.enter_context(plugin_instance.__class__.plugin_binding())
+
+        # LEGACY: still support older plugins that provide patch_info()
+        stack.enter_context(apply_monkey_patches())
+
         yield
 
 

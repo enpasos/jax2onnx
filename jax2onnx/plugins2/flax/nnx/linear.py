@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
-from contextlib import contextmanager
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -11,6 +10,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -100,9 +100,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
     # Private primitive for this world (no import-time global assignment)
     _PRIM = Primitive("nnx.linear")
     _PRIM.multiple_results = False
-
     _ORIGINAL_LINEAR_CALL: Callable | None = None
-    _ABSTRACT_EVAL_BOUND: bool = False  # bound lazily once
 
     # ---------- abstract eval ----------
     @staticmethod
@@ -348,33 +346,25 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         return patched
 
-    # ---------- conversion-time world binding (scoped) ----------
-    @staticmethod
-    @contextmanager
-    def world_activation():
+    @classmethod
+    def binding_specs(cls):
         """
-        Temporarily:
-          • assign flax.nnx.linear_p to this plugin's private Primitive
-          • ensure abstract_eval is registered on that Primitive
-          • monkey-patch nnx.Linear.__call__ to bind that Primitive
+        Declare what this plugin needs patched while active.
+        - bind flax.nnx.linear_p to our private Primitive
+        - monkey-patch nnx.Linear.__call__ to emit our Primitive
         """
-        prev_prim = getattr(nnx, "linear_p", None)
-        prev_call = getattr(nnx.Linear, "__call__")
+        return [
+            AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="flax.nnx.Linear",
+                attr="__call__",
+                make_value=lambda orig: cls.get_monkey_patch(orig),
+                delete_if_missing=False,
+            ),
+        ]
 
-        nnx.linear_p = LinearPlugin._PRIM
-        if not LinearPlugin._ABSTRACT_EVAL_BOUND:
-            LinearPlugin._PRIM.def_abstract_eval(LinearPlugin.abstract_eval)
-            LinearPlugin._ABSTRACT_EVAL_BOUND = True
-
-        setattr(nnx.Linear, "__call__", LinearPlugin.get_monkey_patch(prev_call))
-        try:
-            yield
-        finally:
-            setattr(nnx.Linear, "__call__", prev_call)
-            if prev_prim is None:
-                try:
-                    delattr(nnx, "linear_p")
-                except Exception:
-                    pass
-            else:
-                setattr(nnx, "linear_p", prev_prim)
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
