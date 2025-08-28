@@ -61,6 +61,74 @@ jax2onnx/
     generate_tests.py
 ```
 
+### 4a) Module map (converter2 & plugins2)
+
+A concise, practical map of the new layers—what each file owns and how they interact.
+
+#### converter2
+
+* **`conversion_api.py` — Orchestrator (public entry)**
+
+  * Normalizes input specs (via `frontend._normalize_inputs_for_tracing`).
+  * Traces `fn` with `jax.make_jaxpr` (threads `input_params`).
+  * Creates an `IRContext` (holds builder, dtype policy, symbolic origin tables).
+  * Binds constants and graph inputs from the ClosedJaxpr.
+  * Iterates `jaxpr.eqns`; dispatches to `plugins2` by primitive name.
+  * Finalizes outputs and materializes `onnx.ModelProto` via builder.
+  * Wraps plugin activation: `import_all_plugins`, `apply_monkey_patches`, per-plugin `plugin_binding()`.
+
+* **`frontend.py` — Input spec normalization & tracing helpers**
+
+  * `_normalize_inputs_for_tracing(inputs, default_float=…)` → list of `jax.ShapeDtypeStruct` honoring f32/f64 policy.
+  * Optional `trace_to_jaxpr(...)` convenience wrapper.
+
+* **`ir_context.py` — Stateful lowering context**
+
+  * Owns the **IR builder** and JAX-var → IR-value mapping.
+  * `add_input_for_invar(var, i)` registers graph inputs; records symbolic dim origins `(Value, axis)` in `_sym_origin` / `_sym_origin_str`.
+  * `bind_const_for_var(literal_or_array, np_array)` emits initializers for constants.
+  * `get_value_for_var(var, name_hint=…, prefer_np_dtype=…)` materializes values (handles JAX `Literal`).
+  * `add_outputs_from_vars(outvars)` closes graph outputs.
+  * Utilities: `fresh_name(...)`, `cast_like(tensor, exemplar)`.
+  * `to_model_proto(name=…)` delegates to builder for serialization.
+
+* **`ir_builder.py` — Minimal ONNX IR assembler (using `onnx_ir`)**
+
+  * Holds `inputs`, `outputs`, `nodes`, `initializers`, counters, and var→value map.
+  * Creates `ir.Value` with proper `TensorType`/`Shape` respecting float policy.
+  * `add_node(op_type, inputs, outputs, **attrs)` appends `ir.Node`.
+  * Tracks symbolic dim origins (filled by `IRContext`).
+  * `to_model_proto(name, ir_version=10)` → `ir.Graph`/`ir.Model` → save with `onnx_ir.save`, reload with `onnx.load_model` to return `onnx.ModelProto`.
+
+#### plugins2
+
+* **`plugin_system.py` — Registry & glue**
+
+  * Global `PLUGIN_REGISTRY2` (primitive name → plugin instance).
+  * Base types (`PrimitiveLeafPlugin`, optional Function-level plugin type).
+  * Discovery (`import_all_plugins()`), legacy interop (`apply_monkey_patches()`), per-plugin activation (`plugin_binding()`).
+
+* **Typical leaf plugins** (examples):
+
+  * `jax/lax/add.py`, `jax/lax/sub.py`, `jax/lax/mul.py`: elementwise arithmetic → ONNX `Add`/`Sub`/`Mul`; use `ctx.cast_like` for dtype alignment.
+  * `jax/lax/broadcast_in_dim.py`: emits `Reshape`/`Expand`, builds **dynamic target shapes** with `Shape → Gather → Concat` to avoid int-coercion of symbolic dims.
+  * `jax/nnx/linear.py`: lowers `nnx.Linear` via `MatMul`/`Gemm` (+ `Add` for bias), preserving batch symbols.
+
+#### Interaction flow (end-to-end)
+
+1. **API call** → `converter2.conversion_api.to_onnx(...)`.
+2. **Input prep** → `frontend._normalize_inputs_for_tracing(...)` (f32/f64 policy; keep symbolic names like `"B"`).
+3. **Trace** → `jax.make_jaxpr` → `ClosedJaxpr`.
+4. **Context** → `IRContext` created; constants bound; inputs registered; symbolic origins recorded.
+5. **Lowering** → for each `eqn`: lookup plugin in `PLUGIN_REGISTRY2` → `plugin.lower(ctx, eqn)` emits nodes onto `ctx.builder`.
+6. **Finalize** → `ctx.add_outputs_from_vars(...)` → `ctx.to_model_proto(...)` → `onnx.ModelProto`.
+
+#### Cross-cutting policies
+
+* **Float policy:** `enable_double_precision` flows from `to_onnx` → context/builder and governs default float dtype, literal casting, and IR tensor types.
+* **Symbolic shapes:** Never coerce symbolic dims to Python ints. Plugins must construct target shapes at runtime (`Shape`/`Gather`/`Concat`) and can query dimension origins from `IRContext`.
+* **IR version:** Pinned to an ORT-safe value (IR v10) for broad runtime compatibility.
+
 ## 5) Moving `plugin_system.py`
 
 * **Action:** Move `plugin_system.py` → `jax2onnx/plugin/__init__.py` (or `plugin/registry.py`).
@@ -105,8 +173,8 @@ Stages unchanged. Two **implementation details added**:
    `_as_sds_list` recognizes string dims (e.g. `"B"`) in `input_shapes` and calls **`jax.export.symbolic_shape`** to create JAX symbolic `DimSize`s. Equal names map to the same symbol. This fixes `jax.make_jaxpr` errors like “Shapes must be 1D sequences of integer scalars”.
 
 2. **Symbol origin tracking (new):**
-   `_IRBuildContext.add_input_for_invar` records **where each symbolic dim came from**:
-   `ctx._symdim_origin[dim_obj] = (input_value, axis)` (and a string-key fallback).
+   `IRContext.add_input_for_invar` records **where each symbolic dim came from**:
+   `ctx._sym_origin[dim_obj] = (input_value, axis)` (and a string-key fallback).
    Plugins can then call `ctx.get_symbolic_dim_origin(dim)` to recover `(Value, axis)` and build runtime shapes with `Shape → Gather`.
 
 ## 11) Public API & docs
@@ -179,11 +247,11 @@ sds = jax.ShapeDtypeStruct(dims, jnp.float32)  # or float64 if requested
 ### 16.2 Recording origins (new)
 
 ```python
-# in IRBuildContext.add_input_for_invar(...)
+# in IRContext.add_input_for_invar(...)
 for ax, d in enumerate(aval.shape):
     if not isinstance(d, (int, np.integer)):
-        self._symdim_origin[d] = (val, ax)
-        self._symdim_origin_str[str(d)] = (val, ax)
+        self._sym_origin[d] = (val, ax)
+        self._sym_origin_str[str(d)] = (val, ax)
 ```
 
 ### 16.3 Building dynamic target shapes (new)
@@ -227,3 +295,121 @@ Expand(x_reshaped, tgt_shape)
 * One `tests/` tree; `*2` subtrees force IR.
 * New rules for symbolic shapes are in; `broadcast_in_dim` is green on IR.
 * Keep iterating primitive-by-primitive; flip after parity.
+
+## Appendix B — Components & Flows (JSON map)
+
+```json
+{
+  "meta": {
+    "title": "jax2onnx — onnx_ir MVP",
+    "version": "0.1",
+    "default_opset": 21
+  },
+  "components": [
+    {
+      "id": "ui",
+      "name": "API Router",
+      "layer": "api",
+      "owns": ["flag resolution", "input normalization", "error surface"],
+      "provides": ["to_onnx: route to converter1/2"],
+      "depends_on": ["converter2", "converter"]
+    },
+    {
+      "id": "converter2",
+      "name": "IR Converter (MVP)",
+      "layer": "converter",
+      "owns": ["build IR model", "serialize"],
+      "provides": ["to_onnx: ModelProto"],
+      "depends_on": ["onnx_ir", "onnx"]
+    },
+    {
+      "id": "onnx_ir",
+      "name": "onnx_ir library",
+      "layer": "third-party",
+      "provides": ["IR builder"],
+      "depends_on": []
+    },
+    {
+      "id": "onnx",
+      "name": "onnx",
+      "layer": "third-party",
+      "provides": ["ModelProto", "IR_VERSION"],
+      "depends_on": []
+    },
+    {
+      "id": "converter",
+      "name": "Converter v1",
+      "layer": "converter",
+      "owns": ["trace to Jaxpr", "drive plugins", "finalize ModelProto"],
+      "provides": ["to_onnx: ModelProto"],
+      "depends_on": ["jax", "plugins", "builder", "onnx"]
+    },
+    {
+      "id": "plugins",
+      "name": "Plugins v1 (registry)",
+      "layer": "plugins",
+      "provides": ["primitive -> emitter"],
+      "depends_on": []
+    },
+    {
+      "id": "builder",
+      "name": "ONNX Graph Builder",
+      "layer": "converter",
+      "provides": ["value_info, nodes, opset, model"],
+      "depends_on": ["onnx"]
+    },
+    {
+      "id": "jax",
+      "name": "jax",
+      "layer": "third-party",
+      "provides": ["make_jaxpr, eval_shape"],
+      "depends_on": []
+    },
+    {
+      "id": "onnxruntime",
+      "name": "onnxruntime",
+      "layer": "third-party",
+      "provides": ["inference engine (ORT)"],
+      "depends_on": []
+    },
+    {
+      "id": "tests",
+      "name": "tests/t_generator",
+      "layer": "tests",
+      "owns": ["numeric validation (ORT)"],
+      "depends_on": ["ui", "onnxruntime"]
+    }
+  ],
+  "flows": [
+    {
+      "id": "tanh_mvp",
+      "title": "tanh conversion via IR",
+      "actors": ["tests"],
+      "steps": [
+        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=True)" },
+        { "from": "ui", "to": "converter2", "message": "normalize → call" },
+        { "from": "converter2", "to": "onnx_ir", "message": "build Value/Graph/Model(ir_version=10)" },
+        { "from": "converter2", "to": "onnx", "message": "save → load as ModelProto" },
+        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+      ]
+    },
+    {
+      "id": "tanh_legacy",
+      "title": "tanh conversion via legacy pipeline",
+      "actors": ["tests"],
+      "steps": [
+        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=False)" },
+        { "from": "ui", "to": "converter", "message": "normalize → call v1" },
+        { "from": "converter", "to": "jax", "message": "trace function → Jaxpr" },
+        { "from": "jax", "to": "converter", "message": "return Jaxpr (eqns: tanh)" },
+        { "from": "converter", "to": "builder", "message": "register graph inputs (shape/dtype)" },
+        { "from": "converter", "to": "plugins", "message": "lookup 'tanh' plugin" },
+        { "from": "plugins", "to": "builder", "message": "emit Node('Tanh', x→y)" },
+        { "from": "converter", "to": "builder", "message": "register outputs, opset imports" },
+        { "from": "converter", "to": "onnx", "message": "build ModelProto" },
+        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+      ]
+    }
+  ]
+}
+```
