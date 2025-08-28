@@ -1,25 +1,141 @@
 {
   "meta": {
     "title": "jax2onnx — onnx_ir MVP",
-    "version": "0.1",
-    "default_opset": 21
+    "version": "0.2",
+    "default_opset": 21,
+    "ir_version": 10,
+    "jax_min": "0.6",
+    "flags": ["JAX2ONNX_USE_ONNX_IR", "JAX2ONNX_SHADOW_COMPARE", "JAX2ONNX_DEBUG_IR_DUMP"]
   },
   "components": [
     {
       "id": "ui",
       "name": "API Router",
       "layer": "api",
-      "owns": ["flag resolution", "input normalization", "error surface"],
+      "owns": ["flag resolution", "input normalization pass-through", "error surface"],
       "provides": ["to_onnx: route to converter1/2"],
       "depends_on": ["converter2", "converter"]
     },
     {
-      "id": "converter2",
-      "name": "IR Converter (MVP)",
+      "id": "frontend2",
+      "name": "Tracing Frontend (converter2.frontend)",
       "layer": "converter",
-      "owns": ["build IR model", "serialize"],
+      "owns": [
+        "normalize inputs to ShapeDtypeStruct (supports string dims)",
+        "create JAX symbolic dims via jax.export.symbolic_shape",
+        "trace_to_jaxpr wrapper (optional)"
+      ],
+      "provides": [
+        "_normalize_inputs_for_tracing(default_float)",
+        "trace_to_jaxpr(fn, inputs, input_params)"
+      ],
+      "depends_on": ["jax"]
+    },
+    {
+      "id": "ir_builder2",
+      "name": "IRBuilder (converter2.ir_builder)",
+      "layer": "converter",
+      "owns": [
+        "fresh_name counters",
+        "collect inputs/outputs/nodes/initializers",
+        "_var2val mapping",
+        "symbol origin maps: _sym_origin, _sym_origin_str",
+        "dtype mapping np→ir"
+      ],
+      "provides": ["Value/Node construction primitives"],
+      "depends_on": ["onnx_ir", "numpy"]
+    },
+    {
+      "id": "ir_context",
+      "name": "IRContext (converter2.ir_context)",
+      "layer": "converter",
+      "owns": [
+        "wrap IRBuilder; expose builder to plugins",
+        "bind graph inputs/outputs",
+        "bind_const_for_var (Literal-safe)",
+        "get_value_for_var (Literal special case; dtype alignment)",
+        "symbolic dim origin tracking (Value, axis)",
+        "shape normalization to ir.Shape with symbolic strings",
+        "cast_like helper (ONNX CastLike)",
+        "to_model_proto via onnx_ir.save → onnx.load_model"
+      ],
+      "provides": ["fresh_name", "add_input_for_invar", "add_outputs_from_vars", "get_symbolic_dim_origin", "cast_like", "to_model_proto"],
+      "depends_on": ["ir_builder2", "onnx_ir", "onnx", "numpy"]
+    },
+    {
+      "id": "plugin_system2",
+      "name": "Plugin System v2 (plugins2.plugin_system)",
+      "layer": "plugins",
+      "owns": [
+        "registry PLUGIN_REGISTRY2",
+        "PrimitiveLeafPlugin / FunctionPlugin base classes",
+        "plugin_binding() context manager",
+        "import_all_plugins()",
+        "apply_monkey_patches() (legacy compatibility)"
+      ],
+      "provides": ["lookup primitive → plugin", "activate plugin worlds"],
+      "depends_on": ["plugins2"]
+    },
+    {
+      "id": "plugins2",
+      "name": "Plugins v2 set",
+      "layer": "plugins",
+      "owns": [
+        "lower JAX primitives using IRContext + onnx_ir",
+        "dynamic target shapes via Shape/Gather/Concat (no int-cast of symbols)",
+        "dtype alignment via CastLike"
+      ],
+      "provides": [
+        "jax.lax.add/mul/sub (elementwise)",
+        "jax.lax.broadcast_in_dim (symbolic-aware)",
+        "nnx.linear (no-bias + high-rank variants)"
+      ],
+      "depends_on": ["plugin_system2", "ir_context"]
+    },
+    {
+      "id": "converter2",
+      "name": "IR Converter (converter2.conversion_api)",
+      "layer": "converter",
+      "owns": [
+        "feature-flagged entrypoint",
+        "_activate_plugin_worlds (import + bindings + legacy patches)",
+        "trace to ClosedJaxpr using frontend2 normalization",
+        "construct IRContext, bind constvars",
+        "walk jpr.eqns and dispatch to plugins2",
+        "finalize outputs and serialize ModelProto",
+        "ORT-safe ir_version pin (10)"
+      ],
+      "provides": ["to_onnx(fn, inputs, input_params, opset, enable_double_precision, ...) → ModelProto"],
+      "depends_on": ["frontend2", "plugin_system2", "plugins2", "ir_context", "onnx_ir", "onnx", "jax"]
+    },
+    {
+      "id": "converter",
+      "name": "Converter v1",
+      "layer": "converter",
+      "owns": ["trace to Jaxpr", "drive legacy plugins", "finalize ModelProto"],
       "provides": ["to_onnx: ModelProto"],
-      "depends_on": ["onnx_ir", "onnx"]
+      "depends_on": ["jax", "plugins", "builder", "onnx"]
+    },
+    {
+      "id": "plugins",
+      "name": "Plugins v1 (registry)",
+      "layer": "plugins",
+      "provides": ["primitive → emitter"],
+      "depends_on": []
+    },
+    {
+      "id": "builder",
+      "name": "ONNX Graph Builder (v1)",
+      "layer": "converter",
+      "provides": ["value_info, nodes, opset, model"],
+      "depends_on": ["onnx"]
+    },
+    {
+      "id": "jax",
+      "name": "jax",
+      "layer": "third-party",
+      "provides": ["make_jaxpr", "export.symbolic_shape"],
+      "depends_on": []
     },
     {
       "id": "onnx_ir",
@@ -36,77 +152,76 @@
       "depends_on": []
     },
     {
-      "id": "converter",
-      "name": "Converter v1",
-      "layer": "converter",
-      "owns": ["trace to Jaxpr", "drive plugins", "finalize ModelProto"],
-      "provides": ["to_onnx: ModelProto"],
-      "depends_on": ["jax", "plugins", "builder", "onnx"]
-    },
-    {
-      "id": "plugins",
-      "name": "Plugins v1 (registry)",
-      "layer": "plugins",
-      "provides": ["primitive -> emitter"],
-      "depends_on": []
-    },
-    {
-      "id": "builder",
-      "name": "ONNX Graph Builder",
-      "layer": "converter",
-      "provides": ["value_info, nodes, opset, model"],
-      "depends_on": ["onnx"]
-    },
-    {
-      "id": "jax",
-      "name": "jax",
-      "layer": "third-party",
-      "provides": ["make_jaxpr, eval_shape"],
-      "depends_on": []
-    },
-    {
       "id": "onnxruntime",
       "name": "onnxruntime",
       "layer": "third-party",
-      "provides": ["inference engine (ORT)"],
-      "depends_on": []
+      "provides": ["inference engine (ORT)"]
     },
     {
       "id": "tests",
       "name": "tests/t_generator",
       "layer": "tests",
-      "owns": ["numeric validation (ORT)"],
+      "owns": ["numeric validation (ORT)", "routes flag to API"],
+      "depends_on": ["ui", "onnxruntime"]
+    },
+    {
+      "id": "tests2",
+      "name": "tests/*2 subtree",
+      "layer": "tests",
+      "owns": ["force IR path via conftest", "exercise symbolic shapes"],
       "depends_on": ["ui", "onnxruntime"]
     }
   ],
   "flows": [
     {
-      "id": "tanh_mvp",
-      "title": "tanh conversion via IR",
-      "actors": ["tests"],
+      "id": "symbolic_tracing",
+      "title": "trace with string dims → JAX symbols",
+      "actors": ["tests2"],
       "steps": [
-        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=True)" },
-        { "from": "ui", "to": "converter2", "message": "normalize → call" },
-        { "from": "converter2", "to": "onnx_ir", "message": "build Value/Graph/Model(ir_version=10)" },
-        { "from": "converter2", "to": "onnx", "message": "save → load as ModelProto" },
-        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+        { "from": "tests2", "to": "ui", "message": "to_onnx(fn, inputs=[(\"B\", 128)], use_onnx_ir=True)" },
+        { "from": "ui", "to": "converter2", "message": "call" },
+        { "from": "converter2", "to": "frontend2", "message": "_normalize_inputs_for_tracing(default_float) → ShapeDtypeStruct(B,128) using jax.export.symbolic_shape" },
+        { "from": "converter2", "to": "jax", "message": "make ClosedJaxpr" }
       ]
     },
     {
-      "id": "tanh_legacy",
-      "title": "tanh conversion via legacy pipeline",
-      "actors": ["tests"],
+      "id": "broadcast_in_dim_symbolic",
+      "title": "broadcast_in_dim with dynamic B",
+      "actors": ["tests2"],
       "steps": [
-        { "from": "tests", "to": "ui", "message": "to_onnx(fn=tanh, inputs=[(3,)], use_onnx_ir=False)" },
-        { "from": "ui", "to": "converter", "message": "normalize → call v1" },
-        { "from": "converter", "to": "jax", "message": "trace function → Jaxpr" },
-        { "from": "jax", "to": "converter", "message": "return Jaxpr (eqns: tanh)" },
-        { "from": "converter", "to": "builder", "message": "register graph inputs (shape/dtype)" },
-        { "from": "converter", "to": "plugins", "message": "lookup 'tanh' plugin" },
-        { "from": "plugins", "to": "builder", "message": "emit Node('Tanh', x→y)" },
-        { "from": "converter", "to": "builder", "message": "register outputs, opset imports" },
-        { "from": "converter", "to": "onnx", "message": "build ModelProto" },
-        { "from": "ui", "to": "tests", "message": "return ModelProto" }
+        { "from": "converter2", "to": "ir_context", "message": "add_input_for_invar records origin: B → (in0, axis=0)" },
+        { "from": "plugins2", "to": "ir_context", "message": "get_value_for_var(x); build target shape via Shape(in0) → Gather([0]) + const [1] + ... → Concat(axis=0)" },
+        { "from": "plugins2", "to": "ir_context", "message": "emit Reshape/Expand nodes; CastLike if needed" },
+        { "from": "converter2", "to": "ir_context", "message": "add_outputs_from_vars; to_model_proto" }
+      ]
+    },
+    {
+      "id": "elemwise_with_literal",
+      "title": "add/mul/sub with JAX Literal",
+      "actors": ["tests2"],
+      "steps": [
+        { "from": "converter2", "to": "plugin_system2", "message": "activate plugin worlds" },
+        { "from": "plugins2", "to": "ir_context", "message": "get_value_for_var(Literal 0.5) → initializer Value (not stored in _var2val)" },
+        { "from": "plugins2", "to": "ir_context", "message": "emit Node('Add'|'Mul'|'Sub') with broadcastable inputs" }
+      ]
+    },
+    {
+      "id": "linear_no_bias_dynamic",
+      "title": "nnx.linear (no bias), high-rank, dynamic batch",
+      "actors": ["tests2"],
+      "steps": [
+        { "from": "converter2", "to": "ir_context", "message": "bind W as initializer (dtype coerced by enable_double_precision)" },
+        { "from": "plugins2", "to": "ir_context", "message": "MatMul / Gemm emission" },
+        { "from": "plugins2", "to": "ir_context", "message": "target reshape built with Shape/Gather/Concat if needed" }
+      ]
+    },
+    {
+      "id": "serialize",
+      "title": "serialize via onnx_ir",
+      "actors": ["converter2"],
+      "steps": [
+        { "from": "ir_context", "to": "onnx_ir", "message": "save(Model, ir_version=10) → tmp.onnx" },
+        { "from": "converter2", "to": "onnx", "message": "load_model(tmp.onnx) → ModelProto" }
       ]
     }
   ]
