@@ -6,6 +6,9 @@ from jax import core
 from jax.extend.core import Primitive
 from jax._src.typing import Array
 import numpy as np
+import jax.numpy as jnp
+from jax import lax
+from jax.interpreters import ad
 
 logger_wrapper = logging.getLogger("jax2onnx.converter.patched_callable_wrapper")
 
@@ -32,6 +35,29 @@ class PatchedCallableWrapper:
         logger_wrapper.debug(
             f"Wrapper created for {original_fn.__name__} using primitive {primitive.name}"
         )
+
+        # --- AD support for specific patched callables ---------------------
+        # jnp.cumsum is LINEAR, so JVP is just cumsum on tangents and the
+        # transpose is reverse-cumsum.
+        if primitive.name in ("jnp.cumsum", "jax.numpy.cumsum", "numpy.cumsum"):
+
+            def _cumsum_jvp(primals, tangents, *, axis=0, dtype=None, **kw):
+                (x,) = primals
+                (tx,) = tangents
+                y = jnp.cumsum(x, axis=axis, dtype=dtype)
+                ty = jnp.cumsum(tx, axis=axis, dtype=dtype)
+                return y, ty
+
+            ad.primitive_jvps[primitive] = _cumsum_jvp
+
+            def _cumsum_transpose(ct, x, *, axis=0, dtype=None, **kw):
+                # ct can be Zero; let JAX handle it
+                if isinstance(ct, ad.Zero):
+                    return (ct,)
+                # Transpose(H) for cumsum is reverse cumsum.
+                return (lax.cumsum(ct, axis=axis, reverse=True),)
+
+            ad.primitive_transposes[primitive] = _cumsum_transpose
 
     def __call__(self, *args, **kwargs):
         """
