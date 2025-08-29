@@ -8,6 +8,9 @@ dist
 tests/plugins
 tests/examples
 tests/primitives
+tests/plugins2
+tests/examples2
+tests/primitives2
 .vscode
 python-venv
 jax2onnx.log
