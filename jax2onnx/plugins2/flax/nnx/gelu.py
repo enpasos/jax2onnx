@@ -1,9 +1,8 @@
 # file: jax2onnx/plugins2/flax/nnx/gelu.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable
+from typing import TYPE_CHECKING, ClassVar
 
 import jax
-import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
@@ -24,7 +23,9 @@ if TYPE_CHECKING:
 @register_primitive(
     jaxpr_primitive="nnx.gelu",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.gelu",
-    onnx=[{"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}],
+    onnx=[
+        {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
+    ],
     since="v0.1.0",
     context="primitives2.nnx",
     component="gelu",
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
 )
 class GeluPlugin(PrimitiveLeafPlugin):
     """IR-only plugin for flax.nnx.gelu → ONNX Gelu."""
+
     _PRIM: ClassVar[Primitive] = Primitive("nnx.gelu")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -86,7 +88,10 @@ class GeluPlugin(PrimitiveLeafPlugin):
 
         # Output value
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-        y_meta = tuple(_dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(len(x_shape)))
+        y_meta = tuple(
+            _dim_label_from_value_or_aval(x_val, x_shape, i)
+            for i in range(len(x_shape))
+        )
         _stamp_type_and_shape(y_val, y_meta)
 
         # ONNX Gelu node (attribute: 'approximate' in {'tanh','none'})
@@ -98,7 +103,9 @@ class GeluPlugin(PrimitiveLeafPlugin):
                 inputs=[x_val],
                 outputs=[y_val],
                 name=ctx.fresh_name("Gelu"),
-                attributes=[ir.Attr("approximate", ir.AttributeType.STRING, approx_str)],
+                attributes=[
+                    ir.Attr("approximate", ir.AttributeType.STRING, approx_str)
+                ],
             )
         )
 
@@ -120,7 +127,9 @@ class GeluPlugin(PrimitiveLeafPlugin):
             MonkeyPatchSpec(
                 target="flax.nnx",
                 attr="gelu",
-                make_value=lambda orig: (lambda x, approximate=True: cls._gelu(x, approximate=approximate)),
+                make_value=lambda orig: (
+                    lambda x, approximate=True: cls._gelu(x, approximate=approximate)
+                ),
                 delete_if_missing=False,
             ),
         ]
@@ -128,7 +137,11 @@ class GeluPlugin(PrimitiveLeafPlugin):
     @classmethod
     def ensure_abstract_eval_bound(cls):
         if not cls._ABSTRACT_EVAL_BOUND:
-            cls._PRIM.def_abstract_eval(lambda x, *, approximate=True: cls.abstract_eval(x, approximate=approximate))
+            cls._PRIM.def_abstract_eval(
+                lambda x, *, approximate=True: cls.abstract_eval(
+                    x, approximate=approximate
+                )
+            )
             cls._ABSTRACT_EVAL_BOUND = True
 
 
