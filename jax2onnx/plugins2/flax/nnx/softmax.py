@@ -19,7 +19,12 @@ if TYPE_CHECKING:
 @register_primitive(
     jaxpr_primitive="nnx.softmax",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
-    onnx=[{"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"}],
+    onnx=[
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        }
+    ],
     since="v0.1.0",
     context="primitives2.nnx",
     component="softmax",
