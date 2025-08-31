@@ -23,7 +23,7 @@ def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
     return ir.Shape(tuple(out))
 
 
-class IRContext: 
+class IRContext:
     def __init__(
         self,
         *,
@@ -45,11 +45,12 @@ class IRContext:
         # Track where each symbolic dim came from (object if hashable, and always string)
         self._sym_origin: dict[object, tuple[ir.Value, int]] = {}
         self._sym_origin_str: dict[str, tuple[ir.Value, int]] = {}
+        # Name counters for fresh_name(); keep a typed attribute so mypy is happy.
+        # Using dict[str, int] since we only ever index by the base string.
+        self._name_counters: dict[str, int] = {}
 
     def fresh_name(self, base: str) -> str:
-        # Back-compat: lazily initialize the counter dict if it doesn't exist
-        if not hasattr(self, "_name_counters") or self._name_counters is None:
-            self._name_counters = {}
+        # Counter dict is initialized in __init__; no lazy setup needed.
         i = self._name_counters.get(base, 0)
         self._name_counters[base] = i + 1
         # Use underscore-separated numeric suffixes: in_0, out_0, Reshape_0, ...

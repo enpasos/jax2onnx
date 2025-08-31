@@ -2,12 +2,18 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import numpy as np
-import onnx_ir as ir 
+import onnx_ir as ir
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-def cast_param_like(ctx: "IRBuildContext", param: ir.Value, like: ir.Value, name_hint: str = "param_cast") -> ir.Value:
+
+def cast_param_like(
+    ctx: "IRBuildContext",
+    param: ir.Value,
+    like: ir.Value,
+    name_hint: str = "param_cast",
+) -> ir.Value:
     """
     If `param`'s dtype differs from `like`'s dtype, insert a CastLike node to cast
     `param` to `like`'s dtype. Never casts `like`. Returns the value to use downstream.
@@ -30,13 +36,12 @@ def cast_param_like(ctx: "IRBuildContext", param: ir.Value, like: ir.Value, name
         ir.Node(
             op_type="CastLike",
             domain="",
-            inputs=[param, like],   # cast `param` to dtype of `like`
+            inputs=[param, like],  # cast `param` to dtype of `like`
             outputs=[out],
             name=ctx.fresh_name("CastLike"),
         )
     )
     return out
-
 
 
 # --- NEW: inline reshape for constant parameters (no runtime node) ---
@@ -54,10 +59,9 @@ def inline_reshape_initializer(
     np_arr = np.asarray(arr).reshape(new_shape)
     reshaped = ir.Value(
         name=ctx.fresh_name(name_hint),
-        type=val.type,                       # keep dtype
+        type=val.type,  # keep dtype
         shape=ir.Shape(tuple(int(s) for s in new_shape)),
         const_value=ir.tensor(np_arr),
     )
     ctx._initializers.append(reshaped)
     return reshaped
-    return out

@@ -329,4 +329,49 @@ def to_onnx(
 
     # 6) Model proto
     model = ctx.to_model_proto(name=model_name)
+
+    # ------------------------------------------------------------------
+    # FIX: Symbolic dimension labels (e.g. "B") can get dropped to None
+    # when serializing graph ValueInfo. Re-stamp them from the JAX avals.
+    # ------------------------------------------------------------------
+    def _label_from_dim(d):
+        try:
+            # jax.ShapeDtypeStruct / aval dim with .param (newer JAX)
+            if hasattr(d, "param") and d.param:
+                return str(d.param)
+        except Exception:
+            pass
+        return d if isinstance(d, str) else None
+
+    def _stamp_vi_from_aval_shape(vi, aval_shape):
+        try:
+            dims = vi.type.tensor_type.shape.dim
+        except Exception:
+            return
+        n = min(len(dims), len(aval_shape))
+        for i in range(n):
+            lbl = _label_from_dim(aval_shape[i])
+            if not lbl:
+                continue
+            d = dims[i]
+            # Only write when not fixed by a concrete value;
+            # also overwrite empty or auto-generated "dynamic_*" params.
+            has_value = getattr(d, "dim_value", None) not in (None, 0)
+            has_param = bool(getattr(d, "dim_param", ""))
+            is_auto = has_param and getattr(d, "dim_param", "").startswith("dynamic_")
+            if not has_value and (not has_param or is_auto):
+                d.dim_param = lbl
+
+    # Inputs
+    for var, vi in zip(jpr.invars, model.graph.input):
+        aval = getattr(var, "aval", None)
+        if aval is not None:
+            _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
+
+    # Outputs
+    for var, vi in zip(jpr.outvars, model.graph.output):
+        aval = getattr(var, "aval", None)
+        if aval is not None:
+            _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
+
     return model

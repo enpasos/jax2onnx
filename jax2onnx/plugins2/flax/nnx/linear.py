@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, ClassVar
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -12,6 +12,13 @@ import onnx_ir as ir
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
+from jax2onnx.plugins2._ir_shapes import (
+    _stamp_type_and_shape,
+    _is_static_int,
+    _dim_label_from_value_or_aval,
+    _ensure_value_info,
+    is_shape_all_unknown,
+)
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -93,10 +100,10 @@ if TYPE_CHECKING:
 )
 class LinearPlugin(PrimitiveLeafPlugin):
     # Private primitive for this world (no import-time global assignment)
-    _PRIM = Primitive("nnx.linear")
+    _PRIM: ClassVar[Primitive] = Primitive("nnx.linear")
     _PRIM.multiple_results = False
-    _ORIGINAL_LINEAR_CALL: Callable | None = None
-    _ABSTRACT_EVAL_BOUND: bool = False
+    _ORIGINAL_LINEAR_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------- abstract eval ----------
     @staticmethod
@@ -153,58 +160,71 @@ class LinearPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
         use_bias = bool(eqn.params["use_bias"])
 
+        # Values
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         k_val = ctx.get_value_for_var(kernel_var, name_hint=ctx.fresh_name("kernel"))
         if use_bias:
             b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
 
-        # Unify dtypes: cast *parameters* to the input dtype (mirrors JAX promotion).
-        # Use the shared helper so all plugins behave consistently.
+        # Preserve original input meta shape on graph.input if the binder left it unknown
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if is_shape_all_unknown(getattr(x_val, "shape", None)):
+            if any(d is not None for d in x_shape):
+                _stamp_type_and_shape(x_val, x_shape)
+
+        # Cast parameters AFTER shaping/promotion decisions (promote params -> input dtype)
         k_val = cast_param_like(ctx, k_val, x_val, "kernel_cast")
         if use_bias:
             b_val = cast_param_like(ctx, b_val, x_val, "bias_cast")
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
         in_features = int(k_shape[0])
         out_features = int(k_shape[1])
-        need_flatten = len(x_shape) > 2
 
+        # Flatten if rank > 2
+        need_flatten = len(x_shape) > 2
         gemm_in = x_val
         if need_flatten:
-            rs_val = ir.Value(
+            x2d_shape_c = ir.Value(
                 name=ctx.fresh_name("x2d_shape"),
                 type=ir.TensorType(ir.DataType.INT64),
                 shape=ir.Shape((2,)),
                 const_value=ir.tensor(np.asarray([-1, in_features], dtype=np.int64)),
             )
-            ctx._initializers.append(rs_val)
+            ctx._initializers.append(x2d_shape_c)
             x2d = ir.Value(
-                name=ctx.fresh_name("x2d"),
+                name=ctx.fresh_name("input_reshape"),
                 type=x_val.type,
-                # batch is unknown; let IR carry an unknown dim
                 shape=ir.Shape((None, in_features)),
             )
             ctx.add_node(
                 ir.Node(
                     op_type="Reshape",
                     domain="",
-                    inputs=[x_val, rs_val],
+                    inputs=[x_val, x2d_shape_c],
                     outputs=[x2d],
                     name=ctx.fresh_name("Reshape"),
                 )
             )
             gemm_in = x2d
 
-        # Gemm: if we will reshape later, write into a fresh temp Value
+        # Gemm
         if need_flatten:
             gemm_out = ir.Value(
-                name=ctx.fresh_name("gemm_out"),
-                type=x_val.type,  # output dtype = input dtype (params are cast to it)
+                name=ctx.fresh_name("gemm_output"),
+                type=x_val.type,
                 shape=ir.Shape((None, out_features)),
             )
         else:
             gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+            # Preserve symbolic batch labels on the direct Gemm output
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            y_meta = tuple(
+                [_dim_label_from_value_or_aval(x_val, x_shape, i) for i in x_batch_idx]
+                + [int(out_features)]
+            )
+            _stamp_type_and_shape(gemm_out, y_meta)
+
         inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
         ctx.add_node(
             ir.Node(
@@ -224,86 +244,124 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
         if need_flatten:
-            shp = ir.Value(
-                name=ctx.fresh_name("x_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(x_shape),)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[x_val],
-                    outputs=[shp],
-                    name=ctx.fresh_name("Shape"),
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+
+            if all_batch_static:
+                final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
+                final_shape_c = ir.Value(
+                    name=ctx.fresh_name("final_shape_c"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(final_vals),)),
+                    const_value=ir.tensor(np.array(final_vals, dtype=np.int64)),
                 )
-            )
+                ctx._initializers.append(final_shape_c)
 
-            starts = ir.Value(
-                name=ctx.fresh_name("slice_starts"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
-                const_value=ir.tensor(np.array([0], dtype=np.int64)),
-            )
-            ends = ir.Value(
-                name=ctx.fresh_name("slice_ends"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
-                const_value=ir.tensor(np.array([len(x_shape) - 1], dtype=np.int64)),
-            )
-            ctx._initializers.extend([starts, ends])
-
-            batch_dims = ir.Value(
-                name=ctx.fresh_name("batch_dims"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(x_shape) - 1,)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Slice",
-                    domain="",
-                    inputs=[shp, starts, ends],
-                    outputs=[batch_dims],
-                    name=ctx.fresh_name("Slice"),
+                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+                y_meta = tuple(
+                    [
+                        _dim_label_from_value_or_aval(x_val, x_shape, i)
+                        for i in x_batch_idx
+                    ]
+                    + [int(out_features)]
                 )
-            )
-
-            of = ir.Value(
-                name=ctx.fresh_name("out_features_c"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
-                const_value=ir.tensor(np.array([out_features], dtype=np.int64)),
-            )
-            ctx._initializers.append(of)
-
-            final_shape = ir.Value(
-                name=ctx.fresh_name("final_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(x_shape),)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[batch_dims, of],
-                    outputs=[final_shape],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
+                _stamp_type_and_shape(y_val, y_meta)
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[gemm_out, final_shape_c],
+                        outputs=[y_val],
+                        name=ctx.fresh_name("Reshape"),
+                    )
                 )
-            )
-
-            reshaped_out = ctx.get_value_for_var(
-                out_var, name_hint=ctx.fresh_name("out")
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[gemm_out, final_shape],
-                    outputs=[reshaped_out],
-                    name=ctx.fresh_name("Reshape"),
+                _stamp_type_and_shape(y_val, y_meta)
+                _ensure_value_info(ctx, y_val)
+            else:
+                shp = ir.Value(
+                    name=ctx.fresh_name("x_shape"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape),)),
                 )
-            )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Shape",
+                        domain="",
+                        inputs=[x_val],
+                        outputs=[shp],
+                        name=ctx.fresh_name("Shape"),
+                    )
+                )
+                starts = ir.Value(
+                    name=ctx.fresh_name("slice_starts"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.array([0], dtype=np.int64)),
+                )
+                ends = ir.Value(
+                    name=ctx.fresh_name("slice_ends"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.array([len(x_shape) - 1], dtype=np.int64)),
+                )
+                ctx._initializers.extend([starts, ends])
+                batch_dims = ir.Value(
+                    name=ctx.fresh_name("batch_dims"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape) - 1,)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Slice",
+                        domain="",
+                        inputs=[shp, starts, ends],
+                        outputs=[batch_dims],
+                        name=ctx.fresh_name("Slice"),
+                    )
+                )
+                of = ir.Value(
+                    name=ctx.fresh_name("out_features_c"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.array([out_features], dtype=np.int64)),
+                )
+                ctx._initializers.append(of)
+                final_shape = ir.Value(
+                    name=ctx.fresh_name("final_shape"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape),)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Concat",
+                        domain="",
+                        inputs=[batch_dims, of],
+                        outputs=[final_shape],
+                        name=ctx.fresh_name("Concat"),
+                        attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
+                    )
+                )
+                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+                y_meta = tuple(
+                    [
+                        _dim_label_from_value_or_aval(x_val, x_shape, i)
+                        for i in x_batch_idx
+                    ]
+                    + [int(out_features)]
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[gemm_out, final_shape],
+                        outputs=[y_val],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                _ensure_value_info(ctx, y_val)
 
     # ---------- monkey-patch helper (single, non-duplicated) ----------
     @staticmethod
@@ -322,37 +380,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls):
-        """
-        Declare what this plugin needs patched while active.
-        - bind flax.nnx.linear_p to our private Primitive
-        - monkey-patch nnx.Linear.__call__ to emit our Primitive
-        """
-        return [
-            AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
-            MonkeyPatchSpec(
-                target="flax.nnx.Linear",
-                attr="__call__",
-                make_value=lambda orig: cls.get_monkey_patch(orig),
-                delete_if_missing=False,
-            ),
-        ]
-
-    @classmethod
-    def ensure_abstract_eval_bound(cls):
-        if not getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
-            cls._PRIM.def_abstract_eval(cls.abstract_eval)
-            cls._ABSTRACT_EVAL_BOUND = True
-            return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
-
-        return patched
-
-    @classmethod
-    def binding_specs(cls):
-        """
-        Declare what this plugin needs patched while active.
-        - bind flax.nnx.linear_p to our private Primitive
-        - monkey-patch nnx.Linear.__call__ to emit our Primitive
-        """
+        """Patch bindings while active."""
         return [
             AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -368,3 +396,11 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
+
+
+@LinearPlugin._PRIM.def_impl
+def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
+    if use_bias and bias is not None:
+        y = y + bias
+    return y

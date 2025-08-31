@@ -2,17 +2,25 @@
 
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable, ClassVar
 import numpy as np
 import jax
-import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins2._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec 
+from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins2._ir_shapes import (
+    _stamp_type_and_shape,
+    _prod,
+    _as_ir_dim_label,
+    _to_ir_dim_for_shape,
+    _is_static_int,
+    _dim_label_from_value_or_aval,
+    _ensure_value_info as _add_value_info,  # avoid local name shadowing
+)
 
 
 if TYPE_CHECKING:
@@ -73,64 +81,132 @@ def _shape_prefix_of(coll, prefix: str):
             dims.append(None)
     return tuple(dims)
 
-def _prod(xs: Iterable[int]) -> int:
-    """Product of ints; tolerant to numpy scalars/py ints."""
-    p = 1
-    for v in xs:
-        p *= int(v)
-    return int(p)
+
+# put near the other helpers
+# def _stamp_type_and_shape(v: ir.Value, dims):
+#     """Ensure both meta and tensor-type shape carry symbolic names like 'B'."""
+#     ir_dims = tuple(_to_ir_dim_for_shape(d) for d in dims)
+#     sh = ir.Shape(ir_dims)
+#     # meta (for value_info / viewers)
+#     v.shape = sh
+#     # type (what gets serialized into graph.input/output)
+#     try:
+#         if isinstance(getattr(v, "type", None), ir.TensorType):
+#             v.type = ir.TensorType(v.type.dtype, sh)
+#     except Exception:
+#         # Never fail the build because of stamping
+#         pass
+
+
+# def _prod(xs: Iterable[int]) -> int:
+#     """Product of ints; tolerant to numpy scalars/py ints."""
+#     p = 1
+#     for v in xs:
+#         p *= int(v)
+#     return int(p)
 
 # Best-effort conversion of an IR/JAX dimension into an ONNX dim label:
 #  - ints → int dim_value
 #  - strings → dim_param (e.g., "B")
 #  - objects with `.param` / `.value` (if present) → use them
 #  - otherwise → None (unknown)
-def _as_ir_dim_label(d):
-    try:
-        if hasattr(d, "param") and d.param:
-            return d.param
-        if hasattr(d, "value") and d.value is not None:
-            return int(d.value)
-    except Exception:
-        pass
-    if isinstance(d, (int, np.integer)):
-        return int(d)
-    if isinstance(d, str):
-        return d
-    if d is None:
-        return None
-    return None
+# def _as_ir_dim_label(d):
+#     """
+#     Best-effort extraction of a printable dim label from onnx_ir dims.
+#     Handles:
+#       - ir.SymbolicDim('B')  -> 'B'
+#       - objects with .param/.value (e.g., JAX ShapedArray dims)
+#       - plain ints/strings/None
+#     """
+#     # 1) onnx_ir.SymbolicDim
+#     try:
+#         if isinstance(d, ir.SymbolicDim):  # type: ignore[attr-defined]
+#             # common attribute names used by different builds
+#             for attr in ("param", "name", "symbol", "label"):
+#                 v = getattr(d, attr, None)
+#                 if v:
+#                     return str(v)
+#             # fallback: parse from repr "SymbolicDim(B)" or "SymbolicDim('B')"
+#             s = repr(d)
+#             m = re.search(r"SymbolicDim\(['\"]?([A-Za-z0-9_]+)['\"]?\)", s)
+#             if m:
+#                 return m.group(1)
+#             # last resort: str(d) if it looks like a bare symbol
+#             s = str(d)
+#             if s and s.isidentifier():
+#                 return s
+#     except Exception:
+#         pass
+#     # 2) generic objects with .param/.value (e.g., JAX ShapedArray dims)
+#     try:
+#         if hasattr(d, "param") and getattr(d, "param", None):
+#             return getattr(d, "param")
+#         if hasattr(d, "value") and getattr(d, "value", None) is not None:
+#             return int(getattr(d, "value"))
+#     except Exception:
+#         pass
+#     # 3) primitives
+#     if isinstance(d, (int, np.integer)):
+#         return int(d)
+#     if isinstance(d, str):
+#         return d
+#     if d is None:
+#         return None
+#     return None
 
-def _is_static_int(d) -> bool:
-    """True if `d` is a known, non-negative integer."""
-    return isinstance(d, (int, np.integer)) and int(d) >= 0
+# Convert a dim “label” into what onnx_ir expects inside a Shape:
+# - ints -> int
+# - strings like "B" -> ir.SymbolicDim("B")
+# - objects with .param/.value mapped accordingly
+# - existing ir.SymbolicDim passthrough
+# def _to_ir_dim_for_shape(d):
+#     try:
+#         # Already a SymbolicDim from onnx_ir
+#         if isinstance(d, ir.SymbolicDim):  # type: ignore[attr-defined]
+#             return d
+#         if hasattr(d, "param") and d.param:
+#             return ir.SymbolicDim(str(d.param))  # type: ignore[attr-defined]
+#         if hasattr(d, "value") and d.value is not None:
+#             return int(d.value)
+#     except Exception:
+#         pass
+#     if isinstance(d, (int, np.integer)):
+#         return int(d)
+#     if isinstance(d, str):
+#         return ir.SymbolicDim(d)  # type: ignore[attr-defined]
+#     if d is None:
+#         return None
+#     return None
 
-def _dim_label_from_value_or_aval(val: ir.Value, aval_shape: tuple, i: int):
-    """
-    Read the i-th dimension label, preferring the IR Value's recorded shape
-    (which may preserve symbolic names like 'B'), and falling back to the JAX
-    aval shape if the IR shape is missing/anonymous.
-    """
-    shp = getattr(val, "shape", None)
-    if shp is not None:
-        dims = getattr(shp, "dims", None)
-        if dims is None:
-            try:
-                dims = list(shp)
-            except Exception:
-                dims = None
-        if dims is not None and i < len(dims):
-            return _as_ir_dim_label(dims[i])
-    if i < len(aval_shape):
-        return _as_ir_dim_label(aval_shape[i])
-    return None
+# def _is_static_int(d) -> bool:
+#     """True if `d` is a known, non-negative integer."""
+#     return isinstance(d, (int, np.integer)) and int(d) >= 0
 
-
+# def _dim_label_from_value_or_aval(val: ir.Value, aval_shape: tuple, i: int):
+#     """
+#     Read the i-th dimension label, preferring the IR Value's recorded shape
+#     (which may preserve symbolic names like 'B'), and falling back to the JAX
+#     aval shape if the IR shape is missing/anonymous.
+#     """
+#     shp = getattr(val, "shape", None)
+#     if shp is not None:
+#         dims = getattr(shp, "dims", None)
+#         if dims is None:
+#             try:
+#                 dims = list(shp)
+#             except Exception:
+#                 dims = None
+#         if dims is not None and i < len(dims):
+#             return _as_ir_dim_label(dims[i])
+#     if i < len(aval_shape):
+#         return _as_ir_dim_label(aval_shape[i])
+#     return None
 
 
 def _b_matches(x):
     """Batch dim 'B' is considered equivalent to anonymous dynamic (None)."""
     return x in ("B", None)
+
 
 def _eq_oldworld_input(s):
     """
@@ -145,47 +221,41 @@ def _eq_oldworld_input(s):
         and (s[3] in (16, None))
     )
 
+
 def _eq_oldworld_output(s):
     """Require the old-world output shape B×8×32 (allow 'B'~None only for batch)."""
     return len(s) == 3 and _b_matches(s[0]) and s[1] == 8 and s[2] == 32
+
 
 def _is_qxK(s, K):
     """Internal reshape should be ?×K."""
     return len(s) == 2 and s[0] is None and s[1] == K
 
 
-def _first_node(m, op): 
+def _first_node(m, op):
     return next(n for n in m.graph.node if n.op_type == op)
+
 
 def _init_dims(m, name):
     t = next((t for t in m.graph.initializer if t.name == name), None)
     return list(t.dims) if t is not None else None
 
+
 def _nodes(m, op: str):
     """Return all nodes with the given op_type."""
     return [n for n in m.graph.node if n.op_type == op]
+
 
 def _node_producing(m, tensor_name: str):
     """Return the node that produces `tensor_name`."""
     return next(n for n in m.graph.node if tensor_name in n.output)
 
+
 def _ensure_value_info(ctx, v: ir.Value | None):
-    """
-    Make sure `v` is present in the graph's value_info so tools (e.g. Netron)
-    render the annotated meta shape on the producing node's port. Some viewers
-    prefer value_info over graph.output for node port labels.
-    """
-    if v is None:
-        return
-    try:
-        lst = getattr(ctx, "_value_info", None) or getattr(ctx, "_value_infos", None)
-        if lst is None:
-            return
-        if all(getattr(x, "name", None) != v.name for x in lst):
-            lst.append(v)
-    except Exception:
-        # Best-effort only; never fail conversion on debug cosmetics.
-        pass
+    # Backward-compatible local alias (imported helper)
+    return _ensure_value_info(ctx, v)
+
+
 # ------------------------------------------------------------------
 # ONNX primitive registration and plugin for LinearGeneral
 # ------------------------------------------------------------------
@@ -194,11 +264,26 @@ def _ensure_value_info(ctx, v: ir.Value | None):
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
-        {"component": "Reshape", "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html"},
-        {"component": "Shape",   "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html"},
-        {"component": "Slice",   "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html"},
-        {"component": "Concat",  "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html"},
-        {"component": "CastLike","doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html"},
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+        {
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+        },
+        {
+            "component": "Slice",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+        },
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
+        {
+            "component": "CastLike",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+        },
     ],
     since="v0.1.0",
     context="primitives2.nnx",
@@ -221,18 +306,25 @@ def _ensure_value_info(ctx, v: ir.Value | None):
             #   input_reshape : ?×64
             #   gemm_output   : ?×32
             #   output        : B×8×32
-            "post_check_onnx_graph": lambda m: ((
-                _eq_oldworld_input(_shape_of(m.graph.input, "in_0"))
-            ) and (lambda ok_ir: True if ok_ir is True else _is_qxK(ok_ir, 64))(
-                # If value_info is present, enforce ?×64; if missing, treat as True.
-                (lambda: _shape_prefix_of(m.graph.value_info, "input_reshape"))()
-                if any(vi.name.startswith("input_reshape") for vi in m.graph.value_info)
-                else True
-            ) and (lambda ok_go: True if ok_go is True else _is_qxK(ok_go, 32))(
-                (lambda: _shape_prefix_of(m.graph.value_info, "gemm_output"))()
-                if any(vi.name.startswith("gemm_output") for vi in m.graph.value_info)
-                else True
-            ) and _eq_oldworld_output(_shape_of(m.graph.output, "out_0"))),
+            "post_check_onnx_graph": lambda m: (
+                (_eq_oldworld_input(_shape_of(m.graph.input, "in_0")))
+                and (lambda ok_ir: True if ok_ir is True else _is_qxK(ok_ir, 64))(
+                    # If value_info is present, enforce ?×64; if missing, treat as True.
+                    (lambda: _shape_prefix_of(m.graph.value_info, "input_reshape"))()
+                    if any(
+                        vi.name.startswith("input_reshape") for vi in m.graph.value_info
+                    )
+                    else True
+                )
+                and (lambda ok_go: True if ok_go is True else _is_qxK(ok_go, 32))(
+                    (lambda: _shape_prefix_of(m.graph.value_info, "gemm_output"))()
+                    if any(
+                        vi.name.startswith("gemm_output") for vi in m.graph.value_info
+                    )
+                    else True
+                )
+                and _eq_oldworld_output(_shape_of(m.graph.output, "out_0"))
+            ),
         },
         {
             "testcase": "linear_general",
@@ -243,13 +335,16 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 4, 8, 32)],
+            "expected_output_shapes": [("B", 4, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,  
-            "post_check_onnx_graph": lambda m: (lambda gemm:
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: (
+                lambda gemm:
                 # C is present and is a 1-D initializer of length 256
-                (len(gemm.input) >= 3) and (_init_dims(m, gemm.input[2]) == [256])
+                (len(gemm.input) >= 3)
+                and (_init_dims(m, gemm.input[2]) == [256])
             )(_first_node(m, "Gemm")),
-                    },
+        },
         {
             "testcase": "linear_general_2",
             "callable": nnx.LinearGeneral(
@@ -287,13 +382,13 @@ def _ensure_value_info(ctx, v: ir.Value | None):
             "use_onnx_ir": True,
             # Static case: ensure we eliminated Shape/Slice/Concat and inlined
             # the final Reshape's shape as a constant of length 3 (3×4×256).
-            "post_check_onnx_graph": lambda m: (lambda final_r:
-                (final_r.op_type == "Reshape")
+            "post_check_onnx_graph": lambda m: (
+                lambda final_r: (final_r.op_type == "Reshape")
                 and (len(_nodes(m, "Shape")) == 0)
                 and (len(_nodes(m, "Slice")) == 0)
                 and (len(_nodes(m, "Concat")) == 0)
                 and (len(final_r.input) >= 2)
-                and (_init_dims(m, final_r.input[1]) == [3])    # shape initializer rank=3
+                and (_init_dims(m, final_r.input[1]) == [3])  # shape initializer rank=3
                 and (_shape_of(m.graph.output, "out_0") == (2, 4, 256))
             )(_node_producing(m, "out_0")),
         },
@@ -344,10 +439,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     so post-checks from the original tests continue to work.
     """
 
-    _PRIM = Primitive("nnx.linear_general")
+    _PRIM: ClassVar[Primitive] = Primitive("nnx.linear_general")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: Callable | None = None
-    _ABSTRACT_EVAL_BOUND: bool = False
+    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------- abstract eval ----------
     @staticmethod
@@ -357,12 +452,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             ((lhs_contract, rhs_contract), _) = dimension_numbers
             x_batch = tuple(i for i in range(x.ndim) if i not in lhs_contract)
             k_out = tuple(i for i in range(kernel.ndim) if i not in rhs_contract)
-            out_shape = tuple(x.shape[i] for i in x_batch) + tuple(kernel.shape[i] for i in k_out)
+            out_shape = tuple(x.shape[i] for i in x_batch) + tuple(
+                kernel.shape[i] for i in k_out
+            )
             return jax.core.ShapedArray(out_shape, x.dtype)
 
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
-        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype) if bias is not None else None
+        b_spec = (
+            jax.ShapeDtypeStruct(bias.shape, bias.dtype) if bias is not None else None
+        )
 
         def _helper(xv, kv, bv):
             rhs_contract = dimension_numbers[0][1]
@@ -375,25 +474,27 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 return args
 
             def dot_general(a, b, dimension_numbers=None, precision=None, **_):
-                return jax.lax.dot_general(a, b, dimension_numbers=dimension_numbers, precision=precision)
+                return jax.lax.dot_general(
+                    a, b, dimension_numbers=dimension_numbers, precision=precision
+                )
 
             from types import SimpleNamespace
+
             dummy = SimpleNamespace(
                 kernel=SimpleNamespace(value=kv),
                 bias=None if bv is None else SimpleNamespace(value=bv),
                 dimension_numbers=dimension_numbers,
-                batch_axis={},                       # len(self.batch_axis) is used
-                axis=dimension_numbers[0][0],        # lhs contracting axes
+                batch_axis={},  # len(self.batch_axis) is used
+                axis=dimension_numbers[0][0],  # lhs contracting axes
                 in_features=tuple(kv.shape[: len(rhs_contract)]),
                 out_features=out_features,
                 promote_dtype=promote_dtype,
-                dtype=None,                          # match Flax default
-                dot_general=dot_general,             # function path
-                dot_general_cls=None,                # NEW: ensure branch is skipped
+                dtype=None,  # match Flax default
+                dot_general=dot_general,  # function path
+                dot_general_cls=None,  # NEW: ensure branch is skipped
                 precision=None,
             )
             return LinearGeneralPlugin._ORIGINAL_CALL(dummy, xv)
-
 
         out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
         out = jax.tree_util.tree_leaves(out)[0]
@@ -428,9 +529,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         if _all_unknown(getattr(x_val, "shape", None)):
-            x_meta = tuple(_as_ir_dim_label(d) for d in x_shape)
+            x_meta = tuple(_to_ir_dim_for_shape(d) for d in x_shape)
             if any(v is not None for v in x_meta):
-                x_val.shape = ir.Shape(x_meta)
+                _stamp_type_and_shape(x_val, x_shape)
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
         rhs_contract = tuple((a % len(k_shape)) for a in rhs_contract)
         lhs_contract = tuple((a % max(len(x_shape), 1)) for a in lhs_contract)
@@ -476,7 +577,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         # --- INPUT (A) flatten remains unchanged ...
         # (keep producing 'input_reshape' for tests)
         x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
-        need_flatten = (len(x_shape) > 2)
+        need_flatten = len(x_shape) > 2
 
         gemm_in = x_val
         if need_flatten:
@@ -512,7 +613,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             b2d = b_val
             b_aval_shape = tuple(getattr(getattr(b_var, "aval", None), "shape", ()))
             if len(b_aval_shape) != 1 or int(b_aval_shape[0]) != int(Cout):
-                b_inline = inline_reshape_initializer(ctx, b_val, desired_b_shape, "bias_vec")
+                b_inline = inline_reshape_initializer(
+                    ctx, b_val, desired_b_shape, "bias_vec"
+                )
                 if b_inline is b_val:
                     # not constant → runtime Reshape
                     bshape_c = ir.Value(
@@ -558,7 +661,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 [_dim_label_from_value_or_aval(x_val, x_shape, i) for i in x_batch_idx]
                 + [int(v) for v in k_out_dims]
             )
-            gemm_out.shape = ir.Shape(y_meta)
+            _stamp_type_and_shape(gemm_out, y_meta)
 
         inputs = [gemm_in, k2d] + ([b2d] if use_bias else [])
         ctx.add_node(
@@ -586,7 +689,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
 
             if all_batch_static:
-                final_vals = [int(d) for d in batch_dim_vals] + [int(v) for v in k_out_dims]
+                final_vals = [int(d) for d in batch_dim_vals] + [
+                    int(v) for v in k_out_dims
+                ]
                 final_shape_c = ir.Value(
                     name=ctx.fresh_name("final_shape_c"),
                     type=ir.TensorType(ir.DataType.INT64),
@@ -598,13 +703,14 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 # Meta shape for graph.output (keep symbols if present on input)
                 y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
                 y_meta = tuple(
-                    [_dim_label_from_value_or_aval(x_val, x_shape, i) for i in x_batch_idx]
+                    [
+                        _dim_label_from_value_or_aval(x_val, x_shape, i)
+                        for i in x_batch_idx
+                    ]
                     + [int(v) for v in k_out_dims]
                 )
-                y_val.shape = ir.Shape(y_meta)
-
-                # Create the Reshape and then re-stamp the meta shape so the edge
-                # in viewers (e.g. Netron) shows B×… instead of ?×….
+                # Stamp BOTH meta and TensorType so the graph.output keeps 'B'
+                _stamp_type_and_shape(y_val, y_meta)
                 ctx.add_node(
                     ir.Node(
                         op_type="Reshape",
@@ -614,10 +720,12 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Reshape"),
                     )
                 )
-                y_val.shape = ir.Shape(y_meta)
-                _ensure_value_info(ctx, y_val)
+                # Re-assert shape and also force a value_info entry so the
+                # Reshape→out_0 node port renders B×… (not ?×…).
+                _stamp_type_and_shape(y_val, y_meta)
+                _add_value_info(ctx, y_val)
             else:
-                # --- dynamic path: only create Shape/Slice if a dynamic batch dim exists ---
+                # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
                 shp = ir.Value(
                     name=ctx.fresh_name("x_shape"),
                     type=ir.TensorType(ir.DataType.INT64),
@@ -642,7 +750,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     name=ctx.fresh_name("slice_ends"),
                     type=ir.TensorType(ir.DataType.INT64),
                     shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([len(x_shape) - len(lhs_contract)], dtype=np.int64)),
+                    const_value=ir.tensor(
+                        np.array([len(x_shape) - len(lhs_contract)], dtype=np.int64)
+                    ),
                 )
                 ctx._initializers.extend([starts, ends])
                 batch_dims = ir.Value(
@@ -686,10 +796,13 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 )
                 y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
                 y_meta = tuple(
-                    [_dim_label_from_value_or_aval(x_val, x_shape, i) for i in x_batch_idx]
+                    [
+                        _dim_label_from_value_or_aval(x_val, x_shape, i)
+                        for i in x_batch_idx
+                    ]
                     + [int(v) for v in k_out_dims]
                 )
-                y_val.shape = ir.Shape(y_meta)
+                _stamp_type_and_shape(y_val, y_meta)
                 ctx.add_node(
                     ir.Node(
                         op_type="Reshape",
@@ -701,15 +814,17 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 )
                 # Re-assert shape and also force a value_info entry so the
                 # Reshape→out_0 node port renders B×… (not ?×…).
-                y_val.shape = ir.Shape(y_meta)
-                _ensure_value_info(ctx, y_val)
+                _stamp_type_and_shape(y_val, y_meta)
+                _add_value_info(ctx, y_val)
         # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 
     # ---------- explicit binding helper for a testcase ----------
     @staticmethod
     def _linear_general(x, kernel, bias, *, dimension_numbers):
         """Direct bind for tests that want to call the primitive without nnx module."""
-        return LinearGeneralPlugin._PRIM.bind(x, kernel, bias, dimension_numbers=dimension_numbers)
+        return LinearGeneralPlugin._PRIM.bind(
+            x, kernel, bias, dimension_numbers=dimension_numbers
+        )
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
@@ -736,7 +851,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     def binding_specs(cls):
         return [
             # Make/override flax.nnx.linear_general_p to point to our private Primitive
-            AssignSpec("flax.nnx", "linear_general_p", cls._PRIM, delete_if_missing=True),
+            AssignSpec(
+                "flax.nnx", "linear_general_p", cls._PRIM, delete_if_missing=True
+            ),
             # Monkey-patch nnx.LinearGeneral.__call__ while tracing
             MonkeyPatchSpec(
                 target="flax.nnx.LinearGeneral",
@@ -750,8 +867,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     def ensure_abstract_eval_bound(cls):
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
-                lambda x, kernel, bias, dimension_numbers=None:
-                cls.abstract_eval(x, kernel, bias, dimension_numbers=dimension_numbers)
+                lambda x, kernel, bias, dimension_numbers=None: cls.abstract_eval(
+                    x, kernel, bias, dimension_numbers=dimension_numbers
+                )
             )
             cls._ABSTRACT_EVAL_BOUND = True
 
