@@ -25,7 +25,12 @@ if TYPE_CHECKING:
 @register_primitive(
     jaxpr_primitive="nnx.dropout",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
-    onnx=[{"component": "Dropout", "doc": "https://onnx.ai/onnx/operators/onnx__Dropout.html"}],
+    onnx=[
+        {
+            "component": "Dropout",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Dropout.html",
+        }
+    ],
     since="v0.1.0",
     context="primitives2.nnx",
     component="dropout",
@@ -37,9 +42,26 @@ if TYPE_CHECKING:
             "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 (
-                    (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
-                    and (tm_init := next((i for i in m.graph.initializer if i.name == drop.input[2]), None)) is not None
-                    and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                    (
+                        drop := next(
+                            (n for n in m.graph.node if n.op_type == "Dropout"), None
+                        )
+                    )
+                    is not None
+                    and (
+                        tm_init := next(
+                            (i for i in m.graph.initializer if i.name == drop.input[2]),
+                            None,
+                        )
+                    )
+                    is not None
+                    and (
+                        ratio_init := next(
+                            (i for i in m.graph.initializer if i.name == drop.input[1]),
+                            None,
+                        )
+                    )
+                    is not None
                     and (numpy_helper.to_array(tm_init) == np.array(False)).all()
                     and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
                 )
@@ -53,10 +75,24 @@ if TYPE_CHECKING:
             "input_params": {"deterministic": True},
             "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
-                (drop := next((n for n in m.graph.node if n.op_type == "Dropout"), None)) is not None
-                and (notn := next((n for n in m.graph.node if n.op_type == "Not"), None)) is not None
+                (
+                    drop := next(
+                        (n for n in m.graph.node if n.op_type == "Dropout"), None
+                    )
+                )
+                is not None
+                and (
+                    notn := next((n for n in m.graph.node if n.op_type == "Not"), None)
+                )
+                is not None
                 and drop.input[2] == notn.output[0]
-                and (ratio_init := next((i for i in m.graph.initializer if i.name == drop.input[1]), None)) is not None
+                and (
+                    ratio_init := next(
+                        (i for i in m.graph.initializer if i.name == drop.input[1]),
+                        None,
+                    )
+                )
+                is not None
                 and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
             ),
         },
@@ -64,6 +100,7 @@ if TYPE_CHECKING:
 )
 class DropoutPlugin(PrimitiveLeafPlugin):
     """IR-only plugin for flax.nnx.Dropout."""
+
     _PRIM: ClassVar[Primitive] = Primitive("nnx.dropout")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -131,7 +168,9 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             )
         else:
             # Init-params path: keep a constant initializer training_mode
-            det_bool = bool(det_var.val) if isinstance(det_var, jcore_ext.Literal) else False
+            det_bool = (
+                bool(det_var.val) if isinstance(det_var, jcore_ext.Literal) else False
+            )
             tm_c = ir.Value(
                 name=ctx.fresh_name("training_mode"),
                 type=ir.TensorType(ir.DataType.BOOL),
@@ -142,7 +181,10 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             tm_val = tm_c
 
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-        y_dims = tuple(_dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(len(x_shape)))
+        y_dims = tuple(
+            _dim_label_from_value_or_aval(x_val, x_shape, i)
+            for i in range(len(x_shape))
+        )
         _stamp_type_and_shape(y_val, y_dims)
 
         ctx.add_node(
@@ -159,11 +201,14 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _dropout(x, deterministic, *, rate, call_time: bool):
-        return DropoutPlugin._PRIM.bind(x, deterministic, rate=rate, call_time=call_time)
+        return DropoutPlugin._PRIM.bind(
+            x, deterministic, rate=rate, call_time=call_time
+        )
 
     @staticmethod
     def _make_patch(orig_fn: Callable):
         del orig_fn
+
         def patched(self, x, deterministic=None):
             if deterministic is None:
                 # init-params path
@@ -173,7 +218,10 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 # call-params path → force dynamic lowering (build Not)
                 det = deterministic
                 call_time = True
-            return DropoutPlugin._dropout(x, det, rate=float(self.rate), call_time=call_time)
+            return DropoutPlugin._dropout(
+                x, det, rate=float(self.rate), call_time=call_time
+            )
+
         return patched
 
     @classmethod
