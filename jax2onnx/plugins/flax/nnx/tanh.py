@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/flax/nnx/tanh.py
+
 from typing import TYPE_CHECKING
 
 from flax import nnx

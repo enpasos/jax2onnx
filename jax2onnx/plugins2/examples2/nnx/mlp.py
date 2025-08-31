@@ -15,7 +15,9 @@ class MLP(nnx.Module):
         self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
 
     def __call__(self, x: jax.Array, *, deterministic: bool = True):
-        x = nnx.gelu(self.dropout(self.bn(self.linear1(x)), deterministic=deterministic))
+        x = nnx.gelu(
+            self.dropout(self.bn(self.linear1(x)), deterministic=deterministic)
+        )
         return self.linear2(x)
 
 
