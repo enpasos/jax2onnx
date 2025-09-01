@@ -19,9 +19,29 @@ from jax2onnx.plugins2._ir_shapes import (
     _ensure_value_info,
     is_shape_all_unknown,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+
+# ------------------------------------------------------------------
+# Graph-pattern expectations used by tests
+# ------------------------------------------------------------------
+# Basic presence of a single Gemm (no flatten/reshape path needed).
+EXPECT_GEMM_ONLY = expect_graph(["Gemm"], match="contains")
+# Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
+EXPECT_RGR = expect_graph(["Reshape->Gemm->Reshape"], match="contains")
+# Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
+# (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
+EXPECT_DYNAMIC_RGR = expect_graph(
+    [
+        "Reshape->Gemm",
+        "Shape->Slice->Concat->Reshape",
+        "Gemm->Reshape",
+    ],
+    mode="all",
+    match="contains",
+)
 
 
 @register_primitive(
@@ -61,6 +81,8 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 128)],
             "use_onnx_ir": True,
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank",
@@ -69,6 +91,8 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 10, 128)],
             "use_onnx_ir": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_no_bias",
@@ -77,6 +101,8 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 128)],
             "use_onnx_ir": True,
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank_no_bias",
@@ -85,6 +111,8 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 10, 128)],
             "use_onnx_ir": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_merge_symbolic_dim",
@@ -95,6 +123,8 @@ if TYPE_CHECKING:
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
     ],
 )

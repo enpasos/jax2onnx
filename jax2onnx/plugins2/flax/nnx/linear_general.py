@@ -12,6 +12,7 @@ import onnx_ir as ir
 from jax2onnx.plugins2._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     _prod,
@@ -82,127 +83,6 @@ def _shape_prefix_of(coll, prefix: str):
     return tuple(dims)
 
 
-# put near the other helpers
-# def _stamp_type_and_shape(v: ir.Value, dims):
-#     """Ensure both meta and tensor-type shape carry symbolic names like 'B'."""
-#     ir_dims = tuple(_to_ir_dim_for_shape(d) for d in dims)
-#     sh = ir.Shape(ir_dims)
-#     # meta (for value_info / viewers)
-#     v.shape = sh
-#     # type (what gets serialized into graph.input/output)
-#     try:
-#         if isinstance(getattr(v, "type", None), ir.TensorType):
-#             v.type = ir.TensorType(v.type.dtype, sh)
-#     except Exception:
-#         # Never fail the build because of stamping
-#         pass
-
-
-# def _prod(xs: Iterable[int]) -> int:
-#     """Product of ints; tolerant to numpy scalars/py ints."""
-#     p = 1
-#     for v in xs:
-#         p *= int(v)
-#     return int(p)
-
-# Best-effort conversion of an IR/JAX dimension into an ONNX dim label:
-#  - ints → int dim_value
-#  - strings → dim_param (e.g., "B")
-#  - objects with `.param` / `.value` (if present) → use them
-#  - otherwise → None (unknown)
-# def _as_ir_dim_label(d):
-#     """
-#     Best-effort extraction of a printable dim label from onnx_ir dims.
-#     Handles:
-#       - ir.SymbolicDim('B')  -> 'B'
-#       - objects with .param/.value (e.g., JAX ShapedArray dims)
-#       - plain ints/strings/None
-#     """
-#     # 1) onnx_ir.SymbolicDim
-#     try:
-#         if isinstance(d, ir.SymbolicDim):  # type: ignore[attr-defined]
-#             # common attribute names used by different builds
-#             for attr in ("param", "name", "symbol", "label"):
-#                 v = getattr(d, attr, None)
-#                 if v:
-#                     return str(v)
-#             # fallback: parse from repr "SymbolicDim(B)" or "SymbolicDim('B')"
-#             s = repr(d)
-#             m = re.search(r"SymbolicDim\(['\"]?([A-Za-z0-9_]+)['\"]?\)", s)
-#             if m:
-#                 return m.group(1)
-#             # last resort: str(d) if it looks like a bare symbol
-#             s = str(d)
-#             if s and s.isidentifier():
-#                 return s
-#     except Exception:
-#         pass
-#     # 2) generic objects with .param/.value (e.g., JAX ShapedArray dims)
-#     try:
-#         if hasattr(d, "param") and getattr(d, "param", None):
-#             return getattr(d, "param")
-#         if hasattr(d, "value") and getattr(d, "value", None) is not None:
-#             return int(getattr(d, "value"))
-#     except Exception:
-#         pass
-#     # 3) primitives
-#     if isinstance(d, (int, np.integer)):
-#         return int(d)
-#     if isinstance(d, str):
-#         return d
-#     if d is None:
-#         return None
-#     return None
-
-# Convert a dim “label” into what onnx_ir expects inside a Shape:
-# - ints -> int
-# - strings like "B" -> ir.SymbolicDim("B")
-# - objects with .param/.value mapped accordingly
-# - existing ir.SymbolicDim passthrough
-# def _to_ir_dim_for_shape(d):
-#     try:
-#         # Already a SymbolicDim from onnx_ir
-#         if isinstance(d, ir.SymbolicDim):  # type: ignore[attr-defined]
-#             return d
-#         if hasattr(d, "param") and d.param:
-#             return ir.SymbolicDim(str(d.param))  # type: ignore[attr-defined]
-#         if hasattr(d, "value") and d.value is not None:
-#             return int(d.value)
-#     except Exception:
-#         pass
-#     if isinstance(d, (int, np.integer)):
-#         return int(d)
-#     if isinstance(d, str):
-#         return ir.SymbolicDim(d)  # type: ignore[attr-defined]
-#     if d is None:
-#         return None
-#     return None
-
-# def _is_static_int(d) -> bool:
-#     """True if `d` is a known, non-negative integer."""
-#     return isinstance(d, (int, np.integer)) and int(d) >= 0
-
-# def _dim_label_from_value_or_aval(val: ir.Value, aval_shape: tuple, i: int):
-#     """
-#     Read the i-th dimension label, preferring the IR Value's recorded shape
-#     (which may preserve symbolic names like 'B'), and falling back to the JAX
-#     aval shape if the IR shape is missing/anonymous.
-#     """
-#     shp = getattr(val, "shape", None)
-#     if shp is not None:
-#         dims = getattr(shp, "dims", None)
-#         if dims is None:
-#             try:
-#                 dims = list(shp)
-#             except Exception:
-#                 dims = None
-#         if dims is not None and i < len(dims):
-#             return _as_ir_dim_label(dims[i])
-#     if i < len(aval_shape):
-#         return _as_ir_dim_label(aval_shape[i])
-#     return None
-
-
 def _b_matches(x):
     """Batch dim 'B' is considered equivalent to anonymous dynamic (None)."""
     return x in ("B", None)
@@ -241,19 +121,24 @@ def _init_dims(m, name):
     return list(t.dims) if t is not None else None
 
 
-def _nodes(m, op: str):
-    """Return all nodes with the given op_type."""
-    return [n for n in m.graph.node if n.op_type == op]
-
-
-def _node_producing(m, tensor_name: str):
-    """Return the node that produces `tensor_name`."""
-    return next(n for n in m.graph.node if tensor_name in n.output)
-
-
-def _ensure_value_info(ctx, v: ir.Value | None):
-    # Backward-compatible local alias (imported helper)
-    return _ensure_value_info(ctx, v)
+# ------------------------------------------------------------------
+# Graph-pattern expectations used by tests
+# ------------------------------------------------------------------
+# Basic presence of a single Gemm (no flatten/reshape path needed).
+EXPECT_GEMM_ONLY = expect_graph(["Gemm"], match="contains")
+# Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
+EXPECT_RGR = expect_graph(["Reshape->Gemm->Reshape"], match="contains")
+# Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
+# (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
+EXPECT_DYNAMIC_RGR = expect_graph(
+    [
+        "Reshape->Gemm",
+        "Shape->Slice->Concat->Reshape",
+        "Gemm->Reshape",
+    ],
+    mode="all",
+    match="contains",
+)
 
 
 # ------------------------------------------------------------------
@@ -298,14 +183,10 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 8, 4, 16)],
+            "expected_output_shapes": [("B", 8, 32)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            # Match the original “old world” shapes exactly (allowing only B↔None):
-            #   input         : B×8×4×16
-            #   input_reshape : ?×64
-            #   gemm_output   : ?×32
-            #   output        : B×8×32
             "post_check_onnx_graph": lambda m: (
                 (_eq_oldworld_input(_shape_of(m.graph.input, "in_0")))
                 and (lambda ok_ir: True if ok_ir is True else _is_qxK(ok_ir, 64))(
@@ -339,11 +220,14 @@ def _ensure_value_info(ctx, v: ir.Value | None):
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
-                lambda gemm:
-                # C is present and is a 1-D initializer of length 256
-                (len(gemm.input) >= 3)
-                and (_init_dims(m, gemm.input[2]) == [256])
-            )(_first_node(m, "Gemm")),
+                EXPECT_DYNAMIC_RGR(m)
+                and (
+                    lambda gemm:
+                    # C is present and is a 1-D initializer of length 256
+                    (len(gemm.input) >= 3)
+                    and (_init_dims(m, gemm.input[2]) == [256])
+                )(_first_node(m, "Gemm"))
+            ),
         },
         {
             "testcase": "linear_general_2",
@@ -354,8 +238,11 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(3, 30)],
+            "expected_output_shapes": [(3, 20)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            # rank-2 input -> no flatten needed, just Gemm
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_general_3",
@@ -366,8 +253,11 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 256)],
+            "expected_output_shapes": [(2, 4, 8, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            # static 3D -> static flatten: Reshape -> Gemm -> Reshape
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_4",
@@ -378,19 +268,12 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
+            "expected_output_shapes": [(2, 4, 256)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
             # Static case: ensure we eliminated Shape/Slice/Concat and inlined
             # the final Reshape's shape as a constant of length 3 (3×4×256).
-            "post_check_onnx_graph": lambda m: (
-                lambda final_r: (final_r.op_type == "Reshape")
-                and (len(_nodes(m, "Shape")) == 0)
-                and (len(_nodes(m, "Slice")) == 0)
-                and (len(_nodes(m, "Concat")) == 0)
-                and (len(final_r.input) >= 2)
-                and (_init_dims(m, final_r.input[1]) == [3])  # shape initializer rank=3
-                and (_shape_of(m.graph.output, "out_0") == (2, 4, 256))
-            )(_node_producing(m, "out_0")),
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_abstract_eval_axes",
@@ -402,8 +285,10 @@ def _ensure_value_info(ctx, v: ir.Value | None):
             ),
             "input_shapes": [(3, 10, 256)],
             "expected_output_shape": (3, 10, 8, 32),
+            "expected_output_shapes": [(3, 10, 8, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_abstract_eval_axes_pair",
@@ -415,8 +300,10 @@ def _ensure_value_info(ctx, v: ir.Value | None):
             ),
             "input_shapes": [(3, 10, 8, 32)],
             "expected_output_shape": (3, 10, 256),
+            "expected_output_shapes": [(3, 10, 256)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_dynamic_batch_and_feature_dims",
@@ -425,9 +312,11 @@ def _ensure_value_info(ctx, v: ir.Value | None):
                 x, k, b, dimension_numbers=(((2,), (0,)), ((), ()))
             ),
             "input_shapes": [("B", "H", 16), (16, 4, 4), (4, 4)],
+            "expected_output_shapes": [("B", "H", 4, 4)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
     ],
 )
