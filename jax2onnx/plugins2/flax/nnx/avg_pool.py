@@ -25,9 +25,7 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-EXPECT_T_POOL_T = expect_graph(
-    ["^Transpose->AveragePool->Transpose$"], match="exact"
-)
+EXPECT_T_POOL_T = expect_graph(["^Transpose->AveragePool->Transpose$"], match="exact")
 
 
 @register_primitive(
@@ -142,22 +140,29 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
     # ---------------- abstract eval ----------------
     @staticmethod
     def abstract_eval(
-        x, *, window_shape: Sequence[int], strides: Optional[Sequence[int]],
-        padding: str, count_include_pad: bool
+        x,
+        *,
+        window_shape: Sequence[int],
+        strides: Optional[Sequence[int]],
+        padding: str,
+        count_include_pad: bool,
     ):
         # Prefer original nnx.avg_pool if we captured it, else shape math.
-        actual_strides = tuple(strides) if strides is not None else (1,) * len(window_shape)
+        actual_strides = (
+            tuple(strides) if strides is not None else (1,) * len(window_shape)
+        )
 
         if AvgPoolPlugin._ORIG_CALL is None:
             # Basic shape math for NHWC rank>=3; keep dtype.
             # Compute H/W according to VALID/SAME (ceil for SAME, floor for VALID).
-            import math
+
             rank = x.ndim
             if rank < 3:
                 return jax.core.ShapedArray(x.shape, x.dtype)
             H, W, C = x.shape[-3], x.shape[-2], x.shape[-1]
             kH, kW = window_shape
             sH, sW = actual_strides
+
             def _dim_out(L, k, s, mode):
                 if isinstance(L, (int, np.integer)):
                     if mode.upper() == "SAME":
@@ -165,6 +170,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
                     return int(np.floor((L - k) / s) + 1)
                 # symbolic: leave unknown
                 return None
+
             oH = _dim_out(H, kH, sH, padding)
             oW = _dim_out(W, kW, sW, padding)
             out_shape = (*x.shape[:-3], oH, oW, C)
@@ -193,11 +199,13 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         padding = str(eqn.params.get("padding", "VALID"))
         count_include_pad = bool(eqn.params.get("count_include_pad", True))
 
-        actual_strides = tuple(strides) if strides is not None else (1,) * len(window_shape)
+        actual_strides = (
+            tuple(strides) if strides is not None else (1,) * len(window_shape)
+        )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))   # ← NEW
+        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))  # ← NEW
 
         if is_shape_all_unknown(getattr(x_val, "shape", None)):
             if any(d is not None for d in x_shape):
@@ -210,31 +218,40 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         if need_layout_convert:
             perm = [0, rank - 1] + list(range(1, rank - 1))
             nchw_dims_in = (
-                _dim_label_from_value_or_aval(x_val, x_shape, 0),        # N
-                _dim_label_from_value_or_aval(x_val, x_shape, rank - 1), # C
-                *[_dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(1, rank - 1)],
+                _dim_label_from_value_or_aval(x_val, x_shape, 0),  # N
+                _dim_label_from_value_or_aval(x_val, x_shape, rank - 1),  # C
+                *[
+                    _dim_label_from_value_or_aval(x_val, x_shape, i)
+                    for i in range(1, rank - 1)
+                ],
             )
             x_nchw = ir.Value(
                 name=ctx.fresh_name("pool_pre_transpose"),
                 type=x_val.type,
                 shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)),
             )
-            ctx.add_node(ir.Node(
-                op_type="Transpose", domain="",
-                inputs=[x_val], outputs=[x_nchw],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[ir.Attr("perm", ir.AttributeType.INTS, tuple(perm))],
-            ))
+            ctx.add_node(
+                ir.Node(
+                    op_type="Transpose",
+                    domain="",
+                    inputs=[x_val],
+                    outputs=[x_nchw],
+                    name=ctx.fresh_name("Transpose"),
+                    attributes=[ir.Attr("perm", ir.AttributeType.INTS, tuple(perm))],
+                )
+            )
             pool_in = x_nchw
 
         # AveragePool
         if need_layout_convert:
             # NCHW shape derived from OUTPUT AVAL (NHWC → NCHW)
-            nchw_dims_out = (y_shape[0], y_shape[-1], *y_shape[1:-1])          # ← NEW
+            nchw_dims_out = (y_shape[0], y_shape[-1], *y_shape[1:-1])  # ← NEW
             pool_out = ir.Value(
                 name=ctx.fresh_name("pool_nchw_out"),
                 type=x_val.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)),  # ← NEW
+                shape=ir.Shape(
+                    tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
+                ),  # ← NEW
             )
         else:
             pool_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
@@ -242,34 +259,65 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         auto_pad = "SAME_UPPER" if padding.upper() == "SAME" else "VALID"
         attrs = [
             ir.Attr("kernel_shape", ir.AttributeType.INTS, tuple(window_shape)),
-            ir.Attr("strides",      ir.AttributeType.INTS, tuple(actual_strides)),
-            ir.Attr("auto_pad",     ir.AttributeType.STRING, auto_pad),
-            ir.Attr("count_include_pad", ir.AttributeType.INT, 1 if count_include_pad else 0),
+            ir.Attr("strides", ir.AttributeType.INTS, tuple(actual_strides)),
+            ir.Attr("auto_pad", ir.AttributeType.STRING, auto_pad),
+            ir.Attr(
+                "count_include_pad", ir.AttributeType.INT, 1 if count_include_pad else 0
+            ),
         ]
-        ctx.add_node(ir.Node(
-            op_type="AveragePool", domain="",
-            inputs=[pool_in], outputs=[pool_out],
-            name=ctx.fresh_name("AveragePool"),
-            attributes=attrs,
-        ))
+        ctx.add_node(
+            ir.Node(
+                op_type="AveragePool",
+                domain="",
+                inputs=[pool_in],
+                outputs=[pool_out],
+                name=ctx.fresh_name("AveragePool"),
+                attributes=attrs,
+            )
+        )
 
-        # NCHW → NHWC and stamp OUTPUT shape from y_aval
+        # ---- Stamp correct symbolic output dims (preserve B/C labels) ----
+        # y_aval gives the concrete/new spatial sizes; copy N & C labels from input.
+        y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        n_label = _dim_label_from_value_or_aval(x_val, x_shape, 0)
+        c_label = _dim_label_from_value_or_aval(x_val, x_shape, rank - 1)
+
+        # NHWC output dims with preserved labels
+        nhwc_out_dims = (
+            n_label,
+            *[y_aval_shape[i] for i in range(1, rank - 1)],
+            c_label,
+        )
+
         if need_layout_convert:
+            # Also fix the NCHW intermediate to match the (labelled) NHWC result
+            nchw_dims_out = (nhwc_out_dims[0], nhwc_out_dims[-1], *nhwc_out_dims[1:-1])
+            pool_out.shape = ir.Shape(
+                tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
+            )
+
+            # Transpose back to NHWC and stamp final output shape
             inv_perm = [0] + list(range(2, rank)) + [1]
             y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-            ctx.add_node(ir.Node(
-                op_type="Transpose", domain="",
-                inputs=[pool_out], outputs=[y_val],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[ir.Attr("perm", ir.AttributeType.INTS, tuple(inv_perm))],
-            ))
-            _stamp_type_and_shape(y_val, y_shape)   # ← NEW: stamp NHWC from output aval
+            ctx.add_node(
+                ir.Node(
+                    op_type="Transpose",
+                    domain="",
+                    inputs=[pool_out],
+                    outputs=[y_val],
+                    name=ctx.fresh_name("Transpose"),
+                    attributes=[
+                        ir.Attr("perm", ir.AttributeType.INTS, tuple(inv_perm))
+                    ],
+                )
+            )
+            _stamp_type_and_shape(y_val, nhwc_out_dims)
             _add_value_info(ctx, y_val)
         else:
+            # Rank <= 2 (rare for pooling), still preserve labels where applicable
             y_val = pool_out
-            _stamp_type_and_shape(y_val, y_shape)   # ← NEW: stamp NHWC from output aval
+            _stamp_type_and_shape(y_val, nhwc_out_dims[:rank])
             _add_value_info(ctx, y_val)
-
 
     # ---------------- eager impl (for tests) ----------------
     @staticmethod
@@ -292,11 +340,13 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             # Keep it simple; tests use NHWC 4D
             return x
         # Implement via jax.lax.reduce_window on NHWC using SAME/VALID
-        init = jnp.array(0, dtype=x.dtype)
+        jnp.array(0, dtype=x.dtype)
         ones = jnp.ones(ws + (1,), dtype=x.dtype)
         from jax import lax
+
         y_sum = lax.conv_general_dilated(
-            x, ones,
+            x,
+            ones,
             window_strides=st,
             padding=pads,
             dimension_numbers=("NHWC", "HWOI", "NHWC"),
@@ -306,7 +356,8 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             # divisor counts only valid elements (no padded)
             ones_img = jnp.ones_like(x[..., :1])
             win = lax.conv_general_dilated(
-                ones_img, ones,
+                ones_img,
+                ones,
                 window_strides=st,
                 padding=pads,
                 dimension_numbers=("NHWC", "HWOI", "NHWC"),
@@ -321,8 +372,17 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
     def get_monkey_patch(orig_fn: Callable):
         AvgPoolPlugin._ORIG_CALL = orig_fn
 
-        def patched(inputs, *, window_shape, strides=None, padding="VALID", count_include_pad=True):
-            actual_strides = tuple(strides) if strides is not None else (1,) * len(window_shape)
+        def patched(
+            inputs,
+            *,
+            window_shape,
+            strides=None,
+            padding="VALID",
+            count_include_pad=True,
+        ):
+            actual_strides = (
+                tuple(strides) if strides is not None else (1,) * len(window_shape)
+            )
             return AvgPoolPlugin._PRIM.bind(
                 inputs,
                 window_shape=tuple(window_shape),
