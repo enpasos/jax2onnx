@@ -220,7 +220,7 @@ EXPECT_DYNAMIC_RGR = expect_graph(
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
-                EXPECT_DYNAMIC_RGR(m)
+                EXPECT_RGR(m)
                 and (
                     lambda gemm:
                     # C is present and is a 1-D initializer of length 256

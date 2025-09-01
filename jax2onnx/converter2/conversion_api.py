@@ -331,6 +331,46 @@ def to_onnx(
     model = ctx.to_model_proto(name=model_name)
 
     # ------------------------------------------------------------------
+    # Simple dead-code elimination: drop nodes/initializers that do not
+    # contribute to any graph output (or inputs).
+    # This keeps tests with match="exact" strict and avoids stray islands.
+    # ------------------------------------------------------------------
+    def _prune_dead_onnx_nodes_inplace(model: onnx.ModelProto) -> None:
+        # nodes only; tests match paths over nodes, not initializers
+        g = model.graph
+
+        # Roots: graph outputs, inputs and initializers
+        used: set[str] = set()
+        used.update(vi.name for vi in g.output)
+        used.update(vi.name for vi in g.input)
+        init_names = {t.name for t in g.initializer}
+        used |= init_names
+
+        # Map produced tensor -> producing node
+        produced_by: dict[str, onnx.NodeProto] = {}
+        for n in g.node:
+            for o in n.output:
+                if o:
+                    produced_by[o] = n
+
+        # Backward mark from used tensors to their producers' inputs
+        stack = list(used)
+        while stack:
+            name = stack.pop()
+            n = produced_by.get(name)
+            if not n:
+                continue
+            for inp in n.input:
+                if inp and inp not in used:
+                    used.add(inp)
+                    stack.append(inp)
+
+        # Keep nodes that produce something used
+        kept = [n for n in g.node if any(o and o in used for o in n.output)]
+        del g.node[:]
+        g.node.extend(kept)
+
+    # ------------------------------------------------------------------
     # FIX: Symbolic dimension labels (e.g. "B") can get dropped to None
     # when serializing graph ValueInfo. Re-stamp them from the JAX avals.
     # ------------------------------------------------------------------
@@ -354,14 +394,11 @@ def to_onnx(
             if not lbl:
                 continue
             d = dims[i]
-            # Only write when not fixed by a concrete value;
-            # also overwrite empty or auto-generated "dynamic_*" params.
             has_value = getattr(d, "dim_value", None) not in (None, 0)
             has_param = bool(getattr(d, "dim_param", ""))
             is_auto = has_param and getattr(d, "dim_param", "").startswith("dynamic_")
             if not has_value and (not has_param or is_auto):
                 d.dim_param = lbl
-
     # Inputs
     for var, vi in zip(jpr.invars, model.graph.input):
         aval = getattr(var, "aval", None)
@@ -373,5 +410,8 @@ def to_onnx(
         aval = getattr(var, "aval", None)
         if aval is not None:
             _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
+
+    # Prune any dead nodes/initializers that don’t feed the outputs.
+    _prune_dead_onnx_nodes_inplace(model)
 
     return model
