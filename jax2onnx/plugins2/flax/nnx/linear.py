@@ -30,17 +30,16 @@ if TYPE_CHECKING:
 # Basic presence of a single Gemm (no flatten/reshape path needed).
 EXPECT_GEMM_ONLY = expect_graph(["Gemm"], match="contains")
 # Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
-EXPECT_RGR = expect_graph(["Reshape->Gemm->Reshape"], match="contains")
+EXPECT_RGR = expect_graph(["^Reshape->Gemm->Reshape$"], match="contains")
 # Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
 # (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
 EXPECT_DYNAMIC_RGR = expect_graph(
     [
-        "Reshape->Gemm",
-        "Shape->Slice->Concat->Reshape",
-        "Gemm->Reshape",
+        "^Reshape->Gemm->Reshape$",
+        "^Shape->Slice->Concat->Reshape$",
     ],
     mode="all",
-    match="contains",
+    match="exact",
 )
 
 
@@ -90,9 +89,20 @@ EXPECT_DYNAMIC_RGR = expect_graph(
                 128, 64, dtype=dtype, rngs=nnx.Rngs(0)
             ),
             "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
             "use_onnx_ir": True,
             "expected_output_shapes": [("B", 10, 64)],
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank",
+            "callable_factory": lambda dtype: nnx.Linear(
+                128, 64, dtype=dtype, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(3, 10, 128)],
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(3, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_no_bias",
@@ -111,8 +121,19 @@ EXPECT_DYNAMIC_RGR = expect_graph(
             ),
             "input_shapes": [("B", 10, 128)],
             "use_onnx_ir": True,
+            "run_only_dynamic": True,
             "expected_output_shapes": [("B", 10, 64)],
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank_no_bias",
+            "callable_factory": lambda dtype: nnx.Linear(
+                128, 64, use_bias=False, dtype=dtype, rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 10, 128)],
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_merge_symbolic_dim",
