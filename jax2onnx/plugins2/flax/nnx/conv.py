@@ -13,6 +13,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
@@ -497,13 +498,7 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
     )
 
 
-def _expect_transpose_conv_transpose(model) -> bool:
-    nodes = list(model.graph.node)
-    if len(nodes) != 3:
-        return False
-    types = [n.op_type for n in nodes]
-    return types == ["Transpose", "Conv", "Transpose"]
-
+ 
 
 @register_primitive(
     jaxpr_primitive="nnx.conv",
@@ -541,7 +536,8 @@ def _expect_transpose_conv_transpose(model) -> bool:
             "input_shapes": [("B", 28, 28, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _expect_transpose_conv_transpose,
+            "post_check_onnx_graph": expect_graph(["Transpose->Conv->Transpose"], match="exact")
+
         },
         {
             "testcase": "conv_basic_bias_2",
