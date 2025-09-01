@@ -167,6 +167,25 @@ def expect_graph(
     def _checker(model) -> bool:
         req_prefix = match in ("prefix", "exact")
         req_suffix = match in ("suffix", "exact")
+
+        # For "exact", also require that the graph contains no extra operator nodes
+        # beyond the tokens in the pattern(s). This turns "anchored path" into
+        # "the whole graph equals this chain".
+        if match == "exact":
+            # Count total operator tokens across the patterns (ignoring ^ / $ if present)
+            total_tokens = 0
+            for p in patterns:
+                p_stripped = p.strip()
+                if p_stripped.startswith("^"):
+                    p_stripped = p_stripped[1:].lstrip()
+                if p_stripped.endswith("$"):
+                    p_stripped = p_stripped[:-1].rstrip()
+                total_tokens += len(_parse_path_core(p_stripped))
+
+            # If the graph has a different number of nodes, it's not an exact match.
+            if len(list(model.graph.node)) != total_tokens:
+                return False
+
         results = [
             bool(
                 _match_one_path(
