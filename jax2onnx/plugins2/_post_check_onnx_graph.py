@@ -31,7 +31,9 @@ def _node_out_names(n) -> List[str]:
     return out
 
 
-def _build_graph_index(model) -> Tuple[List[Any], Dict[str, List[int]], Dict[int, Set[int]], Dict[int, int]]:
+def _build_graph_index(
+    model,
+) -> Tuple[List[Any], Dict[str, List[int]], Dict[int, Set[int]], Dict[int, int]]:
     """
     Returns:
       nodes: list of nodes in model.graph.node
@@ -53,9 +55,11 @@ def _build_graph_index(model) -> Tuple[List[Any], Dict[str, List[int]], Dict[int
     indeg: Dict[int, int] = {i: 0 for i in range(len(nodes))}
     for j, n in enumerate(nodes):
         for in_name in _node_in_names(n):
-            i = out_to_idx.get(in_name)
-            if i is not None:
-                adj[i].add(j)
+            # Avoid shadowing the earlier loop variable 'i' (an int)
+            # and keep Optional[int] typing from dict.get().
+            src_idx = out_to_idx.get(in_name)
+            if src_idx is not None:
+                adj[src_idx].add(j)
                 indeg[j] += 1
     return nodes, by_type, adj, indeg
 
@@ -96,7 +100,9 @@ def _parse_path(pattern: str) -> Tuple[bool, List[Tuple[str, Optional[int]]], bo
     return anchored_start, tokens, anchored_end
 
 
-def _match_one_path(model, pattern: str, *, require_prefix: bool = False, require_suffix: bool = False) -> bool:
+def _match_one_path(
+    model, pattern: str, *, require_prefix: bool = False, require_suffix: bool = False
+) -> bool:
     nodes, by_type, adj, indeg = _build_graph_index(model)
     a_start, tokens, a_end = _parse_path(pattern)
     # Combine explicit anchors in the pattern with the global match mode.
@@ -140,7 +146,9 @@ def _match_one_path(model, pattern: str, *, require_prefix: bool = False, requir
     return False
 
 
-def expect_graph(patterns: Iterable[str], *, mode: str = "all", match: str = "contains"):
+def expect_graph(
+    patterns: Iterable[str], *, mode: str = "all", match: str = "contains"
+):
     """
     Factory returning a `post_check_onnx_graph`-compatible callable.
 
@@ -160,7 +168,11 @@ def expect_graph(patterns: Iterable[str], *, mode: str = "all", match: str = "co
         req_prefix = match in ("prefix", "exact")
         req_suffix = match in ("suffix", "exact")
         results = [
-            bool(_match_one_path(model, p, require_prefix=req_prefix, require_suffix=req_suffix))
+            bool(
+                _match_one_path(
+                    model, p, require_prefix=req_prefix, require_suffix=req_suffix
+                )
+            )
             for p in pats
         ]
         return all(results) if mode == "all" else any(results)

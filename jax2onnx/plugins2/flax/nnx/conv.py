@@ -25,6 +25,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("jax2onnx.plugins2.flax.nnx.conv")
 
+# --- graph pattern expectations for tests ---
+# Single-path: Transpose -> Conv -> Transpose
+EXPECT_TCT = expect_graph(["Transpose->Conv->Transpose"], match="exact")
+# Flattened-path (mixed-dim inputs):
+# Reshape -> Transpose -> Conv -> Transpose -> Reshape
+EXPECT_FLATTEN_TCT = expect_graph(
+    ["Reshape->Transpose->Conv->Transpose->Reshape"], match="exact"
+)
+
 
 # ---------- helper: annotate value_info so graph edges show shapes ----------
 def _np_dtype_of(var, fallback=np.float32):
@@ -118,27 +127,6 @@ def _same_upper_pads_static(
         pads_beg.append(int(beg))
         pads_end.append(int(end))
     return pads_beg, pads_end
-
-
-def _to_numpy_const(t) -> np.ndarray | None:
-    """Best-effort: turn an onnx_ir tensor into a NumPy array."""
-    if isinstance(t, np.ndarray):
-        return t
-    for attr in ("numpy", "to_numpy"):
-        fn = getattr(t, attr, None)
-        if callable(fn):
-            try:
-                return np.array(fn())
-            except Exception:
-                pass
-    for attr in ("value", "data"):
-        val = getattr(t, attr, None)
-        if isinstance(val, np.ndarray):
-            return val
-    try:
-        return np.array(t)
-    except Exception:
-        return None
 
 
 def _ir_dtype_from_numpy(dt):
@@ -340,11 +328,6 @@ def _to_int_tuple(x, rank):
     return tuple(int(v) for v in x)
 
 
-def _outval(x):
-    # Works whether ctx.add_node returns a Node or already returns a Value
-    return x.outputs[0] if isinstance(x, ir.Node) else x
-
-
 def _emit1(ctx, node: ir.Node | ir.Value) -> ir.Value:
     """Add a node and return its single output Value; if already a Value, return as-is."""
     if isinstance(node, ir.Value):
@@ -498,8 +481,6 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
     )
 
 
- 
-
 @register_primitive(
     jaxpr_primitive="nnx.conv",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv",
@@ -536,8 +517,10 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [("B", 28, 28, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": expect_graph(["Transpose->Conv->Transpose"], match="exact")
-
+            "expected_output_shapes": [("B", 28, 28, 16)],
+            "post_check_onnx_graph": expect_graph(
+                ["Transpose->Conv->Transpose"], match="exact"
+            ),
         },
         {
             "testcase": "conv_basic_bias_2",
@@ -545,9 +528,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 28, 28, 1)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 28, 28, 32)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_basic_bias_3",
@@ -563,9 +545,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 28, 28, 1)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 28, 28, 32)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_stride2_bias",
@@ -581,9 +562,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 28, 28, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 14, 14, 64)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_no_bias",
@@ -599,9 +579,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [("B", 28, 28, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [("B", 28, 28, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_valid_padding",
@@ -617,9 +596,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 32, 32, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 14, 14, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_stride1",
@@ -635,9 +613,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_stride2",
@@ -653,9 +630,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 8, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_different_kernel",
@@ -671,9 +647,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_float64",
@@ -690,9 +665,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_single_batch",
@@ -708,9 +682,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(1, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(1, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_large_batch",
@@ -726,9 +699,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(32, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(32, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d",
@@ -736,9 +708,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 28, 28)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 26, 4)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_more_1d_inputs",
@@ -746,9 +717,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 4, 4, 28)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 4, 4, 4)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_1d_more_2d_inputs",
@@ -756,9 +726,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 4, 4, 8, 28)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 4, 4, 8, 4)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_1d_large_kernel",
@@ -768,9 +737,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(4, 32, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(4, 14, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_dilation",
@@ -780,9 +748,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 24, 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 22, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_stride_dilation",
@@ -797,9 +764,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 40, 12)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 12, 6)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_asymmetric_kernel",
@@ -809,9 +775,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 20, 20, 4)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 20, 10, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_asymmetric_stride",
@@ -821,9 +786,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 18, 24, 6)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 18, 8, 12)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_asymmetric_dilation",
@@ -833,9 +797,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 8, 9)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_large_dilation",
@@ -845,9 +808,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 32, 32, 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 32, 32, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_large_stride",
@@ -857,9 +819,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 32, 32, 4)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 8, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_mixed_params",
@@ -874,9 +835,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 24, 30, 5)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 12, 10, 10)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_3d_basic",
@@ -884,9 +844,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 8, 8, 8, 2)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 6, 6, 6, 4)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_3d_stride",
@@ -896,9 +855,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 16, 4)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 8, 8, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_3d_asymmetric",
@@ -908,9 +866,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 12, 14, 16, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 12, 7, 8, 6)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_3d_dilation",
@@ -920,9 +877,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 12, 16, 2)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 12, 8, 4)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_small_input",
@@ -930,9 +886,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(1, 4, 4, 1)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(1, 3, 3, 4)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_many_channels",
@@ -940,9 +895,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 64)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 16, 128)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_wide_input",
@@ -952,9 +906,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 128, 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 122, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_kernel_1x1",
@@ -962,9 +915,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(4, 14, 14, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(4, 14, 14, 32)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_kernel_1",
@@ -972,9 +924,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 20, 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 20, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_group_conv",
@@ -984,9 +935,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 14, 14, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 14, 14, 32)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_group_conv_more_dims",
@@ -996,9 +946,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 8, 6, 12)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 6, 8)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_2d_depthwise",
@@ -1008,9 +957,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 16, 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 16, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_complex_on_4d",
@@ -1025,9 +973,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 8, 10, 20)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 4, 5, 40)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_2d_complex_on_5d",
@@ -1042,9 +989,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 6, 8, 12, 15)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 6, 4, 12, 30)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_1d_high_dilation_on_3d",
@@ -1059,9 +1005,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 16, 24)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 16, 12)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_group_stride_dilation",
@@ -1077,9 +1022,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 20, 24, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 10, 12, 64)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_group_on_higher_dim",
@@ -1095,9 +1039,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(3, 5, 7, 9, 18)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(3, 5, 3, 9, 36)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_1d_same_padding_on_3d",
@@ -1113,9 +1056,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 12, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 6, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_2d_same_padding_mixed_dilation",
@@ -1131,9 +1073,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 18, 28, 10)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 18, 14, 20)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_large_kernel_on_4d",
@@ -1143,9 +1084,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 8, 12, 25)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 8, 3, 50)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_2d_asymmetric_on_5d",
@@ -1160,9 +1100,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 6, 9, 15, 14)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 6, 3, 15, 28)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_3d_group_complex",
@@ -1178,9 +1117,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 10, 14, 18, 24)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 10, 7, 9, 48)],
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_1d_unit_group_on_multi_dim",
@@ -1196,9 +1134,8 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "input_shapes": [(2, 7, 11, 13, 21)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "Conv" for n in m.graph.node
-            ),
+            "expected_output_shapes": [(2, 7, 4, 13, 21)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
     ],
 )
@@ -1394,46 +1331,61 @@ class ConvPlugin(PrimitiveLeafPlugin):
         x_pre = x_val
         extra = x_spatial - conv_spatial
         if need_flatten:
-            # x: (N, extra..., part..., C) -> (N*prod(extra...), part..., C)
-            sh_x = _shape_of(ctx, x_val)
-            # indices for N and "extra" dims
-            idx_nextra = _const_i64(
-                ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra"
-            )
-            ne_dims = _gather(ctx, sh_x, idx_nextra, axis=0)  # 1+extra
-            # opset >=13: 'axes' is an input (not an attribute). Reduce the 1-D
-            # vector over all axes by omitting it; just set keepdims=0.
-            n_flat = _emit1(
-                ctx,
-                ir.Node(  # scalar
-                    op_type="ReduceProd",
-                    domain="",
-                    inputs=[ne_dims],
-                    attributes=_as_attrs({"keepdims": 0}),
-                    name=ctx.fresh_name("ReduceProd"),
-                    num_outputs=1,
-                ),
-            )
-            n_flat_1d = _unsqueeze(ctx, n_flat, [0])  # [1]
+            if _is_concrete_shape(x_shape):
+                # STATIC reshape shape at convert-time:
+                # x: (N, extra..., part..., C) -> (N*prod(extra...), part..., C)
+                n_flat = int(np.prod([int(d) for d in x_shape[: 1 + extra]]))
+                part_dims = [
+                    int(d) for d in x_shape[1 + extra : 1 + extra + conv_spatial]
+                ]
+                ch = int(x_shape[-1])
+                reshape_in = _const_i64(
+                    ctx,
+                    np.asarray([n_flat, *part_dims, ch], dtype=np.int64),
+                    "reshape_in_static",
+                )
+                x_pre = _reshape(ctx, x_val, reshape_in)
+            else:
+                # Dynamic fallback when ranks/dims are symbolic
+                # x: (N, extra..., part..., C) -> (N*prod(extra...), part..., C)
+                sh_x = _shape_of(ctx, x_val)
+                # indices for N and "extra" dims
+                idx_nextra = _const_i64(
+                    ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra"
+                )
+                ne_dims = _gather(ctx, sh_x, idx_nextra, axis=0)  # 1+extra
+                # opset >=13: 'axes' is an input (not an attribute). Reduce over all axes; keepdims=0.
+                n_flat = _emit1(
+                    ctx,
+                    ir.Node(  # scalar
+                        op_type="ReduceProd",
+                        domain="",
+                        inputs=[ne_dims],
+                        attributes=_as_attrs({"keepdims": 0}),
+                        name=ctx.fresh_name("ReduceProd"),
+                        num_outputs=1,
+                    ),
+                )
+                n_flat_1d = _unsqueeze(ctx, n_flat, [0])  # [1]
 
-            # participating spatial dims (the last conv_spatial dims before channel)
-            idx_part = _const_i64(
-                ctx,
-                np.arange(1 + extra, 1 + extra + conv_spatial, dtype=np.int64),
-                "idx_part",
-            )
-            part_dims = _gather(ctx, sh_x, idx_part, axis=0)  # [conv_spatial]
+                # participating spatial dims (the last conv_spatial dims before channel)
+                idx_part = _const_i64(
+                    ctx,
+                    np.arange(1 + extra, 1 + extra + conv_spatial, dtype=np.int64),
+                    "idx_part",
+                )
+                part_dims = _gather(ctx, sh_x, idx_part, axis=0)  # [conv_spatial]
 
-            # channel dim (last)
-            idx_ch = _const_i64(
-                ctx, np.array([len(x_shape) - 1], dtype=np.int64), "idx_ch"
-            )
-            ch_dim = _gather(ctx, sh_x, idx_ch, axis=0)  # [1]
+                # channel dim (last)
+                idx_ch = _const_i64(
+                    ctx, np.array([len(x_shape) - 1], dtype=np.int64), "idx_ch"
+                )
+                ch_dim = _gather(ctx, sh_x, idx_ch, axis=0)  # [1]
 
-            new_shape = _concat0(
-                ctx, [n_flat_1d, part_dims, ch_dim]
-            )  # [conv_spatial+2]
-            x_pre = _reshape(ctx, x_val, new_shape)
+                new_shape = _concat0(
+                    ctx, [n_flat_1d, part_dims, ch_dim]
+                )  # [conv_spatial+2]
+                x_pre = _reshape(ctx, x_val, new_shape)
             x_spatial = conv_spatial  # effective for following layout logic
 
         # NHWC -> NCH... and kernel (spatial..., I, O) -> (O, I, spatial...)
@@ -1530,32 +1482,48 @@ class ConvPlugin(PrimitiveLeafPlugin):
             _annotate_value(y_nhwc, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
 
         if need_flatten:
-            # Recover (N, extra..., out_spatial..., C_out) using dynamic shapes
-            sh_x = _shape_of(ctx, x_val)  # [N, extra..., part..., C]
-            sh_y = _shape_of(ctx, y_nhwc)  # [N', out sp..., C_out]
+            # Prefer STATIC reshape back when concrete dims are available.
+            if _is_concrete_shape(x_shape) and _is_concrete_shape(k_shape):
+                part_in_sp = x_shape[1 + extra : 1 + extra + conv_spatial]
+                out_sp = _calc_out_spatial(
+                    [int(d) for d in part_in_sp],
+                    [int(k) for k in k_shape[:conv_spatial]],
+                    [int(s) for s in strides],
+                    [int(d) for d in dilations],
+                    padding_param,
+                )
+                tgt_list = [*x_shape[: 1 + extra], *out_sp, int(k_shape[-1])]
+                tgt = _const_i64(
+                    ctx, np.asarray(tgt_list, dtype=np.int64), "reshape_out_static"
+                )
+                y_final = _reshape(ctx, y_nhwc, tgt)
+            else:
+                # Dynamic fallback: Recover (N, extra..., out_spatial..., C_out)
+                sh_x = _shape_of(ctx, x_val)  # [N, extra..., part..., C]
+                sh_y = _shape_of(ctx, y_nhwc)  # [N', out sp..., C_out]
 
-            # N and extra dims from original input
-            idx_nextra = _const_i64(
-                ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra_back"
-            )
-            n_extras = _gather(ctx, sh_x, idx_nextra, axis=0)  # [1+extra]
+                # N and extra dims from original input
+                idx_nextra = _const_i64(
+                    ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra_back"
+                )
+                n_extras = _gather(ctx, sh_x, idx_nextra, axis=0)  # [1+extra]
 
-            # out spatial dims from y_nhwc (skip batch N')
-            idx_outsp = _const_i64(
-                ctx, np.arange(1, 1 + conv_spatial, dtype=np.int64), "idx_outsp"
-            )
-            out_sp = _gather(ctx, sh_y, idx_outsp, axis=0)  # [conv_spatial]
+                # out spatial dims from y_nhwc (skip batch N')
+                idx_outsp = _const_i64(
+                    ctx, np.arange(1, 1 + conv_spatial, dtype=np.int64), "idx_outsp"
+                )
+                out_sp_dyn = _gather(ctx, sh_y, idx_outsp, axis=0)  # [conv_spatial]
 
-            # output channel (last dim of y_nhwc) -> index is conv_spatial + 1
-            idx_outc = _const_i64(
-                ctx, np.array([conv_spatial + 1], dtype=np.int64), "idx_outc"
-            )
-            out_c = _gather(ctx, sh_y, idx_outc, axis=0)  # [1]
+                # output channel (last dim of y_nhwc) -> index is conv_spatial + 1
+                idx_outc = _const_i64(
+                    ctx, np.array([conv_spatial + 1], dtype=np.int64), "idx_outc"
+                )
+                out_c = _gather(ctx, sh_y, idx_outc, axis=0)  # [1]
 
-            tgt = _concat0(
-                ctx, [n_extras, out_sp, out_c]
-            )  # [1+extra + conv_spatial + 1]
-            y_final = _reshape(ctx, y_nhwc, tgt)
+                tgt = _concat0(
+                    ctx, [n_extras, out_sp_dyn, out_c]
+                )  # [1+extra + conv_spatial + 1]
+                y_final = _reshape(ctx, y_nhwc, tgt)
         else:
             y_final = y_nhwc
 
@@ -1670,3 +1638,20 @@ try:
 except Exception as _e:
     # Do not fail import-time; activation will call `ensure_abstract_eval_bound` again.
     logger.debug("conv plugin eager init skipped: %s", _e)
+
+    def patch_info():
+        """
+        Some runners still call `patch_info()` instead of `binding_specs()`.
+        Provide a shim that applies the same monkey patch at activation time.
+        """
+
+        def _wrapper(orig):
+            return ConvPlugin._make_patch(orig)
+
+        return {
+            "patch_targets": [nnx.Conv],
+            "patch_function": _wrapper,
+            "target_attribute": "__call__",
+            # Expose the primitive on `flax.nnx.conv_p` too (old-world compat)
+            "extra_assignments": [("flax.nnx", "conv_p", ConvPlugin._PRIM)],
+        }
