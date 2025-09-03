@@ -1,8 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, List, Union
+from typing import TYPE_CHECKING, List, Union
 
 import numpy as np
-import jax
 from jax.extend.core import Primitive as JaxPrimitive
 from jax.core import ShapedArray
 from flax import nnx
@@ -27,9 +26,11 @@ if nnx_relu_p is None:
     nnx_relu_p.multiple_results = False
     nnx.relu_p = nnx_relu_p  # attach for visibility / reuse
 
+
 def _relu_abstract_eval(x_aval: ShapedArray) -> ShapedArray:
     # ReLU preserves shape & dtype
     return ShapedArray(x_aval.shape, x_aval.dtype)
+
 
 # Idempotent abstract eval registration
 try:
@@ -41,7 +42,9 @@ except Exception:
 @register_primitive(
     jaxpr_primitive=nnx_relu_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.relu.html",
-    onnx=[{"component": "Relu", "doc": "https://onnx.ai/onnx/operators/onnx__Relu.html"}],
+    onnx=[
+        {"component": "Relu", "doc": "https://onnx.ai/onnx/operators/onnx__Relu.html"}
+    ],
     since="v0.2.0",
     context="primitives2.nnx",
     component="relu",
@@ -104,6 +107,7 @@ class ReluPlugin(PrimitiveLeafPlugin):
         Provide a small patch so `flax.nnx.relu` binds our primitive during tracing.
         The converter2 machinery will enter/exit this patch via plugin_binding().
         """
+
         def _patched_relu(x):
             return nnx_relu_p.bind(x)
 
