@@ -399,6 +399,7 @@ def to_onnx(
             is_auto = has_param and getattr(d, "dim_param", "").startswith("dynamic_")
             if not has_value and (not has_param or is_auto):
                 d.dim_param = lbl
+
     # Inputs
     for var, vi in zip(jpr.invars, model.graph.input):
         aval = getattr(var, "aval", None)

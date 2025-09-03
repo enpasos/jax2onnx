@@ -92,7 +92,7 @@ EXPECT_DYNAMIC_RGR = expect_graph(
             "run_only_dynamic": True,
             "use_onnx_ir": True,
             "expected_output_shapes": [("B", 10, 64)],
-            #"post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+            # "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_high_rank_static",
@@ -287,7 +287,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 attributes=[
                     ir.Attr("alpha", ir.AttributeType.FLOAT, 1.0),
                     # If there's no bias input, make beta=0.0 for strictness.
-                    ir.Attr("beta", ir.AttributeType.FLOAT, 0.0 if not use_bias else 1.0),
+                    ir.Attr(
+                        "beta", ir.AttributeType.FLOAT, 0.0 if not use_bias else 1.0
+                    ),
                     ir.Attr("transA", ir.AttributeType.INT, 0),
                     ir.Attr("transB", ir.AttributeType.INT, 0),
                 ],
@@ -463,4 +465,4 @@ def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
     if use_bias and bias is not None:
         y = y + bias
-    return y 
+    return y

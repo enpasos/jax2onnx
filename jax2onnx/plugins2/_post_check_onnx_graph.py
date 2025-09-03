@@ -48,9 +48,7 @@ def _op_paths(model: onnx.ModelProto) -> List[str]:
     return list(dict.fromkeys(paths))
 
 
-def expect_graph(
-    patterns: Sequence[str], mode: str = "any", match: str = "contains"
-):
+def expect_graph(patterns: Sequence[str], mode: str = "any", match: str = "contains"):
     """
     Build a checker that validates the presence of operator sequences.
     - match='contains': pattern must occur as a substring of some op-path.
@@ -58,14 +56,20 @@ def expect_graph(
     Matching is over root→sink op-paths; extra fan-in/out is allowed.
     """
     regs = [re.compile(p) for p in patterns]
-    require_all = (mode == "all")
+    require_all = mode == "all"
 
     def _check(model: onnx.ModelProto) -> bool:
         paths = _op_paths(model)
         if match == "exact":
-            matcher = lambda r, s: bool(r.fullmatch(s))
+
+            def matcher(r, s):
+                return bool(r.fullmatch(s))
+
         else:
-            matcher = lambda r, s: bool(r.search(s))
+
+            def matcher(r, s):
+                return bool(r.search(s))
+
         results = []
         for r in regs:
             ok = any(matcher(r, p) for p in paths)
@@ -75,5 +79,3 @@ def expect_graph(
         return all(results) if require_all else any(results)
 
     return _check
- 
-
