@@ -92,7 +92,7 @@ EXPECT_DYNAMIC_RGR = expect_graph(
             "run_only_dynamic": True,
             "use_onnx_ir": True,
             "expected_output_shapes": [("B", 10, 64)],
-            # "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_high_rank_static",
