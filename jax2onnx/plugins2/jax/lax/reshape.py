@@ -63,6 +63,7 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = expect_graph(
     ["^(?!.*(Concat|Gather|Shape)).*$"], match="contains", mode="any"
 )
 
+
 @register_primitive(
     jaxpr_primitive=lax.reshape_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reshape.html",
@@ -127,7 +128,7 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = expect_graph(
             "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
             "input_shapes": [(201, 1, 5)],
             "use_onnx_ir": True,
-        }, 
+        },
         # TODO: fix the issue with this test
         # {
         #     "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",

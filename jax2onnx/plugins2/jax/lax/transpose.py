@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, List
 
-import jax
 from jax import lax
 
 import onnx_ir as ir
@@ -14,10 +13,16 @@ from jax2onnx.plugins2._ir_shapes import (
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
+
 @register_primitive(
     jaxpr_primitive=lax.transpose_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.transpose.html",
-    onnx=[{"component": "Transpose", "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html"}],
+    onnx=[
+        {
+            "component": "Transpose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
+        }
+    ],
     since="v0.2.0",
     context="primitives2.lax",
     component="transpose",
@@ -69,10 +74,6 @@ class TransposePlugin(PrimitiveLeafPlugin):
         in_shape = tuple(getattr(in_aval, "shape", ()) or ())
         if in_shape:
             out_dims: List[Any] = [in_shape[i] for i in perm]
-            _stamp_type_and_shape(y_val, tuple(_to_ir_dim_for_shape(d) for d in out_dims))
-        # Stamp output shape/type by permuting the input aval shape.
-        in_aval = getattr(x_var, "aval", None)
-        in_shape = tuple(getattr(in_aval, "shape", ()) or ())
-        if in_shape:
-            out_dims: List[Any] = [in_shape[i] for i in perm]
-            _stamp_type_and_shape(y_val, tuple(_to_ir_dim_for_shape(d) for d in out_dims))
+            _stamp_type_and_shape(
+                y_val, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
+            )
