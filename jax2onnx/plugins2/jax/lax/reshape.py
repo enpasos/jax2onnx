@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union, Dict
+from typing import TYPE_CHECKING, List, Union, Dict, Optional
 
 import numpy as np
 import jax
@@ -225,9 +225,13 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             )
             return out
 
-        # Build pieces of the shape tensor
+        # Build pieces of the shape tensor.
+        # We keep two views:
+        #  - shape_parts: IR Values (may be const or dynamic pieces)
+        #  - const_accum: plain Python ints if (and only if) we can prove every piece is constant
         shape_parts: List[ir.Value] = []
         all_const = True
+        const_accum: list[int] = []
 
         # Create 'Shape' result lazily when needed
         shape_of_x: ir.Value | None = None
@@ -235,9 +239,30 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         # Iterator over runtime scalar dim inputs (if any)
         runtime_iter = iter(runtime_dim_vars)
 
-        # Cache: which DimExprs are literal input axes?
-        # (kept for clarity; the identity lookup is done later)
-        # {d for d in x_shape if isinstance(d, DimExpr)}
+        # ---- small helpers for DimExpr handling --------------------------------
+        def _dimexpr_const_value(d: DimExpr) -> Optional[int]:
+            """If a DimExpr prints like an integer (e.g. '3' or '-1'), return that int."""
+            try:
+                s = str(d).strip()
+                if s.lstrip("-").isdigit():
+                    return int(s)
+            except Exception:
+                pass
+            return None
+
+        def _same_symbol(dim_expr: DimExpr, axis_dim) -> bool:
+            """Robust 'same symbol' test between a DimExpr and an input axis dim."""
+            if axis_dim is dim_expr:
+                return True
+            try:
+                # If input axis is static int, allow matching constant DimExpr too.
+                if isinstance(axis_dim, (int, np.integer)):
+                    cv = _dimexpr_const_value(dim_expr)
+                    return cv is not None and int(axis_dim) == cv
+                # Otherwise compare string forms (covers same-scope symbols)
+                return str(axis_dim) == str(dim_expr)
+            except Exception:
+                return False
 
         # Track whether we already inserted an inferred dim (-1)
         inserted_neg1 = any(
@@ -248,7 +273,53 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 # include -1 as a literal: let ONNX infer that dim
                 part = const_i64_vec(np.array([int(dim)], dtype=np.int64))
                 shape_parts.append(part)
+                const_accum.append(int(dim))
             elif isinstance(dim, DimExpr):
+                # Try first to fold to constant if the referenced axis is static.
+                axis_idx = next((i for i, d in enumerate(x_shape) if _same_symbol(dim, d)), None)
+                if axis_idx is not None:
+                    axis_dim_val = x_shape[axis_idx]
+                    # Fold if the matched axis is a Python int ...
+                    if isinstance(axis_dim_val, (int, np.integer)):
+                        v = int(axis_dim_val)
+                        shape_parts.append(const_i64_vec(np.array([v], dtype=np.int64)))
+                        const_accum.append(v)
+                        continue
+                    # ... or a constant DimExpr like '3'
+                    if isinstance(axis_dim_val, DimExpr):
+                        cv_axis = _dimexpr_const_value(axis_dim_val)
+                        if cv_axis is not None:
+                            shape_parts.append(const_i64_vec(np.array([cv_axis], dtype=np.int64)))
+                            const_accum.append(int(cv_axis))
+                            continue
+
+                # If the DimExpr itself is constant (e.g., '3'), also fold to const.
+                cv = _dimexpr_const_value(dim)
+                if cv is not None:
+                    part = const_i64_vec(np.array([int(cv)], dtype=np.int64))
+                    shape_parts.append(part)
+                    const_accum.append(int(cv))
+                    continue
+
+                # Truly symbolic: we may either copy an input axis dynamically
+                # or, if this is a derived symbol (e.g. 4*B), fall back to -1 inference.
+                # We only mark 'all_const=False' when we really introduce dynamic nodes.
+                if axis_idx is None:
+                    # Derived symbolic (e.g., 4*B). Use ONNX inference (-1).
+                    if not inserted_neg1:
+                        shape_parts.append(
+                            const_i64_vec(np.array([-1], dtype=np.int64))
+                        )
+                        inserted_neg1 = True
+                    else:
+                        # (A second derived dim would require dynamic arithmetic;
+                        # not needed in our suite; still keep model valid.)
+                        shape_parts.append(
+                            const_i64_vec(np.array([-1], dtype=np.int64))
+                        )
+                    const_accum.append(-1)
+                    continue
+                # Copy that input axis dynamically
                 all_const = False
                 if shape_of_x is None:
                     shape_of_x = ir.Value(
@@ -265,30 +336,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                             name=ctx.fresh_name("Shape"),
                         )
                     )
-                # Try to find an input axis with the SAME symbol (by identity or string).
-                axis_idx = next(
-                    (
-                        i
-                        for i, d in enumerate(x_shape)
-                        if (d is dim)
-                        or (not isinstance(d, (int, np.integer)) and str(d) == str(dim))
-                    ),
-                    None,
-                )
-                if axis_idx is None:
-                    # Derived symbolic (e.g., 4*B). Use ONNX inference (-1).
-                    if not inserted_neg1:
-                        shape_parts.append(
-                            const_i64_vec(np.array([-1], dtype=np.int64))
-                        )
-                        inserted_neg1 = True
-                    else:
-                        # (A second derived dim would require dynamic arithmetic;
-                        # not needed in our suite; still keep model valid.)
-                        shape_parts.append(
-                            const_i64_vec(np.array([-1], dtype=np.int64))
-                        )
-                    continue
                 idx_const = const_i64_scalar(axis_idx)
                 gathered = ir.Value(
                     name=ctx.fresh_name("gather_dim"),
@@ -318,11 +365,11 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 all_const = False
             else:
                 raise TypeError(f"Unsupported reshape size element: {type(dim)}")
-
-        # If all sizes are static, emit a single initializer tensor
+        # If we proved every element is constant, emit a *single* initializer tensor.
+        # (Do NOT rely on new_sizes here; it may contain DimExpr objects.)
         if all_const:
             shape_tensor = const_i64_vec(
-                np.array([int(d) for d in new_sizes], dtype=np.int64)
+                np.array(const_accum, dtype=np.int64)
             )
         else:
             if len(shape_parts) == 0:
@@ -346,7 +393,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     )
                 )
 
-        # Reshape node
+        # --------- emit the single Reshape node ----------
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
         ctx.add_node(
             ir.Node(
@@ -362,7 +409,6 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
 
         # precompute labels for input symbolic dims (DimExpr → label string)
-        # mypy: spell out the type so the dict literal doesn't need inference
         sym_label_map: Dict[object, str] = {}
         for i, d in enumerate(x_shape):
             if not isinstance(d, (int, np.integer)):

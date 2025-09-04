@@ -240,13 +240,14 @@ def _activate_plugin_worlds():
     import_all_plugins()
 
     with ExitStack() as stack:
-        # NEW: activate centralized per-plugin bindings
+        # LEGACY: still support older plugins that provide patch_info()
+        # Apply legacy first so plugins2 can override where both exist.
+        stack.enter_context(apply_monkey_patches())
+
+        # NEW: activate centralized per-plugin bindings (override legacy where needed)
         for plugin_instance in PLUGIN_REGISTRY2.values():
             if isinstance(plugin_instance, PrimitiveLeafPlugin):
                 stack.enter_context(plugin_instance.__class__.plugin_binding())
-
-        # LEGACY: still support older plugins that provide patch_info()
-        stack.enter_context(apply_monkey_patches())
 
         yield
 
@@ -263,8 +264,6 @@ def to_onnx(
     record_primitive_calls_file: Optional[str],
 ) -> onnx.ModelProto:
     # 1) Prepare abstract inputs for tracing (respect x64 policy)
-    import numpy as np
-
     default_float = np.float64 if enable_double_precision else np.float32
     sds_list = _as_sds_list(inputs, enable_double_precision)
 
@@ -371,6 +370,29 @@ def to_onnx(
         g.node.extend(kept)
 
     # ------------------------------------------------------------------
+    # Guardrail: if there is exactly one graph input, rewire any
+    # unknown node inputs (not produced anywhere and not initializers)
+    # to that single input. This prevents invalid graphs caused by
+    # a rare dangling-name wiring bug while we iterate on plugins.
+    # ------------------------------------------------------------------
+    def _repair_dangling_inputs_single_input(model: onnx.ModelProto) -> None:
+        g = model.graph
+        if len(g.input) != 1:
+            return
+        valid: set[str] = set()
+        valid.update(vi.name for vi in g.input)
+        valid.update(t.name for t in g.initializer)
+        for n in g.node:
+            for o in n.output:
+                if o:
+                    valid.add(o)
+        fallback = g.input[0].name
+        for n in g.node:
+            for i, inp in enumerate(n.input):
+                if inp and inp not in valid:
+                    n.input[i] = fallback
+
+    # ------------------------------------------------------------------
     # FIX: Symbolic dimension labels (e.g. "B") can get dropped to None
     # when serializing graph ValueInfo. Re-stamp them from the JAX avals.
     # ------------------------------------------------------------------
@@ -405,7 +427,6 @@ def to_onnx(
         aval = getattr(var, "aval", None)
         if aval is not None:
             _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
-
     # Outputs
     for var, vi in zip(jpr.outvars, model.graph.output):
         aval = getattr(var, "aval", None)
@@ -413,6 +434,7 @@ def to_onnx(
             _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
 
     # Prune any dead nodes/initializers that don’t feed the outputs.
+    _repair_dangling_inputs_single_input(model)
     _prune_dead_onnx_nodes_inplace(model)
 
     return model

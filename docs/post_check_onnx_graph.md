@@ -17,7 +17,7 @@ This checks that there is a **direct producer→consumer chain** of nodes with t
 
 * Replace bespoke lambdas like `_expect_transpose_conv_transpose`.
 * Make tests self-documenting: the expectation is in the string.
-* Control how strict the match is (subpath vs. exact chain) with anchors or a `match` mode.
+* Control how strict the match is (subpath vs. full-graph coverage) with anchors or a `match` mode.
 
 ---
 
@@ -87,9 +87,9 @@ You can add anchors to the pattern string itself:
 Examples:
 
 ```
-"Conv"                       # at least one Conv exists
-"Transpose->Conv"            # some Transpose directly feeds some Conv
-"Transpose(3)->Conv(4)"      # specifically node 3 → node 4 with those types
+"Conv"                          # at least one Conv exists
+"Transpose->Conv"               # some Transpose directly feeds some Conv
+"Transpose(3)->Conv(4)"         # specifically node 3 → node 4 with those types
 "^Transpose->Conv->Transpose$"  # exact chain from source to sink
 ```
 
@@ -113,13 +113,15 @@ expect_graph(["Transpose->Conv->Transpose"], match="prefix")
 expect_graph(["Transpose->Conv->Transpose"], match="suffix")
 
 # Require the chain to be both source-anchored and sink-anchored
+# AND that there are no other root→sink paths in the graph
+# (i.e., the provided patterns account for the entire operator graph).
 expect_graph(["Transpose->Conv->Transpose"], match="exact")
 ```
 
 You can also encode anchors inline (equivalent to the `match` modes):
 
 ```python
-expect_graph(["^Transpose->Conv->Transpose$"])  # same as match="exact"
+expect_graph(["^Transpose->Conv->Transpose$"])  # same as match="exact" + “nothing else”
 ```
 
 ### Common gotcha
@@ -133,7 +135,8 @@ expect_graph(["Transpose->Conv"])   # passes (it's a subpath)
 …it will **pass** in the default `contains` mode. If you intend this to **fail** because the final `Transpose` is also required, then either:
 
 * specify the full chain, or
-* use `match="exact"` (or anchors `^...$`) with the full chain.
+* use `match="exact"` (or anchors `^...$`) **with the full chain**.
+  Note that `exact` will also **fail** if the graph contains **any additional root→sink operator paths** beyond those described by your patterns (e.g., an extra `Concat->Reshape` side-path).
 
 ---
 
@@ -142,7 +145,8 @@ expect_graph(["Transpose->Conv"])   # passes (it's a subpath)
 * Builds a lightweight adjacency from node **output names → input names**.
 * Supports both `onnx_ir` style (`.inputs`/`.outputs`) and ONNX `ModelProto` style (`.input`/`.output`).
 * Backtracks through candidate nodes to find a chain that matches the pattern.
-* `match="prefix"`/`"suffix"`/`"exact"` are enforced by checking node in-/out-degree.
+* `match="prefix"` / `"suffix"` are enforced by checking node in-/out-degree at the ends.
+* `match="exact"` additionally requires that **every** root→sink operator path in the graph fully matches **one of the provided patterns** (full-graph coverage; “nothing else”).
 
 ---
 
@@ -167,7 +171,8 @@ def expect_graph(
   * `"contains"` (default): pattern may appear as a subpath in a larger chain.
   * `"prefix"`: first node must be a **source**.
   * `"suffix"`: last node must be a **sink**.
-  * `"exact"`: both source & sink (equivalent to `^pattern$`).
+  * `"exact"`: both source & sink (equivalent to `^pattern$`) **and nothing else**
+    — all root→sink operator paths in the graph must be matched by the provided patterns.
 
 ---
 
@@ -175,3 +180,4 @@ def expect_graph(
 
 * Prefer **no indices** unless you truly want to lock the graph to a specific order; this keeps tests resilient to benign node reordering.
 * Patterns assert **direct** edges. If you need “reachable through any number of nodes,” that’s a different matcher; this one only matches immediate producer→consumer chains.
+* If you want to forbid stray shape plumbing (e.g., `Concat` that builds a constant shape), write a single `match="exact"` pattern that describes the *entire* intended data-flow chain; any extra operator path will cause the check to fail.

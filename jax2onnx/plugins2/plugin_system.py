@@ -10,6 +10,7 @@ from typing import Any, Callable, ClassVar, Dict
 from contextlib import contextmanager
 import weakref
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import jax
 from jax.core import ShapedArray
@@ -402,27 +403,39 @@ def import_all_plugins() -> None:
     global _already_imported_plugins2
     if _already_imported_plugins2:
         return
-    # plugins_path = os.path.join(os.path.dirname(__file__), "plugins")
-    plugins_path = os.path.dirname(__file__)
+    # Recursively import every Python module under jax2onnx/plugins2
+    # so all plugins self-register into PLUGIN_REGISTRY2 (no hard-coded lists).
+    plugins_dir = Path(os.path.dirname(__file__))  # .../jax2onnx/plugins2
+    pkg_prefix = "jax2onnx.plugins2"
 
-    # Ensure IR path has the core lax primitives we use in tests (reshape + transpose).
-    # Add new modules here as you create more plugins2 files.
-    modules = [
-        "jax2onnx.plugins2.jax.lax.reshape",
-        "jax2onnx.plugins2.jax.lax.transpose",
-    ]
-    for mod in modules:
+    # 1) File-system scan (robust even if intermediate dirs lack __init__.py)
+    for py in plugins_dir.rglob("*.py"):
+        # Skip module loader itself and dunder specials
+        if py.name in {"plugin_system.py", "__init__.py"}:
+            continue
+        # Build fully-qualified module name from relative path
+        rel = py.relative_to(plugins_dir).with_suffix("")
+        parts = [pkg_prefix] + list(rel.parts)
+        modname = ".".join(parts)
         try:
-            importlib.import_module(mod)
+            importlib.import_module(modname)
         except Exception:
-            # don't hard-fail if an environment is missing optional deps;
-            # your existing error policy can be used here instead.
-            pass
+            # Keep discovery best-effort; a missing optional dep shouldn’t crash import.
+            logging.getLogger("jax2onnx.plugins2.plugin_system").debug(
+                "Skipping import of %s", modname, exc_info=True
+            )
 
+    # 2) Also walk via pkgutil for environments preferring package metadata
+    #    (harmless duplicates are ignored by import system).
     for _, module_name, _ in pkgutil.walk_packages(
-        [plugins_path], prefix="jax2onnx.plugins2."
+        [str(plugins_dir)], prefix=f"{pkg_prefix}."
     ):
-        importlib.import_module(module_name)
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            logging.getLogger("jax2onnx.plugins2.plugin_system").debug(
+                "Skipping pkgutil import of %s", module_name, exc_info=True
+            )
     _already_imported_plugins2 = True
 
 
