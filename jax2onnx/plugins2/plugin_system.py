@@ -404,6 +404,21 @@ def import_all_plugins() -> None:
         return
     # plugins_path = os.path.join(os.path.dirname(__file__), "plugins")
     plugins_path = os.path.dirname(__file__)
+
+    # Ensure IR path has the core lax primitives we use in tests (reshape + transpose).
+    # Add new modules here as you create more plugins2 files.
+    modules = [
+        "jax2onnx.plugins2.jax.lax.reshape",
+        "jax2onnx.plugins2.jax.lax.transpose",
+    ]
+    for mod in modules:
+        try:
+            importlib.import_module(mod)
+        except Exception:
+            # don't hard-fail if an environment is missing optional deps;
+            # your existing error policy can be used here instead.
+            pass
+
     for _, module_name, _ in pkgutil.walk_packages(
         [plugins_path], prefix="jax2onnx.plugins2."
     ):

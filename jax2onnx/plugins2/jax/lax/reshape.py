@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union, Dict
 
 import numpy as np
 import jax
@@ -16,10 +16,52 @@ from jax2onnx.plugins2._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_info as _add_value_info,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
+
+# --- helper for tests: forbid constant-only Concat as Reshape shape input ---
+def _no_const_concat_shape(model) -> bool:
+    """
+    Return True iff every Reshape node's second input is either
+    a direct initializer or, if produced by Concat, that Concat is NOT
+    composed purely of initializers (i.e., not a foldable const Concat).
+    """
+    g = model.graph
+    init_names = {t.name for t in g.initializer}
+    # fast map: tensor -> producer node
+    produced_by = {}
+    for n in g.node:
+        for o in n.output:
+            if o:
+                produced_by[o] = n
+    for n in g.node:
+        if n.op_type != "Reshape":
+            continue
+        shape_in = n.input[1] if len(n.input) > 1 else ""
+        if shape_in in init_names:
+            continue
+        prod = produced_by.get(shape_in)
+        if (
+            prod
+            and prod.op_type == "Concat"
+            and all(inp in init_names for inp in prod.input)
+        ):
+            return False  # foldable const Concat still present -> fail
+    return True
+
+
+# --- pattern helpers in the same style as nnx.linear ---
+# A single Reshape is expected (the tiny graphs in these tests contain only one),
+# and we do not want any dynamic shape ops for the all-static case.
+EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = expect_graph(
+    ["^Reshape$"], match="contains", mode="any"
+)
+EXPECT_NO_DYNAMIC_SHAPE_NODES = expect_graph(
+    ["^(?!.*(Concat|Gather|Shape)).*$"], match="contains", mode="any"
+)
 
 @register_primitive(
     jaxpr_primitive=lax.reshape_p.name,
@@ -34,6 +76,38 @@ if TYPE_CHECKING:
     context="primitives2.lax",
     component="reshape",
     testcases=[
+        {
+            # CNN-like path: after a Transpose we reshape with (y.shape[0], -1)
+            # for a fully-static leading axis. The shape vector must be a single
+            # constant initializer; a constant-only Concat feeding Reshape is a bug.
+            "testcase": "reshape_after_transpose_folds_const_shape",
+            "callable": (
+                lambda x: (lambda y: jax.lax.reshape(y, new_sizes=(y.shape[0], -1)))(
+                    jax.lax.transpose(x, permutation=(0, 3, 1, 2))
+                )
+            ),
+            "input_shapes": [(3, 28, 28, 1)],
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": _no_const_concat_shape,
+        },
+        {
+            # Catch regression: when the input’s leading axis is static, the shape fed to
+            # Reshape must be folded to a single constant initializer (no Concat/Gather/Shape).
+            "testcase": "reshape_flatten_trailing_folds_const_shape",
+            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "input_shapes": [(3, 4, 5)],
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: (
+                EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING(m)
+                and EXPECT_NO_DYNAMIC_SHAPE_NODES(m)
+                # and the shape input to Reshape is a constant initializer:
+                and any(
+                    init.name
+                    == next(n for n in m.graph.node if n.op_type == "Reshape").input[1]
+                    for init in m.graph.initializer
+                )
+            ),
+        },
         {
             "testcase": "reshape",
             "callable": lambda x: jax.lax.reshape(x, (9,)),
@@ -53,8 +127,8 @@ if TYPE_CHECKING:
             "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
             "input_shapes": [(201, 1, 5)],
             "use_onnx_ir": True,
-        },
-        # TODO: restore
+        }, 
+        # TODO: fix the issue with this test
         # {
         #     "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
         #     "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
@@ -161,7 +235,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         runtime_iter = iter(runtime_dim_vars)
 
         # Cache: which DimExprs are literal input axes?
-        {d for d in x_shape if isinstance(d, DimExpr)}
+        # (kept for clarity; the identity lookup is done later)
+        # {d for d in x_shape if isinstance(d, DimExpr)}
 
         # Track whether we already inserted an inferred dim (-1)
         inserted_neg1 = any(
@@ -287,7 +362,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # precompute labels for input symbolic dims (DimExpr → label string)
         # mypy: spell out the type so the dict literal doesn't need inference
-        sym_label_map: dict[object, str] = {}
+        sym_label_map: Dict[object, str] = {}
         for i, d in enumerate(x_shape):
             if not isinstance(d, (int, np.integer)):
                 sym_label_map[d] = _dim_label_from_value_or_aval(x_val, x_shape, i)

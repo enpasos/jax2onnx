@@ -1,9 +1,7 @@
-
 import jax
 from flax import nnx
-  
-from jax2onnx.plugins2.plugin_system import register_example
 
+from jax2onnx.plugins2.plugin_system import register_example
 
 
 class CNN(nnx.Module):
@@ -21,7 +19,6 @@ class CNN(nnx.Module):
         x = nnx.relu(self.linear1(x))
         x = self.linear2(x)
         return x
-
 
 
 register_example(
