@@ -3,7 +3,7 @@ import jax
 
 # Reuse the existing Add implementation; this file just registers the alias name.
 from jax2onnx.plugins.jax.lax.add import AddPlugin
-from jax2onnx.plugin_system import register_primitive
+from jax2onnx.plugins.plugin_system import register_primitive
 
 if TYPE_CHECKING:
     pass

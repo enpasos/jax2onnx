@@ -70,14 +70,19 @@ def expect_graph(patterns: Sequence[str], mode: str = "any", match: str = "conta
         # Fast path for the common 'contains' / 'prefix' / 'suffix' modes
         if match != "exact":
             if match == "prefix":
+
                 def matcher(r, s):  # start-anchored
                     m = r.search(s)
                     return bool(m and m.start() == 0)
+
             elif match == "suffix":
+
                 def matcher(r, s):  # end-anchored
                     m = r.search(s)
                     return bool(m and m.end() == len(s))
+
             else:  # 'contains'
+
                 def matcher(r, s):
                     return bool(r.search(s))
 

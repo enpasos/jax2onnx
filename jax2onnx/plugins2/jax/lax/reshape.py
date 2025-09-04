@@ -276,7 +276,9 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 const_accum.append(int(dim))
             elif isinstance(dim, DimExpr):
                 # Try first to fold to constant if the referenced axis is static.
-                axis_idx = next((i for i, d in enumerate(x_shape) if _same_symbol(dim, d)), None)
+                axis_idx = next(
+                    (i for i, d in enumerate(x_shape) if _same_symbol(dim, d)), None
+                )
                 if axis_idx is not None:
                     axis_dim_val = x_shape[axis_idx]
                     # Fold if the matched axis is a Python int ...
@@ -289,7 +291,9 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     if isinstance(axis_dim_val, DimExpr):
                         cv_axis = _dimexpr_const_value(axis_dim_val)
                         if cv_axis is not None:
-                            shape_parts.append(const_i64_vec(np.array([cv_axis], dtype=np.int64)))
+                            shape_parts.append(
+                                const_i64_vec(np.array([cv_axis], dtype=np.int64))
+                            )
                             const_accum.append(int(cv_axis))
                             continue
 
@@ -368,9 +372,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         # If we proved every element is constant, emit a *single* initializer tensor.
         # (Do NOT rely on new_sizes here; it may contain DimExpr objects.)
         if all_const:
-            shape_tensor = const_i64_vec(
-                np.array(const_accum, dtype=np.int64)
-            )
+            shape_tensor = const_i64_vec(np.array(const_accum, dtype=np.int64))
         else:
             if len(shape_parts) == 0:
                 shape_tensor = const_i64_vec(np.array([], dtype=np.int64))

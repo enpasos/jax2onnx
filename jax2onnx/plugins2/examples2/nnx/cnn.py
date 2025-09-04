@@ -40,9 +40,8 @@ register_example(
             "testcase": "simple_cnn_static",
             "callable": CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [(3, 28, 28, 1)],
-            "run_only_f32_variant": True,             
+            "run_only_f32_variant": True,
             "expected_output_shapes": [(3, 10)],
-            
             "post_check_onnx_graph": expect_graph(
                 [
                     "^Transpose->Conv->Relu->AveragePool->Conv->Relu->AveragePool->Transpose->Reshape->Gemm->Relu->Gemm$",
@@ -57,8 +56,8 @@ register_example(
             "callable": CNN(rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
-            "run_only_dynamic": True,          
-            "expected_output_shapes": [("B", 10)], 
+            "run_only_dynamic": True,
+            "expected_output_shapes": [("B", 10)],
             "use_onnx_ir": True,
         },
     ],
