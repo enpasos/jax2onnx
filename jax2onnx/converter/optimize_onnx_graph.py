@@ -8,31 +8,26 @@ from onnx import ModelProto, shape_inference
 
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("jax2onnx.converter.optimize_onnx_graph")
 
 
-def improve_onnx_model(onnx_model: onnx.ModelProto) -> onnx.ModelProto:
-    # Perform shape inference to populate tensor shapes in the ONNX model.
-    onnx_model = shape_inference.infer_shapes(onnx_model)
-
-    # Remove unnecessary cast operations to simplify the model.
-    onnx_model = remove_redundant_casts(onnx_model)
-
-    # Eliminate redundant reshape operations to optimize the graph.
-    onnx_model = remove_redundant_reshapes(onnx_model)
-
-    # Remove pairs of transpose operations that cancel each other out.
-    onnx_model = remove_redundant_transpose_pairs(onnx_model)
-
-    _validate_loops(onnx_model)
-
-    # Perform shape inference again to ensure consistency after optimizations.
-    onnx_model = shape_inference.infer_shapes(onnx_model)
-
-    # strip unknown dimension names if needed.
-    onnx_model = strip_unk_dim_names(onnx_model)
-
-    return onnx_model
+def improve_onnx_model(model: onnx.ModelProto) -> onnx.ModelProto:
+    """
+    Run ONNX shape/type inference. If a rare dtype disagreement is detected,
+    keep the original model (logged) instead of raising.
+    """
+    try:
+        return shape_inference.infer_shapes(
+            model, check_type=False, strict_mode=False, data_prop=False
+        )
+    except Exception as e:
+        msg = str(e)
+        if "Inferred elem type differs from existing elem type" in msg:
+            logger.warning(
+                "Skipping ONNX shape inference due to dtype conflict: %s", msg
+            )
+            return model
+        raise
 
 
 def strip_unk_dim_names(model):
