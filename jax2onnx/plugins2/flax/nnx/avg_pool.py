@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins2/flax/nnx/avg_pool.py
+
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Sequence
 import numpy as np

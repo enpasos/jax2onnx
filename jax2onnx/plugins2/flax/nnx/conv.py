@@ -1386,7 +1386,38 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
         # Back to NH...C
         post_perm = (0, *range(2, x_spatial + 2), 1)  # (N,C,S...) -> (N,S...,C)
-        y_nhwc = _transpose(ctx, y, post_perm)
+        y_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+
+        if need_flatten:
+            # Transpose into a TEMP first; final reshape will write to y_out
+            y_nhwc_tmp = ir.Value(
+                name=ctx.fresh_name("nhwc_tmp"),
+                type=y.type,
+                shape=None,
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Transpose",
+                    domain="",
+                    inputs=[y],
+                    outputs=[y_nhwc_tmp],
+                    name=ctx.fresh_name("Transpose"),
+                    attributes=_as_attrs({"perm": tuple(int(p) for p in post_perm)}),
+                )
+            )
+        else:
+            # No reshape afterwards: last op is the transpose → write straight to y_out
+            ctx.add_node(
+                ir.Node(
+                    op_type="Transpose",
+                    domain="",
+                    inputs=[y],
+                    outputs=[y_out],
+                    name=ctx.fresh_name("Transpose"),
+                    attributes=_as_attrs({"perm": tuple(int(p) for p in post_perm)}),
+                )
+            )
+
         if (
             not need_flatten
             and _is_concrete_shape(x_shape)
@@ -1395,7 +1426,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             in_sp = x_shape[1 : 1 + conv_spatial]
             k_sp = k_shape[:conv_spatial]
             out_sp = _calc_out_spatial(in_sp, k_sp, strides, dilations, padding_param)
-            _annotate_value(y_nhwc, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
+            _annotate_value(y_out, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
 
         if need_flatten:
             # Prefer STATIC reshape back when concrete dims are available.
@@ -1412,11 +1443,20 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 tgt = _const_i64(
                     ctx, np.asarray(tgt_list, dtype=np.int64), "reshape_out_static"
                 )
-                y_final = _reshape(ctx, y_nhwc, tgt)
+                # Pattern A: reshape directly into the pre-allocated output
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[y_nhwc_tmp, tgt],
+                        outputs=[y_out],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
             else:
                 # Dynamic fallback: Recover (N, extra..., out_spatial..., C_out)
                 sh_x = _shape_of(ctx, x_val)  # [N, extra..., part..., C]
-                sh_y = _shape_of(ctx, y_nhwc)  # [N', out sp..., C_out]
+                sh_y = _shape_of(ctx, y_nhwc_tmp)  # [N', out sp..., C_out]
 
                 # N and extra dims from original input
                 idx_nextra = _const_i64(
@@ -1439,9 +1479,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 tgt = _concat0(
                     ctx, [n_extras, out_sp_dyn, out_c]
                 )  # [1+extra + conv_spatial + 1]
-                y_final = _reshape(ctx, y_nhwc, tgt)
-        else:
-            y_final = y_nhwc
+                # Pattern A: reshape directly into y_out
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[y_nhwc_tmp, tgt],
+                        outputs=[y_out],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+        # else: already wrote transpose to y_out
 
         # Final output annotation if statically known (no flatten)
         if (
@@ -1452,10 +1500,10 @@ class ConvPlugin(PrimitiveLeafPlugin):
             in_sp = x_shape[1 : 1 + conv_spatial]
             k_sp = k_shape[:conv_spatial]
             out_sp = _calc_out_spatial(in_sp, k_sp, strides, dilations, padding_param)
-            _annotate_value(y_final, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
+            _annotate_value(y_out, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
 
-        # Rename+bind final value as model output (e.g. "out_0")
-        return _attach_output(ctx, y_var, y_final)
+        # Pattern A complete: y_out is already the var-bound output; nothing to attach/rename
+        return y_out
 
     @classmethod
     def binding_specs(cls):

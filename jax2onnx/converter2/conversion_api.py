@@ -21,6 +21,7 @@ import jax.numpy as jnp
 # new imports
 from .ir_context import IRContext
 from .ir_builder import IRBuilder
+from .ir_optimizations import remove_redundant_transpose_pairs_ir
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -326,7 +327,11 @@ def to_onnx(
     # 5) Outputs
     ctx.add_outputs_from_vars(jpr.outvars)
 
-    # 6) Model proto
+    # 6) IR-level graph optimizations (safe structure-only)
+    #    Run BEFORE serialization, so rewires are reflected in the final ONNX.
+    remove_redundant_transpose_pairs_ir(ctx)
+
+    # 7) Model proto
     model = ctx.to_model_proto(name=model_name)
 
     # ------------------------------------------------------------------
