@@ -1,3 +1,5 @@
+# file: jax2onnx/plugins/jax/lax/square.py
+
 from typing import TYPE_CHECKING
 
 import jax

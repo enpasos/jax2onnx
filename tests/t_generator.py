@@ -1243,8 +1243,4 @@ if __name__ == "__main__":
 
     logger.info("Running t_generator.py script...")
     generate_all_tests()
-    # For example:
-    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-    logger.info("Running t_generator.py script...")
-    generate_all_tests()
+ 
