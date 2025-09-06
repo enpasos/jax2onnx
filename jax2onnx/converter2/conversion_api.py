@@ -18,10 +18,15 @@ import onnx
 import jax
 import jax.numpy as jnp
 
+from onnx import helper as oh, OperatorSetIdProto
+from jax2onnx.plugins2 import plugin_system as ps2
+
 # new imports
 from .ir_context import IRContext
+from jax2onnx.plugins2.plugin_system import _sanitize_op_type  # reuse sanitizer
 from .ir_builder import IRBuilder
 from .ir_optimizations import remove_redundant_transpose_pairs_ir
+from .function_scope import FunctionRegistry, attach_functions_to_model
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -275,6 +280,7 @@ def to_onnx(
     with _activate_plugin_worlds():
         closed = jax.make_jaxpr(_wrapped)(*sds_list)
     jpr = closed.jaxpr
+    print(f"JAXPR: {jpr.pretty_print()}")  # TODO remove
 
     # 3) Build IR context & bind inputs/consts
     ctx = IRContext(
@@ -282,6 +288,7 @@ def to_onnx(
         enable_double_precision=enable_double_precision,
         input_specs=sds_list,
     )
+    ctx._function_registry = FunctionRegistry()
 
     # map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
@@ -297,12 +304,14 @@ def to_onnx(
     # 4) Walk equations & dispatch to plugin.lower
     _seen_prims: list[str] = []
 
-    # expose builder to FunctionPlugin via a tiny facade
+    # expose builder *and* context to plugins (e.g., FunctionPlugin)
     class _ConverterFacade:
         builder: IRBuilder
+        ctx: IRContext
 
     converter = _ConverterFacade()
     converter.builder = ctx.builder
+    converter.ctx = ctx
 
     for eqn in jpr.eqns:
         prim_name = eqn.primitive.name
@@ -313,9 +322,22 @@ def to_onnx(
                 f"[converter2] No plugins2 registered for primitive '{prim_name}'"
             )
         # leaf primitive plugins expose .lower(ctx, eqn)
-        # function plugins use FunctionPlugin’s handler via plugin_system
+        # function plugins use FunctionPlugin's handler via plugin_system
         if hasattr(plugin_ref, "lower"):
-            plugin_ref.lower(ctx, eqn)
+            # Backwards-compatible dispatch:
+            # - old leaf plugins: lower(self, ctx, eqn)
+            # - new leaf plugins: lower(self, ctx, eqn, params)
+            lower = plugin_ref.lower
+            try:
+                import inspect as _ins
+
+                has_params = "params" in _ins.signature(lower).parameters
+            except Exception:
+                has_params = False
+            if has_params:
+                lower(ctx, eqn, getattr(eqn, "params", None))
+            else:
+                lower(ctx, eqn)
         elif hasattr(plugin_ref, "get_handler"):
             handler = plugin_ref.get_handler(converter)
             handler(converter, eqn, eqn.params)
@@ -328,11 +350,83 @@ def to_onnx(
     ctx.add_outputs_from_vars(jpr.outvars)
 
     # 6) IR-level graph optimizations (safe structure-only)
-    #    Run BEFORE serialization, so rewires are reflected in the final ONNX.
     remove_redundant_transpose_pairs_ir(ctx)
 
     # 7) Model proto
     model = ctx.to_model_proto(name=model_name)
+
+    # ------------------------------------------------------------
+    # Late-apply any node attribute overrides recorded by plugins.
+    # We use onnx.helper to create AttributeProto safely.
+    # ------------------------------------------------------------
+    def _apply_node_attr_overrides(
+        model: onnx.ModelProto, overrides: dict[str, dict[str, object]]
+    ) -> None:
+        if not overrides:
+            return
+        name2attrs = overrides
+        # Make a quick index (not strictly necessary but robust if names repeat)
+        nodes = list(model.graph.node)
+        for n in nodes:
+            attrs = name2attrs.get(n.name)
+            if not attrs:
+                continue
+            # Drop any existing attributes with the same name to avoid duplicates
+            keep = [a for a in n.attribute if a.name not in attrs]
+            del n.attribute[:]
+            n.attribute.extend(keep)
+            # Add/override from our dict (let onnx.helper infer types)
+            for k, v in attrs.items():
+                n.attribute.append(oh.make_attribute(k, v))
+
+    _apply_node_attr_overrides(model, getattr(ctx, "_attr_overrides", {}))
+
+    # --- Attach placeholder ONNX Functions for any @onnx_function hits (new IR path) ---
+    # Only add placeholders for names that were hit but not actually lowered.
+    hits = getattr(ps2, "_consume_onnx_function_hits")()
+    if hits:
+        op_import = OperatorSetIdProto()
+        op_import.domain = ""
+        op_import.version = opset
+        # gather names of real functions already in the registry/model
+        real_names = {
+            f.name for f in getattr(ctx, "_function_registry", FunctionRegistry()).all()
+        }
+        for full in sorted(hits):
+            fname = _sanitize_op_type(
+                f"{'onnx_fn::'+full}"
+            )  # match function-plugin naming scheme
+            if fname in real_names:
+                continue  # a real definition exists; skip placeholder
+            fn = oh.make_function(
+                domain="",  # default domain
+                fname=fname,
+                inputs=["X"],
+                outputs=["Y"],
+                nodes=[oh.make_node("Identity", ["X"], ["Y"])],
+                opset_imports=[op_import],
+                doc_string=f"Placeholder function for {full}",
+            )
+            model.functions.append(fn)
+
+    # 7.1) Attach ONNX FunctionProto collected by function plugin handlers
+    if getattr(ctx, "_function_registry", None) is not None:
+        funcs = ctx._function_registry.all()
+        attach_functions_to_model(model, funcs)
+
+        # Ensure the model has opset imports for any non-empty function domains
+        # (Netron will only resolve the FunctionProto – and show the “f” mark and
+        # callsite’s *wired* tensor names – when the domain is imported.)
+        if funcs:
+            present = {imp.domain for imp in model.opset_import}
+            needed = {f.domain for f in funcs if getattr(f, "domain", "")}
+            for dom in needed - present:
+                imp = OperatorSetIdProto()
+                imp.domain = dom
+                # Keep this at 1. We don’t use any domain-versioned ops inside the
+                # function body; it simply names the function’s namespace.
+                imp.version = 1
+                model.opset_import.append(imp)
 
     # ------------------------------------------------------------------
     # Simple dead-code elimination: drop nodes/initializers that do not

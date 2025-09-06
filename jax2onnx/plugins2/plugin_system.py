@@ -1,58 +1,89 @@
 # file: jax2onnx/plugins2/plugin_system.py
+
 from __future__ import annotations
+
 import functools
+import re
 import importlib
 import inspect
 import logging
 import os
 import pkgutil
-from typing import Any, Callable, ClassVar, Dict
-from contextlib import contextmanager
 import weakref
 from abc import ABC, abstractmethod
+from contextlib import contextmanager, ExitStack
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any, Callable, ClassVar, Dict
 
 import jax
+import numpy as np
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-
-from jax2onnx.converter.name_generator import get_qualified_name
-from jax2onnx.converter.function_handling import function_handler
+import onnx_ir as ir
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec, apply_patches
-
-PLUGIN_REGISTRY2: Dict[str, Any] = {}
-# A global registry to store plugins for extending functionality.
-# Plugins can be of different types, such as FunctionPlugin, ExamplePlugin, or PrimitiveLeafPlugin.
-
-
-# Track ONNX-decorated modules and their plugins
-ONNX_FUNCTION_REGISTRY2: dict[str, Any] = {}
-ONNX_FUNCTION_PRIMITIVE_REGISTRY2: dict[str, tuple[Primitive, Any]] = {}
-ONNX_FUNCTION_PLUGIN_REGISTRY2: dict[str, "FunctionPlugin"] = {}
-
-INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
-
+from jax2onnx.converter2.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter2.ir_builder import IRBuilder
 
 logger = logging.getLogger("jax2onnx.plugins2.plugin_system")
 
 
-#####################################
-# Primitive Plugin System
-#####################################
+# ------------------------------------------------------------------------------
+# Registries and state
+# ------------------------------------------------------------------------------
+
+# Use a small private domain for ONNX functions. Netron shows the "f"
+# marker only when it can resolve a FunctionProto in a domain; ORT also
+# requires an opset import for non-empty domains.
+_FUNCTION_DOMAIN = "custom"
+
+
+def _sanitize_op_type(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", s)
+
+
+# Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
+PLUGIN_REGISTRY2: Dict[str, Any] = {}
+
+# Qualified target name -> FunctionPlugin (for reference)
+ONNX_FUNCTION_PLUGIN_REGISTRY2: Dict[str, "FunctionPlugin"] = {}
+
+# Store instance objects for class-based call targets
+INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
+
+# Track @onnx_function hits (optional)
+_ONNX_FN_HITS: ContextVar[set[str]] = ContextVar("_ONNX_FN_HITS", default=set())
+
+# During function body build, prevent that function from rebinding itself
+_IN_FUNCTION_BUILD: ContextVar[set[str]] = ContextVar(
+    "_IN_FUNCTION_BUILD", default=set()
+)
+
+# Optional examples registry (mirrored into legacy on register_example)
+EXAMPLE_REGISTRY2: Dict[str, dict[str, Any]] = {}
+
+# Patching state
+_PATCH_STATE: dict[tuple[Any, str], dict[str, Any]] = {}
+
+
+def _sanitize_op_type_name(name: str) -> str:
+    """Make a string safe for ONNX op_type (letters, digits, underscore)."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", name)
+
+
+# Discovery guard (missing before → NameError during test generation)
+_already_imported_plugins2: bool = False
+
+# ------------------------------------------------------------------------------
+# Primitive plugin base
+# ------------------------------------------------------------------------------
 
 
 class PrimitivePlugin(ABC):
-
     @abstractmethod
     def get_patch_params(self):
-        """Retrieve patch parameters for the plugin."""
-        pass
-
-    # @abstractmethod
-    # def get_handler(self, converter: Any) -> Callable:
-    #     """Retrieve the handler function for the plugin."""
-    #     pass
+        raise NotImplementedError
 
 
 class PrimitiveLeafPlugin(PrimitivePlugin):
@@ -60,19 +91,16 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     metadata: dict[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None
 
-    # most plugins will define _PRIM and abstract_eval
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @classmethod
     def ensure_abstract_eval_bound(cls):
-        """Bind abstract eval on first use (idempotent)."""
         if not getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
-            # Plugins that need it should implement: cls._PRIM.def_abstract_eval(cls.abstract_eval)
             if hasattr(cls, "_PRIM") and hasattr(cls, "abstract_eval"):
-                cls._PRIM.def_abstract_eval(cls.abstract_eval)  # type: ignore[attr-defined]
+                # type: ignore[attr-defined]
+                cls._PRIM.def_abstract_eval(cls.abstract_eval)  # noqa: SLF001
             cls._ABSTRACT_EVAL_BOUND = True
 
-    # Plugins override this to declare their binding needs.
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return []
@@ -80,10 +108,6 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     @classmethod
     @contextmanager
     def plugin_binding(cls):
-        """
-        Scoped patching for this plugin.
-        Centralized, minimal boilerplate in plugins.
-        """
         cls.ensure_abstract_eval_bound()
         with apply_patches(cls.binding_specs()):
             yield
@@ -95,282 +119,442 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
         targets = info["patch_targets"]
         patch_func = info["patch_function"]
         attr = info.get("target_attribute", "__call__")
-        # Return a list entry per patch target
         return [(t, attr, patch_func) for t in targets]
 
-    # def get_handler(self, converter: Any) -> Callable:
-    #     return lambda converter, eqn, params: self.to_onnx(
-    #         converter, eqn.invars, eqn.outvars, params
-    #     )
 
-    # @abstractmethod
-    # def to_onnx(
-    #     self, converter: Any, node_inputs: Any, node_outputs: Any, params: Any
-    # ) -> None:
-    #     """Convert the plugin to ONNX format."""
-    #     pass
+# ------------------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------------------
+
+
+def _extract_ir_ctx(converter: Any):
+    """
+    Be tolerant about how the IRContext is exposed by the converter facade.
+    Different call-sites may attach it under slightly different names.
+    """
+    # 1) direct attach on the facade
+    for attr in ("_ctx", "ctx", "context"):
+        ctx = getattr(converter, attr, None)
+        if ctx is not None:
+            return ctx
+
+    # 2) via builder
+    b = getattr(converter, "builder", None)
+    if b is None:
+        return None
+    for attr in ("_ctx", "ctx", "context", "_context", "ir_context", "parent_ctx"):
+        ctx = getattr(b, attr, None)
+        if ctx is not None:
+            return ctx
+
+    # 3) optional accessor
+    getctx = getattr(b, "get_context", None)
+    if callable(getctx):
+        try:
+            return getctx()
+        except Exception:
+            logger.debug("builder.get_context() failed", exc_info=True)
+
+    return None
+
+
+@contextmanager
+def _activate_full_plugin_worlds_for_body():
+    """
+    For nested function-body tracing: activate BOTH
+      1) function patches (via apply_monkey_patches), and
+      2) leaf plugin bindings (via PrimitiveLeafPlugin.plugin_binding()).
+    Mirrors the outer stack used by converter2._activate_plugin_worlds().
+    """
+    import_all_plugins()
+    with ExitStack() as stack:
+        # Function plugins' monkey patches
+        stack.enter_context(apply_monkey_patches())
+        # Leaf plugins' binding_specs (e.g., nnx/jnp/lax rewrites)
+        for plugin in PLUGIN_REGISTRY2.values():
+            cls = plugin.__class__
+            try:
+                if issubclass(cls, PrimitiveLeafPlugin):
+                    stack.enter_context(cls.plugin_binding())
+            except Exception:
+                # Best-effort; a non-leaf or misconfigured plugin should not crash nested tracing
+                logger.debug("Skipping leaf binding for %r", cls, exc_info=True)
+        yield
+
+
+def _qualname_of_target(target: Any) -> str:
+    if inspect.isclass(target):
+        return f"{target.__module__}.{target.__name__}"
+    elif callable(target):
+        mod = inspect.getmodule(target)
+        return f"{(mod.__name__ if mod else '<unknown>')}.{target.__name__}"
+    else:
+        return repr(target)
+
+
+# ------------------------------------------------------------------------------
+# Function plugin (new-world)
+# ------------------------------------------------------------------------------
 
 
 class FunctionPlugin(PrimitivePlugin):
-    def __init__(self, name: str, target: Any):
-        self.name = name
+    """
+    Wrap a decorated target (class or function) in a JAX Primitive
+    ('onnx_fn::<qualified>') and lower each call to an ONNX Function def + call-site.
+    """
+
+    def __init__(self, primitive_name: str, target: Any):
+        self.name = primitive_name
         self.target = target
-        self.primitive = Primitive(name)
-        self.primitive.def_abstract_eval(self.abstract_eval_with_kwargs)
-        self.primitive.def_impl(self.primitive_impl)
-        self._orig_fn = None
+        self.primitive = Primitive(primitive_name)
+        self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
+        self.primitive.def_impl(self._primitive_impl)
+        self._orig_fn = None  # set by patch wrapper
 
-    def to_function_proto(self, context, builder, inputs, outputs):
-        # Generate a unique name for this function instance
-        function_name = context.next_function_name(self.target.__name__)
+    # Implement abstract method (used by monkey-patch activator)
+    def get_patch_params(self):
+        info = self.patch_info()
+        targets = info["patch_targets"]
+        patch_func = info["patch_function"]
+        attr = info.get("target_attribute", "__call__")
+        return [(t, attr, patch_func) for t in targets]
 
-        # Start building the FunctionProto
-        builder.start_function(function_name, inputs, outputs)
-
-        # The actual conversion logic would go here...
-        # e.g., trace self.target, emit intermediate nodes, etc.
-
-        return builder.end_function()
+    def patch_info(self) -> dict[str, Any]:
+        if inspect.isclass(self.target):
+            return {
+                "patch_targets": [self.target],
+                "patch_function": self._make_patch_fn(self.primitive, is_class=True),
+                "target_attribute": "__call__",
+            }
+        elif callable(self.target):
+            mod = inspect.getmodule(self.target)
+            return {
+                "patch_targets": [mod],
+                "patch_function": self._make_patch_fn(self.primitive, is_class=False),
+                "target_attribute": self.target.__name__,
+            }
+        else:
+            raise TypeError(
+                f"Unsupported target type for patching: {type(self.target)}"
+            )
 
     @staticmethod
     def _aval_to_shaped_array(aval):
-        """Converts a ShapeDtypeStruct or other aval to ShapedArray."""
         if isinstance(aval, ShapedArray):
-            # It's already the type we need
             return aval
-        elif hasattr(aval, "shape") and hasattr(aval, "dtype"):
-            # Covers ShapeDtypeStruct and other array-like abstract values
+        if hasattr(aval, "shape") and hasattr(aval, "dtype"):
             return ShapedArray(aval.shape, aval.dtype)
-        else:
-            # Handle non-array abstract values if necessary, or raise error
-            raise TypeError(
-                f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
-            )
+        raise TypeError(
+            f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
+        )
 
-    def abstract_eval_with_kwargs(self, *args, **kwargs):
-        """
-        Correctly performs abstract evaluation using the original function's signature
-        and preserves symbolic dimensions without trying to evaluate the function directly.
-
-        Args:
-            *args: Tuple of abstract values (e.g., ShapedArray) for positional inputs.
-            **kwargs: Dictionary of keyword arguments (static parameters).
-
-        Returns:
-            A ShapedArray with the correct shape and dtype matching the output of the original function.
-        """
+    def _abstract_eval_with_kwargs(self, *args, **kwargs):
         if self._orig_fn is None:
-            raise ValueError(
-                f"Original function (_orig_fn) not set for abstract evaluation of primitive {self.name}"
+            raise ValueError(f"Original function not set for '{self.name}'")
+        kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
+        specs = [
+            (
+                jax.ShapeDtypeStruct(arg.shape, arg.dtype)
+                if isinstance(arg, ShapedArray)
+                else arg
             )
+            for arg in args
+        ]
+        out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
+        if isinstance(out_aval, jax.ShapeDtypeStruct):
+            out_aval = self._aval_to_shaped_array(out_aval)
+        elif isinstance(out_aval, tuple):
+            out_aval = tuple(self._aval_to_shaped_array(a) for a in out_aval)
+        elif isinstance(out_aval, list):
+            out_aval = [self._aval_to_shaped_array(a) for a in out_aval]
+        return out_aval
 
-        # If instance_key exists in kwargs, remove it
-        if "instance_key" in kwargs:
-            del kwargs["instance_key"]
-
-        try:
-            if self._orig_fn is not None:
-                # Drop tracing helper kwarg that we added in the wrapper.
-                kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
-
-                # convert all args from ShapeArray to jax.ShapeDtypeStruct
-                specs = [
-                    (
-                        jax.ShapeDtypeStruct(arg.shape, arg.dtype)
-                        if isinstance(arg, ShapedArray)
-                        else arg
-                    )
-                    for arg in args
-                ]
-
-                out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
-
-                # we need to convert the output back to ShapedArray
-                if isinstance(out_aval, jax.ShapeDtypeStruct):
-                    # Convert the output to ShapedArray
-                    out_aval = self._aval_to_shaped_array(out_aval)
-                elif isinstance(out_aval, tuple):
-                    # If the output is a tuple, convert each element to ShapedArray
-                    out_aval = tuple(
-                        self._aval_to_shaped_array(aval) for aval in out_aval
-                    )
-                elif isinstance(out_aval, list):
-                    # If the output is a list, convert each element to ShapedArray
-                    out_aval = [self._aval_to_shaped_array(aval) for aval in out_aval]
-
-                return out_aval
-
-        except Exception as e:
-            logger.error(
-                f"[ERROR] Abstract evaluation failed for primitive {self.name} on function {self._orig_fn}: {e}"
-            )
-            raise e
-
-    def primitive_impl(self, *args, **kwargs):
+    def _primitive_impl(self, *args, **kwargs):
         if self._orig_fn is None:
             raise ValueError("Original function not set for primitive!")
         return self._orig_fn(*args, **kwargs)
 
-    def get_patch_fn(self, primitive, is_class: bool) -> Callable:
+    def _make_patch_fn(self, primitive: Primitive, is_class: bool) -> Callable:
         def patch(original_call):
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
 
             @functools.wraps(original_call)
             def wrapped(*args, **kwargs):
-                expects_self = params and params[0] == "self"
-
+                expects_self = is_class or (params and params[0] == "self")
                 if expects_self:
                     instance = args[0]
                     instance_key = id(instance)
                     INSTANCE_MAP2[instance_key] = instance
-                    qualname = get_qualified_name(instance.__class__)
-                    if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY2:
-                        plugin = ONNX_FUNCTION_PLUGIN_REGISTRY2[qualname]
-                        plugin._orig_fn = original_call.__get__(
-                            instance, type(instance)
-                        )
-                    # Pass instance_key as a kwarg
+                    bound_orig = original_call.__get__(instance, type(instance))
+                    self._orig_fn = bound_orig
+                    # If we are currently constructing this function's body, do NOT emit
+                    # the function primitive again—call through so inner patches take effect.
+                    if self.name in _IN_FUNCTION_BUILD.get():
+                        return bound_orig(*args[1:], **kwargs)
+                    # Record a hit (for optional test bookkeeping) and bind the primitive.
+                    hits = set(_ONNX_FN_HITS.get())
+                    hits.add(self.name.split("::", 1)[1])
+                    _ONNX_FN_HITS.set(hits)
                     return primitive.bind(
                         *args[1:], **{**kwargs, "instance_key": instance_key}
                     )
                 else:
-                    # Non-class function
-                    qualname = self.name  # self.name is already qualified
-                    if qualname in ONNX_FUNCTION_PLUGIN_REGISTRY2:
-                        plugin = ONNX_FUNCTION_PLUGIN_REGISTRY2[qualname]
-                        plugin._orig_fn = original_call
+                    self._orig_fn = original_call
+                    if self.name in _IN_FUNCTION_BUILD.get():
+                        return original_call(*args, **kwargs)
+                    hits = set(_ONNX_FN_HITS.get())
+                    hits.add(self.name.split("::", 1)[1])
+                    _ONNX_FN_HITS.set(hits)
                     return primitive.bind(*args, **kwargs)
 
             return wrapped
 
         return patch
 
-    def get_patch_params(self):
-        # Determine if the target is a class or a function
-        if inspect.isclass(self.target):
-            # Patch the __call__ method of the class
-            return (self.target, "__call__", self.get_patch_fn(self.primitive, True))
-        elif callable(self.target):
-            # Patch the function in its module by name
-            module = inspect.getmodule(self.target)
-            func_name = self.target.__name__
-            return (module, func_name, self.get_patch_fn(self.primitive, False))
-        else:
-            raise TypeError(
-                f"Unsupported target type for patching: {type(self.target)}"
-            )
+    def _friendly_name_base(self) -> str:
+        """Human-readable base name for this function (class or function name)."""
+        tgt = self.target
+        try:
+            if inspect.isclass(tgt):
+                return tgt.__name__ or "Function"
+            if callable(tgt):
+                return getattr(tgt, "__name__", "Function")
+        except Exception:
+            pass
+        return "Function"
 
-    # Add this implementation
     def get_handler(self, converter: Any) -> Callable:
-        return lambda conv, eqn, params: self._function_handler(
-            converter, conv, eqn, params
-        )
+        return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
 
-    def _function_handler(self, plugin_converter, converter, eqn, params):
-        orig_fn = self._orig_fn
+    def _allocate_friendly_name(self, ctx) -> str:
+        """
+        Produce a stable, human-readable FunctionProto name like 'SuperBlock_1'.
+        Keeps a per-context counter per base name.
+        """
+        base = _sanitize_op_type_name(self._friendly_name_base())
+        counters = getattr(ctx, "_func_name_counters", None) or {}
+        idx = counters.get(base, 0) + 1
+        counters[base] = idx
+        setattr(ctx, "_func_name_counters", counters)
+        return f"{base}_{idx}"
 
-        # if existing remove "instance_key" from params
+    def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]):
+        # Resolve callee
+        callee = self._orig_fn
         if "instance_key" in params:
             key = params["instance_key"]
             del params["instance_key"]
-            instance = INSTANCE_MAP2.get(key)
-            orig_fn = instance
+            callee = INSTANCE_MAP2.get(key)
 
-        from jax import numpy as jnp
-        import numpy as np
-        import copy
+        # Parent ctx
+        ctx = _extract_ir_ctx(converter)
+        if ctx is None:
+            raise RuntimeError("[onnx_function] Cannot locate IRContext")
 
-        # --- Separate ONNX params and JAX params ---
-        # Avoid deepcopy on JAX Tracers: do a shallow copy and only deepcopy safe values
-        from jax.core import Tracer
+        # Ensure a function registry exists on the parent (converter2 sets this)
+        freg = getattr(ctx, "_function_registry", None)
+        if freg is None:
+            raise RuntimeError("[onnx_function] Function registry missing")
 
-        def safe_copy_dict(d):
-            result = {}
-            for k, v in d.items():
-                # Don't deepcopy JAX Tracers or arrays
-                if isinstance(v, Tracer):
-                    result[k] = v
-                elif hasattr(v, "aval"):
-                    result[k] = v
-                else:
-                    try:
-                        result[k] = copy.deepcopy(v)
-                    except Exception:
-                        result[k] = v
-            return result
-
-        onnx_params = safe_copy_dict(params)
-        jax_params = safe_copy_dict(params)
-
-        # ── new: lift scalar kwargs to ONNX constants ─────────────────────
-        for k, v in list(params.items()):
-            # ── 1. Python scalar: lift to 0‑D initializer named *exactly* k ──
-            if isinstance(v, (bool, int, float, np.generic)):
-                const_name = k  # <── keep original name
-                # avoid double‑registration if several eqns share that kw‑arg
-                if const_name not in converter.builder.initializers:
-                    converter.builder.add_initializer_from_scalar(const_name, v)
-                onnx_params[k] = const_name
-                # jax_params[k] stays as the original scalar
-
-            # ── 2. traced scalar (shape == ()): choose a sane default value ──
-            elif isinstance(v, Tracer) and getattr(v.aval, "shape", None) == ():
-                aval_dtype = v.aval.dtype
-                if aval_dtype == jnp.bool_:
-                    default_value = True
-                elif np.issubdtype(aval_dtype, np.integer):
-                    default_value = 0
-                else:
-                    default_value = 0.0
-
-                const_name = k  # <── same trick as above
-                if const_name not in converter.builder.initializers:
-                    converter.builder.add_initializer_from_scalar(
-                        const_name, default_value
-                    )
-                onnx_params[k] = const_name
-                # jax_params[k] stays as the original traced value
-
-        # Call function_handler with ONNX params for graph, but pass jax_params for tracing
-        # Pass the original params as well for use in function_handler
-        function_handler(
-            self.name, converter, eqn, orig_fn, onnx_params, jax_params, params
+        # Dedup key: (qualified, in_sigs, capture)
+        in_sigs: list[tuple[tuple[Any, ...], str]] = []
+        for v in eqn.invars:
+            aval = getattr(v, "aval", None)
+            shape = tuple(getattr(aval, "shape", ()))
+            dtype = getattr(aval, "dtype", None)
+            in_sigs.append((shape, str(dtype)))
+        in_sigs_t = tuple(in_sigs)
+        qualname = self.name
+        capture_sig = (id(callee),)
+        fkey = FunctionKey(
+            qualified_name=qualname, input_sig=in_sigs_t, capture_sig=capture_sig
         )
 
+        fdef = freg.get(fkey)
+        if fdef is None:
+            # new child scope
+            # Use a friendly, short name like 'SuperBlock_1' (ORT-friendly; matches old-world style)
+            fname = self._allocate_friendly_name(ctx)
 
-########################################
-# Decorators
-########################################
+            fscope = FunctionScope(ctx, name=fname, domain=_FUNCTION_DOMAIN)
+
+            # parent → child inputs for this call-site
+            in_vals_parent = [ctx.get_value_for_var(v) for v in eqn.invars]
+            # Mirror the call-site tensor names on the function signature
+            in_names = [val.name for val in in_vals_parent]
+            try:
+                # Newer FunctionScope supports explicit names
+                in_vals_child = fscope.begin(in_vals_parent, input_names=in_names)
+            except TypeError:
+                # Back-compat: older FunctionScope without the kwarg
+                in_vals_child = fscope.begin(in_vals_parent)
+                # (Names will fall back to f_in_0, f_in_1, ... which is still valid;
+                #  the call-site mapping is positional.)
+
+            # re-trace callee on the same abstract shapes/dtypes (with patches on)
+            # (this produces the inner jaxpr that we'll lower into fscope.ctx)
+            default_float = (
+                np.float64
+                if getattr(ctx, "enable_double_precision", False)
+                else np.float32
+            )
+
+            def _wrapped(*xs):
+                return callee(*xs, **params)
+
+            sds = []
+            for v in eqn.invars:
+                aval = getattr(v, "aval", None)
+                sds.append(
+                    jax.ShapeDtypeStruct(
+                        getattr(aval, "shape", ()), getattr(aval, "dtype", np.float32)
+                    )
+                )
+
+            prev_build = set(_IN_FUNCTION_BUILD.get())
+            with _activate_full_plugin_worlds_for_body():
+                token = _IN_FUNCTION_BUILD.set(prev_build | {self.name})
+                try:
+                    closed = jax.make_jaxpr(_wrapped)(*sds)
+                finally:
+                    _IN_FUNCTION_BUILD.reset(token)
+            jpr_f = closed.jaxpr
+
+            # Tie the traced inner-jaxpr inputs to the child-scope function inputs
+            if len(jpr_f.invars) != len(in_vals_child):
+                raise RuntimeError(
+                    "[onnx_function] arity mismatch between traced invars and function inputs"
+                )
+            for v, child_val in zip(jpr_f.invars, in_vals_child):
+                fscope.ctx.bind_value_for_var(v, child_val)
+
+            # bind consts (captured weights, scalars) into child ctx as initializers
+            for cv, cval in zip(jpr_f.constvars, closed.consts):
+                np_c = np.asarray(cval)
+                if np.issubdtype(np_c.dtype, np.floating):
+                    np_c = np_c.astype(default_float, copy=False)
+                fscope.ctx.bind_const_for_var(cv, np_c)
+
+            # lower inner body using same plugins
+            class _ChildFacade:
+                builder: IRBuilder
+
+            child = _ChildFacade()
+            child.builder = fscope.ctx.builder
+            # Expose the IRContext directly so nested FunctionPlugins can find it
+            child._ctx = fscope.ctx
+
+            for inner in jpr_f.eqns:
+                prim_name = inner.primitive.name
+                plugin = PLUGIN_REGISTRY2.get(prim_name)
+                if plugin is None:
+                    raise NotImplementedError(
+                        f"[converter2:onnx_function] No plugins2 for primitive '{prim_name}' inside function body"
+                    )
+                # FunctionPlugin → dispatch via handler (needs facade carrying builder/_ctx)
+                handler = getattr(plugin, "get_handler", None)
+                if callable(handler):
+                    handler(child)(child, inner, inner.params)
+                    continue
+
+                lower_fn = getattr(plugin, "lower", None)
+                if not callable(lower_fn):
+                    raise NotImplementedError(
+                        f"[converter2:onnx_function] Plugin for '{prim_name}' has no 'get_handler' or 'lower'"
+                    )
+                # Leaf plugins expect the IRContext, not the facade.
+                # Most declare: lower(self, ctx, eqn); some accept 'params' as 3rd arg.
+                try:
+                    lower_fn(fscope.ctx, inner)
+                except TypeError:
+                    lower_fn(fscope.ctx, inner, inner.params)
+
+            # finalize and register: explicit outputs from the traced inner jaxpr
+            child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
+            out_names = [ctx.get_value_for_var(v).name for v in eqn.outvars]
+            try:
+                # Prefer to stamp the same names as the call-site
+                fdef = fscope.end(outputs=child_out_vals, output_names=out_names)
+            except TypeError:
+                # Older FunctionScope API: no named outputs
+                fdef = fscope.end(outputs=child_out_vals)
+
+            freg.put(fkey, fdef)
+
+        # Emit call-site
+        in_vals = [ctx.get_value_for_var(v) for v in eqn.invars]
+        out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
+        call = ir.Node(
+            op_type=fdef.name,  # friendly name like 'SuperBlock_1'
+            domain=fdef.domain,  # default domain ""
+            inputs=in_vals,
+            outputs=out_vals,
+            name=ctx.builder.fresh_name(fdef.name),
+        )
+        ctx.add_node(call)
 
 
-def onnx_function(target):
-    name = get_qualified_name(target)
-    primitive = Primitive(name)
-    primitive.def_abstract_eval(lambda x: x)
+# ------------------------------------------------------------------------------
+# Decorators & helpers
+# ------------------------------------------------------------------------------
 
-    target._onnx_primitive = primitive
 
-    ONNX_FUNCTION_REGISTRY2[name] = target
-    ONNX_FUNCTION_PRIMITIVE_REGISTRY2[name] = (primitive, target)
-
-    plugin = FunctionPlugin(name, target)
-    ONNX_FUNCTION_PLUGIN_REGISTRY2[name] = plugin
-
+def onnx_function(target: Any):
+    """
+    Mark a class or free function as an ONNX function boundary.
+    We do **not** wrap/capture the original callable here to avoid freezing out
+    later monkey patches. Instead, we only register a FunctionPlugin so that
+    when plugin activation runs, the patch wrapper (above) intercepts calls,
+    records a hit, and binds the function primitive.
+    """
+    qual = _qualname_of_target(target)
+    prim_name = f"onnx_fn::{qual}"
+    if prim_name not in PLUGIN_REGISTRY2:
+        fp = FunctionPlugin(prim_name, target)
+        ONNX_FUNCTION_PLUGIN_REGISTRY2[qual] = fp
+        PLUGIN_REGISTRY2[prim_name] = fp
+    try:
+        setattr(target, "__j2o_onnx_function__", True)
+    except Exception:
+        pass
     return target
 
 
-class ExamplePlugin:
-    metadata: dict[str, Any]
+def _consume_onnx_function_hits() -> set[str]:
+    hits = set(_ONNX_FN_HITS.get())
+    _ONNX_FN_HITS.set(set())
+    return hits
 
 
-def register_example(**metadata: Any) -> ExamplePlugin:
-    instance = ExamplePlugin()
-    instance.metadata = metadata
-    component = metadata.get("component")
-    if isinstance(component, str):
-        PLUGIN_REGISTRY2[component] = instance
-    return instance
+def register_example(**metadata: Any) -> dict[str, Any]:
+    """
+    New-world example registration used by plugins2/examples2/*
+    IMPORTANT: Immediately mirror into the legacy registry if available so that
+    scripts/generate_tests.py (unchanged) sees the examples.
+    """
+    comp = metadata.get("component")
+    if not isinstance(comp, str) or not comp:
+        raise ValueError("register_example requires a non-empty 'component' string.")
+    EXAMPLE_REGISTRY2[comp] = metadata
+
+    # Mirror into legacy registry immediately
+    try:
+        from jax2onnx.plugins.plugin_system import register_example as _legacy_register_example  # type: ignore
+    except Exception:
+        _legacy_register_example = None
+
+    if _legacy_register_example is not None:
+        try:
+            _legacy_register_example(**metadata)
+        except Exception:
+            logger.debug(
+                "Mirroring examples2 entry %r into legacy registry failed",
+                metadata,
+                exc_info=True,
+            )
+
+    return metadata
 
 
 def register_primitive(
@@ -380,70 +564,20 @@ def register_primitive(
 
     def _decorator(cls: type[PrimitiveLeafPlugin]) -> type[PrimitiveLeafPlugin]:
         if not issubclass(cls, PrimitiveLeafPlugin):
-            raise TypeError("Plugin must subclass PrimitivePlugin")
-
+            raise TypeError("Plugin must subclass PrimitiveLeafPlugin")
         instance = cls()
         instance.primitive = primitive
         instance.metadata = metadata or {}
-
         if hasattr(cls, "patch_info"):
             instance.patch_info = cls.patch_info
-
-        if isinstance(primitive, str):
+        if isinstance(primitive, str) and primitive:
             PLUGIN_REGISTRY2[primitive] = instance
         return cls
 
     return _decorator
 
 
-_already_imported_plugins2 = False
-
-
-def import_all_plugins() -> None:
-    global _already_imported_plugins2
-    if _already_imported_plugins2:
-        return
-    # Recursively import every Python module under jax2onnx/plugins2
-    # so all plugins self-register into PLUGIN_REGISTRY2 (no hard-coded lists).
-    plugins_dir = Path(os.path.dirname(__file__))  # .../jax2onnx/plugins2
-    pkg_prefix = "jax2onnx.plugins2"
-
-    # 1) File-system scan (robust even if intermediate dirs lack __init__.py)
-    for py in plugins_dir.rglob("*.py"):
-        # Skip module loader itself and dunder specials
-        if py.name in {"plugin_system.py", "__init__.py"}:
-            continue
-        # Build fully-qualified module name from relative path
-        rel = py.relative_to(plugins_dir).with_suffix("")
-        parts = [pkg_prefix] + list(rel.parts)
-        modname = ".".join(parts)
-        try:
-            importlib.import_module(modname)
-        except Exception:
-            # Keep discovery best-effort; a missing optional dep shouldn’t crash import.
-            logging.getLogger("jax2onnx.plugins2.plugin_system").debug(
-                "Skipping import of %s", modname, exc_info=True
-            )
-
-    # 2) Also walk via pkgutil for environments preferring package metadata
-    #    (harmless duplicates are ignored by import system).
-    for _, module_name, _ in pkgutil.walk_packages(
-        [str(plugins_dir)], prefix=f"{pkg_prefix}."
-    ):
-        try:
-            importlib.import_module(module_name)
-        except Exception:
-            logging.getLogger("jax2onnx.plugins2.plugin_system").debug(
-                "Skipping pkgutil import of %s", module_name, exc_info=True
-            )
-    _already_imported_plugins2 = True
-
-
 def register_primitive2(jax_primitive_name: str):
-    """
-    Decorator to register an IR emitter for a JAX primitive by name.
-    """
-
     def _wrap(cls):
         PLUGIN_REGISTRY2[jax_primitive_name] = cls()
         return cls
@@ -451,32 +585,37 @@ def register_primitive2(jax_primitive_name: str):
     return _wrap
 
 
-# Conversion-scoped monkey patching
-_PATCH_STATE: dict[tuple[type, str], dict[str, Any]] = {}
+# ------------------------------------------------------------------------------
+# Monkey patching activation
+# ------------------------------------------------------------------------------
 
 
 def _iter_patch_specs():
-    for cls in PLUGIN_REGISTRY2.values():
-        info_fn = getattr(cls, "patch_info", None)
-        if info_fn is None:
-            continue
-        try:
-            info = info_fn()
-        except Exception:
-            continue
-        if not info:
-            continue
-        patch_fn = info.get("patch_function")
-        targets = info.get("patch_targets", [])
-        attr = info.get("target_attribute", "__call__")
-        if callable(patch_fn) and targets:
-            yield patch_fn, targets, attr
+    """
+    Only yield patch specs for function plugins via their patch_info().
+    Leaf plugin AssignSpec/MonkeyPatchSpec are handled by apply_patches()
+    when a plugin opts into its own @plugin_binding context.
+    """
+    for plugin in PLUGIN_REGISTRY2.values():
+        pinfo = getattr(plugin, "patch_info", None)
+        # Only function plugins implement patch_info() in this system.
+        if callable(pinfo):
+            try:
+                info = pinfo()
+            except Exception:
+                continue
+            if not info:
+                continue
+            patch_fn = info.get("patch_function")
+            targets = info.get("patch_targets", [])
+            attr = info.get("target_attribute", "__call__")
+            if callable(patch_fn) and targets:
+                yield patch_fn, targets, attr
 
 
 @contextmanager
 def apply_monkey_patches():
-    """Temporarily apply all plugin-provided monkey patches (reentrant)."""
-    touched: list[tuple[type, str]] = []
+    touched: list[tuple[Any, str]] = []
     for patch_fn, targets, attr in _iter_patch_specs():
         for tgt in targets:
             key = (tgt, attr)
@@ -499,5 +638,71 @@ def apply_monkey_patches():
             st["count"] -= 1
             if st["count"] == 0:
                 tgt, attr = key
-                setattr(tgt, attr, st["orig"])
-                del _PATCH_STATE[key]
+                try:
+                    setattr(tgt, attr, st["orig"])
+                finally:
+                    _PATCH_STATE.pop(key, None)
+
+
+# ------------------------------------------------------------------------------
+# Discovery
+# ------------------------------------------------------------------------------
+
+
+def _import_tree(root_dir: Path, pkg_prefix: str) -> None:
+    """Import every .py under a given directory and then walk via pkgutil."""
+    if not root_dir.exists():
+        return
+
+    # 1) File-system scan (works even without intermediate __init__.py files)
+    for py in root_dir.rglob("*.py"):
+        if py.name in {"plugin_system.py", "__init__.py"}:
+            continue
+        rel = py.relative_to(root_dir).with_suffix("")
+        parts = [pkg_prefix] + list(rel.parts)
+        modname = ".".join(parts)
+        try:
+            importlib.import_module(modname)
+        except Exception as e:
+            # Surface import problems loudly so you can spot why a tree didn't load
+            logger.warning(
+                "Skipping import of %s due to error: %s", modname, e, exc_info=True
+            )
+
+    # 2) pkgutil walk (dup-safe)
+    for _, module_name, _ in pkgutil.walk_packages(
+        [str(root_dir)], prefix=f"{pkg_prefix}."
+    ):
+        try:
+            importlib.import_module(module_name)
+        except Exception as e:
+            logger.warning(
+                "Skipping pkgutil import of %s due to error: %s",
+                module_name,
+                e,
+                exc_info=True,
+            )
+
+
+def import_all_plugins() -> None:
+    """
+    Recursively import every Python module under BOTH
+      - jax2onnx/plugins2   (preferred)
+      - jax2onnx/plugin2    (singular fallback; some repos use this path)
+    so all plugins and examples self-register (no hard-coded lists).
+    """
+    global _already_imported_plugins2
+    if _already_imported_plugins2:
+        return
+
+    # Preferred tree
+    plugins2_dir = Path(os.path.dirname(__file__))  # .../jax2onnx/plugins2
+    _import_tree(plugins2_dir, "jax2onnx.plugins2")
+
+    # Fallback tree: jax2onnx/plugin2 (singular)
+    base_dir = plugins2_dir.parent  # .../jax2onnx
+    plugin2_dir = base_dir / "plugin2"
+    _import_tree(plugin2_dir, "jax2onnx.plugin2")
+
+    # mark as done (avoid duplicate imports/runs)
+    _already_imported_plugins2 = True

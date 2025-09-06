@@ -48,6 +48,11 @@ class IRContext:
         # Name counters for fresh_name(); keep a typed attribute so mypy is happy.
         # Using dict[str, int] since we only ever index by the base string.
         self._name_counters: dict[str, int] = {}
+        self._function_mode: bool = False
+        self._function_registry = None  # filled by conversion_api
+        # Late, post-build attribute overrides (node_name -> {attr_name: value})
+        # Used to stamp attributes (e.g., epsilon, axis) with onnx.helper on the final ModelProto
+        self._attr_overrides: dict[str, dict[str, object]] = {}
 
     def fresh_name(self, base: str) -> str:
         # Counter dict is initialized in __init__; no lazy setup needed.
@@ -56,6 +61,16 @@ class IRContext:
         # Use underscore-separated numeric suffixes: in_0, out_0, Reshape_0, ...
         sep = "" if base.endswith(("_", "/")) else "_"
         return f"{base}{sep}{i}"
+
+    # Record an attribute override to be applied on the final ModelProto
+    def add_node_attr_override(self, node_name: str, attrs: dict[str, object]) -> None:
+        if not node_name:
+            return
+        current = self._attr_overrides.get(node_name)
+        if current is None:
+            self._attr_overrides[node_name] = dict(attrs or {})
+        else:
+            current.update(attrs or {})
 
     def add_node(self, node: ir.Node, inputs=None, outputs=None):
         # maintain legacy signature; plugins pass a constructed ir.Node
@@ -82,22 +97,62 @@ class IRContext:
         return out
 
     def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
-        c_ir = ir.Value(
-            name=self.fresh_name("const"),
-            type=ir.TensorType(
-                _dtype_to_ir(np_array.dtype, self.builder.enable_double_precision)
-            ),
-            shape=_to_ir_shape(np_array.shape),
-            const_value=ir.tensor(np_array),
-        )
-        self.builder.initializers.append(c_ir)
-        # JAX Literals are unhashable → may not be usable as dict keys.
-        # Cache when possible; otherwise just return the constant value.
-        try:
-            self.builder._var2val[var] = c_ir
-        except TypeError:
-            pass
-        return c_ir
+        if getattr(self, "_function_mode", False):
+            # In functions, use a Constant node (no model-level initializer)
+            # Ensure array is properly handled
+            if not isinstance(np_array, np.ndarray):
+                np_array = np.asarray(np_array)
+
+            # Create a Value with the tensor stored in const_value for later reference
+            v = ir.Value(
+                name=self.fresh_name("const_val"),
+                type=ir.TensorType(
+                    _dtype_to_ir(np_array.dtype, self.builder.enable_double_precision)
+                ),
+                shape=_to_ir_shape(np_array.shape),
+                const_value=ir.tensor(
+                    np_array
+                ),  # Store tensor here for FunctionProto serialization
+            )
+
+            # Create the Constant node that will produce this value
+            const_attr = ir.Attr("value", ir.AttributeType.TENSOR, ir.tensor(np_array))
+            self.add_node(
+                ir.Node(
+                    op_type="Constant",
+                    domain="",
+                    inputs=[],
+                    outputs=[v],
+                    name=self.fresh_name("Constant"),
+                    attributes=[const_attr],
+                )
+            )
+            try:
+                self.builder._var2val[var] = v
+            except TypeError:
+                pass
+            return v
+        else:
+            # normal path: initializer
+            v = ir.Value(
+                name=self.fresh_name("const"),
+                type=ir.TensorType(
+                    _dtype_to_ir(np_array.dtype, self.builder.enable_double_precision)
+                ),
+                shape=_to_ir_shape(np_array.shape),
+                const_value=ir.tensor(np_array),
+            )
+            self.builder.initializers.append(v)
+            try:
+                self.builder._var2val[var] = v
+            except TypeError:
+                pass
+            return v
+
+    # Bind an existing IR Value to a JAX var (no new Value created).
+    # Used by FunctionPlugin to tie function-scope inputs to inner jaxpr invars.
+    def bind_value_for_var(self, var: object, value: ir.Value) -> None:
+        self.builder._var2val[var] = value
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = var.aval
@@ -167,6 +222,13 @@ class IRContext:
 
     def to_model_proto(self, *, name: str, ir_version: int = 10):
         return self.builder.to_model_proto(name=name, ir_version=ir_version)
+
+    # Convenience: make sure the model declares an opset import for a domain
+    def ensure_opset_import(self, domain: str, version: int = 1) -> None:
+        if hasattr(self.builder, "ensure_opset_import"):
+            self.builder.ensure_opset_import(domain, version)
+        elif hasattr(self.builder, "add_opset_import"):
+            self.builder.add_opset_import(domain, version)
 
 
 EMPTY_SHAPE: Tuple[Any, ...] = ()
