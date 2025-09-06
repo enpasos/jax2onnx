@@ -13,3 +13,8 @@ python-venv
 jax2onnx.log
 *.onnx
 /jax2onnx.iml
+plugins2
+tests/plugins2
+tests/converter2
+tests/primitives2
+tests/examples2
