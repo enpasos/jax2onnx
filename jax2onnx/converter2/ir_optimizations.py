@@ -20,7 +20,7 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     # add more benign ops as you encounter them, e.g. "clip"
 }
 
-DEBUG = True  # set True temporarily to print reasons
+DEBUG = False  # set True temporarily to print reasons
 
 # ---------------- Debug ----------------
 

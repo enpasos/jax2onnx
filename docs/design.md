@@ -6,7 +6,9 @@ The converter is a tiny, generic **JAXPR → IR** engine. It knows nothing about
 2. **Activate** whatever they declare (monkey-patching to produce crisp primitives),
 3. **Trace** your function to a **ClosedJaxpr**,
 4. **Lower** each equation by handing it to a plugin that claimed that primitive,
-5. **Assemble** an IR graph, stamp shapes/dtypes, and finalize a valid ONNX model.
+5. **Assemble** an IR graph,
+6. **Optimize** the IR graph with a small, safe, plugin-agnostic pass,
+7. **Finalize** a valid ONNX model (stamp shapes/dtypes, prune, serialize).
 
 Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW, etc. — stays in plugins.
 
@@ -17,14 +19,15 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 ## Core (plugin-agnostic)
 
 * **Plugin discovery.** Recursively import `plugins2/*`. Plugins self-register into a registry keyed by **primitive name** (string). The core never sees concrete classes like `nnx.Conv`.
-* **Activation window.** Core enters a context that applies *whatever patches plugins declare*. This context **wraps tracing** so patched high-level calls (e.g., `nnx.Conv.__call__`) emit the right primitive names. No allowlists in the core; no special-cases.
+* **Activation window.** Core enters a context that applies *whatever patches plugins declare*. This context **wraps tracing** so patched high-level calls (e.g., `nnx.Conv.__call__`) emit the right primitive names. No allowlists; no special-cases.
 * **Tracing.** `make_jaxpr(fn)(*shape_specs)` yields a **ClosedJaxpr**: `(constvars, invars, eqns, outvars)`.
 * **IR assembly.** Walk equations in order; for each equation:
 
   * Look up `PLUGIN_REGISTRY2[eqn.primitive.name]`.
   * Give it the equation and a **lowering context**; it emits IR nodes/values.
   * Assert that **every** `eqn.outvars[i]` is bound to an IR value before moving on (generic guardrail).
-* **Finalize.** Add model inputs/outputs, prune dead nodes, stamp symbolic dim labels (e.g. `"B"`), write the model.
+* **IR optimization (safe, structure-only).** Run small, local rewrites that don’t encode op semantics, e.g. folding redundant layout ping-pongs (see below).
+* **Finalize.** Add model inputs/outputs, stamp symbolic dim labels (e.g. `"B"`), prune dead nodes/initializers, serialize `ModelProto`.
 
 ## Plugin (op-specific)
 
@@ -33,7 +36,7 @@ Each plugin describes one primitive (or one high-level function). It has three s
 * **Binding specs (monkey-patching).** “When a user calls X, bind primitive named P.”
   Example: patch `flax.nnx.Conv.__call__` so the *traced* program contains `primitive.name == "nnx.conv"`. If NNX exposes multiple symbols, *the plugin* lists them all. The core just applies what’s declared.
 
-* **Abstract eval (shape/dtype).** Given JAX abstract values (`ShapedArray`), return the result’s abstract value (or tuple). No real compute; just shape math (use lax if helpful). This is used by JAX during tracing.
+* **Abstract eval (shape/dtype).** Given JAX abstract values (`ShapedArray`), return the result’s abstract value (or tuple). No real compute; just shape math (use `lax.*` if helpful). This is used by JAX during tracing.
 
 * **Lowering (IR emission).** Given a `LoweringContext` and the equation:
 
@@ -70,7 +73,7 @@ ClosedJaxpr = make_jaxpr(fn)(*specs)
        └── outvars    → ctx.add_outputs_from_vars(...)
        │
        ▼
-IR graph → prune → stamp shapes/symbols → ONNX ModelProto
+IR graph → **IR optimizer** → stamp shapes/symbols → prune → ONNX ModelProto
 ```
 
 No step above references “Conv”, “Tanh”, or any specific op in the **core**. All knowledge sits behind the primitive name string chosen by the plugin.
@@ -120,12 +123,43 @@ The plugin uses *IR*, not a high-level “builder” that might vary. That keeps
 
 ---
 
+# IR optimizer (plugin-agnostic)
+
+We run a small, safe, structure-only pass on the IR **before serialization**. Current rule:
+
+## Fold redundant Transpose pairs
+
+**Pattern:** `Transpose → [pure elementwise]* → Transpose`
+**Condition:** the two permutations compose to identity.
+**Middle ops allowed:** pure elementwise that don’t reorder elements (`Relu`, `Gelu`, `Elu`, `Sigmoid`, `Tanh`, `LeakyRelu`, `Dropout`, `Cast`, `CastLike`, `Identity`, etc.).
+**Not folded:** Anything across non-elementwise (e.g., `AveragePool`, `Conv`, …).
+
+### How we match (robust to IR backend differences)
+
+* **Follow the real consumer chain** by **name *or* object identity** (some backends wrap/rename `Value`s).
+* **Skip unrelated nodes** (Const/Shape/etc.) that don’t consume the current tensor.
+* **Require single-consumer** at each hop (no branching rewires).
+* **Check permutations** via `perm` attributes if available.
+* **Fallback** when `perm` isn’t readable: if shapes before `T1` and after `T2` are equal and the middle is strictly elementwise, treat composition as identity and fold.
+
+### Rewiring / deletion (backend rules)
+
+* `onnx_ir.Node.inputs` is **immutable**; use the backend API
+  **`Node.replace_input_with(index:int, value:Value)`** to edit inputs.
+* Rewire **all** consumers of `T2`’s output (by name or object) to the kept tensor.
+* Rewire **graph/model outputs** (output lists) and the **var→value** map so no edge points to removed nodes.
+* Delete `T2` then `T1` (higher index first).
+
+This pass is **op-agnostic** (no Conv/Pool knowledge), conservative (no branching), and stable across IR backends (works with unnamed values and different attr representations).
+
+---
+
 # Testing expectations (how “exact” works)
 
 * **Anchored path checks.** Tests can say:
   `Transpose → Conv → Relu → AveragePool → …`
   With `match="exact"`, the test fails if required ops are missing or **extra** ops are present between anchors.
-* **CNN sentinel.** The CNN static test is a canary: if Conv doesn’t lower, flatten will see `{B,14,14,1}` and fail a later `Reshape(B,3136)`.
+* **CNN sentinel.** The CNN static test is a canary: if Conv doesn’t lower, flatten will see `{B,14,14,1}` and fail a later `Reshape(B,3136)`. With the optimizer, extra `Transpose…Transpose` pairs around **Relu** are eliminated; pairs around **AveragePool** remain (by design).
 
 ---
 
@@ -153,13 +187,13 @@ That’s the whole contract.
 
 # Failure modes & how the architecture contains them
 
-* **Patch activation window too late.** If activation doesn’t wrap **tracing**, the jaxpr will never contain the plugin’s primitive names. The core still doesn’t name special-case anything; you just see “no plugin for primitive ‘foo’”. Fix = activate around `make_jaxpr`.
+* **Patch activation window too late.** If activation doesn’t wrap **tracing**, the jaxpr will never contain the plugin’s primitive names. The core still doesn’t special-case anything; you just see “no plugin for primitive ‘foo’”. Fix = activate around `make_jaxpr`.
 
 * **Plugin forgets to bind the output.** Then the core’s *generic* guardrail catches it and fails the build at the exact primitive, without central knowledge of op names.
 
 * **Multiple symbols for the same high-level op.** Plugins add multiple patch specs. The core applies them all — still no names or allow-lists in the core.
 
-* **An unfinished plugin (no abstract eval / no lowering) gets imported.** It can still register, but if it also patches a runtime path it can trip tracing/lowering. The right fix is still in the plugin: either complete it or don’t patch until it’s ready. The core does not and should not maintain a allow/deny list.
+* **An unfinished plugin gets imported.** If it also patches a runtime path it can trip tracing/lowering. Fix in the plugin: either complete it or don’t patch until ready. The core does not and should not maintain an allow/deny list.
 
 ---
 
@@ -177,11 +211,11 @@ That’s the whole contract.
 
 # TL;DR blueprint (for maintainers)
 
-1. **Core** = small, generic: discover, activate, trace, loop eqns, call `plugin.lower`, assert outputs bound, finalize IR.
+1. **Core** = small, generic: discover, activate, trace, loop eqns, call `plugin.lower`, assert outputs bound, **run IR optimizer**, finalize ONNX.
    No plugin names. Ever.
 
 2. **Plugins** = specific: declare patches (all aliases), implement `abstract_eval`, implement `lower` (bind outvars), own all op semantics.
 
 3. **Context** = minimal API for plugins: `get_value_for_var`, `bind_value_for_var`, `fresh_name`, plus a couple IR conveniences; no framework knowledge.
 
- 
+4. **Optimizer** = tiny, safe, and IR-only: fold layout ping-pongs across pure elementwise ops; match by name **or** object; never mutate `Node.inputs` directly — use `replace_input_with`.

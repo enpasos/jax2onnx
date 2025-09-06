@@ -1,6 +1,3 @@
-Here’s a drop-in section for your design doc that nails **Pattern A** as the canonical output wiring contract and aligns the rest of the doc to it.
-
----
 
 # Canonical output wiring 
 
