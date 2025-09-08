@@ -23,7 +23,6 @@ from jax2onnx.plugins2 import plugin_system as ps2
 
 # new imports
 from .ir_context import IRContext
-from jax2onnx.plugins2.plugin_system import _sanitize_op_type  # reuse sanitizer
 from .ir_builder import IRBuilder
 from .ir_optimizations import remove_redundant_transpose_pairs_ir
 from .function_scope import FunctionRegistry, attach_functions_to_model
@@ -382,33 +381,12 @@ def to_onnx(
 
     _apply_node_attr_overrides(model, getattr(ctx, "_attr_overrides", {}))
 
-    # --- Attach placeholder ONNX Functions for any @onnx_function hits (new IR path) ---
-    # Only add placeholders for names that were hit but not actually lowered.
-    hits = getattr(ps2, "_consume_onnx_function_hits")()
-    if hits:
-        op_import = OperatorSetIdProto()
-        op_import.domain = ""
-        op_import.version = opset
-        # gather names of real functions already in the registry/model
-        real_names = {
-            f.name for f in getattr(ctx, "_function_registry", FunctionRegistry()).all()
-        }
-        for full in sorted(hits):
-            fname = _sanitize_op_type(
-                f"{'onnx_fn::'+full}"
-            )  # match function-plugin naming scheme
-            if fname in real_names:
-                continue  # a real definition exists; skip placeholder
-            fn = oh.make_function(
-                domain="",  # default domain
-                fname=fname,
-                inputs=["X"],
-                outputs=["Y"],
-                nodes=[oh.make_node("Identity", ["X"], ["Y"])],
-                opset_imports=[op_import],
-                doc_string=f"Placeholder function for {full}",
-            )
-            model.functions.append(fn)
+    # --- Do not emit placeholders for @onnx_function hits ---
+    # Consume/clear any recorded hits to avoid cross-run leakage, but don't create dummies.
+    try:
+        _ = getattr(ps2, "_consume_onnx_function_hits")()
+    except Exception:
+        pass
 
     # 7.1) Attach ONNX FunctionProto collected by function plugin handlers
     freg = getattr(ctx, "_function_registry", None)

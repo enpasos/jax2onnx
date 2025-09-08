@@ -1,7 +1,12 @@
 # file: jax2onnx/plugins2/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable, ClassVar, cast
+from typing import (
+    Protocol,
+    Dict,
+    Any,
+)
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -22,7 +27,15 @@ from jax2onnx.plugins2._ir_shapes import (
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 
 if TYPE_CHECKING:
-    from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+    # Use the same build-context type that cast_param_like expects:
+    from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
+
+    # For calls to set_node_attrs (not declared on _IRBuildContext), narrow via this Protocol.
+    from typing import Protocol, Dict, Any
+
+    class _HasNodeAttrs(Protocol):
+        def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None: ...
+
 
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
@@ -277,23 +290,24 @@ class LinearPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(gemm_out, y_meta)
 
         inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
-        ctx.add_node(
-            ir.Node(
-                op_type="Gemm",
-                domain="",
-                inputs=inputs,
-                outputs=[gemm_out],
-                name=ctx.fresh_name("Gemm"),
-                attributes=[
-                    ir.Attr("alpha", ir.AttributeType.FLOAT, 1.0),
-                    # If there's no bias input, make beta=0.0 for strictness.
-                    ir.Attr(
-                        "beta", ir.AttributeType.FLOAT, 0.0 if not use_bias else 1.0
-                    ),
-                    ir.Attr("transA", ir.AttributeType.INT, 0),
-                    ir.Attr("transB", ir.AttributeType.INT, 0),
-                ],
-            )
+        gemm_node = ir.Node(
+            op_type="Gemm",
+            domain="",
+            inputs=inputs,
+            outputs=[gemm_out],
+            name=ctx.fresh_name("Gemm"),
+        )
+        ctx.add_node(gemm_node)
+        # _IRBuildContext doesn't declare set_node_attrs; narrow just for this call.
+        cast("_HasNodeAttrs", ctx).set_node_attrs(
+            gemm_node,
+            {
+                "alpha": 1.0,
+                # If there's no bias input, set beta=0.0 for strict ORT semantics.
+                "beta": 0.0 if not use_bias else 1.0,
+                "transA": 0,
+                "transB": 0,
+            },
         )
 
         # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
@@ -394,16 +408,17 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     type=ir.TensorType(ir.DataType.INT64),
                     shape=ir.Shape((len(x_shape),)),
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Concat",
-                        domain="",
-                        inputs=[batch_dims, of],
-                        outputs=[final_shape],
-                        name=ctx.fresh_name("Concat"),
-                        attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-                    )
+                concat_node = ir.Node(
+                    op_type="Concat",
+                    domain="",
+                    inputs=[batch_dims, of],
+                    outputs=[final_shape],
+                    name=ctx.fresh_name("Concat"),
                 )
+                ctx.add_node(concat_node)
+                # Concat axis via late-override (works in functions too)
+                cast("_HasNodeAttrs", ctx).set_node_attrs(concat_node, {"axis": 0})
+
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
                 y_meta = tuple(
                     [

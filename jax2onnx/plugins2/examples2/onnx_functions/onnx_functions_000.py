@@ -4,7 +4,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import onnx_function, register_example
 
 
 class MLPBlock(nnx.Module):
@@ -29,7 +29,7 @@ class MLPBlock(nnx.Module):
         return y
 
 
-# @onnx_function
+@onnx_function
 class SuperBlock(nnx.Module):
     def __init__(self):
         rngs = nnx.Rngs(0)
@@ -42,11 +42,6 @@ class SuperBlock(nnx.Module):
         return self.mlp(x_norm, deterministic=True)
 
 
-# ------------------------------------------------------------------------------
-# Test registration (read by the generator to produce tests/examples2/…)
-# IMPORTANT: we set use_onnx_ir=True so the new IR2 pipeline is used.
-# ------------------------------------------------------------------------------
-
 register_example(
     component="onnx_functions_000",
     description="One function boundary on an outer NNX module (new-world).",
@@ -58,7 +53,7 @@ register_example(
             "testcase": "000_one_function_on_outer_layer",
             "callable": SuperBlock(),
             "input_shapes": [("B", 10, 3)],
-            # "expected_number_of_function_instances": 1,
+            "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
             "rtol": 3e-5,
             "atol": 2e-5,

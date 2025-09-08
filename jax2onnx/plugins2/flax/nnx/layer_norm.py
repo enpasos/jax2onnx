@@ -12,6 +12,9 @@ from jax2onnx.plugins2.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )
+
+# Cast helper that inserts CastLike only when needed; no-op if dtypes already match
+from jax2onnx.plugins2._utils import cast_param_like
 from jax2onnx.plugins2._patching import MonkeyPatchSpec
 
 LAYER_NORM_PRIM = Primitive("nnx.layer_norm")
@@ -28,7 +31,7 @@ LAYER_NORM_PRIM.multiple_results = False
         }
     ],
     since="v0.1.0",
-    context="primitives2.flax.nnx",
+    context="primitives2.nnx",
     component="layer_norm",
     testcases=[
         {
@@ -171,6 +174,14 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         x_v = ctx.get_value_for_var(eqn.invars[0])
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])
+
+        # --- IMPORTANT: align param dtypes with input to avoid FP32/FP64 drift ---
+        # On symbolic shapes, JAX literals/params can surface with a wider dtype
+        # (e.g., float64). ORT will then cast internally and accumulate slightly
+        # different rounding than the JAX ground truth. Make it explicit and stable:
+        scale_v = cast_param_like(ctx, scale_v, x_v, name_hint="ln_scale_cast")
+        bias_v = cast_param_like(ctx, bias_v, x_v, name_hint="ln_bias_cast")
+
         y_v = ctx.get_value_for_var(eqn.outvars[0])
 
         ln = ir.Node(
@@ -182,22 +193,16 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         )
         ctx.add_node(ln)
 
-        # Stamp axis/epsilon from JAXPR params via a late override on the final ModelProto
+        # Read axis/epsilon from JAXPR params and delegate attribute materialization
+        # (function body vs. top-level) to the IRContext helper.
         p = params or getattr(eqn, "params", {}) or {}
         in_shape = tuple(getattr(eqn.invars[0].aval, "shape", ()))
         rank = len(in_shape)
         axis = int(p.get("axis", -1))
         if axis < 0:
             axis += rank
-        # attrs can carry both int (axis) and float (epsilon)
-        attrs: dict[str, float | int] = {}
-        # ONNX LN axis default is -1; it is fine to leave it off if axis==rank-1,
-        # but recording it is harmless and eliminates ambiguity, so we keep it.
-        attrs["axis"] = int(axis)
-        if "epsilon" in p:
-            attrs["epsilon"] = float(p["epsilon"])
-        # Request a post-build attribute override (no onnx_ir Attr objects needed)
-        ctx.add_node_attr_override(ln.name, attrs)
+        eps = float(p.get("epsilon", 1e-5))
+        ctx.set_node_attrs(ln, {"axis": int(axis), "epsilon": float(eps)})
 
     # ---- patch nnx.LayerNorm.__call__ to bind our primitive ----------------
     @classmethod

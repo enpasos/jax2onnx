@@ -464,10 +464,18 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 # Leaf plugins expect the IRContext, not the facade.
                 # Most declare: lower(self, ctx, eqn); some accept 'params' as 3rd arg.
+                # Be arity-aware to avoid re-invoking on arbitrary TypeError from the body.
+                import inspect as _ins
+
                 try:
-                    lower_fn(fscope.ctx, inner)
-                except TypeError:
+                    sig = _ins.signature(lower_fn)
+                    wants_params = "params" in sig.parameters
+                except Exception:
+                    wants_params = False
+                if wants_params:
                     lower_fn(fscope.ctx, inner, inner.params)
+                else:
+                    lower_fn(fscope.ctx, inner)
 
             # finalize and register: explicit outputs from the traced inner jaxpr
             child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]

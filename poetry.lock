@@ -717,14 +717,14 @@ tests = ["freezegun", "pytest", "pytest-cov"]
 
 [[package]]
 name = "identify"
-version = "2.6.13"
+version = "2.6.14"
 description = "File identification library for Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "identify-2.6.13-py2.py3-none-any.whl", hash = "sha256:60381139b3ae39447482ecc406944190f690d4a2997f2584062089848361b33b"},
-    {file = "identify-2.6.13.tar.gz", hash = "sha256:da8d6c828e773620e13bfa86ea601c5a5310ba4bcd65edf378198b56a1f9fb32"},
+    {file = "identify-2.6.14-py2.py3-none-any.whl", hash = "sha256:11a073da82212c6646b1f39bb20d4483bfb9543bd5566fec60053c4bb309bf2e"},
+    {file = "identify-2.6.14.tar.gz", hash = "sha256:663494103b4f717cb26921c52f8751363dc89db64364cd836a9bf1535f53cd6a"},
 ]
 
 [package.extras]
@@ -1331,13 +1331,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.5.4"
+version = "8.5.5"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.5.4-py3-none-any.whl", hash = "sha256:eb310a020a89fa304c0b84ecb21b45dc75c91138336e4346b9523919e822fb8a"},
+    {file = "netron-8.5.5-py3-none-any.whl", hash = "sha256:07c300f835fd230e31611a4e6bd7f5a7139336f8914857f41d3fae6f6c42327e"},
 ]
 
 [[package]]
@@ -1776,14 +1776,14 @@ reference = ["Pillow", "google-re2 ; python_version < \"3.13\""]
 
 [[package]]
 name = "onnx-ir"
-version = "0.1.7"
+version = "0.1.8"
 description = "Efficient in-memory representation for ONNX"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "onnx_ir-0.1.7-py3-none-any.whl", hash = "sha256:8a0441909676f1ab6b22186d79f8d0faf8739177f50d15baeac88e7e1255aae8"},
-    {file = "onnx_ir-0.1.7.tar.gz", hash = "sha256:4734b7587807ca657158b042c138879c3f454756fae74e949f6c99f0107d8df6"},
+    {file = "onnx_ir-0.1.8-py3-none-any.whl", hash = "sha256:61a42021b6249e566ff3b89a03342bc88dce4dc2d984b97cfb060f33ef179f8a"},
+    {file = "onnx_ir-0.1.8.tar.gz", hash = "sha256:85ea59eaf165b2b107788193480a260e2723cfc7a1dac1bde7085fd0b7e380d7"},
 ]
 
 [package.dependencies]

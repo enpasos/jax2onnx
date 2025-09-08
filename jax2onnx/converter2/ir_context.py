@@ -50,8 +50,8 @@ class IRContext:
         self._name_counters: dict[str, int] = {}
         self._function_mode: bool = False
         self._function_registry = None  # filled by conversion_api
-        # Late, post-build attribute overrides (node_name -> {attr_name: value})
-        # Used to stamp attributes (e.g., epsilon, axis) with onnx.helper on the final ModelProto
+        # Late attribute overrides keyed by node.name -> {attr_name: python value}
+        # Used for both top-level and function bodies; converted to AttributeProto later.
         self._attr_overrides: dict[str, dict[str, object]] = {}
 
     def fresh_name(self, base: str) -> str:
@@ -71,6 +71,26 @@ class IRContext:
             self._attr_overrides[node_name] = dict(attrs or {})
         else:
             current.update(attrs or {})
+
+    # ------------------------------------------------------------------
+    # Helper: set attributes in a way that works for both:
+    #   - function bodies (need onnx_ir Attr objects)
+    #   - top-level graphs (stash raw values, applied later in to_onnx)
+    # ------------------------------------------------------------------
+    def set_node_attrs(
+        self, node: ir.Node, attrs: dict[str, object] | None = None, **kwargs
+    ) -> None:
+        """
+        Record attributes for a node without constructing onnx_ir.Attr.
+        We always stash raw Python values into _attr_overrides and let the
+        serializer (top-level or FunctionProto builder) turn them into real
+        AttributeProto entries. This keeps behavior consistent across
+        onnx_ir versions and in function mode.
+        """
+        values: dict[str, object] = dict(attrs or {})
+        values.update(kwargs)
+        self._attr_overrides.setdefault(node.name, {}).update(values)
+        return
 
     def add_node(self, node: ir.Node, inputs=None, outputs=None):
         # maintain legacy signature; plugins pass a constructed ir.Node
