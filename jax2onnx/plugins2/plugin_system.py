@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict
+from typing import Any, Callable, ClassVar, Dict, Optional, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -28,10 +28,13 @@ from jax2onnx.converter2.ir_builder import IRBuilder
 
 logger = logging.getLogger("jax2onnx.plugins2.plugin_system")
 
-
 # ------------------------------------------------------------------------------
 # Registries and state
 # ------------------------------------------------------------------------------
+
+# mypy/ruff-only import (avoid runtime cycles)
+if TYPE_CHECKING:
+    from jax2onnx.converter2.ir_context import IRContext
 
 # Use a small private domain for ONNX functions. Netron shows the "f"
 # marker only when it can resolve a FunctionProto in a domain; ORT also
@@ -381,16 +384,10 @@ class FunctionPlugin(PrimitivePlugin):
 
             # parent → child inputs for this call-site
             in_vals_parent = [ctx.get_value_for_var(v) for v in eqn.invars]
-            # Mirror the call-site tensor names on the function signature
-            in_names = [val.name for val in in_vals_parent]
-            try:
-                # Newer FunctionScope supports explicit names
-                in_vals_child = fscope.begin(in_vals_parent, input_names=in_names)
-            except TypeError:
-                # Back-compat: older FunctionScope without the kwarg
-                in_vals_child = fscope.begin(in_vals_parent)
-                # (Names will fall back to f_in_0, f_in_1, ... which is still valid;
-                #  the call-site mapping is positional.)
+            # Start the function body in the child scope (positional mapping).
+            # (If a newer FunctionScope ever gains `input_names`, this call
+            #  remains valid; here we keep it simple for static typing.)
+            in_vals_child = fscope.begin(in_vals_parent)
 
             # re-trace callee on the same abstract shapes/dtypes (with patches on)
             # (this produces the inner jaxpr that we'll lower into fscope.ctx)
@@ -439,6 +436,8 @@ class FunctionPlugin(PrimitivePlugin):
             # lower inner body using same plugins
             class _ChildFacade:
                 builder: IRBuilder
+                # Make mypy aware this attribute exists; it is set immediately below.
+                _ctx: "IRContext"
 
             child = _ChildFacade()
             child.builder = fscope.ctx.builder
@@ -472,13 +471,10 @@ class FunctionPlugin(PrimitivePlugin):
 
             # finalize and register: explicit outputs from the traced inner jaxpr
             child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
-            out_names = [ctx.get_value_for_var(v).name for v in eqn.outvars]
-            try:
-                # Prefer to stamp the same names as the call-site
-                fdef = fscope.end(outputs=child_out_vals, output_names=out_names)
-            except TypeError:
-                # Older FunctionScope API: no named outputs
-                fdef = fscope.end(outputs=child_out_vals)
+            # Keep API surface compatible with current FunctionScope (no output_names kw).
+            # Call-site tensors already carry the right names; the FunctionProto body
+            # will serialize with its own local names.
+            fdef = fscope.end(outputs=child_out_vals)
 
             freg.put(fkey, fdef)
 
@@ -539,14 +535,20 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     EXAMPLE_REGISTRY2[comp] = metadata
 
     # Mirror into legacy registry immediately
-    try:
-        from jax2onnx.plugins.plugin_system import register_example as _legacy_register_example  # type: ignore
-    except Exception:
-        _legacy_register_example = None
+    # -- Set up a single, typed alias once, then assign from import to avoid mypy no-redef --
+    _legacy_register_example_func: Optional[Callable[..., Any]] = None
+    try:  # import under a different name, then assign
+        from jax2onnx.plugins.plugin_system import (  # type: ignore[attr-defined]
+            register_example as _legacy_register_example_ref,
+        )
 
-    if _legacy_register_example is not None:
+        _legacy_register_example_func = _legacy_register_example_ref
+    except Exception:
+        pass
+
+    if _legacy_register_example_func is not None:
         try:
-            _legacy_register_example(**metadata)
+            _legacy_register_example_func(**metadata)
         except Exception:
             logger.debug(
                 "Mirroring examples2 entry %r into legacy registry failed",
@@ -702,6 +704,10 @@ def import_all_plugins() -> None:
     # Fallback tree: jax2onnx/plugin2 (singular)
     base_dir = plugins2_dir.parent  # .../jax2onnx
     plugin2_dir = base_dir / "plugin2"
+    _import_tree(plugin2_dir, "jax2onnx.plugin2")
+
+    # mark as done (avoid duplicate imports/runs)
+    _already_imported_plugins2 = True
     _import_tree(plugin2_dir, "jax2onnx.plugin2")
 
     # mark as done (avoid duplicate imports/runs)

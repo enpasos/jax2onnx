@@ -288,7 +288,8 @@ def to_onnx(
         enable_double_precision=enable_double_precision,
         input_specs=sds_list,
     )
-    ctx._function_registry = FunctionRegistry()
+    # Avoid mypy complaining about attribute type on IRContext; attach dynamically.
+    setattr(ctx, "_function_registry", FunctionRegistry())
 
     # map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
@@ -410,21 +411,22 @@ def to_onnx(
             model.functions.append(fn)
 
     # 7.1) Attach ONNX FunctionProto collected by function plugin handlers
-    if getattr(ctx, "_function_registry", None) is not None:
-        funcs = ctx._function_registry.all()
+    freg = getattr(ctx, "_function_registry", None)
+    if isinstance(freg, FunctionRegistry):
+        funcs = freg.all()
         attach_functions_to_model(model, funcs)
 
         # Ensure the model has opset imports for any non-empty function domains
-        # (Netron will only resolve the FunctionProto – and show the “f” mark and
-        # callsite’s *wired* tensor names – when the domain is imported.)
+        # (Netron will only resolve the FunctionProto – and show the "f" mark and
+        # callsite's *wired* tensor names – when the domain is imported.)
         if funcs:
             present = {imp.domain for imp in model.opset_import}
             needed = {f.domain for f in funcs if getattr(f, "domain", "")}
             for dom in needed - present:
                 imp = OperatorSetIdProto()
                 imp.domain = dom
-                # Keep this at 1. We don’t use any domain-versioned ops inside the
-                # function body; it simply names the function’s namespace.
+                # Keep this at 1. We don't use any domain-versioned ops inside the
+                # function body; it simply names the function's namespace.
                 imp.version = 1
                 model.opset_import.append(imp)
 

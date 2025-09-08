@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/flax/nnx/layer_norm.py
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, List, cast
 import jax.numpy as jnp
 from flax import nnx
 from jax.core import ShapedArray
@@ -189,7 +189,8 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         axis = int(p.get("axis", -1))
         if axis < 0:
             axis += rank
-        attrs = {}
+        # attrs can carry both int (axis) and float (epsilon)
+        attrs: dict[str, float | int] = {}
         # ONNX LN axis default is -1; it is fine to leave it off if axis==rank-1,
         # but recording it is harmless and eliminates ambiguity, so we keep it.
         attrs["axis"] = int(axis)
@@ -296,22 +297,29 @@ def _ln_impl(x, scale, bias, *, epsilon: float, axis: int):
       y   = (x - mean) * rsqrt(var + eps) * scale + bias
     Broadcast scale/bias across the normalized axes the same way ONNX does.
     """
-    # normalize axis to positive
-    if axis < 0:
-        axis = x.ndim + axis
+    # Normalize axis to positive. Keep everything explicitly typed for mypy.
+    axis_val: int = int(axis)
+    ndim_val: int = int(cast(int, getattr(x, "ndim", 0)))
+    normalized_axis: int
+    if axis_val >= 0:
+        normalized_axis = axis_val
+    else:
+        normalized_axis = int(ndim_val + axis_val)
     # mean over the last axis only (this primitive is bound so that
     # multi-axis cases are flattened before binding, matching our lowering)
     # Keep dims for broadcasting
-    mean = jnp.mean(x, axis=axis, keepdims=True)
-    mean2 = jnp.mean(jnp.square(x), axis=axis, keepdims=True)
+    mean = jnp.mean(x, axis=normalized_axis, keepdims=True)
+    mean2 = jnp.mean(jnp.square(x), axis=normalized_axis, keepdims=True)
     var = mean2 - jnp.square(mean)
     inv = jnp.reciprocal(jnp.sqrt(var + epsilon))
 
     # Broadcast scale/bias like ONNX: shape (..., C) on the last axis.
     # If scale/bias are already 1D of size C, reshape to match x for broadcast.
     # Otherwise (e.g., (C,) already broadcasts), this is a no-op.
-    bshape = [1] * x.ndim
-    bshape[axis] = x.shape[axis]
+    rank_i: int = int(cast(int, getattr(x, "ndim", 0)))
+    bshape: List[int] = [1] * rank_i
+    bshape_idx: int = int(normalized_axis)
+    bshape[bshape_idx] = int(x.shape[bshape_idx])
     try:
         scale_b = jnp.reshape(scale, bshape)
     except Exception:
