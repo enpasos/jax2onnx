@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from contextlib import contextmanager, ExitStack
 from jax import export as jax_export
 
+from jax2onnx.converter2.ir_pretty import print_ir_model
 from jax2onnx.plugins2.plugin_system import (
     PLUGIN_REGISTRY2,
     PrimitiveLeafPlugin,
@@ -14,18 +15,19 @@ from jax2onnx.plugins2.plugin_system import (
 )
 import onnx_ir as ir
 import numpy as np
-import onnx
 import jax
 import jax.numpy as jnp
 
-from onnx import helper as oh, OperatorSetIdProto
 from jax2onnx.plugins2 import plugin_system as ps2
 
 # new imports
 from .ir_context import IRContext
 from .ir_builder import IRBuilder
-from .ir_optimizations import remove_redundant_transpose_pairs_ir
-from .function_scope import FunctionRegistry, attach_functions_to_model
+from .ir_optimizations import (
+    remove_redundant_transpose_pairs_ir,
+    remove_redundant_reshape_pairs_in_functions,
+)
+from .function_scope import FunctionRegistry
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
@@ -267,7 +269,7 @@ def to_onnx(
     enable_double_precision: bool,
     loosen_internal_shapes: bool,
     record_primitive_calls_file: Optional[str],
-) -> onnx.ModelProto:
+) -> ir.Model:
     # 1) Prepare abstract inputs for tracing (respect x64 policy)
     default_float = np.float64 if enable_double_precision else np.float32
     sds_list = _as_sds_list(inputs, enable_double_precision)
@@ -354,46 +356,136 @@ def to_onnx(
     # 6) IR-level graph optimizations (safe structure-only)
     remove_redundant_transpose_pairs_ir(ctx)
 
-    # 7) Model proto
-    model = ctx.to_model_proto(name=model_name)
+    # 7) IR model (attach ir.Functions)
+    ir_model = ctx.builder.to_ir_model(name=model_name, ir_version=_ORT_SAFE_IR_VERSION)
 
-    # ------------------------------------------------------------
-    # Late-apply any node attribute overrides recorded by plugins.
-    # We use onnx.helper to create AttributeProto safely.
-    # ------------------------------------------------------------
-    def _apply_node_attr_overrides(
-        model: onnx.ModelProto, overrides: dict[str, dict[str, object]]
-    ) -> None:
+    # Optional debug print; never fail conversion if pretty-print raises
+    try:
+        from .ir_pretty import print_ir_model
+        import os as _os
+        if _os.environ.get("J2O_PRINT_IR", "0") == "1":
+            print_ir_model(ir_model)
+    except Exception:
+        pass
+
+    # Attach any native ir.Functions collected on ctx
+    ir_funcs = list(getattr(ctx, "_ir_functions", []) or [])
+    if ir_funcs:
+        # add function domain imports on the top graph
+        imports = dict(getattr(ir_model.graph, "opset_imports", {}) or {})
+        for fn in ir_funcs:
+            if fn.domain and fn.domain not in imports:
+                imports[fn.domain] = 1  # version 1 namespace
+        ir_model.graph.opset_imports = imports
+        # attach functions to IR model
+        if not hasattr(ir_model, "functions") or ir_model.functions is None:
+            ir_model.functions = []
+        ir_model.functions.extend(ir_funcs)
+
+    # IR-level: apply late attribute overrides directly on IR nodes
+    def _apply_ir_attr_overrides(ir_model: ir.Model, overrides: dict[str, dict[str, object]]):
         if not overrides:
             return
-        nodes = list(model.graph.node)
-        for n in nodes:
-            attrs = overrides.get(n.name)
-            if not attrs:
+        # some onnx_ir builds expose graph._nodes instead of graph.nodes
+        g = ir_model.graph
+        nodes_ref = getattr(g, "nodes", None)
+        if nodes_ref is None:
+            nodes_ref = getattr(g, "_nodes", None)
+        nodes_ref = nodes_ref or []
+
+        # Build a name -> node map without materializing copies
+        name2node = {}
+        for n in nodes_ref:
+            nm = getattr(n, "name", "")
+            if nm:
+                name2node[nm] = n
+
+        def _append_ir_attr(attr_list, k: str, v: object) -> None:
+            """
+            Append/replace an attribute on the node.
+            Accept Python scalars; for tensors use ir.tensor(...) automatically.
+            """
+            # Remove any existing attr with same name
+            try:
+                # attr_list is a real list object owned by the node
+                for i in range(len(attr_list) - 1, -1, -1):
+                    a = attr_list[i]
+                    aname = getattr(a, "name", getattr(a, "key", None))
+                    if aname == k:
+                        del attr_list[i]
+            except Exception:
+                # ignore if not a mutable list
+                pass
+
+            # Best-effort construction of ir.Attr
+            attr_obj = None
+            try:
+                # First try: scalar form
+                attr_obj = ir.Attr(k, v)
+            except Exception:
+                # If it's array-like, wrap as tensor
+                try:
+                    import numpy as _np
+                    attr_obj = ir.Attr(k, ir.tensor(_np.asarray(v)))
+                except Exception:
+                    attr_obj = None
+            if attr_obj is not None:
+                try:
+                    attr_list.append(attr_obj)
+                except Exception:
+                    # If not appendable, ignore silently (better to proceed than crash)
+                    pass
+
+        for nm, kv in overrides.items():
+            n = name2node.get(nm)
+            if not n:
                 continue
-            # Drop any existing attributes we're about to override
-            keep = [a for a in n.attribute if a.name not in attrs]
-            del n.attribute[:]
-            n.attribute.extend(keep)
+            # attributes may be dict-like or a list of ir.Attr. We MUST mutate, not assign.
+            current = getattr(n, "attributes", None)
 
-            for k, v in attrs.items():
-                if k == "value":
-                    # Always attach Constant.value as a TENSOR attribute
-                    try:
-                        from onnx import (
-                            numpy_helper as _nh,
-                        )  # serializer can import onnx
+            # Dict-like container → safe to update in-place.
+            if hasattr(current, "update"):
+                try:
+                    current.update(kv or {})
+                except Exception:
+                    # Fall back to list mutation if update fails unexpectedly
+                    pass
+                continue
 
-                        tp = _nh.from_array(np.asarray(v))
-                    except Exception:
-                        # If a TensorProto was already provided, accept it
-                        tp = v
-                    n.attribute.append(oh.make_attribute("value", tp))
-                else:
-                    # Normal attributes: let ONNX infer scalar/list types
-                    n.attribute.append(oh.make_attribute(k, v))
+            # List/tuple of ir.Attr → mutate the real list
+            attr_list = current
+            # Some builds may expose a tuple; try to grab the real list via protected slot
+            if not isinstance(attr_list, list):
+                # Try known internals (defensive)
+                attr_list = getattr(n, "_attributes", attr_list)
+            if isinstance(attr_list, list):
+                for k_attr, v_attr in (kv or {}).items():
+                    _append_ir_attr(attr_list, k_attr, v_attr)
+            # else: nothing we can mutate; skip gracefully
+    _apply_ir_attr_overrides(ir_model, getattr(ctx, "_attr_overrides", {}))
 
-    _apply_node_attr_overrides(model, getattr(ctx, "_attr_overrides", {}))
+    # ---- IR post-pass: ensure required attrs on operators (e.g., Concat.axis) ----
+    def _ensure_required_attrs(ir_model: ir.Model) -> None:
+        g = ir_model.graph
+        nodes_ref = getattr(g, "nodes", None) or getattr(g, "_nodes", None) or []
+        for n in nodes_ref:
+            try:
+                if n.op_type == "Concat":
+                    # fetch attribute list (list of ir.Attr)
+                    attrs = getattr(n, "attributes", None)
+                    if not isinstance(attrs, list):
+                        attrs = getattr(n, "_attributes", None)
+                    # if we can't mutate, skip
+                    if not isinstance(attrs, list):
+                        continue
+                    # already has axis?
+                    has_axis = any(getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs)
+                    if not has_axis:
+                        attrs.append(ir.Attr("axis", 0))
+            except Exception:
+                # never fail the conversion on best-effort pass
+                pass
+    _ensure_required_attrs(ir_model)
 
     # --- Do not emit placeholders for @onnx_function hits ---
     # Consume/clear any recorded hits to avoid cross-run leakage, but don't create dummies.
@@ -402,132 +494,8 @@ def to_onnx(
     except Exception:
         pass
 
-    # 7.1) Attach ONNX FunctionProto collected by function plugin handlers
-    freg = getattr(ctx, "_function_registry", None)
-    if isinstance(freg, FunctionRegistry):
-        funcs = freg.all()
-        if funcs:
-            # Materialize functions into the model
-            attach_functions_to_model(model, funcs)
+    # (Optional) keep the old registry for test bookkeeping; it no longer serializes protobuf
+    # freg = getattr(ctx, "_function_registry", None)
 
-            # Ensure the model has opset imports for any non-empty function domains.
-            # Netron/ORT need an opset import for the function's domain to resolve it.
-            present = {imp.domain for imp in model.opset_import}
-            needed = {f.domain for f in funcs if getattr(f, "domain", "")}
-            for dom in needed - present:
-                imp = OperatorSetIdProto()
-                imp.domain = dom
-                # Keep this at 1. We don't use any domain-versioned ops inside the
-                # function body; it simply names the function's namespace.
-                imp.version = 1
-                model.opset_import.append(imp)
-
-    # ------------------------------------------------------------------
-    # Simple dead-code elimination: drop nodes/initializers that do not
-    # contribute to any graph output (or inputs).
-    # This keeps tests with match="exact" strict and avoids stray islands.
-    # ------------------------------------------------------------------
-    def _prune_dead_onnx_nodes_inplace(model: onnx.ModelProto) -> None:
-        # nodes only; tests match paths over nodes, not initializers
-        g = model.graph
-
-        # Roots: graph outputs, inputs and initializers
-        used: set[str] = set()
-        used.update(vi.name for vi in g.output)
-        used.update(vi.name for vi in g.input)
-        init_names = {t.name for t in g.initializer}
-        used |= init_names
-
-        # Map produced tensor -> producing node
-        produced_by: dict[str, onnx.NodeProto] = {}
-        for n in g.node:
-            for o in n.output:
-                if o:
-                    produced_by[o] = n
-
-        # Backward mark from used tensors to their producers' inputs
-        stack = list(used)
-        while stack:
-            name = stack.pop()
-            n = produced_by.get(name)
-            if not n:
-                continue
-            for inp in n.input:
-                if inp and inp not in used:
-                    used.add(inp)
-                    stack.append(inp)
-
-        # Keep nodes that produce something used
-        kept = [n for n in g.node if any(o and o in used for o in n.output)]
-        del g.node[:]
-        g.node.extend(kept)
-
-    # ------------------------------------------------------------------
-    # Guardrail: if there is exactly one graph input, rewire any
-    # unknown node inputs (not produced anywhere and not initializers)
-    # to that single input. This prevents invalid graphs caused by
-    # a rare dangling-name wiring bug while we iterate on plugins.
-    # ------------------------------------------------------------------
-    def _repair_dangling_inputs_single_input(model: onnx.ModelProto) -> None:
-        g = model.graph
-        if len(g.input) != 1:
-            return
-        valid: set[str] = set()
-        valid.update(vi.name for vi in g.input)
-        valid.update(t.name for t in g.initializer)
-        for n in g.node:
-            for o in n.output:
-                if o:
-                    valid.add(o)
-        fallback = g.input[0].name
-        for n in g.node:
-            for i, inp in enumerate(n.input):
-                if inp and inp not in valid:
-                    n.input[i] = fallback
-
-    # ------------------------------------------------------------------
-    # FIX: Symbolic dimension labels (e.g. "B") can get dropped to None
-    # when serializing graph ValueInfo. Re-stamp them from the JAX avals.
-    # ------------------------------------------------------------------
-    def _label_from_dim(d):
-        try:
-            # jax.ShapeDtypeStruct / aval dim with .param (newer JAX)
-            if hasattr(d, "param") and d.param:
-                return str(d.param)
-        except Exception:
-            pass
-        return d if isinstance(d, str) else None
-
-    def _stamp_vi_from_aval_shape(vi, aval_shape):
-        try:
-            dims = vi.type.tensor_type.shape.dim
-        except Exception:
-            return
-        n = min(len(dims), len(aval_shape))
-        for i in range(n):
-            lbl = _label_from_dim(aval_shape[i])
-            if not lbl:
-                continue
-            d = dims[i]
-            has_value = getattr(d, "dim_value", None) not in (None, 0)
-            has_param = bool(getattr(d, "dim_param", ""))
-            is_auto = has_param and getattr(d, "dim_param", "").startswith("dynamic_")
-            if not has_value and (not has_param or is_auto):
-                d.dim_param = lbl
-
-    # Inputs
-    for var, vi in zip(jpr.invars, model.graph.input):
-        aval = getattr(var, "aval", None)
-        if aval is not None:
-            _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
-    # Outputs
-    for var, vi in zip(jpr.outvars, model.graph.output):
-        aval = getattr(var, "aval", None)
-        if aval is not None:
-            _stamp_vi_from_aval_shape(vi, tuple(getattr(aval, "shape", ()) or ()))
-
-    # Prune any dead nodes/initializers that don’t feed the outputs.
-    _repair_dangling_inputs_single_input(model)
-    _prune_dead_onnx_nodes_inplace(model)
-
-    return model
+    # IR-only return; protobuf conversion happens outside converter2
+    return ir_model

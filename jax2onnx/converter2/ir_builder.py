@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
-import onnx
-
 import onnx_ir as ir
 
 
@@ -177,8 +175,8 @@ class IRBuilder:
     def get_symbolic_dim_origin(self, sym: str) -> Optional[tuple[ir.Value, int]]:
         return self._sym_origin.get(sym)
 
-    # ---------- finalize ----------
-    def to_model_proto(self, *, name: str, ir_version: int = 10) -> "onnx.ModelProto":
+    # ---------- finalize (IR only) ----------
+    def to_ir_model(self, *, name: str, ir_version: int = 10) -> "ir.Model":
         graph = ir.Graph(
             inputs=self.inputs,
             outputs=self.outputs,
@@ -187,19 +185,6 @@ class IRBuilder:
             name=name or "jax2onnx_ir_graph",
             opset_imports={"": self.opset},
         )
-        model = ir.Model(graph, ir_version=ir_version)
-        import tempfile
-        import os
-
-        tmp = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-                tmp = f.name
-            ir.save(model, tmp)
-            return onnx.load_model(tmp)
-        finally:
-            if tmp and os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+        return ir.Model(graph, ir_version=ir_version)
+ 
+ 

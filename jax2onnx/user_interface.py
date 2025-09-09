@@ -10,6 +10,8 @@ from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl_v1
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl_v2
+from jax2onnx.serde_onnx import ir_to_onnx
+import importlib
 
 config.update("jax_dynamic_shapes", True)
 
@@ -137,7 +139,7 @@ def to_onnx(
     # Route to legacy or IR pipeline based on the boolean flag
     _impl = to_onnx_impl_v2 if use_onnx_ir else to_onnx_impl_v1
 
-    return _impl(
+    result = _impl(
         fn=fn,
         inputs=processed_inputs_for_impl,
         input_params=input_params,
@@ -146,6 +148,30 @@ def to_onnx(
         enable_double_precision=enable_double_precision,
         loosen_internal_shapes=loosen_internal_shapes,
         record_primitive_calls_file=record_primitive_calls_file,
+    )
+
+    # --- Bridge old vs new worlds gracefully ---
+    # New world (converter2): returns an onnx_ir.Model → convert to ONNX ModelProto.
+    # Old world (converter v1): already returns an onnx.ModelProto → pass through.
+    try:
+        ir = importlib.import_module("onnx_ir")
+        if isinstance(result, getattr(ir, "Model")):
+            return ir_to_onnx(result)
+    except Exception:
+        # If onnx_ir is not available or type check fails, fall through and try ONNX type
+        pass
+
+    try:
+        onnx = importlib.import_module("onnx")
+        if isinstance(result, getattr(onnx, "ModelProto")):
+            return result
+    except Exception:
+        pass
+
+    # If we get here, we don't recognize the return type.
+    raise TypeError(
+        f"Unsupported model type from backend: {type(result)}. "
+        f"Expected onnx_ir.Model (new world) or onnx.ModelProto (old world)."
     )
 
 

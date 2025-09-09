@@ -424,16 +424,24 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     type=ir.TensorType(ir.DataType.INT64),
                     shape=ir.Shape((len(x_shape),)),
                 )
+                # Build Concat WITH axis attribute set at creation time.
+                # This avoids depending on late overrides for a required attribute.
+                try:
+                    concat_attrs = [ir.Attr("axis", 0)]
+                except Exception:
+                    # onnx_ir.Attr is robust to ints; if something exotic, fall back empty (override still applied)
+                    concat_attrs = []
                 concat_node = ir.Node(
                     op_type="Concat",
                     domain="",
                     inputs=[batch_dims, of],
                     outputs=[final_shape],
                     name=ctx.fresh_name("Concat"),
+                    attributes=concat_attrs,
                 )
                 ctx.add_node(concat_node)
-                # Concat axis via late-override (works in functions too)
-                cast("_HasNodeAttrs", ctx).set_node_attrs(concat_node, {"axis": 0})
+                # Keep scope-agnostic override path as a backstop (no harm if duplicate).
+                ctx.set_node_attrs(concat_node, {"axis": 0})
 
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
                 y_meta = tuple(

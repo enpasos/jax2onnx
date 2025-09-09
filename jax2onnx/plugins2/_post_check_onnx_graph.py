@@ -3,10 +3,10 @@
 from __future__ import annotations
 from typing import List, Sequence
 import re
-import onnx
+import importlib
 
 
-def _op_paths(model: onnx.ModelProto) -> List[str]:
+def _op_paths(model) -> List[str]:
     """
     Return all root→sink operator sequences as 'OpA->OpB->OpC' strings.
     Graph inputs/outputs are ignored; only operator nodes are included.
@@ -60,12 +60,13 @@ def expect_graph(patterns: Sequence[str], mode: str = "any", match: str = "conta
       - 'exact'   : pattern must exactly equal some root→sink op-path
                     (equivalent to ^pattern$) **AND there must be no other
                     root→sink op-paths in the graph** (i.e., the patterns
-                    account for the *entire* operator graph; “nothing else”).
+                    account for the *entire* operator graph; "nothing else").
     """
     regs = [re.compile(p) for p in patterns]
     require_all = mode == "all"
 
-    def _check(model: onnx.ModelProto) -> bool:
+    def _check(model) -> bool:
+        onnx = importlib.import_module("onnx")
         paths = _op_paths(model)
         # Fast path for the common 'contains' / 'prefix' / 'suffix' modes
         if match != "exact":
@@ -114,7 +115,7 @@ def expect_graph(patterns: Sequence[str], mode: str = "any", match: str = "conta
             if not any(pattern_hit):
                 return False
 
-        # “Nothing else”: every root→sink path must be matched by at least one pattern.
+        # "Nothing else": every root→sink path must be matched by at least one pattern.
         return all(path_covered)
 
     return _check

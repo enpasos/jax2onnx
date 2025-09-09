@@ -1,4 +1,9 @@
+# file: jax2onnx/converter2/ir_optimizations.py
+
 from __future__ import annotations
+
+from collections import Counter
+import logging
 from typing import Dict, List, Set, Tuple, Optional
 
 import onnx_ir as ir
@@ -464,7 +469,9 @@ def _try_fold_from(ctx, nodes: List[ir.Node], i: int) -> Tuple[bool, int]:
 
 
 def remove_redundant_transpose_pairs_ir(ctx) -> None:
-    """Fold Transpose → [pure elementwise]* → Transpose when perms compose to identity."""
+    """
+    Existing IR-level pass (left unchanged)
+    """
     nodes, store = _get_node_seq_and_setter(ctx)
     if not nodes:
         return
@@ -494,3 +501,146 @@ def remove_redundant_transpose_pairs_ir(ctx) -> None:
         setattr(parent, attr, nodes)
         parent, attr = store
         setattr(parent, attr, nodes)
+
+# ---------------------------------------------------------------------------
+# ONNX-level: remove redundant Reshape pairs inside FunctionProto bodies
+#    T1(Reshape) -> [elementwise-only block] -> T2(Reshape),
+#    if shape(T1.input[0]) == shape(T2.output[0]) then drop T1 and T2.
+#    We do NOT remove/alter the elementwise nodes in between.
+# ---------------------------------------------------------------------------
+def _shapes_from_function(f: onnx.FunctionProto) -> dict[str, tuple | None]:
+    """Collect best-effort shapes for names referenced by this FunctionProto."""
+    mp: dict[str, tuple | None] = {}
+    def _dims(vi: onnx.ValueInfoProto) -> tuple | None:
+        tp = vi.type
+        if not tp.HasField("tensor_type"):
+            return None
+        shp = tp.tensor_type.shape
+        dims = []
+        for d in shp.dim:
+            if d.HasField("dim_value"):
+                dims.append(d.dim_value)
+            elif d.HasField("dim_param"):
+                dims.append(d.dim_param)
+            else:
+                dims.append(None)
+        return tuple(dims)
+    # FunctionScope populates value_info for **all** wires (including inputs/outputs).
+    for vi in f.value_info:
+        sh = _dims(vi)
+        if sh is not None:
+            mp[vi.name] = sh
+    return mp
+
+
+def remove_redundant_reshape_pairs_in_functions(model: onnx.ModelProto) -> None:
+    """
+    Remove Reshape pairs inside FunctionProto bodies when the two reshapes
+    cancel each other modulo a block of elementwise ops in between.
+    """
+    log = logging.getLogger("jax2onnx.converter2.iropt.reshape_pairs")
+    if not getattr(model, "functions", None):
+        return
+
+    # Transpose/shape-invariant elementwise ops – do not remove them,
+    # just allow rewiring across them when collapsing the two reshapes.
+    ALLOWED_ELEMENTWISE_OPS = {
+        "Elu", "Gelu", "Relu", "Sigmoid", "Tanh", "LeakyRelu", "Dropout"
+    }
+
+    total_removed = 0
+    for f in list(model.functions):
+        if not f.node:
+            continue
+        shapes = _shapes_from_function(f)
+
+        # Build mapping: tensor name -> consumer node indices
+        output_to_consumers: dict[str, list[int]] = {}
+        for idx, n in enumerate(f.node):
+            for inp in n.input:
+                if inp:
+                    output_to_consumers.setdefault(inp, []).append(idx)
+
+        to_remove_idx: set[int] = set()
+        for i, n in list(enumerate(f.node)):
+            if n.op_type != "Reshape" or i in to_remove_idx:
+                continue
+            T1_idx = i
+            T1 = f.node[T1_idx]
+            if not T1.output:
+                continue
+
+            chain_idxs = [T1_idx]
+            allowed_idxs: list[int] = []
+            current_out = T1.output[0]
+            T2_idx = None
+
+            # Follow through at most 3 hops: [T1] -> E* -> T2
+            for _ in range(3):
+                consumers = output_to_consumers.get(current_out, [])
+                if len(consumers) != 1:
+                    break
+                nxt = consumers[0]
+                n2 = f.node[nxt]
+                if n2.op_type in ALLOWED_ELEMENTWISE_OPS:
+                    chain_idxs.append(nxt)
+                    allowed_idxs.append(nxt)
+                    current_out = n2.output[0] if n2.output else ""
+                    continue
+                elif n2.op_type == "Reshape":
+                    T2_idx = nxt
+                    chain_idxs.append(nxt)
+                    break
+                else:
+                    break
+
+            if T2_idx is None:
+                continue
+            T2 = f.node[T2_idx]
+            if not T1.input or not T2.output:
+                continue
+
+            # Verify shapes match: shape(T1.input[0]) == shape(T2.output[0])
+            shape1 = shapes.get(T1.input[0])
+            shape2 = shapes.get(T2.output[0])
+            if shape1 != shape2:
+                continue
+
+            new_input = T1.input[0]
+            new_output = T2.output[0]
+
+            if allowed_idxs:
+                # Rewire first elementwise node's input from T1.output -> new_input
+                first_allowed = f.node[allowed_idxs[0]]
+                for k, inp in enumerate(first_allowed.input):
+                    if inp == T1.output[0]:
+                        first_allowed.input[k] = new_input
+                # Ensure the last elementwise node produces the same name as T2.output
+                last_allowed = f.node[allowed_idxs[-1]]
+                if last_allowed.output:
+                    last_allowed.output[0] = new_output
+            else:
+                # Direct T1 -> T2: rewire all consumers of new_output to new_input
+                for cidx in output_to_consumers.get(new_output, []):
+                    cn = f.node[cidx]
+                    for k, inp in enumerate(cn.input):
+                        if inp == new_output:
+                            cn.input[k] = new_input
+
+            to_remove_idx.update({T1_idx, T2_idx})
+
+        if to_remove_idx:
+            kept = [n for j, n in enumerate(f.node) if j not in to_remove_idx]
+            del f.node[:]
+            f.node.extend(kept)
+            total_removed += len(to_remove_idx)
+            try:
+                log.info(
+                    "[reshape-pairs] %s: removed=%d, after=%s",
+                    f.name, len(to_remove_idx), dict(Counter(nd.op_type for nd in f.node))
+                )
+            except Exception:
+                pass
+
+    if total_removed:
+        log.info("[reshape-pairs] total Reshape nodes removed in functions: %d", total_removed)

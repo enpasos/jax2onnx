@@ -1,102 +1,88 @@
-# file: jax2onnx/sandbox/function_gemm_constant.py
-from __future__ import annotations
+# file: jax2onnx/sandbox/onnx_ir_06.py
+
+import onnx_ir as ir
 import os
-import numpy as np
-import onnx
-from onnx import helper as oh, numpy_helper, TensorProto
 
-# ---------------------------------------------------------------------
-# output
-# ---------------------------------------------------------------------
-out_dir = "docs/onnx/"
-os.makedirs(out_dir, exist_ok=True)
-out_path = os.path.join(out_dir, "function_gemm_constant.onnx")
+# --- Setup ---
+# Use a consistent output path
+output_dir = "tmp"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+output_path = os.path.join(output_dir, "custom_tanh.onnx")
 
-# ---------------------------------------------------------------------
-# function: GemmFn in custom domain "local.fn"
-#   Y = Gemm(X, W, B)  with W,B embedded as Constant(value=...) nodes
-# ---------------------------------------------------------------------
-DOM_FN = "local.fn"  # <<< non-empty custom domain
-OPSET_AI_ONNX = oh.make_operatorsetid("", 21)
-OPSET_FN = oh.make_operatorsetid(DOM_FN, 1)  # version is arbitrary for user domain
 
-N, K, M = 3, 4, 2
-X_name, Y_name = "X", "Y"
-W_name, B_name = "W", "B"
+# === Step 1: Define the Function Graph ===
+print("Building the function graph for 'CustomTanh'...")
 
-W_np = np.arange(K * M, dtype=np.float32).reshape(K, M) / 10.0
-B_np = np.array([0.1, -0.2], dtype=np.float32)
-W_t = numpy_helper.from_array(W_np, name=W_name)
-B_t = numpy_helper.from_array(B_np, name=B_name)
+# Define the inputs and outputs for the function's internal graph.
+# For function bodies, it's best to omit the shape and let it be
+# inferred when the function is called.
+func_x = ir.Value(name="x", type=ir.TensorType(ir.DataType.FLOAT))
+func_y = ir.Value(name="y", type=ir.TensorType(ir.DataType.FLOAT))
 
-# Constant nodes must carry exactly one 'value' attribute (spec-compliant)
-const_W = oh.make_node(
-    "Constant", inputs=[], outputs=[W_name], name="W_const", value=W_t
-)
-const_B = oh.make_node(
-    "Constant", inputs=[], outputs=[B_name], name="B_const", value=B_t
-)
-gemm = oh.make_node(
-    "Gemm", inputs=[X_name, W_name, B_name], outputs=[Y_name], name="Gemm_0"
+
+# Define the node(s) that make up the function's body
+tanh_node = ir.node(op_type="Tanh", inputs=[func_x], outputs=[func_y])
+
+# Create the graph for the function
+function_graph = ir.Graph(
+    inputs=[func_x],
+    outputs=[func_y],
+    nodes=[tanh_node],
+    name="CustomTanhGraph",
+    opset_imports={"": 18},
 )
 
-gemm_fn = oh.make_function(
-    domain=DOM_FN,  # <<< custom domain
-    fname="GemmFn",  # op_type to be used at call site
-    inputs=[X_name],
-    outputs=[Y_name],
-    nodes=[const_W, const_B, gemm],
-    opset_imports=[
-        OPSET_AI_ONNX
-    ],  # the function body uses core ops from the default domain
-    doc_string="Y = Gemm(X, W, B) with W,B embedded as Constant nodes",
+# === Step 2: Create the Function ===
+print("Creating the 'CustomTanh' function...")
+custom_tanh_function = ir.Function(
+    domain="custom.domain",
+    name="CustomTanh",
+    graph=function_graph,
+    attributes=[],
 )
 
-# ---- NEW: add shape/type info for names used inside the function body ----
-vi_X = oh.make_tensor_value_info(X_name, TensorProto.FLOAT, [N, K])
-vi_W = oh.make_tensor_value_info(W_name, TensorProto.FLOAT, [K, M])
-vi_B = oh.make_tensor_value_info(B_name, TensorProto.FLOAT, [M])
-vi_Y = oh.make_tensor_value_info(Y_name, TensorProto.FLOAT, [N, M])
 
-# FunctionProto supports value_info; append them so viewers can render shapes
-gemm_fn.value_info.extend([vi_X, vi_W, vi_B, vi_Y])
+# === Step 3: Construct the Main Graph and Model ===
+print("Building the main graph that calls 'CustomTanh'...")
+shape = (3,)
+x = ir.Value(name="main_x", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
+y = ir.Value(name="main_y", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
 
-# ---------------------------------------------------------------------
-# top graph calls GemmFn once
-# ---------------------------------------------------------------------
-in_vi = oh.make_tensor_value_info("in_0", TensorProto.FLOAT, [N, K])
-out_vi = oh.make_tensor_value_info("out_0", TensorProto.FLOAT, [N, M])
-
-call = oh.make_node(
-    "GemmFn",  # matches function name
-    inputs=["in_0"],
-    outputs=["out_0"],
-    name="GemmFn_0",
-    domain=DOM_FN,  # <<< call in the same custom domain
+# Create a node that calls our custom function
+# Note the custom domain specified here.
+custom_tanh_node = ir.node(
+    op_type="CustomTanh",
+    inputs=[x],
+    outputs=[y],
+    domain="custom.domain",
 )
 
-graph = oh.make_graph(
-    name="TopGraph",
-    nodes=[call],
-    inputs=[in_vi],
-    outputs=[out_vi],
-    initializer=[],
+# Construct the main graph
+main_graph = ir.Graph(
+    inputs=[x],
+    outputs=[y],
+    nodes=[custom_tanh_node],
+    initializers=[],
+    name="MainGraph",
+    # The main graph needs to import the custom domain
+    opset_imports={"": 18, "custom.domain": 1},
 )
 
-model = oh.make_model(
-    graph,
+# Create the model, including the function definition
+model = ir.Model(
+    main_graph,
     ir_version=10,
-    opset_imports=[
-        OPSET_AI_ONNX,
-        OPSET_FN,
-    ],  # <<< import both default and custom domains
-    producer_name="sandbox",
+    functions=[custom_tanh_function],
 )
 
-# attach function
-model.functions.append(gemm_fn)
 
-# validate & save
-onnx.checker.check_model(model)
-onnx.save(model, out_path)
-print(f"✅ Wrote: {out_path}")
+# === Step 4: Save the Model ===
+print(f"Saving the model to '{output_path}'...")
+ir.save(model, output_path)
+
+print("\n✅ Model with custom function saved successfully.")
+
+# You can now inspect the saved ONNX model. It will contain the main graph
+# with a call to your custom op, and the function definition will be stored
+# in the model's `functions` field.
