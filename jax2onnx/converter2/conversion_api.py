@@ -288,7 +288,9 @@ def to_onnx(
         input_specs=sds_list,
     )
     # Avoid mypy complaining about attribute type on IRContext; attach dynamically.
-    setattr(ctx, "_function_registry", FunctionRegistry())
+    # Ensure a function registry exists, but don't clobber if a caller already set one
+    if getattr(ctx, "_function_registry", None) is None:
+        setattr(ctx, "_function_registry", FunctionRegistry())
 
     # map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
@@ -364,20 +366,32 @@ def to_onnx(
     ) -> None:
         if not overrides:
             return
-        name2attrs = overrides
-        # Make a quick index (not strictly necessary but robust if names repeat)
         nodes = list(model.graph.node)
         for n in nodes:
-            attrs = name2attrs.get(n.name)
+            attrs = overrides.get(n.name)
             if not attrs:
                 continue
-            # Drop any existing attributes with the same name to avoid duplicates
+            # Drop any existing attributes we're about to override
             keep = [a for a in n.attribute if a.name not in attrs]
             del n.attribute[:]
             n.attribute.extend(keep)
-            # Add/override from our dict (let onnx.helper infer types)
+
             for k, v in attrs.items():
-                n.attribute.append(oh.make_attribute(k, v))
+                if k == "value":
+                    # Always attach Constant.value as a TENSOR attribute
+                    try:
+                        from onnx import (
+                            numpy_helper as _nh,
+                        )  # serializer can import onnx
+
+                        tp = _nh.from_array(np.asarray(v))
+                    except Exception:
+                        # If a TensorProto was already provided, accept it
+                        tp = v
+                    n.attribute.append(oh.make_attribute("value", tp))
+                else:
+                    # Normal attributes: let ONNX infer scalar/list types
+                    n.attribute.append(oh.make_attribute(k, v))
 
     _apply_node_attr_overrides(model, getattr(ctx, "_attr_overrides", {}))
 
@@ -392,12 +406,12 @@ def to_onnx(
     freg = getattr(ctx, "_function_registry", None)
     if isinstance(freg, FunctionRegistry):
         funcs = freg.all()
-        attach_functions_to_model(model, funcs)
-
-        # Ensure the model has opset imports for any non-empty function domains
-        # (Netron will only resolve the FunctionProto – and show the "f" mark and
-        # callsite's *wired* tensor names – when the domain is imported.)
         if funcs:
+            # Materialize functions into the model
+            attach_functions_to_model(model, funcs)
+
+            # Ensure the model has opset imports for any non-empty function domains.
+            # Netron/ORT need an opset import for the function's domain to resolve it.
             present = {imp.domain for imp in model.opset_import}
             needed = {f.domain for f in funcs if getattr(f, "domain", "")}
             for dom in needed - present:

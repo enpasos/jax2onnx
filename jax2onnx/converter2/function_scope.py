@@ -85,9 +85,21 @@ class FunctionScope:
         self._outputs: List[ir.Value] = []
         self._sealed = False
 
+        self.fn_def: Optional[FunctionDef] = None
+
     def begin(self, inputs: List[ir.Value]) -> List[ir.Value]:
-        # function inputs are Values in the child context with the same meta
-        self._inputs = []
+        # Mark we are inside a function while building its body
+        self._prev_inside = getattr(self.ctx, "_inside_function_scope", False)
+        setattr(self.ctx, "_inside_function_scope", True)
+        if not hasattr(self, "fn_def") or self.fn_def is None:
+            self.fn_def = FunctionDef(
+                name=getattr(self, "name", "Function"),
+                domain=getattr(self, "domain", "custom"),
+                inputs=[],
+                outputs=[],
+                nodes=[],
+            )
+        self.fn_def.inputs = []
         for i, vin in enumerate(inputs):
             fin = ir.Value(
                 name=f"f_in_{i}",
@@ -96,25 +108,26 @@ class FunctionScope:
             )
             # Register as graph input in child
             self.ctx._inputs.append(fin)
-            self._inputs.append(fin)
-        return self._inputs
+            self.fn_def.inputs.append(fin)
+        return self.fn_def.inputs
 
     def end(self, outputs: List[ir.Value]) -> FunctionDef:
         if self._sealed:
             raise RuntimeError("FunctionScope already sealed.")
         self._sealed = True
-        # Outputs are child Values; ensure they exist
-        self._outputs = []
-        for vout in outputs:
-            self._outputs.append(vout)
-        # Snapshot nodes produced in the child context
+        # Snapshot child inputs/outputs/nodes/overrides
+        inputs = list(getattr(self.fn_def, "inputs", []) or [])
+        self._outputs = list(outputs)
         nodes = list(getattr(self.ctx, "_nodes", []) or [])
-        # Capture any node-attribute overrides the child recorded
         overrides = dict(getattr(self.ctx, "_attr_overrides", {}) or {})
+        # Restore previous scope flag
+        setattr(
+            self.ctx, "_inside_function_scope", getattr(self, "_prev_inside", False)
+        )
         return FunctionDef(
             name=self.name,
             domain=self.domain,
-            inputs=self._inputs,
+            inputs=inputs,
             outputs=self._outputs,
             nodes=nodes,
             attr_overrides=overrides,

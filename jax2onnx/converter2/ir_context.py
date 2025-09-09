@@ -1,5 +1,7 @@
+# file: jax2onnx/converter2/ir_context.py
+
 from __future__ import annotations
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Sequence, Dict, Tuple, Optional
 import numpy as np
 import onnx_ir as ir
 from .ir_builder import IRBuilder, _dtype_to_ir
@@ -50,9 +52,10 @@ class IRContext:
         self._name_counters: dict[str, int] = {}
         self._function_mode: bool = False
         self._function_registry = None  # filled by conversion_api
-        # Late attribute overrides keyed by node.name -> {attr_name: python value}
-        # Used for both top-level and function bodies; converted to AttributeProto later.
-        self._attr_overrides: dict[str, dict[str, object]] = {}
+        # name -> {attr_name: python_value or TensorProto}
+        self._attr_overrides: Dict[str, Dict[str, Any]] = {}
+        # Set by FunctionScope while emitting FunctionProto
+        self._inside_function_scope: bool = False
 
     def fresh_name(self, base: str) -> str:
         # Counter dict is initialized in __init__; no lazy setup needed.
@@ -77,20 +80,87 @@ class IRContext:
     #   - function bodies (need onnx_ir Attr objects)
     #   - top-level graphs (stash raw values, applied later in to_onnx)
     # ------------------------------------------------------------------
-    def set_node_attrs(
-        self, node: ir.Node, attrs: dict[str, object] | None = None, **kwargs
-    ) -> None:
+    def set_node_attrs(self, node: Any, attrs: Dict[str, Any]) -> None:
+        # make sure there is a stable name to key overrides
+        name = getattr(node, "name", None)
+        if not name:
+            prefix = getattr(node, "op_type", "node")
+            name = self.builder.fresh_name(prefix)
+            setattr(node, "name", name)
+        merged = dict(self._attr_overrides.get(name, {}))
+        merged.update(attrs or {})
+        self._attr_overrides[name] = merged
+
+    def get_node_attrs(self, node: Any) -> Dict[str, Any]:
+        name = getattr(node, "name", "")
+        return self._attr_overrides.get(name, {})
+
+    # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
+    def ensure_external_flag(self, name: str, var: Any):
+        """Top-level: return/create a BOOL[] graph input `name`.
+        Function body: return the Value for `var` (function input or literal)."""
+        if getattr(self, "_inside_function_scope", False):
+            return self.get_value_for_var(var, name_hint=name)
+        # top-level graph input (reuse if already present)
+        for vi in getattr(self.builder, "inputs", []):
+            if getattr(vi, "name", "") == name:
+                return vi
+        v = ir.Value(
+            name=name, type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(())
+        )
+        self.builder.inputs.append(v)
+        return v
+
+    def ensure_training_mode(self, flag_name: str, var: Any) -> Any:
         """
-        Record attributes for a node without constructing onnx_ir.Attr.
-        We always stash raw Python values into _attr_overrides and let the
-        serializer (top-level or FunctionProto builder) turn them into real
-        AttributeProto entries. This keeps behavior consistent across
-        onnx_ir versions and in function mode.
+        Return a BOOL[] Value for `training_mode`.
+        - Inside a function: if `var` is a JAX literal (has a `.val`), fold to a constant
+          training_mode = not(var.val) and feed Dropout directly (NO Not).
+        - Otherwise: route the flag through a Not: flag → Not → training_mode.
+          (Top-level uses a single graph input named `flag_name`; function uses the local wire.)
         """
-        values: dict[str, object] = dict(attrs or {})
-        values.update(kwargs)
-        self._attr_overrides.setdefault(node.name, {}).update(values)
-        return
+        # If we're inside a function body and the flag is a literal, fold now.
+        if getattr(self, "_inside_function_scope", False):
+            lit_obj = getattr(var, "val", None)
+            # accept native bool, np.bool_, scalar array etc.
+            if lit_obj is not None:
+                lit = bool(np.asarray(lit_obj).item())
+                return ir.Value(
+                    name=self.builder.fresh_name("training_mode"),
+                    type=ir.TensorType(ir.DataType.BOOL),
+                    shape=ir.Shape(()),
+                    const_value=ir.tensor(np.array(not lit, dtype=np.bool_)),
+                )
+            det_val = self.get_value_for_var(var, name_hint=flag_name)
+        else:
+            det_val = self.ensure_external_flag(flag_name, var)
+
+        # Dynamic path: build Not(det_val) → training_mode
+        tm = ir.Value(
+            name=self.builder.fresh_name("training_mode"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+        )
+        node = ir.Node(
+            op_type="Not",
+            domain="",
+            inputs=[det_val],
+            outputs=[tm],
+            name=self.builder.fresh_name("Not"),
+        )
+        # Prefer ctx.add_node if present; otherwise builder.add_node
+        add = getattr(self, "add_node", None)
+        if callable(add):
+            add(node)
+        else:
+            self.builder.add_node(
+                op_type="Not",
+                inputs=[det_val],
+                outputs=[tm],
+                attributes=[],
+                name=node.name,
+            )
+        return tm
 
     def add_node(self, node: ir.Node, inputs=None, outputs=None):
         # maintain legacy signature; plugins pass a constructed ir.Node
@@ -240,15 +310,15 @@ class IRContext:
             v = self.get_value_for_var(var, name_hint=f"out_{i}")
             self.builder.outputs.append(v)
 
-    def to_model_proto(self, *, name: str, ir_version: int = 10):
-        return self.builder.to_model_proto(name=name, ir_version=ir_version)
-
     # Convenience: make sure the model declares an opset import for a domain
     def ensure_opset_import(self, domain: str, version: int = 1) -> None:
         if hasattr(self.builder, "ensure_opset_import"):
             self.builder.ensure_opset_import(domain, version)
         elif hasattr(self.builder, "add_opset_import"):
             self.builder.add_opset_import(domain, version)
+
+    def to_model_proto(self, *, name: str, ir_version: int = 10):
+        return self.builder.to_model_proto(name=name, ir_version=ir_version)
 
 
 EMPTY_SHAPE: Tuple[Any, ...] = ()

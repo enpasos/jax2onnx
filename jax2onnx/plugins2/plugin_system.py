@@ -24,7 +24,6 @@ from jax.extend.core import Primitive
 import onnx_ir as ir
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter2.function_scope import FunctionScope, FunctionKey
-from jax2onnx.converter2.ir_builder import IRBuilder
 
 logger = logging.getLogger("jax2onnx.plugins2.plugin_system")
 
@@ -34,7 +33,7 @@ logger = logging.getLogger("jax2onnx.plugins2.plugin_system")
 
 # mypy/ruff-only import (avoid runtime cycles)
 if TYPE_CHECKING:
-    from jax2onnx.converter2.ir_context import IRContext
+    pass
 
 # Use a small private domain for ONNX functions. Netron shows the "f"
 # marker only when it can resolve a FunctionProto in a domain; ORT also
@@ -377,111 +376,83 @@ class FunctionPlugin(PrimitivePlugin):
         fdef = freg.get(fkey)
         if fdef is None:
             # new child scope
-            # Use a friendly, short name like 'SuperBlock_1' (ORT-friendly; matches old-world style)
             fname = self._allocate_friendly_name(ctx)
-
             fscope = FunctionScope(ctx, name=fname, domain=_FUNCTION_DOMAIN)
+            # Make the CHILD context see the same function registry as the parent.
+            if getattr(ctx, "_function_registry", None) is not None:
+                setattr(
+                    fscope.ctx, "_function_registry", getattr(ctx, "_function_registry")
+                )
 
             # parent → child inputs for this call-site
             in_vals_parent = [ctx.get_value_for_var(v) for v in eqn.invars]
-            # Start the function body in the child scope (positional mapping).
-            # (If a newer FunctionScope ever gains `input_names`, this call
-            #  remains valid; here we keep it simple for static typing.)
             in_vals_child = fscope.begin(in_vals_parent)
 
-            # re-trace callee on the same abstract shapes/dtypes (with patches on)
-            # (this produces the inner jaxpr that we'll lower into fscope.ctx)
-            default_float = (
-                np.float64
-                if getattr(ctx, "enable_double_precision", False)
-                else np.float32
-            )
+            # ---- Trace the callee with child input specs and lower into CHILD ctx ----
+            import jax
 
-            def _wrapped(*xs):
-                return callee(*xs, **params)
-
+            # Build ShapeDtypeStructs from the *outer* eqn's invars (safer than IR dtypes)
             sds = []
             for v in eqn.invars:
                 aval = getattr(v, "aval", None)
                 sds.append(
                     jax.ShapeDtypeStruct(
-                        getattr(aval, "shape", ()), getattr(aval, "dtype", np.float32)
+                        tuple(getattr(aval, "shape", ())), getattr(aval, "dtype", None)
                     )
                 )
 
-            prev_build = set(_IN_FUNCTION_BUILD.get())
-            with _activate_full_plugin_worlds_for_body():
-                token = _IN_FUNCTION_BUILD.set(prev_build | {self.name})
-                try:
-                    closed = jax.make_jaxpr(_wrapped)(*sds)
-                finally:
-                    _IN_FUNCTION_BUILD.reset(token)
-            jpr_f = closed.jaxpr
+            from types import SimpleNamespace
 
-            # Tie the traced inner-jaxpr inputs to the child-scope function inputs
-            if len(jpr_f.invars) != len(in_vals_child):
-                raise RuntimeError(
-                    "[onnx_function] arity mismatch between traced invars and function inputs"
-                )
-            for v, child_val in zip(jpr_f.invars, in_vals_child):
-                fscope.ctx.bind_value_for_var(v, child_val)
+            active = set(_IN_FUNCTION_BUILD.get())
+            _IN_FUNCTION_BUILD.set(active | {self.name})
+            try:
+                with _activate_full_plugin_worlds_for_body():
+                    closed = jax.make_jaxpr(callee)(*sds)
+                jpr_f = closed.jaxpr
+            finally:
+                _IN_FUNCTION_BUILD.set(active)
 
-            # bind consts (captured weights, scalars) into child ctx as initializers
+            # Bind consts into CHILD ctx
             for cv, cval in zip(jpr_f.constvars, closed.consts):
-                np_c = np.asarray(cval)
-                if np.issubdtype(np_c.dtype, np.floating):
-                    np_c = np_c.astype(default_float, copy=False)
-                fscope.ctx.bind_const_for_var(cv, np_c)
+                fscope.ctx.bind_const_for_var(cv, np.asarray(cval))
+            # Bind function inputs (inner invars) to CHILD f_in_* values
+            for v_var, v_val in zip(jpr_f.invars, in_vals_child):
+                fscope.ctx.bind_value_for_var(v_var, v_val)
 
-            # lower inner body using same plugins
-            class _ChildFacade:
-                builder: IRBuilder
-                # Make mypy aware this attribute exists; it is set immediately below.
-                _ctx: "IRContext"
-
-            child = _ChildFacade()
-            child.builder = fscope.ctx.builder
-            # Expose the IRContext directly so nested FunctionPlugins can find it
-            child._ctx = fscope.ctx
-
-            for inner in jpr_f.eqns:
-                prim_name = inner.primitive.name
-                plugin = PLUGIN_REGISTRY2.get(prim_name)
+            # Create a child converter facade
+            child_conv = SimpleNamespace(builder=fscope.ctx.builder, ctx=fscope.ctx)
+            # Walk inner equations and dispatch plugins in CHILD ctx
+            for inner_eqn in jpr_f.eqns:
+                prim = inner_eqn.primitive.name
+                plugin = PLUGIN_REGISTRY2.get(prim)
                 if plugin is None:
                     raise NotImplementedError(
-                        f"[converter2:onnx_function] No plugins2 for primitive '{prim_name}' inside function body"
+                        f"[onnx_function] No plugin for '{prim}' in function body"
                     )
-                # FunctionPlugin → dispatch via handler (needs facade carrying builder/_ctx)
-                handler = getattr(plugin, "get_handler", None)
-                if callable(handler):
-                    handler(child)(child, inner, inner.params)
-                    continue
+                if hasattr(plugin, "lower"):
+                    # new/old leaf plugin shape
+                    try:
+                        import inspect as _ins
 
-                lower_fn = getattr(plugin, "lower", None)
-                if not callable(lower_fn):
-                    raise NotImplementedError(
-                        f"[converter2:onnx_function] Plugin for '{prim_name}' has no 'get_handler' or 'lower'"
-                    )
-                # Leaf plugins expect the IRContext, not the facade.
-                # Most declare: lower(self, ctx, eqn); some accept 'params' as 3rd arg.
-                # Be arity-aware to avoid re-invoking on arbitrary TypeError from the body.
-                import inspect as _ins
-
-                try:
-                    sig = _ins.signature(lower_fn)
-                    wants_params = "params" in sig.parameters
-                except Exception:
-                    wants_params = False
-                if wants_params:
-                    lower_fn(fscope.ctx, inner, inner.params)
+                        has_params = "params" in _ins.signature(plugin.lower).parameters
+                    except Exception:
+                        has_params = False
+                    if has_params:
+                        plugin.lower(
+                            fscope.ctx, inner_eqn, getattr(inner_eqn, "params", None)
+                        )
+                    else:
+                        plugin.lower(fscope.ctx, inner_eqn)
+                elif hasattr(plugin, "get_handler"):
+                    handler = plugin.get_handler(child_conv)
+                    handler(child_conv, inner_eqn, inner_eqn.params)
                 else:
-                    lower_fn(fscope.ctx, inner)
+                    raise NotImplementedError(
+                        f"[onnx_function] Unsupported plugin type for '{prim}'"
+                    )
 
-            # finalize and register: explicit outputs from the traced inner jaxpr
+            # Explicit outputs from inner jaxpr
             child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
-            # Keep API surface compatible with current FunctionScope (no output_names kw).
-            # Call-site tensors already carry the right names; the FunctionProto body
-            # will serialize with its own local names.
             fdef = fscope.end(outputs=child_out_vals)
 
             freg.put(fkey, fdef)
@@ -712,10 +683,6 @@ def import_all_plugins() -> None:
     # Fallback tree: jax2onnx/plugin2 (singular)
     base_dir = plugins2_dir.parent  # .../jax2onnx
     plugin2_dir = base_dir / "plugin2"
-    _import_tree(plugin2_dir, "jax2onnx.plugin2")
-
-    # mark as done (avoid duplicate imports/runs)
-    _already_imported_plugins2 = True
     _import_tree(plugin2_dir, "jax2onnx.plugin2")
 
     # mark as done (avoid duplicate imports/runs)
