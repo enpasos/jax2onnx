@@ -367,12 +367,13 @@ def attach_functions_to_model(model: onnx.ModelProto, fdefs: List[FunctionDef]) 
                 for k, v in overrides.items():
                     n.attribute.append(oh.make_attribute(k, v))
 
-        # Attach value_info for all internal wires (enables ORT shape/type inference)
+        # Attach value_info for ALL wires (inputs, outputs, and internals).
+        # Netron shows shapes for parameters only if they appear in value_info.
         if vi_map:
-            # Do not duplicate signature IO in value_info
+            # Avoid double-appending if upstream code reuses this routine
+            existing = {vi.name for vi in fproto.value_info}
             for nm, vi in vi_map.items():
-                if nm in input_names or nm in output_names:
-                    continue
-                fproto.value_info.append(vi)
+                if nm not in existing:
+                    fproto.value_info.append(vi)
 
         model.functions.append(fproto)

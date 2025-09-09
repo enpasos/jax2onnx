@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins2/flax/nnx/dropout.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Any
+from typing import Callable, ClassVar, Any
 import numpy as np
 import jax
 from jax.extend.core import Primitive
@@ -17,10 +17,7 @@ from jax2onnx.plugins2._ir_shapes import (
 )
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 
-if TYPE_CHECKING:
-    from flax import nnx
-else:
-    nnx = None
+from flax import nnx
 
 # mypy/ruff-only import (avoid runtime cycles)
 # from jax2onnx.converter2.conversion_api import _IRBuildContext

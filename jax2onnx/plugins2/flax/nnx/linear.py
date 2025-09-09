@@ -249,6 +249,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
         need_flatten = len(x_shape) > 2
         gemm_in = x_val
         if need_flatten:
+            # Compute product of batch dims if all static (e.g., 3×10 -> 30)
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+            if all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                x2d_shape = ir.Shape((m_size, in_features))
+            else:
+                x2d_shape = ir.Shape((None, in_features))
+
             x2d_shape_c = ir.Value(
                 name=ctx.fresh_name("x2d_shape"),
                 type=ir.TensorType(ir.DataType.INT64),
@@ -259,7 +269,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             x2d = ir.Value(
                 name=ctx.fresh_name("input_reshape"),
                 type=x_val.type,
-                shape=ir.Shape((None, in_features)),
+                shape=x2d_shape,
             )
             ctx.add_node(
                 ir.Node(
@@ -274,10 +284,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         # Gemm
         if need_flatten:
+            # If batch dims are static, keep concrete M; otherwise leave None
+            if "all_batch_static" in locals() and all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                gemm_shape = ir.Shape((m_size, out_features))
+            else:
+                gemm_shape = ir.Shape((None, out_features))
             gemm_out = ir.Value(
                 name=ctx.fresh_name("gemm_output"),
                 type=x_val.type,
-                shape=ir.Shape((None, out_features)),
+                shape=gemm_shape,
             )
         else:
             gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
