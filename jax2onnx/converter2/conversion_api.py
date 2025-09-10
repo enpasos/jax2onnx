@@ -1,32 +1,28 @@
-# file: jax2onnx/converter2/conversion_api.py
-
-
+# jax2onnx/converter2/conversion_api.py
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 from contextlib import contextmanager, ExitStack
-from jax import export as jax_export
+import inspect as _ins
+import os
 
-from jax2onnx.converter2.ir_pretty import print_ir_model
+import jax
+import jax.numpy as jnp
+from jax import export as jax_export
+import numpy as np
+import onnx_ir as ir
+
+from jax2onnx.plugins2 import plugin_system as ps2
 from jax2onnx.plugins2.plugin_system import (
     PLUGIN_REGISTRY2,
     PrimitiveLeafPlugin,
     apply_monkey_patches,
     import_all_plugins,
 )
-import onnx_ir as ir
-import numpy as np
-import jax
-import jax.numpy as jnp
 
-from jax2onnx.plugins2 import plugin_system as ps2
-
-# new imports
 from .ir_context import IRContext
 from .ir_builder import IRBuilder
-from .ir_optimizations import (
-    remove_redundant_transpose_pairs_ir,
-    remove_redundant_reshape_pairs_in_functions,
-)
+from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 
 # ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
@@ -35,20 +31,13 @@ from jax.extend import core as jcore_ext  # type: ignore
 
 _LITERAL_TYPES = (jcore_ext.Literal,)
 
-# NOTE: onnx_ir: https://github.com/onnx/ir-py
-# We use it as the builder backend.
-
-# For optional type hints; avoid jax.core on 0.6.x
-
-# plugin2 registry (old registry stays untouched)
-
-# Keep ORT-compatible IR version (ORT 1.18.x supports IR v10 max in many wheels)
+# Keep ORT-compatible IR version (ORT ~1.18 supports IR v10 broadly)
 _ORT_SAFE_IR_VERSION = 10
+
 
 # ---------------------------
 # Helpers
 # ---------------------------
-
 
 def _np_float_dtype(enable_double_precision: bool):
     return np.float64 if enable_double_precision else np.float32
@@ -59,7 +48,6 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     if np.issubdtype(np_dtype, np.floating):
         return ir.DataType.DOUBLE if np_dtype == np.float64 else ir.DataType.FLOAT
     if np.issubdtype(np_dtype, np.integer):
-        # choose common default width mappings
         return {
             np.dtype(np.int64): ir.DataType.INT64,
             np.dtype(np.int32): ir.DataType.INT32,
@@ -72,12 +60,10 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
         }.get(np_dtype, ir.DataType.INT64)
     if np_dtype == np.bool_:
         return ir.DataType.BOOL
-    # fallback
     return ir.DataType.FLOAT
 
 
 def _to_ir_shape(shape_tuple) -> "ir.Shape":
-    # allow ints or symbolic-like objects → stringify non-ints
     dims: Tuple[Union[int, str], ...] = tuple(
         int(d) if isinstance(d, (int, np.integer)) else str(d) for d in shape_tuple
     )
@@ -90,22 +76,20 @@ def _as_sds_list(
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
 
-    # 1) Collect all symbol names that appear as strings in the input shapes
+    # 1) gather string symbols
     symnames: list[str] = []
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            # Already a ShapeDtypeStruct / ShapedArray; nothing to collect here.
             continue
         if isinstance(spec, (list, tuple)):
             for d in spec:
                 if isinstance(d, str) and d not in symnames:
                     symnames.append(d)
 
-    # 2) Create JAX symbolic DimSize objects one-by-one (strings only)
-    #    and remember them by name so equal names map to the same symbol.
+    # 2) create symbolic sizes
     name2sym: dict[str, object] = {n: jax_export.symbolic_shape(n)[0] for n in symnames}
 
-    # 3) Build the ShapeDtypeStructs
+    # 3) build SDS list
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
             sds_list.append(jax.ShapeDtypeStruct(tuple(spec.shape), spec.dtype))
@@ -119,8 +103,9 @@ def _as_sds_list(
 
 
 # ---------------------------
-# Minimal IR Build Context
+# Minimal IR Build Context facade (for plugins)
 # ---------------------------
+
 class _IRBuildContext:
     def __init__(self, *, opset: int, default_float_dtype: np.dtype):
         self.opset = opset
@@ -130,18 +115,14 @@ class _IRBuildContext:
         self._initializers: List[ir.Value] = []
         self._nodes: List[ir.Node] = []
         self._name_counter = 0
-        # Map a symbolic dimension to the input Value/axis that defines it.
-        # Keep both the actual dim object (preferred) and its string repr as a fallback.
         self._symdim_origin: dict[object, tuple[ir.Value, int]] = {}
         self._symdim_origin_str: dict[str, tuple[ir.Value, int]] = {}
 
-    # API used by plugins2
     def fresh_name(self, prefix: str) -> str:
         self._name_counter += 1
         return f"{prefix}_{self._name_counter}"
 
     def add_node(self, node, inputs=None, outputs=None):
-        # Accept both (node) and (node, inputs, outputs) forms
         self._nodes.append(node)
         return node
 
@@ -152,11 +133,8 @@ class _IRBuildContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> "ir.Value":
-        # Handle Literals first; don't touch the dict (Literals are unhashable).
         if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
             arr = np.asarray(var.val)
-            # For floating literals, align to either caller's preferred dtype
-            # (e.g., the other operand) or our default float dtype.
             if np.issubdtype(arr.dtype, np.floating):
                 target = (
                     np.dtype(prefer_np_dtype)
@@ -172,24 +150,21 @@ class _IRBuildContext:
             )
             self._initializers.append(c_ir)
             return c_ir
-        # If we've already materialized it, return it.
+
         if var in self._var2val:
             return self._var2val[var]
-        # Otherwise create a fresh Value (outvar or intermediate)
+
         aval = getattr(var, "aval", None)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(
-                _to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))
-            ),
+            type=ir.TensorType(_to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))),
             shape=_to_ir_shape(getattr(aval, "shape", ())),
         )
         self._var2val[var] = v
         return v
 
-    # helpers for converter
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = var.aval
         val = ir.Value(
@@ -200,7 +175,7 @@ class _IRBuildContext:
         self._var2val[var] = val
         self._inputs.append(val)
 
-        # Remember which input/axis supplies each symbolic dim
+        # Track symbolic dim origins
         for ax, d in enumerate(getattr(aval, "shape", ())):
             if not isinstance(d, (int, np.integer)):
                 self._symdim_origin[d] = (val, ax)
@@ -208,22 +183,13 @@ class _IRBuildContext:
         return val
 
     def get_symbolic_dim_origin(self, dim: object) -> Optional[tuple[ir.Value, int]]:
-        """Return (Value, axis) that provides the given symbolic dim."""
         if dim in self._symdim_origin:
             return self._symdim_origin[dim]
         return self._symdim_origin_str.get(str(dim))
 
-    # ------------------------------------------------------------------
-    # Tiny helper: Cast one tensor to the element dtype of another.
-    # Keeps the original shape; creates a CastLike node.
-    # ------------------------------------------------------------------
     def cast_like(
         self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
     ) -> ir.Value:
-        """
-        Return a new Value that is `tensor` cast to the element dtype of `exemplar`
-        using ONNX CastLike. Shape is preserved from `tensor`.
-        """
         out = ir.Value(
             name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
             type=exemplar.type,
@@ -243,19 +209,15 @@ class _IRBuildContext:
 
 @contextmanager
 def _activate_plugin_worlds():
-    # Ensure all plugins are imported so the registry is populated
+    # Ensure plugin registry is populated
     import_all_plugins()
-
     with ExitStack() as stack:
-        # LEGACY: still support older plugins that provide patch_info()
-        # Apply legacy first so plugins2 can override where both exist.
+        # Legacy patches first
         stack.enter_context(apply_monkey_patches())
-
-        # NEW: activate centralized per-plugin bindings (override legacy where needed)
+        # New-style leaf bindings
         for plugin_instance in PLUGIN_REGISTRY2.values():
             if isinstance(plugin_instance, PrimitiveLeafPlugin):
                 stack.enter_context(plugin_instance.__class__.plugin_binding())
-
         yield
 
 
@@ -270,45 +232,55 @@ def to_onnx(
     loosen_internal_shapes: bool,
     record_primitive_calls_file: Optional[str],
 ) -> ir.Model:
-    # 1) Prepare abstract inputs for tracing (respect x64 policy)
-    default_float = np.float64 if enable_double_precision else np.float32
+    """
+    Build an ONNX-IR model in three phases:
+    1) Trace JAX to ClosedJaxpr with symbolic shapes.
+    2) Lower to onnx_ir (plugins; function bodies allowed).
+    3) Run a single IR-wide optimization pass (cross-node cleanups).
+    """
+    # 1) Abstract inputs
+    default_float = _np_float_dtype(enable_double_precision)
     sds_list = _as_sds_list(inputs, enable_double_precision)
 
-    # 2) Trace to ClosedJaxpr (input_params threaded; plugin worlds already handled above)
+    # 2) JAXPR (optionally print for debugging)
     def _wrapped(*xs):
         return fn(*xs, **(input_params or {}))
 
     with _activate_plugin_worlds():
         closed = jax.make_jaxpr(_wrapped)(*sds_list)
+    if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
+        try:
+            print(f"JAXPR: {closed.jaxpr.pretty_print()}")
+        except Exception:
+            pass
     jpr = closed.jaxpr
-    print(f"JAXPR: {jpr.pretty_print()}")  # TODO remove
 
-    # 3) Build IR context & bind inputs/consts
+    # 3) IR context & inputs/consts
     ctx = IRContext(
         opset=opset,
         enable_double_precision=enable_double_precision,
         input_specs=sds_list,
     )
-    # Avoid mypy complaining about attribute type on IRContext; attach dynamically.
-    # Ensure a function registry exists, but don't clobber if a caller already set one
+    # Expose knobs for downstream (optional)
+    setattr(ctx, "loosen_internal_shapes", bool(loosen_internal_shapes))
+    if record_primitive_calls_file:
+        setattr(ctx, "record_primitive_calls_file", str(record_primitive_calls_file))
+
     if getattr(ctx, "_function_registry", None) is None:
         setattr(ctx, "_function_registry", FunctionRegistry())
 
-    # map constvars
+    # Map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
         np_c = np.asarray(cval)
         if np.issubdtype(np_c.dtype, np.floating):
             np_c = np_c.astype(default_float, copy=False)
         ctx.bind_const_for_var(cv, np_c)
 
-    # invars → graph inputs
+    # Inputs
     for i, v in enumerate(jpr.invars):
         ctx.add_input_for_invar(v, i)
 
-    # 4) Walk equations & dispatch to plugin.lower
-    _seen_prims: list[str] = []
-
-    # expose builder *and* context to plugins (e.g., FunctionPlugin)
+    # Lower equations
     class _ConverterFacade:
         builder: IRBuilder
         ctx: IRContext
@@ -319,22 +291,14 @@ def to_onnx(
 
     for eqn in jpr.eqns:
         prim_name = eqn.primitive.name
-        _seen_prims.append(prim_name)
         plugin_ref = PLUGIN_REGISTRY2.get(prim_name)
         if plugin_ref is None:
             raise NotImplementedError(
                 f"[converter2] No plugins2 registered for primitive '{prim_name}'"
             )
-        # leaf primitive plugins expose .lower(ctx, eqn)
-        # function plugins use FunctionPlugin's handler via plugin_system
         if hasattr(plugin_ref, "lower"):
-            # Backwards-compatible dispatch:
-            # - old leaf plugins: lower(self, ctx, eqn)
-            # - new leaf plugins: lower(self, ctx, eqn, params)
             lower = plugin_ref.lower
             try:
-                import inspect as _ins
-
                 has_params = "params" in _ins.signature(lower).parameters
             except Exception:
                 has_params = False
@@ -350,152 +314,169 @@ def to_onnx(
                 f"[converter2] Unsupported plugin type for '{prim_name}'"
             )
 
-    # 5) Outputs
+    # Outputs
     ctx.add_outputs_from_vars(jpr.outvars)
 
-    # 6) IR-level graph optimizations (safe structure-only)
-    remove_redundant_transpose_pairs_ir(ctx)
-
-    # 7) IR model (attach ir.Functions)
+    # Build IR model
     ir_model = ctx.builder.to_ir_model(name=model_name, ir_version=_ORT_SAFE_IR_VERSION)
-
-    # Optional debug print; never fail conversion if pretty-print raises
-    try:
-        from .ir_pretty import print_ir_model
-        import os as _os
-        if _os.environ.get("J2O_PRINT_IR", "0") == "1":
-            print_ir_model(ir_model)
-    except Exception:
-        pass
 
     # Attach any native ir.Functions collected on ctx
     ir_funcs = list(getattr(ctx, "_ir_functions", []) or [])
     if ir_funcs:
-        # add function domain imports on the top graph
-        imports = dict(getattr(ir_model.graph, "opset_imports", {}) or {})
-        for fn in ir_funcs:
-            if fn.domain and fn.domain not in imports:
-                imports[fn.domain] = 1  # version 1 namespace
-        ir_model.graph.opset_imports = imports
-        # attach functions to IR model
-        if not hasattr(ir_model, "functions") or ir_model.functions is None:
-            ir_model.functions = []
-        ir_model.functions.extend(ir_funcs)
+        fstore = getattr(ir_model, "functions", None)
+        if fstore is None:
+            try:
+                ir_model.functions = {}
+                fstore = ir_model.functions
+            except Exception:
+                ir_model.functions = []
+                fstore = ir_model.functions
 
-    # IR-level: apply late attribute overrides directly on IR nodes
-    def _apply_ir_attr_overrides(ir_model: ir.Model, overrides: dict[str, dict[str, object]]):
-        if not overrides:
+        if isinstance(fstore, dict):
+            for fn_ir in ir_funcs:
+                key = (
+                    getattr(fn_ir, "id", None)
+                    or getattr(fn_ir, "identifier", None)
+                    or (
+                        (getattr(fn_ir, "domain", "") or ""),
+                        (getattr(fn_ir, "name", "") or ""),
+                        (getattr(fn_ir, "overload", "") or ""),
+                    )
+                )
+                fstore[key] = fn_ir
+        elif isinstance(fstore, list):
+            def _fid(f):
+                return (
+                    getattr(f, "domain", "") or "",
+                    getattr(f, "name", "") or "",
+                    getattr(f, "overload", "") or "",
+                )
+            existing = {_fid(f) for f in fstore}
+            for fn_ir in ir_funcs:
+                if _fid(fn_ir) not in existing:
+                    fstore.append(fn_ir)
+        else:
+            ir_model.functions = list(ir_funcs)
+
+        # Ensure model-level opset imports cover default "" and each function domain
+        model_imports: Dict[str, int] = dict(getattr(ir_model, "opset_imports", {}) or {})
+        if "" not in model_imports:
+            try:
+                default_opset = int(getattr(getattr(ctx, "builder", None), "opset", 21))
+            except Exception:
+                default_opset = 21
+            model_imports[""] = default_opset or 21
+        for fn_ir in ir_funcs:
+            dom = (getattr(fn_ir, "domain", "") or "").strip()
+            if dom and dom not in model_imports:
+                model_imports[dom] = 1
+        try:
+            ir_model.opset_imports = model_imports
+        except Exception:
+            try:
+                getattr(ir_model, "opset_imports", {}).update(model_imports)
+            except Exception:
+                pass
+
+    # ---- Single IR-wide optimization pass (centralized cleanups) ----
+    try:
+        optimize_graph(ir_model)
+    except Exception as _e:
+        import logging as _logging
+        _logging.getLogger("jax2onnx.converter2.ir_optimizations").debug(
+            "optimize_graph skipped: %s", _e
+        )
+
+    # ---- Late attribute overrides (polish; not structural rewrites) ----
+
+    def _ir_attr_int(name: str, val: int):
+        Attr = getattr(ir, "Attr", None)
+        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+        ival = int(val)
+        if Attr is None:
+            raise RuntimeError("onnx_ir.Attr is not available")
+        if hasattr(Attr, "i"):
+            return Attr.i(name, ival)
+        if AttrType is not None:
+            return Attr(name, AttrType.INT, ival)
+        return Attr(name, ival)
+
+    def _apply_ir_attr_overrides_to_graph(gr: "ir.Graph", overrides: dict[str, dict[str, object]]):
+        if not overrides or gr is None:
             return
-        # some onnx_ir builds expose graph._nodes instead of graph.nodes
-        g = ir_model.graph
-        nodes_ref = getattr(g, "nodes", None)
-        if nodes_ref is None:
-            nodes_ref = getattr(g, "_nodes", None)
-        nodes_ref = nodes_ref or []
-
-        # Build a name -> node map without materializing copies
-        name2node = {}
+        nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
+        name2node: Dict[str, ir.Node] = {}
         for n in nodes_ref:
             nm = getattr(n, "name", "")
             if nm:
                 name2node[nm] = n
 
-        def _append_ir_attr(attr_list, k: str, v: object) -> None:
-            """
-            Append/replace an attribute on the node.
-            Accept Python scalars; for tensors use ir.tensor(...) automatically.
-            """
-            # Remove any existing attr with same name
+        def _mutate_attr_list(attr_list: list, k: str, v: object) -> None:
+            for i in range(len(attr_list) - 1, -1, -1):
+                a = attr_list[i]
+                aname = getattr(a, "name", getattr(a, "key", None))
+                if aname == k:
+                    del attr_list[i]
             try:
-                # attr_list is a real list object owned by the node
-                for i in range(len(attr_list) - 1, -1, -1):
-                    a = attr_list[i]
-                    aname = getattr(a, "name", getattr(a, "key", None))
-                    if aname == k:
-                        del attr_list[i]
-            except Exception:
-                # ignore if not a mutable list
-                pass
-
-            # Best-effort construction of ir.Attr
-            attr_obj = None
-            try:
-                # First try: scalar form
                 attr_obj = ir.Attr(k, v)
             except Exception:
-                # If it's array-like, wrap as tensor
                 try:
                     import numpy as _np
                     attr_obj = ir.Attr(k, ir.tensor(_np.asarray(v)))
                 except Exception:
-                    attr_obj = None
-            if attr_obj is not None:
-                try:
-                    attr_list.append(attr_obj)
-                except Exception:
-                    # If not appendable, ignore silently (better to proceed than crash)
-                    pass
+                    return
+            attr_list.append(attr_obj)
 
-        for nm, kv in overrides.items():
+        for nm, kv in (overrides or {}).items():
             n = name2node.get(nm)
             if not n:
                 continue
-            # attributes may be dict-like or a list of ir.Attr. We MUST mutate, not assign.
             current = getattr(n, "attributes", None)
-
-            # Dict-like container → safe to update in-place.
             if hasattr(current, "update"):
                 try:
                     current.update(kv or {})
                 except Exception:
-                    # Fall back to list mutation if update fails unexpectedly
                     pass
                 continue
-
-            # List/tuple of ir.Attr → mutate the real list
-            attr_list = current
-            # Some builds may expose a tuple; try to grab the real list via protected slot
-            if not isinstance(attr_list, list):
-                # Try known internals (defensive)
-                attr_list = getattr(n, "_attributes", attr_list)
+            attr_list = current if isinstance(current, list) else getattr(n, "_attributes", None)
             if isinstance(attr_list, list):
                 for k_attr, v_attr in (kv or {}).items():
-                    _append_ir_attr(attr_list, k_attr, v_attr)
-            # else: nothing we can mutate; skip gracefully
-    _apply_ir_attr_overrides(ir_model, getattr(ctx, "_attr_overrides", {}))
+                    _mutate_attr_list(attr_list, k_attr, v_attr)
 
-    # ---- IR post-pass: ensure required attrs on operators (e.g., Concat.axis) ----
-    def _ensure_required_attrs(ir_model: ir.Model) -> None:
-        g = ir_model.graph
-        nodes_ref = getattr(g, "nodes", None) or getattr(g, "_nodes", None) or []
+    def _fix_concat_axis_in_graph(gr: "ir.Graph") -> None:
+        nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
         for n in nodes_ref:
+            if getattr(n, "op_type", "") != "Concat":
+                continue
+            attrs = getattr(n, "attributes", None)
+            if not isinstance(attrs, list):
+                attrs = getattr(n, "_attributes", None)
+            if not isinstance(attrs, list):
+                continue
+            if any(getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs):
+                continue
             try:
-                if n.op_type == "Concat":
-                    # fetch attribute list (list of ir.Attr)
-                    attrs = getattr(n, "attributes", None)
-                    if not isinstance(attrs, list):
-                        attrs = getattr(n, "_attributes", None)
-                    # if we can't mutate, skip
-                    if not isinstance(attrs, list):
-                        continue
-                    # already has axis?
-                    has_axis = any(getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs)
-                    if not has_axis:
-                        attrs.append(ir.Attr("axis", 0))
+                attrs.append(_ir_attr_int("axis", 0))
             except Exception:
-                # never fail the conversion on best-effort pass
                 pass
-    _ensure_required_attrs(ir_model)
 
-    # --- Do not emit placeholders for @onnx_function hits ---
-    # Consume/clear any recorded hits to avoid cross-run leakage, but don't create dummies.
+    # Apply overrides/fixes to top graph
+    _apply_ir_attr_overrides_to_graph(ir_model.graph, getattr(ctx, "_attr_overrides", {}))
+    _fix_concat_axis_in_graph(ir_model.graph)
+    # …and to all function bodies (if any)
+    _func_container = getattr(ir_model, "functions", None) or []
+    _func_values = (_func_container.values() if isinstance(_func_container, dict) else _func_container)
+    for fn in _func_values:
+        try:
+            _apply_ir_attr_overrides_to_graph(fn.graph, getattr(ctx, "_attr_overrides", {}))
+            _fix_concat_axis_in_graph(fn.graph)
+        except Exception:
+            pass
+
+    # Avoid emitting placeholders for onnx_function hits across runs
     try:
         _ = getattr(ps2, "_consume_onnx_function_hits")()
     except Exception:
         pass
 
-    # (Optional) keep the old registry for test bookkeeping; it no longer serializes protobuf
-    # freg = getattr(ctx, "_function_registry", None)
-
-    # IR-only return; protobuf conversion happens outside converter2
     return ir_model

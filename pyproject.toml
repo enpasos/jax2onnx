@@ -44,6 +44,7 @@ priority = "supplemental"
 
 
 
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
 pytest-json-report = "^1.5.0"
@@ -52,6 +53,7 @@ ruff = "^0.9.5"
 pytest-order = "^1.3.0"
 black = "^25.1.0"
 types-pyyaml = "^6.0.12.20250822"
+pytest-cov = "^7.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

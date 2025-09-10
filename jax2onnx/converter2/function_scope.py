@@ -129,26 +129,30 @@ class FunctionScope:
             attr_overrides=overrides,
         )
 
+    # NEW: materialize a native onnx_ir.Function from the child context
     def to_ir_function(self) -> ir.Function:
-        """
-        Wrap the child IR buffers into a native onnx_ir.Function.
-        """
+        # Pick an opset for the body; prefer parent/child builder opset
+        try:
+            body_opset = int(getattr(getattr(self.ctx, "builder", None), "opset", 21))
+        except Exception:
+            body_opset = 21
+
+        # Build an IR graph for the function body
         g = ir.Graph(
-            inputs=list(getattr(self.ctx.builder, "inputs", []) or []),
-            outputs=list(getattr(self.ctx.builder, "outputs", []) or []),
-            nodes=list(getattr(self.ctx.builder, "nodes", []) or []),
-            initializers=list(getattr(self.ctx.builder, "initializers", []) or []),
-            name=self.name + "_body",
-            opset_imports={"": getattr(getattr(self.ctx, "builder", None), "opset", 21),
-                           (self.domain or ""): 1},
+            inputs=list(self.ctx.builder.inputs or []),
+            outputs=list(self._outputs or []),
+            nodes=list(self.ctx.builder.nodes or []),
+            initializers=list(self.ctx.builder.initializers or []),
+            name=self.name,
+            opset_imports={"": body_opset},
         )
-        fn = ir.Function(
+        # Create the Function (domain/name must match the call-site)
+        return ir.Function(
             domain=self.domain,
             name=self.name,
             graph=g,
             attributes=[],
         )
-        return fn
 
 
 def attach_functions_to_model(*args, **kwargs):

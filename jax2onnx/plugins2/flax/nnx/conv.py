@@ -1090,7 +1090,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             groups = getattr(self, "feature_group_count", 1)
             use_bias = bool(getattr(self, "use_bias", True))
             kernel = self.kernel.value
-            # Keep arity stable: always pass a bias tensor
+            # Keep arity stable, but avoid creating broadcast nodes when bias is disabled.
             if use_bias:
                 if (
                     getattr(self, "bias", None) is not None
@@ -1098,9 +1098,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 ):
                     bias = self.bias.value
                 else:
+                    # vector bias expected by use_bias=True path
                     bias = jnp.zeros((kernel.shape[-1],), dtype=kernel.dtype)
             else:
-                bias = jnp.zeros((kernel.shape[-1],), dtype=kernel.dtype)
+                # scalar literal (no broadcast_in_dim in the JAXPR)
+                bias = jnp.asarray(0, dtype=kernel.dtype)
 
             return prim.bind(
                 x,

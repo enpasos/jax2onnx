@@ -15,6 +15,7 @@ from jax2onnx.plugins2._ir_shapes import (
     is_shape_all_unknown,
     _ensure_value_info as _add_value_info,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "none"),
         },
         {
             "testcase": "gelu_1",
@@ -43,18 +45,37 @@ if TYPE_CHECKING:
             "input_shapes": [(1, 10)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "none"),
         },
         {
             "testcase": "gelu_2",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [(1,)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
         },
         {
             "testcase": "gelu_3",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [("B", 10)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+        },
+        
+        {
+            "testcase": "gelu_4",
+            "callable": lambda x: nnx.gelu(x),
+            "input_shapes": [(1,)],
+            "use_onnx_ir": True,
+            # default path (no flag) must be approximate=True => "tanh"
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+        },
+        {
+            "testcase": "gelu_5",
+            "callable": lambda x: nnx.gelu(x),
+            "input_shapes": [("B", 10)],
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
         },
     ],
 )
@@ -94,20 +115,32 @@ class GeluPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(y_val, y_meta)
 
-        # ONNX Gelu node (attribute: 'approximate' in {'tanh','none'})
+        # Build attributes for ONNX Gelu.
+        # Set approximate="tanh" when requested; use "none" otherwise to keep tests explicit.
+        attrs = []
+        Attr = getattr(ir, "Attr", None)
+        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
         approx_str = "tanh" if approximate else "none"
-        ctx.add_node(
-            ir.Node(
-                op_type="Gelu",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Gelu"),
-                attributes=[
-                    ir.Attr("approximate", ir.AttributeType.STRING, approx_str)
-                ],
-            )
+        if Attr is not None:
+            # Prefer typed classmethods if available; fallback to enum-ctor; final fallback: (name, value)
+            if hasattr(Attr, "s"):
+                attrs = [Attr.s("approximate", approx_str)]
+            elif AttrType is not None:
+                attrs = [Attr("approximate", AttrType.STRING, approx_str)]
+            else:
+                attrs = [Attr("approximate", approx_str)]
+
+        gelu_node = ir.Node(
+            op_type="Gelu",
+            domain="",
+            inputs=[x_val],
+            outputs=[y_val],
+            name=ctx.fresh_name("Gelu"),
+            attributes=attrs,
         )
+        ctx.add_node(gelu_node)
+
+
 
         # Re-assert for value_info readability
         _stamp_type_and_shape(y_val, y_meta)
@@ -149,3 +182,39 @@ class GeluPlugin(PrimitiveLeafPlugin):
 def _impl(x, *, approximate=True):
     # Eager fallback using JAX's gelu
     return jax.nn.gelu(x, approximate=bool(approximate))
+
+
+def _approx_attr_equals(model, expected: str) -> bool:
+    """Post-check helper: ensure there is a Gelu node with approximate == expected."""
+    # Find first Gelu node
+    n = next((n for n in model.graph.node if n.op_type == "Gelu"), None)
+    if n is None:
+        return False
+    # Attribute may be encoded differently; try common layouts
+    for a in getattr(n, "attribute", []):
+        nm = getattr(a, "name", "")
+        if nm != "approximate":
+            continue
+        # ONNX NodeProto: a.s is bytes in many builds
+        s = getattr(a, "s", None)
+        if s:
+            try:
+                sval = s.decode("utf-8") if isinstance(s, (bytes, bytearray)) else str(s)
+                return sval == expected
+            except Exception:
+                pass
+        # Some tools put string in .strings[0]
+        strs = getattr(a, "strings", None)
+        if strs and len(strs) > 0:
+            try:
+                sval = strs[0]
+                sval = sval.decode("utf-8") if isinstance(sval, (bytes, bytearray)) else str(sval)
+                return sval == expected
+            except Exception:
+                pass
+    # If attribute list is missing, fail
+    return False
+
+
+# simple presence expectation
+EXPECT_GELU = expect_graph(["Gelu"], match="contains")

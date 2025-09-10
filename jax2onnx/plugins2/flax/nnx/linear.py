@@ -36,6 +36,87 @@ if TYPE_CHECKING:
     class _HasNodeAttrs(Protocol):
         def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None: ...
 
+def _attr_i(name: str, val: int):
+    """Robust INT attribute across onnx_ir variants."""
+    Attr = getattr(ir, "Attr", None)
+    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+    if Attr is None:
+        raise RuntimeError("onnx_ir.Attr not found")
+    ival = int(val)
+    if hasattr(Attr, "i"):
+        return Attr.i(name, ival)
+    if AttrType is not None:
+        return Attr(name, AttrType.INT, ival)
+    return Attr(name, ival)
+
+def _attr_t(name: str, tensor_obj):
+    """Robust TENSOR attribute for Constant.value across onnx_ir variants."""
+    Attr = getattr(ir, "Attr", None)
+    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+    if Attr is None:
+        raise RuntimeError("onnx_ir.Attr not found")
+    if hasattr(Attr, "t"):
+        return Attr.t(name, tensor_obj)
+    if AttrType is not None:
+        return Attr(name, AttrType.TENSOR, tensor_obj)
+    return Attr(name, tensor_obj)
+
+def _const_i64(ctx, data, *, name: str):
+    """
+    Create an INT64 tensor constant as a producer node when inside function
+    bodies (so it survives FunctionProto), while also working at top level.
+    Always returns the produced ir.Value.
+    """
+    arr = np.asarray(data, dtype=np.int64)
+    v = ir.Value(
+        name=ctx.fresh_name(name),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape(arr.shape if arr.shape else ()),
+        const_value=ir.tensor(arr),  # nice for debugging/pretty
+    )
+    inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
+    if inside_fn:
+        # In function bodies we must serialize the tensor in a Constant node.
+        try:
+            cattr = _attr_t("value", ir.tensor(arr))
+            node = ir.Node(
+                op_type="Constant",
+                domain="",
+                inputs=[],
+                outputs=[v],
+                name=ctx.fresh_name("Constant"),
+                attributes=[cattr],
+                num_outputs=1,
+            )
+            ctx.add_node(node)
+        except Exception:
+            # Worst-case fallback: add as initializer
+            try:
+                ctx._initializers.append(v)
+            except Exception:
+                pass
+    else:
+        # Top-level: prefer initializer so graph patterns remain exact.
+        try:
+            ctx._initializers.append(v)
+        except Exception:
+            # If some IR build needs a node, fall back to Constant
+            try:
+                cattr = _attr_t("value", ir.tensor(arr))
+                node = ir.Node(
+                    op_type="Constant",
+                    domain="",
+                    inputs=[],
+                    outputs=[v],
+                    name=ctx.fresh_name("Constant"),
+                    attributes=[cattr],
+                    num_outputs=1,
+                )
+                ctx.add_node(node)
+            except Exception:
+                pass
+    return v
+
 
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
@@ -259,13 +340,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             else:
                 x2d_shape = ir.Shape((None, in_features))
 
-            x2d_shape_c = ir.Value(
-                name=ctx.fresh_name("x2d_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((2,)),
-                const_value=ir.tensor(np.asarray([-1, in_features], dtype=np.int64)),
-            )
-            ctx._initializers.append(x2d_shape_c)
+            x2d_shape_c = _const_i64(ctx, [-1, in_features], name="x2d_shape")
             x2d = ir.Value(
                 name=ctx.fresh_name("input_reshape"),
                 type=x_val.type,
@@ -333,14 +408,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
             all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
 
             if all_batch_static:
-                final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
-                final_shape_c = ir.Value(
-                    name=ctx.fresh_name("final_shape_c"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(final_vals),)),
-                    const_value=ir.tensor(np.array(final_vals, dtype=np.int64)),
-                )
-                ctx._initializers.append(final_shape_c)
+                final_vals   = [int(d) for d in batch_dim_vals] + [int(out_features)]
+                final_shape_c = _const_i64(ctx, final_vals, name="final_shape_c")
 
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
                 y_meta = tuple(
@@ -377,26 +446,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Shape"),
                     )
                 )
-                starts = ir.Value(
-                    name=ctx.fresh_name("slice_starts"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([0], dtype=np.int64)),
-                )
-                ends = ir.Value(
-                    name=ctx.fresh_name("slice_ends"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([len(x_shape) - 1], dtype=np.int64)),
-                )
-                ctx._initializers.extend([starts, ends])
-                axes_val = ir.Value(
-                    name=ctx.fresh_name("slice_axes"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([0], dtype=np.int64)),
-                )
-                ctx._initializers.append(axes_val)
+                starts   = _const_i64(ctx, [0],                  name="slice_starts")
+                ends     = _const_i64(ctx, [len(x_shape) - 1],   name="slice_ends")
+                axes_val = _const_i64(ctx, [0],                  name="slice_axes")
                 # Missing output placeholder for Slice → define it before the node.
                 batch_dims = ir.Value(
                     name=ctx.fresh_name("batch_dims"),
@@ -412,13 +464,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Slice"),
                     )
                 )
-                of = ir.Value(
-                    name=ctx.fresh_name("out_features_c"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([out_features], dtype=np.int64)),
-                )
-                ctx._initializers.append(of)
+                of = _const_i64(ctx, [out_features], name="out_features_c")
                 final_shape = ir.Value(
                     name=ctx.fresh_name("final_shape"),
                     type=ir.TensorType(ir.DataType.INT64),
@@ -427,9 +473,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 # Build Concat WITH axis attribute set at creation time.
                 # This avoids depending on late overrides for a required attribute.
                 try:
-                    concat_attrs = [ir.Attr("axis", 0)]
+                    concat_attrs = [_attr_i("axis", 0)]
                 except Exception:
-                    # onnx_ir.Attr is robust to ints; if something exotic, fall back empty (override still applied)
                     concat_attrs = []
                 concat_node = ir.Node(
                     op_type="Concat",
@@ -499,6 +544,12 @@ class LinearPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
 
+@LinearPlugin._PRIM.def_impl
+def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
+    if use_bias and bias is not None:
+        y = y + bias
+    return y
 @LinearPlugin._PRIM.def_impl
 def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)

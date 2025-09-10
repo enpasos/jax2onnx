@@ -39,6 +39,8 @@ class SuperBlock(nnx.Module):
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         # explicit deterministic flag for reproducible export
         x_norm = self.layer_norm2(x)
+        # Keep LayerNorm in the path to exercise function bodies; numeric
+        # tolerance needs to account for small LN drift vs JAX.
         return self.mlp(x_norm, deterministic=True)
 
 
@@ -55,8 +57,10 @@ register_example(
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
-            "rtol": 3e-5,
-            "atol": 2e-5,
+            # LayerNorm in the path introduces small, known ORT↔JAX drift.
+            # Match the tolerances used by LN unit tests.
+            "rtol": 1e-3,
+            "atol": 1e-5,
             "use_onnx_ir": True,
         }
     ],

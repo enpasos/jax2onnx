@@ -454,7 +454,15 @@ class FunctionPlugin(PrimitivePlugin):
             # Explicit outputs from inner jaxpr
             child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
             fdef = fscope.end(outputs=child_out_vals)
+            # Create a native onnx_ir.Function and attach to the PARENT context
+            ir_fn = fscope.to_ir_function()
+            bucket = getattr(ctx, "_ir_functions", None)
+            if bucket is None:
+                bucket = []
+                setattr(ctx, "_ir_functions", bucket)
+            bucket.append(ir_fn)
 
+            # Keep the friendly name and domain around (for call-site)
             freg.put(fkey, fdef)
 
         # Emit call-site
