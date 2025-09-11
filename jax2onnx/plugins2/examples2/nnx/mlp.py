@@ -6,7 +6,7 @@ from flax import nnx
 
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2.plugin_system import register_example
-
+from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2
 
 class MLP(nnx.Module):
     def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
@@ -31,9 +31,9 @@ register_example(
     children=["nnx.Linear", "nnx.Dropout", "nnx.BatchNorm", "nnx.gelu"],
     testcases=[
         {
-            "testcase": "simple_mlp",
+            "testcase": "simple_mlp_static",
             "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
-            "input_shapes": [("B", 30)],
+            "input_shapes": [(7, 30)],
             "use_onnx_ir": True,
             "post_check_onnx_graph": expect_graph(
                 [
@@ -43,6 +43,25 @@ register_example(
                 match="exact",
             ),
         }, 
+        
+        {
+            "testcase": "simple_mlp",
+            "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
+            "input_shapes": [("B", 30)],
+            "use_onnx_ir": True,
+            "run_only_dynamic": True,
+            "post_check_onnx_graph": expect_graph2(
+                [
+                    # edge-shape after each node (leaving that node)
+                    "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
+                ],
+                symbols={"B": None},        # unify B across the path
+                must_absent=["Not"],        # ensure no Not left anywhere
+                no_unused_inputs=True,      # fail if 'deterministic' or other inputs dangle
+                mode="all",
+            ),
+        },
+
         {
             "testcase": "simple_mlp_with_call_params",
             "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),

@@ -119,7 +119,6 @@ def _replace_everywhere(
                             m.replace_input_with(idx, new_v)
                 except Exception:
                     pass
-            # same length assignment is usually allowed
             try:
                 m.inputs = tuple(ins)
             except Exception:
@@ -378,83 +377,7 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
             break
     _set_nodes(store, nodes)
 
-# ---------------- Utilities for constants ----------------
-
-def _collect_existing_value_names(graph) -> Set[str]:
-    names: Set[str] = set()
-    # inputs
-    for attr in ("inputs","input"):
-        arr = getattr(graph, attr, None)
-        if arr is not None:
-            try:
-                for v in arr:
-                    nm = _v_name(v)
-                    if nm: names.add(nm)
-            except Exception:
-                pass
-    # nodes' outputs
-    nodes, _ = _get_node_seq_and_setter(graph)
-    for n in nodes:
-        for ov in _node_outputs(n):
-            nm = _v_name(ov)
-            if nm: names.add(nm)
-    # (initializers may or may not exist per backend; ignore)
-    return names
-
-def _unique_name(graph, base: str) -> str:
-    names = _collect_existing_value_names(graph)
-    if base not in names:
-        return base
-    i = 1
-    while f"{base}_{i}" in names:
-        i += 1
-    return f"{base}_{i}"
-
-def _insert_bool_constant_node(nodes: List["ir.Node"], insert_idx: int, graph, value: bool, name_hint: str) -> "ir.Value":
-    """
-    Insert an ONNX Constant node producing a scalar bool `value` just before insert_idx.
-    Return the output Value. Avoids initializer wiring differences.
-    """
-    out_name = _unique_name(graph, name_hint)
-    outv = ir.Value(
-        name=out_name,
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-    )
-    # Build Constant node with an attribute 'value' holding the tensor
-    arr = np.asarray(value, dtype=np.bool_)
-    attr_obj = None
-    try:
-        attr_obj = ir.Attr("value", ir.tensor(arr))
-    except Exception:
-        # Fallback: some builds accept raw numpy tensors in Attr
-        attr_obj = ir.Attr("value", arr)
-    const_node = ir.Node(
-        op_type="Constant",
-        domain="",
-        inputs=[],
-        outputs=[outv],
-        name=_unique_name(graph, "Const_false"),
-        attributes=[attr_obj] if attr_obj is not None else [],
-    )
-    # Insert before the consumer
-    nodes.insert(insert_idx, const_node)
-    return outv
-
-def _try_eval_scalar_bool_from_graph(graph, v: Optional["ir.Value"]) -> Optional[bool]:
-    if v is None:
-        return None
-    for attr in ("const_value", "value", "data", "numpy"):
-        x = getattr(v, attr, None)
-        if x is not None:
-            try:
-                return bool(np.asarray(x).reshape(()).astype(np.bool_).item())
-            except Exception:
-                pass
-    # Names may refer to initializers in some builds; safe to skip if absent.
-    return None
-
-# ---------------- Dropout.training_mode inlining (via Constant node) ----------------
+# ---------------- Dropout.training_mode inlining (missing-input sentinel) ----------------
 
 def _unwrap_bool_chain(nodes, start_v, prod_obj, prod_name, max_depth=6):
     """Unwrap Not/Identity/Cast/CastLike; return (origin_v, origin_pidx, not_parity, chain_ops)."""
@@ -481,12 +404,16 @@ def _unwrap_bool_chain(nodes, start_v, prod_obj, prod_name, max_depth=6):
         return v, pidx, parity, chain
     return v, _producer_idx_for(v, prod_obj, prod_name), parity, chain
 
+def _missing_input_value() -> "ir.Value":
+    # ONNX denotes missing optional inputs by an empty string.
+    return ir.Value(name="", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
+
 def inline_dropout_training_mode_ir(graph) -> None:
     """
     If training_mode resolves to:
-      • constant False  (or Not(True)) → replace input #2 with Constant(false).
+      • constant False  (or Not(True)) → replace input #2 with a *missing* input (empty name).
       • a scalar-bool graph input used only to drive this flag through Not/Identity/Cast* → same.
-    No arity change; DCE removes now-unused Not/wires.
+    This preserves node count (no Constant), keeps Dropout present, and DCE removes Not.
     """
     nodes, store = _get_node_seq_and_setter(graph)
     if not nodes:
@@ -512,62 +439,61 @@ def inline_dropout_training_mode_ir(graph) -> None:
         origin_v, origin_pidx, parity, chain = _unwrap_bool_chain(nodes, tm, prod_obj, prod_name)
 
         # Case 1: constant path
-        cval = _try_eval_scalar_bool_from_graph(graph, origin_v)
+        cval = None
+        for attr in ("const_value", "value", "data", "numpy"):
+            x = getattr(origin_v, attr, None) if origin_v is not None else None
+            if x is not None:
+                try:
+                    cval = bool(np.asarray(x).reshape(()).astype(np.bool_).item())
+                except Exception:
+                    pass
+                break
+
         if cval is not None:
             eff = (not cval) if parity == 1 else bool(cval)
             _d_dropout(f"Dropout@{i}: tm constant chain={chain} cval={cval} parity={parity} -> eff={eff}")
             if eff is False:
-                false_out = _insert_bool_constant_node(nodes, i, graph, False, "training_mode_false")
-                # After insertion, Dropout node is at i+1
-                drop_idx = i + 1
-                dn = nodes[drop_idx]
-                if hasattr(dn, "replace_input_with"):
+                miss = _missing_input_value()
+                if hasattr(n, "replace_input_with"):
                     try:
-                        dn.replace_input_with(2, false_out)
+                        n.replace_input_with(2, miss)
                     except Exception:
                         pass
-                # keep same length; fallback setter
-                ins2 = _node_inputs(dn)
+                ins2 = _node_inputs(n)
                 try:
-                    ins2[2] = false_out
-                    dn.inputs = tuple(ins2)
+                    ins2[2] = miss
+                    n.inputs = tuple(ins2)
                 except Exception:
                     try:
-                        dn.inputs = list(ins2)
+                        n.inputs = list(ins2)
                     except Exception:
                         pass
                 changed = True
-                i += 2
-                continue
             i += 1
             continue
 
-        # Case 2: origin is a graph input and only used through this corridor → inline to False
+        # Case 2: origin graph input used only for this corridor → inline to missing
         if origin_pidx is None and id(origin_v) in graph_inputs:
             uses = _all_consumers(cons_by_obj, cons_by_name, origin_v)
             _d_dropout(f"Dropout@{i}: tm from graph input {_v_name(origin_v)} chain={chain} parity={parity} consumers={sorted(list(uses))}")
             ok = len(uses) <= 1 or (len(uses) == 2 and i in uses)
             if ok:
-                false_out = _insert_bool_constant_node(nodes, i, graph, False, "training_mode_false")
-                drop_idx = i + 1
-                dn = nodes[drop_idx]
-                if hasattr(dn, "replace_input_with"):
+                miss = _missing_input_value()
+                if hasattr(n, "replace_input_with"):
                     try:
-                        dn.replace_input_with(2, false_out)
+                        n.replace_input_with(2, miss)
                     except Exception:
                         pass
-                ins2 = _node_inputs(dn)
+                ins2 = _node_inputs(n)
                 try:
-                    ins2[2] = false_out
-                    dn.inputs = tuple(ins2)
+                    ins2[2] = miss
+                    n.inputs = tuple(ins2)
                 except Exception:
                     try:
-                        dn.inputs = list(ins2)
+                        n.inputs = list(ins2)
                     except Exception:
                         pass
                 changed = True
-                i += 2
-                continue
             i += 1
             continue
 
@@ -577,7 +503,7 @@ def inline_dropout_training_mode_ir(graph) -> None:
     if changed:
         _set_nodes(store, nodes)
 
-# ---------------- DCE ----------------
+# ---------------- Graph IO (for DCE/prune) ----------------
 
 def _graph_inputs_list(graph) -> List["ir.Value"]:
     for attr in ("inputs", "input"):
@@ -598,6 +524,8 @@ def _graph_outputs_list(graph) -> List["ir.Value"]:
             except Exception:
                 pass
     return []
+
+# ---------------- DCE ----------------
 
 def remove_dead_nodes_ir(graph) -> None:
     nodes, store = _get_node_seq_and_setter(graph)
@@ -627,9 +555,62 @@ def remove_dead_nodes_ir(graph) -> None:
         print("[dce] removed", len(nodes) - len(new_nodes), "nodes:", dropped)
     _set_nodes(store, new_nodes)
 
+# ---------------- Prune unused graph inputs (top graph only) ----------------
+
+def prune_unused_graph_inputs_ir(graph) -> None:
+    """
+    Remove graph inputs that are not consumed by any node and are not graph outputs.
+    (We do NOT run this on function bodies to avoid changing function signatures.)
+    """
+    # Collect used names from node inputs and graph outputs
+    nodes, _ = _get_node_seq_and_setter(graph)
+    used: Set[str] = set()
+    for n in nodes:
+        for iv in _node_inputs(n):
+            nm = _v_name(iv)
+            if nm:
+                used.add(nm)
+    for ov in _graph_outputs_list(graph):
+        nm = _v_name(ov)
+        if nm:
+            used.add(nm)
+
+    # Read inputs container
+    for attr in ("inputs", "input"):
+        arr = getattr(graph, attr, None)
+        if arr is None:
+            continue
+        try:
+            lst = list(arr)
+        except Exception:
+            continue
+        keep = []
+        removed = []
+        for v in lst:
+            nm = _v_name(v)
+            # Keep if used or unnamed (shouldn't happen) or empty name
+            if nm and (nm in used):
+                keep.append(v)
+            elif not nm:
+                keep.append(v)
+            else:
+                removed.append(nm)
+        if removed and DEBUG:
+            _dbg(f"prune_unused_graph_inputs_ir removed: {removed}")
+        try:
+            setattr(graph, attr, keep)
+        except Exception:
+            # fall back to in-place clear+extend if list-like
+            try:
+                arr[:] = keep
+            except Exception:
+                pass
+        break  # we set one of inputs/input; don't set both
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
+
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     # Top graph
     try:
@@ -639,10 +620,11 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
             remove_redundant_reshape_pairs_ir(gr)
             inline_dropout_training_mode_ir(gr)
             remove_dead_nodes_ir(gr)
+            prune_unused_graph_inputs_ir(gr)
     except Exception as _e:
         _dbg("optimize_graph: top-graph pass skipped:", _e)
 
-    # Functions
+    # Function bodies – do NOT prune function inputs (signature!)
     try:
         funcs = getattr(ir_model, "functions", None) or getattr(ir_model, "_functions", None)
         values = funcs.values() if isinstance(funcs, dict) else funcs
