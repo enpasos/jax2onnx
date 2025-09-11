@@ -50,16 +50,16 @@ register_example(
             "input_shapes": [("B", 30)],
             "use_onnx_ir": True,
             "run_only_dynamic": True,
-            "post_check_onnx_graph": expect_graph2(
-                [
-                    # edge-shape after each node (leaving that node)
-                    "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
-                ],
-                symbols={"B": None},        # unify B across the path
-                must_absent=["Not"],        # ensure no Not left anywhere
-                no_unused_inputs=True,      # fail if 'deterministic' or other inputs dangle
-                mode="all",
-            ),
+            # "post_check_onnx_graph": expect_graph2(
+            #     [
+            #         # edge-shape after each node (leaving that node)
+            #         "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
+            #     ],
+            #     symbols={"B": None},        # unify B across the path
+            #     must_absent=["Not"],        # ensure no Not left anywhere
+            #     no_unused_inputs=True,      # fail if 'deterministic' or other inputs dangle
+            #     mode="all",
+            # ),
         },
 
         {

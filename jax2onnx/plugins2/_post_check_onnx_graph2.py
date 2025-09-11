@@ -3,16 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-# ONNX optional import (we also work with onnx_ir-only models)
-try:
-    import onnx
-    from onnx import ModelProto
-    _HAS_ONNX = True
-except Exception:
-    ModelProto = object  # type: ignore
-    _HAS_ONNX = False
-
-# ---------------- Public API ----------------
+# No onnx imports here by policy — we work via duck-typing only.
 
 SpecItem = Union[
     str,                                         # "A[:shape] -> B[:shape] -> C[:shape]"
@@ -26,7 +17,9 @@ def expect_graph2(
     mode: str = "all",               # "all" (default) or "any"
     must_absent: Optional[Iterable[str]] = None,
     no_unused_inputs: bool = False,
-    search_functions: bool = True,
+    search_functions: bool = False,  # default: check TOP graph only
+    passthrough_ops: Optional[Iterable[str]] = None,
+    explain_on_fail: bool = True,
 ):
     """
     Return a callable(model_or_ir) -> bool for pytest.
@@ -35,33 +28,47 @@ def expect_graph2(
     ----------
     specs : list[str | (str, dict)]
         Each string is a path like "Op[:shape] -> Op[:shape] -> ...".
-        Shapes are written with 'x' or '×' between dims, e.g. "Bx20" or "?x10".
-        Optional extra predicates in the tuple form: ("path", {"attrs": {...}, "counts": {...}}).
+        Shapes use 'x' or '×' between dims (e.g., "Bx20", "?x10").
+        Optional tuple form adds predicates: ("path", {"attrs": {...}, "counts": {...}}).
     symbols : dict
-        Symbol table for shapes, e.g. {"B": None}. Symbols unify across all shapes.
+        Declare symbols (e.g., {"B": None}); they unify across all shapes in the path.
     mode : "all" | "any"
-        If "all": every spec must match at least one path (default).
-        If "any": at least one spec must match.
+        "all": every spec must match at least once (default). "any": at least one spec matches.
     must_absent : list[str]
-        Operators that must not appear anywhere (top graph or functions).
+        Operators that must not appear anywhere.
     no_unused_inputs : bool
         If True, fail when the top graph contains dangling inputs.
     search_functions : bool
-        If True (default), search all function bodies in addition to the top graph.
+        If True, search all function bodies in addition to the top graph.
+    passthrough_ops : iterable[str]
+        Ops to skip between anchors when walking the path (e.g., {"Reshape","Identity"}).
+        Defaults to a conservative useful set if not provided.
+    explain_on_fail : bool
+        If True, print a short diagnostic report on failure.
 
     Returns
     -------
     callable
-        A predicate you can use in tests:  assert expect_graph2([...]) (model)
+        A predicate you can use in tests:  assert expect_graph2([...])(model)
     """
     def _run(model) -> bool:
-        gv = _GraphView(model, search_functions=search_functions)
+        gv = _GraphView(
+            model,
+            search_functions=search_functions,
+            passthrough_ops=set(passthrough_ops or ())
+            or {"Reshape", "Identity", "Cast", "CastLike", "Squeeze", "Unsqueeze", "Flatten"},
+        )
         ok = True
         # must_absent
         if must_absent:
             for op in must_absent:
                 if gv.count_op(op) > 0:
-                    gv._fail(f"Operator '{op}' present but must be absent")
+                    offs = gv.list_ops(op)
+                    where = ", ".join(f"{name}#{idx}" for name, idx in offs[:5])
+                    gv._fail(
+                        f"Operator '{op}' present but must be absent "
+                        f"(first occurrences: {where}{'…' if len(offs)>5 else ''})"
+                    )
                     ok = False
         # no unused inputs (top graph only)
         if no_unused_inputs:
@@ -86,25 +93,68 @@ def expect_graph2(
             elif mode != "all":
                 gv._fail(f"Unknown mode={mode!r}")
                 ok = False
+
+        if not ok and explain_on_fail:
+            print("\n[expect_graph2] FAILED")
+            for line in gv.errors:
+                print("  -", line)
         return ok
     return _run
+
 
 # ---------------- Implementation ----------------
 
 _SHAPE_SEP = re.compile(r"\s*[x×]\s*")
 
+def _parse_shape(s: str) -> Tuple:
+    """
+    Parse a compact shape string into a tuple:
+      - integers -> int
+      - '?' or empty -> None
+      - other tokens -> symbol strings (e.g., 'B')
+    Examples:
+      "Bx20"      -> ('B', 20)
+      "?x10"      -> (None, 10)
+      "20"        -> (20,)
+      "" or None  -> ()
+    """
+    if s is None:
+        return tuple()
+    s = s.strip()
+    if not s:
+        return tuple()
+    # normalize separators and remove spaces: "B x 20" -> "Bx20"
+    s = _SHAPE_SEP.sub("x", s.replace(" ", ""))
+    parts = s.split("x") if s else []
+    dims: List[Optional[Union[int, str]]] = []
+    for p in parts:
+        if p in ("?", "None", ""):
+            dims.append(None)
+            continue
+        try:
+            dims.append(int(p))
+        except Exception:
+            dims.append(p)  # treat as symbol
+    return tuple(dims)
+
 class _GraphView:
-    def __init__(self, model, *, search_functions: bool):
+    def __init__(self, model, *, search_functions: bool, passthrough_ops: set[str]):
         self.model = model
         self.search_functions = search_functions
+        self.passthrough_ops = passthrough_ops
         self.errors: List[str] = []
 
-        # Graph inventory: top + functions
+        # Graph inventory: top + functions (duck-typed)
         self.graphs: List[Tuple[str, Any]] = []
         self._add_graph("top", _top_graph(model))
         if search_functions:
             for name, g in _function_graphs(model):
                 self._add_graph(f"fn:{name}", g)
+
+        # Build shape indices (name -> tuple dims) for each graph we see (ONNX only).
+        self._shape_index: Dict[str, Dict[str, Tuple]] = {}
+        for gname, g in self.graphs:
+            self._shape_index[gname] = _build_shape_index(g)
 
     def _add_graph(self, name: str, g: Any):
         if g is not None:
@@ -123,6 +173,14 @@ class _GraphView:
                     c += 1
         return c
 
+    def list_ops(self, op_type: str) -> List[Tuple[str, int]]:
+        out = []
+        for gname, g in self.graphs:
+            for idx, n in enumerate(_nodes(g)):
+                if n.op_type == op_type:
+                    out.append((gname, idx))
+        return out
+
     def unused_graph_inputs(self) -> List[str]:
         name, g = self.graphs[0]  # top only
         used = set()
@@ -131,7 +189,8 @@ class _GraphView:
                 nm = _value_name(v)
                 if nm:
                     used.add(nm)
-        for v in _graph_outputs(g):
+        outs = _graph_outputs(g)
+        for v in outs:
             nm = _value_name(v)
             if nm:
                 used.add(nm)
@@ -144,10 +203,18 @@ class _GraphView:
 
     # -- Path matcher with inline shapes --
 
-    def match_path_with_shapes(self, path: str, *, symbols: Dict[str, Optional[int]], attrs: Dict[str, Any] = None, counts: Dict[str, int] = None) -> bool:
+    def match_path_with_shapes(
+        self,
+        path: str,
+        *,
+        symbols: Dict[str, Optional[int]],
+        attrs: Dict[str, Any] = None,
+        counts: Dict[str, int] = None,
+    ) -> bool:
         attrs = attrs or {}
         counts = counts or {}
         ok_any_graph = False
+        reasons: List[str] = []
 
         # Parse path: tokens like "Op[:shape]" split by ->
         tokens = [t.strip() for t in path.strip("^$ ").split("->")]
@@ -160,7 +227,10 @@ class _GraphView:
                 steps.append((tok, None))
 
         for gname, g in self.graphs:
-            if _match_path_on_graph(g, steps, dict(symbols)):
+            ok, why = _match_path_on_graph(
+                g, steps, dict(symbols), self.passthrough_ops, gname, self._shape_index[gname]
+            )
+            if ok:
                 # extra: counts
                 ok_counts = True
                 for op, want in counts.items():
@@ -179,45 +249,59 @@ class _GraphView:
                 if ok_counts and ok_attrs:
                     ok_any_graph = True
                     break
+            else:
+                reasons.append(why)
         if not ok_any_graph:
-            self._fail(f"path not found: {path!r}")
+            if reasons:
+                self._fail(f"path not found: {path!r} :: " + " | ".join(reasons))
+            else:
+                self._fail(f"path not found: {path!r}")
         return ok_any_graph
 
 
-# ---------- helpers for both ONNX and IR -----------
+# ---------- helpers for IR/ONNX without importing onnx ----------
 
 def _top_graph(model):
     return getattr(model, "graph", None)
 
 def _function_graphs(model):
-    # ONNX ModelProto
-    if _HAS_ONNX and isinstance(model, ModelProto):
-        for f in model.functions:
-            # f has .node/.attribute; treat as a graph-like by returning f
-            yield (f"{f.domain}:{f.name}", f)
-        return
-    # IR model (onnx_ir)
+    """
+    Return iterable of (name, graph_or_graphlike).
+    - onnx_ir: model.functions (dict/list) with .graph
+    - ONNX: model.functions (list of FunctionProto) — we return the function object
+            directly; _nodes() can read 'node' from it; shapes may be unavailable.
+    """
     funcs = getattr(model, "functions", None) or getattr(model, "_functions", None) or []
     if isinstance(funcs, dict):
         vals = funcs.values()
         for f in vals:
             yield (f"{getattr(f,'domain','')}:{getattr(f,'name','')}", getattr(f, "graph", None))
     else:
-        for f in funcs:
-            yield (f"{getattr(f,'domain','')}:{getattr(f,'name','')}", getattr(f, "graph", None))
+        try:
+            for f in funcs:
+                # Try to expose a graph-like: prefer .graph, else the function itself (has .node)
+                g = getattr(f, "graph", f)
+                yield (f"{getattr(f,'domain','')}:{getattr(f,'name','')}", g)
+        except Exception:
+            return
 
 def _nodes(g):
+    # onnx_ir graphs may use .nodes/_nodes; ONNX uses .node
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
 
 def _graph_inputs(g):
     arr = getattr(g, "inputs", getattr(g, "input", []))
-    try: return list(arr)
-    except Exception: return []
+    try:
+        return list(arr)
+    except Exception:
+        return []
 
 def _graph_outputs(g):
     arr = getattr(g, "outputs", getattr(g, "output", []))
-    try: return list(arr)
-    except Exception: return []
+    try:
+        return list(arr)
+    except Exception:
+        return []
 
 def _inputs_of(n):
     return getattr(n, "inputs", getattr(n, "input", []))
@@ -226,9 +310,10 @@ def _outputs_of(n):
     return getattr(n, "outputs", getattr(n, "output", []))
 
 def _value_name(v) -> str:
-    return getattr(v, "name", "")
+    return getattr(v, "name", v if isinstance(v, str) else "")
 
 def _shape_of_value(v) -> Optional[Tuple]:
+    """onnx_ir Value -> shape tuple; ONNX will use _shape_of_output via index."""
     shp = getattr(v, "shape", None)
     if shp is None:
         return None
@@ -242,80 +327,133 @@ def _shape_of_value(v) -> Optional[Tuple]:
                 dims.append(int(d))
             except Exception:
                 s = str(d)
-                if s in ("None", "", "?", "unk", "unknown"):
-                    dims.append(None)
-                else:
-                    dims.append(s)  # symbol token
+                dims.append(None if s in ("None", "", "?", "unk", "unknown") else s)
     return tuple(dims)
 
-_SHAPE_SEP = re.compile(r"\s*[x×]\s*")
 
-def _parse_shape(s: str) -> Tuple:
-    s = s.strip()
-    s = _SHAPE_SEP.sub("x", s.replace(" ", ""))
-    parts = s.split("x") if s else []
-    dims: List[Optional[Union[int,str]]] = []
-    for p in parts:
-        if p in ("?", "None", ""):
-            dims.append(None)
+# ---------- ONNX shape index (duck-typed) ----------
+
+def _build_shape_index(g) -> Dict[str, Tuple]:
+    """
+    For ONNX graphs: read shapes from value_info / inputs / outputs (duck-typed).
+    For onnx_ir graphs: return {} and rely on Value.shape at use sites.
+    """
+    idx: Dict[str, Tuple] = {}
+    # If there is no 'value_info', we assume onnx_ir and skip.
+    has_vi = hasattr(g, "value_info")
+    if not has_vi and not hasattr(g, "input") and not hasattr(g, "output"):
+        return idx
+    for coll_name in ("value_info", "input", "output"):
+        coll = getattr(g, coll_name, None)
+        if coll is None:
             continue
         try:
-            dims.append(int(p))
+            for vi in coll:
+                name = getattr(vi, "name", "")
+                shp = _shape_from_value_info(vi)
+                if name and shp is not None:
+                    idx[name] = shp
         except Exception:
-            dims.append(p)  # symbol like 'B'
-    return tuple(dims)
+            continue
+    return idx
+
+def _shape_from_value_info(vi) -> Optional[Tuple]:
+    """
+    Duck-typed extraction from ONNX ValueInfoProto:
+      vi.type.tensor_type.shape.dim -> list of dims with fields dim_value / dim_param
+    """
+    try:
+        ttype = getattr(getattr(vi, "type", None), "tensor_type", None)
+        shape = getattr(ttype, "shape", None)
+        dims_msg = getattr(shape, "dim", None) or getattr(shape, "dims", None)
+        if dims_msg is None:
+            return None
+        dims = []
+        for d in dims_msg:
+            # Try HasField if present (protobuf API); otherwise, fall back
+            has_field = getattr(d, "HasField", None)
+            if callable(has_field):
+                if has_field("dim_value"):
+                    dims.append(int(getattr(d, "dim_value")))
+                    continue
+                if has_field("dim_param"):
+                    dp = getattr(d, "dim_param")
+                    dims.append(str(dp) if dp else None)
+                    continue
+                dims.append(None)
+            else:
+                # Fallback: read attributes directly (0 dim_value == unknown in practice)
+                dv = getattr(d, "dim_value", 0)
+                dp = getattr(d, "dim_param", "") or ""
+                if isinstance(dv, int) and dv != 0:
+                    dims.append(int(dv))
+                elif dp:
+                    dims.append(str(dp))
+                else:
+                    dims.append(None)
+        return tuple(dims)
+    except Exception:
+        return None
+
+def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
+    """
+    v can be a name (ONNX) or a Value (onnx_ir).
+    """
+    # onnx_ir Value
+    if hasattr(v, "shape"):
+        return _shape_of_value(v)
+    # ONNX name lookup
+    name = v if isinstance(v, str) else getattr(v, "name", "")
+    return shape_index.get(name)
+
+
+# ---------- Strict unification ----------
 
 def _unify_shape(expected: Tuple, actual: Optional[Tuple], env: Dict[str, Optional[int]]) -> bool:
+    """
+    Strict unification:
+      - If expected is an int: actual must be the same int (not None).
+      - If expected is a symbol (str): actual must be a concrete int; bind or check.
+      - If expected is None ('?'): accept any (including None).
+      - Ranks must match.
+    """
     if actual is None:
-        # allow unknown if expected dims are all None or symbols (we record nothing)
-        return True
+        # Accept only if *all* expected dims are '?' (None)
+        return all(e is None for e in expected)
     if len(expected) != len(actual):
         return False
     for e, a in zip(expected, actual):
         if e is None:
             continue
         if isinstance(e, int):
-            if a is not None and a != e:
+            if not isinstance(a, int):
                 return False
-        else:  # symbol
-            val = env.get(e)
-            if val is None:
-                if isinstance(a, int):
-                    env[e] = a  # bind
+            if a != e:
+                return False
+        elif isinstance(e, str):
+            if not isinstance(a, int):
+                return False
+            bound = env.get(e)
+            if bound is None:
+                env[e] = a
             else:
-                if isinstance(a, int) and a != val:
+                if a != bound:
                     return False
-    return True
-
-def _node_has_attrs(n, reqs: Dict[str, Any]) -> bool:
-    # shallow attribute read; supports dict-like "attributes" or ONNX list
-    attrs = getattr(n, "attributes", getattr(n, "attribute", None))
-    # dict-like
-    if isinstance(attrs, dict):
-        src = attrs
-    else:
-        src = {}
-        if isinstance(attrs, (list, tuple)):
-            for a in attrs:
-                nm = getattr(a, "name", getattr(a, "key", None))
-                # Try common scalar carriers
-                if hasattr(a, "value"):
-                    val = getattr(a, "value")
-                else:
-                    val = getattr(a, "i", getattr(a, "f", getattr(a, "s", None)))
-                if nm:
-                    src[nm] = val
-    for k, want in reqs.items():
-        if k not in src:
-            return False
-        v = src[k]
-        if callable(want):
-            if not want(v): return False
-        elif v != want:
+        else:
             return False
     return True
 
-def _match_path_on_graph(g, steps: List[Tuple[str, Optional[Tuple]]], env: Dict[str, Optional[int]]) -> bool:
+
+# ---------- Core matching ----------
+
+def _match_path_on_graph(
+    g,
+    steps: List[Tuple[str, Optional[Tuple]]],
+    env: Dict[str, Optional[int]],
+    passthrough_ops: set[str],
+    gname: str,
+    shape_index: Dict[str, Tuple],
+) -> Tuple[bool, str]:
     nodes = _nodes(g)
     # op index
     index: Dict[str, List[int]] = {}
@@ -324,47 +462,95 @@ def _match_path_on_graph(g, steps: List[Tuple[str, Optional[Tuple]]], env: Dict[
 
     # Try all starting candidates
     start_op = steps[0][0]
-    for i0 in index.get(start_op, []):
+    starts = index.get(start_op, [])
+    if not starts:
+        present = sorted(set(n.op_type for n in nodes))
+        show = ", ".join(present[:10])
+        return False, f"[{gname}] missing start op '{start_op}' (ops present: {show}{'…' if len(present)>10 else ''})"
+    reason = "start mismatch"
+    for i0 in starts:
         env_copy = dict(env)
-        if _path_from(nodes, i0, steps, env_copy):
+        ok, r = _path_from(nodes, i0, steps, env_copy, passthrough_ops, shape_index)
+        if ok:
             env.update(env_copy)
-            return True
-    return False
+            return True, ""
+        reason = r
+    return False, reason
 
-def _path_from(nodes, i0: int, steps: List[Tuple[str, Optional[Tuple]]], env: Dict[str, Optional[int]]) -> bool:
+def _path_from(
+    nodes,
+    i0: int,
+    steps: List[Tuple[str, Optional[Tuple]]],
+    env: Dict[str, Optional[int]],
+    passthrough_ops: set[str],
+    shape_index: Dict[str, Tuple],
+) -> Tuple[bool, str]:
     i = i0
     if nodes[i].op_type != steps[0][0]:
-        return False
-    # shape after first node
+        return False, "start mismatch"
+
+    # shape after first node (check the MAIN data edge = first output only)
     sh = steps[0][1]
     if sh is not None:
         outs = _outputs_of(nodes[i])
         if not outs:
-            return False
-        if not any(_unify_shape(sh, _shape_of_value(v), env) for v in outs):
-            return False
-    # walk adjacency by “shares an output → input” (single successor acceptable)
+            return False, f"no outputs on first node {nodes[i].op_type}"
+        # check ONLY first output (main data tensor)
+        a0 = _shape_of_output(outs[0], shape_index)
+        if not _unify_shape(sh, a0, env):
+            return False, f"shape mismatch after {nodes[i].op_type}: expected {sh}, actual_first={a0}"
+
+    # walk adjacency by “shares an output → input”; allow passthrough ops
     for s in range(1, len(steps)):
         want_op, want_shape = steps[s]
-        next_idx = _unique_successor(nodes, i)
+        next_idx, trace = _walk_to_op(nodes, i, want_op, passthrough_ops)
         if next_idx is None:
-            return False
-        if nodes[next_idx].op_type != want_op:
-            return False
+            return False, f"could not reach '{want_op}' from '{nodes[i].op_type}' (next chain: {trace})"
         if want_shape is not None:
             outs = _outputs_of(nodes[next_idx])
-            if not outs or not any(_unify_shape(want_shape, _shape_of_value(v), env) for v in outs):
-                return False
+            if not outs:
+                return False, f"no outputs on node {nodes[next_idx].op_type}"
+            # check ONLY first output (main data tensor)
+            a0 = _shape_of_output(outs[0], shape_index)
+            if not _unify_shape(want_shape, a0, env):
+                return False, f"shape mismatch after {nodes[next_idx].op_type}: expected {want_shape}, actual_first={a0}"
         i = next_idx
-    return True
+    return True, ""
 
 def _unique_successor(nodes, i: int) -> Optional[int]:
     outs = _outputs_of(nodes[i])
     succ: Optional[int] = None
     for j, n in enumerate(nodes):
-        if j == i: continue
+        if j == i:
+            continue
         ins = _inputs_of(n)
         if any(ov in ins for ov in outs):
             succ = j
             break
     return succ
+
+def _walk_to_op(nodes, i: int, target_op: str, passthrough_ops: set[str]) -> Tuple[Optional[int], List[str]]:
+    """
+    Starting from node index i, walk forward along data edges, skipping any number
+    of 'passthrough' ops, until a node with op_type == target_op is found.
+    Returns (index, trace_of_ops_encountered).
+    """
+    trace: List[str] = []
+    visited = set()
+    j = _unique_successor(nodes, i)
+    steps = 0
+    while j is not None and steps < 64:
+        steps += 1
+        if j in visited:
+            break
+        visited.add(j)
+        op = nodes[j].op_type
+        trace.append(op)
+        if op == target_op:
+            return j, trace
+        if op in passthrough_ops:
+            j = _unique_successor(nodes, j)
+            continue
+        # hit a different non-passthrough node -> stop
+        break
+    return None, trace

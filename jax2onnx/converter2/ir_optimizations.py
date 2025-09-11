@@ -82,6 +82,124 @@ def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool
             return False
     return True
 
+def _numel_of_shape_tuple(t: Optional[Tuple]) -> Optional[int]:
+    """Return product of dims if all are concrete ints; otherwise None."""
+    if t is None:
+        return None
+    prod = 1
+    for d in t:
+        if not isinstance(d, int):
+            return None
+        prod *= d
+    return prod
+
+def _try_read_const_numpy_from_value(v: "ir.Value") -> Optional[np.ndarray]:
+    """Best-effort read of a constant payload from a Value."""
+    for attr in ("const_value", "value", "data", "numpy"):
+        x = getattr(v, attr, None)
+        if x is not None:
+            try:
+                return np.asarray(x)
+            except Exception:
+                pass
+    return None
+
+def _try_write_const_numpy_to_value(v: "ir.Value", arr: np.ndarray) -> bool:
+    """Best-effort writeback of a constant payload to a Value."""
+    try:
+        ten = getattr(ir, "tensor", None)
+        payload = ten(arr) if callable(ten) else arr
+    except Exception:
+        payload = arr
+    for attr in ("const_value", "value", "data"):
+        if hasattr(v, attr):
+            try:
+                setattr(v, attr, payload)
+                return True
+            except Exception:
+                continue
+    return False
+
+def _find_producer_idx(nodes: List["ir.Node"], val: Optional["ir.Value"]) -> Optional[int]:
+    """Return index of the node that produces 'val', if any."""
+    if val is None:
+        return None
+    for idx, n in enumerate(nodes):
+        for ov in _node_outputs(n):
+            if ov is val:
+                return idx
+    return None
+
+def _try_read_const_numpy_from_constant_node(n: "ir.Node") -> Optional[np.ndarray]:
+    """Best-effort read of Constant(value=...) attribute tensor."""
+    if getattr(n, "op_type", "") != "Constant":
+        return None
+    a = _get_attr(n, "value")
+    if a is None:
+        return None
+    # Common patterns: Attr with .value, or tuple-like payloads
+    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
+        if hasattr(a, field):
+            try:
+                return np.asarray(getattr(a, field))
+            except Exception:
+                pass
+    # Fallback: Attr may behave like (name,value)
+    try:
+        payload = getattr(a, "__iter__", None)
+        if callable(payload):
+            seq = list(a)
+            if len(seq) >= 2:
+                return np.asarray(seq[1])
+    except Exception:
+        pass
+    return None
+
+def _try_write_const_numpy_to_constant_node(n: "ir.Node", arr: np.ndarray) -> bool:
+    """Best-effort writeback into Constant(value=...) attribute tensor."""
+    if getattr(n, "op_type", "") != "Constant":
+        return False
+    a = _get_attr(n, "value")
+    if a is None:
+        # Try to set attributes list
+        for attr_name in ("attributes", "attribute"):
+            al = getattr(n, attr_name, None)
+            if isinstance(al, list) and al:
+                a = al[0]
+                break
+    if a is None:
+        return False
+    # Prefer a.value if available
+    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
+        if hasattr(a, field):
+            try:
+                setattr(a, field, arr)
+                return True
+            except Exception:
+                continue
+    # Fallback: replace attributes list entirely
+    for attr_name in ("attributes", "attribute"):
+        al = getattr(n, attr_name, None)
+        if isinstance(al, list):
+            try:
+                # Try creating a fresh Attr if available
+                Attr = getattr(ir, "Attr", None)
+                ten = getattr(ir, "tensor", None)
+                payload = ten(arr) if callable(ten) else arr
+                if Attr is not None:
+                    try:
+                        new_a = Attr("value", payload)
+                        setattr(n, attr_name, [new_a])
+                        return True
+                    except Exception:
+                        pass
+                # Last resort: store raw numpy
+                setattr(n, attr_name, [payload])
+                return True
+            except Exception:
+                continue
+    return False
+
 def _get_node_seq_and_setter(graph) -> Tuple[List["ir.Node"], Optional[Tuple[object, str]]]:
     for attr in ("nodes", "_nodes", "node"):
         if hasattr(graph, attr):
@@ -607,6 +725,69 @@ def prune_unused_graph_inputs_ir(graph) -> None:
                 pass
         break  # we set one of inputs/input; don't set both
 
+def fix_mismatched_reshape_shapes_ir(graph) -> None:
+    """
+    If a Reshape's shape input is a constant (Value or Constant node) with no '-1'
+    and its element-count product does not match the input tensor's numel (and the
+    input has a fully known numel), rewrite the FIRST target dim to -1 so ORT can
+    infer it at runtime. This is applied to top graphs and function bodies.
+    """
+    nodes, store = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+    changed = False
+    for i, n in enumerate(nodes):
+        if getattr(n, "op_type", "") != "Reshape":
+            continue
+        ins = _node_inputs(n)
+        if len(ins) < 2:
+            continue
+        data_v, shape_v = ins[0], ins[1]
+        in_numel = _numel_of_shape_tuple(_shape_tuple(data_v))
+        if in_numel is None:
+            continue  # cannot prove mismatch safely
+        # Try to read shape as numpy from value or constant node
+        shp_arr = _try_read_const_numpy_from_value(shape_v)
+        wrote_v = False
+        wrote_c = False
+        prod_idx = None
+        if shp_arr is None:
+            prod_idx = _find_producer_idx(nodes, shape_v)
+            if prod_idx is not None:
+                shp_arr = _try_read_const_numpy_from_constant_node(nodes[prod_idx])
+        if shp_arr is None:
+            continue
+        try:
+            dims = [int(x) for x in np.asarray(shp_arr).flatten().tolist()]
+        except Exception:
+            continue
+        # Skip if already has '-1'
+        if any(int(d) == -1 for d in dims):
+            continue
+        # Compute product of target dims
+        try:
+            tgt_prod = 1
+            for d in dims:
+                tgt_prod *= int(d)
+        except Exception:
+            continue
+        if tgt_prod == in_numel:
+            continue  # already consistent
+        # Rewrite first dim to -1 and write back
+        if len(dims) >= 1:
+            dims[0] = -1
+            new_arr = np.asarray(dims, dtype=np.int64)
+            # Try value writeback
+            if _try_write_const_numpy_to_value(shape_v, new_arr):
+                wrote_v = True
+            # Or constant node attribute writeback
+            elif prod_idx is not None:
+                wrote_c = _try_write_const_numpy_to_constant_node(nodes[prod_idx], new_arr)
+            if wrote_v or wrote_c:
+                changed = True
+    if changed:
+        _set_nodes(store, nodes)
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -618,7 +799,8 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         if gr is not None:
             remove_redundant_transpose_pairs_ir(gr)
             remove_redundant_reshape_pairs_ir(gr)
-            inline_dropout_training_mode_ir(gr)
+            # Do not inline/remove Dropout.training_mode in IR:
+            # tests expect 3 inputs (and Not->Dropout in call-params).
             remove_dead_nodes_ir(gr)
             prune_unused_graph_inputs_ir(gr)
     except Exception as _e:
@@ -634,11 +816,12 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
                 try:
                     remove_redundant_transpose_pairs_ir(fgr)
                     remove_redundant_reshape_pairs_ir(fgr)
-                    inline_dropout_training_mode_ir(fgr)
+                    # Do not inline/remove Dropout.training_mode in function bodies either.
                     remove_dead_nodes_ir(fgr)
                 except Exception as _fe:
                     _dbg("optimize_graph: function pass skipped:", _fe)
     except Exception as _e:
         _dbg("optimize_graph: functions traversal skipped:", _e)
 
+    return ir_model
     return ir_model

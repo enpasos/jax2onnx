@@ -55,13 +55,25 @@ def build_dynamic_chain():  # B symbolic
 
 def build_chain_with_dangling_input():
     m = build_static_chain()
-    # add a dangling input
+    # add a dangling input 'deterministic' (robust across onnx_ir variants)
     det = V("deterministic", ir.DataType.BOOL, ())
-    ins = getattr(m.graph, "inputs", getattr(m.graph, "input", None))
-    try:
-        m.graph.inputs = list(ins) + [det]
-    except Exception:
-        pass
+    for attr in ("inputs", "input"):
+        arr = getattr(m.graph, attr, None)
+        if arr is None:
+            continue
+        # Try replace with a new list
+        try:
+            lst = list(arr)
+            lst.append(det)
+            setattr(m.graph, attr, lst)
+            break
+        except Exception:
+            # Try in-place append if container is mutable
+            try:
+                arr.append(det)  # type: ignore[attr-defined]
+                break
+            except Exception:
+                continue
     return m
 
 def test_static_path_with_shapes_and_symbols_and_no_unused():
@@ -96,24 +108,46 @@ def test_function_body_search_matches():
     xi = V("xi", ir.DataType.FLOAT, (2, 2))
     xo = V("xo", ir.DataType.FLOAT, (2, 2))
     passt = ir.Node(op_type="Identity", domain="", inputs=[xi], outputs=[xo], name="Id")
-    top = ir.Graph(name="top", inputs=[xi], outputs=[xo], nodes=[passth])
+    top = ir.Graph(name="top", inputs=[xi], outputs=[xo], nodes=[passt])
     m = ir.Model(graph=top, ir_version=10)
 
     # function body graph
-    a = V("a", ir.DataType.FLOAT, (2, 2))
-    b = V("b", ir.DataType.FLOAT, (2, 2))
-    c = V("c", ir.DataType.FLOAT, (2, 2))
-    r1 = ir.Node(op_type="Reshape", domain="", inputs=[a], outputs=[b], name="R1")
-    ge = ir.Node(op_type="Gelu",    domain="", inputs=[b], outputs=[c], name="G")
-    r2 = ir.Node(op_type="Reshape", domain="", inputs=[c], outputs=[b], name="R2")  # reuse b for simplicity
-    fgraph = ir.Graph(name="fn_g", inputs=[a], outputs=[b], nodes=[r1, ge, r2])
+    a  = V("a",  ir.DataType.FLOAT, (2, 2))
+    b1 = V("b1", ir.DataType.FLOAT, (2, 2))
+    c  = V("c",  ir.DataType.FLOAT, (2, 2))
+    b2 = V("b2", ir.DataType.FLOAT, (2, 2))
+    r1 = ir.Node(op_type="Reshape", domain="", inputs=[a],  outputs=[b1], name="R1")
+    ge = ir.Node(op_type="Gelu",    domain="", inputs=[b1], outputs=[c],  name="G")
+    r2 = ir.Node(op_type="Reshape", domain="", inputs=[c],  outputs=[b2], name="R2")
+    fgraph = ir.Graph(name="fn_g", inputs=[a], outputs=[b2], nodes=[r1, ge, r2])
 
     class _Fn: pass
     fn = _Fn()
     fn.domain = "custom"
     fn.name = "mlp_body"
     fn.graph = fgraph
-    m.functions = [fn]
+
+    # Attach to the model in a way that's compatible with different onnx_ir builds:
+    # - If there's a writable "functions" container (dict or list), use it.
+    # - Otherwise, set the private "_functions" attribute (GraphView reads that too).
+    attached = False
+    cont = getattr(m, "functions", None)
+    try:
+        if isinstance(cont, dict):
+            cont[(getattr(fn, "domain", "") or "", getattr(fn, "name", "") or "", "")] = fn
+            attached = True
+        elif isinstance(cont, list):
+            cont.append(fn)
+            attached = True
+    except Exception:
+        pass
+    if not attached:
+        try:
+            setattr(m, "_functions", [fn])
+            attached = True
+        except Exception:
+            pass
+    assert attached, "Could not attach function body to the test Model"
 
     check = EG2(
         ["Reshape -> Gelu -> Reshape"],  # will be found in the function body
@@ -121,3 +155,15 @@ def test_function_body_search_matches():
         search_functions=True,
     )
     assert check(m)
+
+def test_strict_symbols_reject_unknown_dims():
+    # Build a chain where one edge has unknown batch (?x20)
+    m = build_dynamic_chain()
+    # Artificially drop shape on the Dropout->Gelu edge to simulate unknown:
+    # (many IRs already do; this is just illustrative)
+    check = EG2(
+        ["Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"],
+        symbols={"B": None},
+        no_unused_inputs=True,
+    )
+    assert not check(m)  # must fail because B requires a concrete dim, not None
