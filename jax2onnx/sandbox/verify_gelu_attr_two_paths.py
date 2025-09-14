@@ -6,10 +6,13 @@ import onnx
 OUT = "tmp_verify_two_paths"
 os.makedirs(OUT, exist_ok=True)
 
+
 def _make_string_attr(name: str, value: str):
     # Robust STRING attribute creator across ir builds
     Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
     AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+    if Attr is None:
+        raise RuntimeError("onnx_ir.Attr is not available")
     if hasattr(Attr, "s"):
         return Attr.s(name, value)
     if AttrType is not None and hasattr(AttrType, "STRING"):
@@ -17,68 +20,75 @@ def _make_string_attr(name: str, value: str):
     # Accepts (name, value) in some builds
     return Attr(name, value)
 
+
 def build_and_dump(path: str):
     # --- Function graph: two Gelu nodes, attrs built two different ways ---
-    fx = ir.Value(name="fx",
-                  type=ir.TensorType(ir.DataType.FLOAT),
-                  shape=ir.Shape((3,)))
-    fy  = ir.Value(name="fy",
-                   type=ir.TensorType(ir.DataType.FLOAT),
-                   shape=ir.Shape((3,)))
-    fy2 = ir.Value(name="fy2",
-                   type=ir.TensorType(ir.DataType.FLOAT),
-                   shape=ir.Shape((3,)))
+    fx = ir.Value(
+        name="fx", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
+    fy = ir.Value(
+        name="fy", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
+    fy2 = ir.Value(
+        name="fy2", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
 
     # G1: enum-ctor style for STRING (potentially lossy in some builds)
     AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
     g1_attrs = []
-    if AttrType is not None and hasattr(AttrType, "STRING"):
+    if AttrType is not None and hasattr(AttrType, "STRING") and hasattr(ir, "Attr"):
         g1_attrs = [ir.Attr("approximate", AttrType.STRING, "tanh")]
     else:
         g1_attrs = [_make_string_attr("approximate", "tanh")]  # fallback
 
-    g1 = ir.Node(op_type="Gelu",
-                 domain="",
-                 inputs=[fx],
-                 outputs=[fy],
-                 name="G1",
-                 attributes=g1_attrs)
+    g1 = ir.Node(
+        op_type="Gelu",
+        domain="",
+        inputs=[fx],
+        outputs=[fy],
+        name="G1",
+        attributes=g1_attrs,
+    )
 
     # G2: robust helper path for STRING
-    g2 = ir.Node(op_type="Gelu",
-                 domain="",
-                 inputs=[fx],
-                 outputs=[fy2],
-                 name="G2",
-                 attributes=[_make_string_attr("approximate", "tanh")])
+    g2 = ir.Node(
+        op_type="Gelu",
+        domain="",
+        inputs=[fx],
+        outputs=[fy2],
+        name="G2",
+        attributes=[_make_string_attr("approximate", "tanh")],
+    )
 
-    fgraph = ir.Graph(inputs=[fx],
-                      outputs=[fy, fy2],
-                      nodes=[g1, g2],
-                      name="FGraph",
-                      opset_imports={"": 21})  # default domain for body
+    fgraph = ir.Graph(
+        inputs=[fx],
+        outputs=[fy, fy2],
+        nodes=[g1, g2],
+        name="FGraph",
+        opset_imports={"": 21},
+    )  # default domain for body
 
     func = ir.Function(domain="custom", name="F", graph=fgraph, attributes=[])
 
     # --- Main graph: call F twice, produce 2 outputs so we keep both nodes in body ---
-    x  = ir.Value(name="x",
-                  type=ir.TensorType(ir.DataType.FLOAT),
-                  shape=ir.Shape((3,)))
-    y1 = ir.Value(name="y1",
-                  type=ir.TensorType(ir.DataType.FLOAT),
-                  shape=ir.Shape((3,)))
-    y2 = ir.Value(name="y2",
-                  type=ir.TensorType(ir.DataType.FLOAT),
-                  shape=ir.Shape((3,)))
+    x = ir.Value(name="x", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,)))
+    y1 = ir.Value(
+        name="y1", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
+    y2 = ir.Value(
+        name="y2", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
 
     call1 = ir.node(op_type="F", domain="custom", inputs=[x], outputs=[y1])
     call2 = ir.node(op_type="F", domain="custom", inputs=[x], outputs=[y2])
 
-    main = ir.Graph(inputs=[x],
-                    outputs=[y1, y2],
-                    nodes=[call1, call2],
-                    name="Main",
-                    opset_imports={"": 21, "custom": 1})
+    main = ir.Graph(
+        inputs=[x],
+        outputs=[y1, y2],
+        nodes=[call1, call2],
+        name="Main",
+        opset_imports={"": 21, "custom": 1},
+    )
 
     model = ir.Model(main, ir_version=10, functions=[func])
     ir.save(model, path)
@@ -96,8 +106,11 @@ def build_and_dump(path: str):
                         attrs["approximate"] = a.s.decode()
                 print(f" {n.name}: attrs={attrs}")
 
+
 p = os.path.join(OUT, "gelu_two_paths.onnx")
 build_and_dump(p)
 print("\nInterpretation:")
 print(" - If G1 shows approximate missing/None while G2 has 'tanh',")
-print("   the enum-ctor STRING path is lossy in function bodies for your onnx_ir build.")
+print(
+    "   the enum-ctor STRING path is lossy in function bodies for your onnx_ir build."
+)

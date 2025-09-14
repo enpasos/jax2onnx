@@ -13,8 +13,8 @@ from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     _ensure_value_info as _add_value_info,
 )
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
- 
+
+from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2 as EG2
 
 from flax import nnx
 
@@ -24,7 +24,6 @@ from jax2onnx.converter2.ir_context import IRContext
 
 logger = logging.getLogger(__name__)
 
- 
 
 def _tp_to_numpy(tp) -> np.ndarray:
     """Convert an ONNX TensorProto-like object to a NumPy array without importing onnx."""
@@ -50,32 +49,117 @@ def _tp_to_numpy(tp) -> np.ndarray:
     return arr.reshape(shape) if shape else (arr[0] if arr.size == 1 else arr)
 
 
-EXPECT_DROPOUT_WITH_FLAG = expect_graph(
-    ["^Not->Dropout$"], match="contains", mode="any"
+# Modern, robust structural check for call-params path:
+#  - direct Not -> Dropout adjacency (no passthrough)
+#  - no Identity in the graph
+#  - Dropout must have 3 non-empty inputs; Not's input is not an initializer;
+#    if a graph input named 'deterministic' exists, the Not must consume it.
+_CALL_CHECK = EG2(
+    ["Not -> Dropout"],  # strict adjacency
+    must_absent=["Identity"],  # ensure we didn't insert any Identity
+    mode="all",
+    search_functions=False,
+    passthrough_ops=set(),  # do not skip anything between Not and Dropout
 )
 
 
-def post_check_onnx_graph(model):
-    # Must have Not->Dropout and Dropout must have 3 inputs
-    if not EXPECT_DROPOUT_WITH_FLAG(model):
+def _find_initializer(model, name: str):
+    g = getattr(model, "graph", None)
+    if g is None:
+        return None
+    return next(
+        (i for i in getattr(g, "initializer", []) if getattr(i, "name", "") == name),
+        None,
+    )
+
+
+def post_check_onnx_graph_init(model) -> bool:
+    """
+    Init-params path checker:
+      • path: input -> Dropout -> output with shape Bx10 (edge after Dropout)
+      • no Not nodes
+      • both ratio and training_mode are initializers, with values 0.5 and False
+    """
+    # 1) Structural + shape check on the top graph
+    ok_path = EG2(
+        ["Dropout:Bx10"],
+        symbols={"B": None},
+        must_absent=["Not"],
+        no_unused_inputs=True,
+        mode="all",
+        search_functions=False,
+    )(model)
+    if not ok_path:
         return False
-    drop = next((n for n in model.graph.node if n.op_type == "Dropout"), None)
-    if drop is None or len([i for i in drop.input if i]) != 3:
+
+    # 2) Initializer value checks
+    g = getattr(model, "graph", None)
+    if g is None:
         return False
-    notn = next((n for n in model.graph.node if n.op_type == "Not"), None)
-    if notn is None or not notn.input:
+    drop = next(
+        (n for n in getattr(g, "node", []) if getattr(n, "op_type", "") == "Dropout"),
+        None,
+    )
+    if drop is None:
         return False
-    src = notn.input[0]
-    if any(t.name == src for t in model.graph.initializer):
+    d_in = getattr(drop, "input", [])
+    if len(d_in) < 3:
         return False
-    # Require the exact input name: "deterministic"
-    if (
-        any(vi.name == "deterministic" for vi in model.graph.input)
-        and src == "deterministic"
-    ):
-        return True
-    producer = next((n for n in model.graph.node if src in n.output), None)
-    return producer is not None
+    ratio_name = d_in[1]
+    tm_name = d_in[2]
+    ratio_init = _find_initializer(model, ratio_name)
+    tm_init = _find_initializer(model, tm_name)
+    if ratio_init is None or tm_init is None:
+        return False
+    r_np = _tp_to_numpy(ratio_init)
+    t_np = _tp_to_numpy(tm_init)
+    try:
+        ratio_ok = np.isclose(np.asarray(r_np).astype(np.float64), 0.5).all()
+        tm_ok = (np.asarray(t_np).astype(np.bool_) == np.array(False)).all()
+    except Exception:
+        return False
+    return bool(ratio_ok and tm_ok)
+
+
+def post_check_onnx_graph(model) -> bool:
+    if not _CALL_CHECK(model):
+        return False
+    g = getattr(model, "graph", None)
+    if g is None:
+        return False
+    nodes = list(getattr(g, "node", []))
+    inits = {getattr(t, "name", "") for t in getattr(g, "initializer", [])}
+    ginputs = {getattr(i, "name", "") for i in getattr(g, "input", [])}
+    # nodes by output name
+    prod = {}
+    for n in nodes:
+        for o in getattr(n, "output", []):
+            if o:
+                prod[o] = n
+    # find dropout, assert 3 inputs
+    d = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
+    if d is None:
+        return False
+    d_in = getattr(d, "input", [])
+    if len(d_in) < 3 or not d_in[2]:
+        return False
+    # find the Not that must directly feed training_mode
+    tm = d_in[2]
+    not_node = prod.get(tm, None)
+    if not_node is None or getattr(not_node, "op_type", "") != "Not":
+        return False
+    # Not's input must not be an initializer
+    nin = getattr(not_node, "input", [])
+    if not nin:
+        return False
+    src = nin[0]
+    if src in inits:
+        return False
+    # If 'deterministic' exists as graph input, require that exact tensor
+    if "deterministic" in ginputs:
+        return src == "deterministic"
+    # Otherwise, allow either a graph input or some other dynamic producer
+    return (src in ginputs) or (src in prod)
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -95,11 +179,13 @@ def _ir_dtype_from_numpy(dt) -> "ir.DataType":
 
 
 def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
-    """
-    Return existing graph (or function) input `name` or create a scalar BOOL input.
-    No heuristics: works for both top-level and function bodies via ctx.builder.inputs.
-    """
-    inputs = getattr(ctx.builder, "inputs", []) or []
+    # Ensure the builder carries an input list we can append to
+    if not hasattr(ctx.builder, "inputs") or getattr(ctx.builder, "inputs") is None:
+        try:
+            ctx.builder.inputs = []
+        except Exception:
+            pass
+    inputs = getattr(ctx.builder, "inputs", None) or []
     for vi in inputs:
         if getattr(vi, "name", "") == name:
             return vi
@@ -128,6 +214,7 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
         shape=ir.Shape(arr.shape if arr.shape else ()),
         const_value=ir.tensor(arr),
     )
+
     # Helper: build a tensor-valued attribute robustly across onnx_ir variants
     def _tensor_attr(key: str, np_arr: np.ndarray):
         Attr = getattr(ir, "Attr", None)
@@ -173,21 +260,25 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
     else:
         # Top-level: prefer initializer to match tests/expectations
         appended = False
-        try:
-            inits = getattr(ctx, "_initializers", None)
-            if isinstance(inits, list) and not any(getattr(v, "name", None) == val.name for v in inits):
-                inits.append(val)
-                appended = True
-        except Exception:
-            pass
-        try:
-            bld = getattr(ctx, "builder", None)
-            binits = getattr(bld, "initializers", None)
-            if isinstance(binits, list) and not any(getattr(v, "name", None) == val.name for v in binits):
-                binits.append(val)
-                appended = True
-        except Exception:
-            pass
+        # Ensure both context and builder keep initializer containers
+        for cont_owner, attr in (
+            (ctx, "_initializers"),
+            (getattr(ctx, "builder", None), "initializers"),
+        ):
+            if cont_owner is None:
+                continue
+            try:
+                cont = getattr(cont_owner, attr, None)
+                if cont is None:
+                    setattr(cont_owner, attr, [])
+                    cont = getattr(cont_owner, attr)
+                if isinstance(cont, list) and not any(
+                    getattr(v, "name", None) == val.name for v in cont
+                ):
+                    cont.append(val)
+                    appended = True
+            except Exception:
+                continue
         if not appended:
             # Fallback: Constant node if the builder doesn’t keep initializers
             try:
@@ -225,33 +316,8 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
             "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(5)),
             "input_shapes": [("B", 10)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: (
-                (
-                    (
-                        drop := next(
-                            (n for n in m.graph.node if n.op_type == "Dropout"), None
-                        )
-                    )
-                    is not None
-                    and (
-                        tm_init := next(
-                            (i for i in m.graph.initializer if i.name == drop.input[2]),
-                            None,
-                        )
-                    )
-                    is not None
-                    and (
-                        ratio_init := next(
-                            (i for i in m.graph.initializer if i.name == drop.input[1]),
-                            None,
-                        )
-                    )
-                    is not None
-                    and (_tp_to_numpy(tm_init) == np.array(False)).all()
-                    and np.isclose(_tp_to_numpy(ratio_init), 0.5).all()
-                )
-                or any(n.op_type == "Identity" for n in m.graph.node)
-            ),
+            # Modern check: shape/path via expect_graph2 and strict initializer values
+            "post_check_onnx_graph": post_check_onnx_graph_init,
         },
         {
             "testcase": "dropout_call_params",
@@ -276,7 +342,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         del deterministic, rate, call_time
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx:IRContext, eqn):
+    def lower(self, ctx: IRContext, eqn):
         # JAXPR carries two invars: x, deterministic ; rate is a static param.
         invars = list(eqn.invars)
         x_var = invars[0]
@@ -307,17 +373,25 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 # Prefer existing JAXPR var to avoid introducing an unbound function input
                 det_lit = None
                 if hasattr(det_var, "val"):
-                    try: det_lit = bool(det_var.val)
-                    except Exception: det_lit = None
+                    try:
+                        det_lit = bool(det_var.val)
+                    except Exception:
+                        det_lit = None
                 if det_lit is None:
                     aval = getattr(det_var, "aval", None)
                     if hasattr(aval, "val"):
-                        try: det_lit = bool(aval.val)
-                        except Exception: det_lit = None
+                        try:
+                            det_lit = bool(aval.val)
+                        except Exception:
+                            det_lit = None
                 if det_lit is not None:
-                    train_v = _const_tensor(ctx, np.asarray(not det_lit, dtype=np.bool_), name="training")
+                    train_v = _const_tensor(
+                        ctx, np.asarray(not det_lit, dtype=np.bool_), name="training"
+                    )
                 else:
-                    det_in = ctx.get_value_for_var(det_var, name_hint=ctx.fresh_name("det"))
+                    det_in = ctx.get_value_for_var(
+                        det_var, name_hint=ctx.fresh_name("det")
+                    )
                     not_out = ir.Value(
                         name=ctx.fresh_name("not_det"),
                         type=ir.TensorType(ir.DataType.BOOL),
@@ -406,9 +480,20 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 num_outputs=1,
             )
         )
-        # annotate output
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        _stamp_type_and_shape(y_val, x_shape)
+        # annotate output: mirror input shape/dtype (preserve batch symbols)
+        x_dims_meta = None
+        x_shape_val = getattr(x_val, "shape", None)
+        if x_shape_val is not None:
+            x_dims_meta = getattr(x_shape_val, "dims", None)
+            if x_dims_meta is None:
+                try:
+                    x_dims_meta = tuple(x_shape_val)
+                except Exception:
+                    x_dims_meta = None
+        if not x_dims_meta:
+            x_dims_meta = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if x_dims_meta:
+            _stamp_type_and_shape(y_val, tuple(x_dims_meta))
         _add_value_info(ctx, y_val)
 
     @staticmethod

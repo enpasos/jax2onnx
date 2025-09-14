@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 import onnx_ir as ir
-import numpy as np
 
 from .ir_context import IRContext
 

@@ -11,32 +11,174 @@ import onnx_ir as ir
 # ---------------- Config ----------------
 
 ALLOWED_ELEMENTWISE_OPS: Set[str] = {
-    "elu", "gelu", "relu", "sigmoid", "tanh", "dropout",
-    "leakyrelu", "identity", "cast", "castlike", "not",
+    "elu",
+    "gelu",
+    "relu",
+    "sigmoid",
+    "tanh",
+    "dropout",
+    "leakyrelu",
+    "identity",
+    "cast",
+    "castlike",
+    "not",
 }
 
 ALLOWED_ELEMWISE = {
-    "Elu","Gelu","Relu","Sigmoid","Tanh","Dropout",
-    "LeakyRelu","Identity","Cast","CastLike","Not",
+    "Elu",
+    "Gelu",
+    "Relu",
+    "Sigmoid",
+    "Tanh",
+    "Dropout",
+    "LeakyRelu",
+    "Identity",
+    "Cast",
+    "CastLike",
+    "Not",
+}
+
+# Unary ops that do not change data shape/dtype (used for propagation)
+UNARY_DATAFLOW_OPS: Set[str] = {
+    "Gelu",
+    "Relu",
+    "Sigmoid",
+    "Tanh",
+    "Dropout",
+    "LeakyRelu",
+    "Identity",
+    "Cast",
+    "CastLike",
 }
 
 DEBUG = bool(int(os.getenv("JAX2ONNX_IROPT_DEBUG", "0")))
 RSH_DEBUG = bool(int(os.getenv("JAX2ONNX_RSH_DEBUG", "0")))
 TRN_DEBUG = bool(int(os.getenv("JAX2ONNX_TRN_DEBUG", "0")))
 DCE_DEBUG = bool(int(os.getenv("JAX2ONNX_DCE_DEBUG", "0")))
-DRPT_DEBUG = bool(int(os.getenv("JAX2ONNX_DRPT_DEBUG", "0")))
+TM_DEBUG = bool(int(os.getenv("JAX2ONNX_TM_DEBUG", "0")))
 
 # ---------------- Debug ----------------
+
 
 def _dbg(*a):
     if DEBUG:
         print("[iropt]", *a)
 
-def _d_dropout(*a):
-    if DRPT_DEBUG:
-        print("[dropout-inline]", *a)
+
+def _dbg_tm(*a):
+    if TM_DEBUG:
+        print("[tm-inline]", *a)
+
+
+# ---------------- Public helper shims (restored for unit tests) ----------------
+
+
+def _is_elem(op_type: str) -> bool:
+    """
+    Return True if op_type is a benign elementwise op (case-insensitive).
+    """
+    if not isinstance(op_type, str):
+        return False
+    return op_type.lower() in ALLOWED_ELEMENTWISE_OPS
+
+
+def _get_perm_attr(node) -> Optional[List[int]]:
+    """
+    Return the Transpose 'perm' attribute as a list of ints, or None.
+    Works with nodes exposing .attributes (list of Attr with .name/.ints)
+    or generic IR nodes where _get_attr('perm') is available.
+    """
+    a = _get_attr(node, "perm")
+    if a is None:
+        # try attributes list directly (python objects used by tests)
+        attrs = getattr(node, "attributes", None)
+        if isinstance(attrs, list):
+            for att in attrs:
+                if getattr(att, "name", None) == "perm":
+                    if hasattr(att, "ints"):
+                        return list(getattr(att, "ints"))
+                    try:
+                        seq = list(att)
+                        if all(isinstance(x, int) for x in seq):
+                            return seq
+                    except Exception:
+                        pass
+        return None
+    # Attr object with .ints
+    ints = getattr(a, "ints", None)
+    if ints is not None:
+        return list(ints)
+    # Maybe list-like
+    try:
+        seq = list(a)
+        if all(isinstance(x, int) for x in seq):
+            return seq
+    except Exception:
+        pass
+    return None
+
+
+def _perms_compose_identity(p1: List[int], p2: List[int]) -> bool:
+    """
+    Return True if composing p1 after p2 yields identity.
+    (i.e., composed[i] = p1[p2[i]] equals range(len(p1)))
+    """
+    if not (isinstance(p1, list) and isinstance(p2, list)):
+        return False
+    if len(p1) != len(p2):
+        return False
+    try:
+        composed = [p1[p] for p in p2]
+        return composed == list(range(len(p1)))
+    except Exception:
+        return False
+
+
+def _has_input_name_or_obj(node, name: Optional[str], obj) -> bool:
+    """
+    Return True if 'node' has an input that matches either the given name
+    (by .name on Value or string equality) or the given object identity.
+    """
+    ins = _node_inputs(node)
+    for iv in ins:
+        if obj is not None and iv is obj:
+            return True
+        if name:
+            ivn = _v_name(iv)
+            if ivn == name:
+                return True
+            # If inputs are plain strings in this build
+            if isinstance(iv, str) and iv == name:
+                return True
+    return False
+
+
+def _count_consumers(nodes: List[object], name: Optional[str], obj) -> int:
+    """
+    Count how many nodes consume the given value (by name or object).
+    """
+    c = 0
+    for n in nodes:
+        if _has_input_name_or_obj(n, name, obj):
+            c += 1
+    return c
+
+
+def _find_next_consumer_idx(
+    nodes: List[object], start_idx: int, name: Optional[str], obj
+) -> Optional[int]:
+    """
+    Find the index of the next node (after start_idx) that consumes the given
+    value (by name or object). Return None if not found.
+    """
+    for i in range(start_idx + 1, len(nodes)):
+        if _has_input_name_or_obj(nodes[i], name, obj):
+            return i
+    return None
+
 
 # ---------------- IR helpers ----------------
+
 
 def _v_name(v: ir.Value | None) -> Optional[str]:
     if v is None:
@@ -44,21 +186,106 @@ def _v_name(v: ir.Value | None) -> Optional[str]:
     nm = getattr(v, "name", None)
     return nm if isinstance(nm, str) and nm != "" else None
 
+
 def _node_outputs(n) -> List["ir.Value"]:
     outs = getattr(n, "outputs", None)
     if outs is None:
         outs = getattr(n, "output", [])  # defensive
     return list(outs)
 
+
 def _node_output(n) -> Optional["ir.Value"]:
     outs = _node_outputs(n)
     return outs[0] if outs else None
+
 
 def _node_inputs(n) -> List["ir.Value"]:
     ins = getattr(n, "inputs", None)
     if ins is None:
         ins = getattr(n, "input", [])  # defensive
     return list(ins)
+
+
+def _set_node_inputs(n, new_ins: List["ir.Value"]) -> None:
+    """
+    Robustly write a node's inputs across onnx_ir variants that use either
+    `.inputs` (Value objects) or `.input` (Value objects or names).
+    """
+    # 1) Try the canonical `inputs` attribute first
+    try:
+        n.inputs = tuple(new_ins)
+        wrote_inputs = True
+    except Exception:
+        wrote_inputs = False
+        try:
+            n.inputs = list(new_ins)
+            wrote_inputs = True
+        except Exception:
+            pass
+    # 2) Then try `input`. If the current field stores strings, convert.
+    cur = getattr(n, "input", None)
+    if cur is not None:
+        try:
+            if isinstance(cur, (list, tuple)) and (
+                len(cur) == 0 or isinstance(cur[0], str)
+            ):
+                names = []
+                for v in new_ins:
+                    nm = _v_name(v)
+                    names.append(nm if nm is not None else "")
+                try:
+                    n.input = tuple(names)
+                except Exception:
+                    n.input = list(names)
+            else:
+                # assume Value-like containers
+                try:
+                    n.input = tuple(new_ins)
+                except Exception:
+                    n.input = list(new_ins)
+        except Exception:
+            # best effort; if `inputs` was written above that's already enough
+            if not wrote_inputs:
+                raise
+
+
+def _rebuild_node_with_inputs(n: "ir.Node", new_ins: List["ir.Value"]) -> "ir.Node":
+    """
+    Construct a fresh ir.Node with the same op_type/name/domain/outputs/attributes,
+    but with the provided inputs. This avoids copy-on-write pitfalls in some
+    onnx_ir builds where mutating `.inputs`/`.input` doesn't persist.
+    """
+    op_type = getattr(n, "op_type", "")
+    domain = getattr(n, "domain", "")
+    name = getattr(n, "name", "")
+    outs = _node_outputs(n)
+    # Try to carry attributes through (handle common spellings)
+    attrs = getattr(n, "attributes", None)
+    if attrs is None:
+        attrs = getattr(n, "attribute", None)
+    if attrs is None:
+        attrs = []
+    try:
+        new_node = ir.Node(
+            op_type=op_type,
+            domain=domain,
+            inputs=list(new_ins),
+            outputs=list(outs),
+            name=name,
+            attributes=list(attrs) if isinstance(attrs, (list, tuple)) else attrs,
+            num_outputs=len(outs) if hasattr(n, "num_outputs") else None,
+        )
+    except Exception:
+        # Fall back to a simpler ctor without attributes/num_outputs if needed
+        new_node = ir.Node(
+            op_type=op_type,
+            domain=domain,
+            inputs=list(new_ins),
+            outputs=list(outs),
+            name=name,
+        )
+    return new_node
+
 
 def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple]:
     if v is None:
@@ -71,6 +298,7 @@ def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple]:
         out.append(d if isinstance(d, int) else -1)
     return tuple(out)
 
+
 def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool:
     ta, tb = _shape_tuple(a), _shape_tuple(b)
     if ta is None or tb is None or len(ta) != len(tb):
@@ -82,139 +310,51 @@ def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool
             return False
     return True
 
-def _numel_of_shape_tuple(t: Optional[Tuple]) -> Optional[int]:
-    """Return product of dims if all are concrete ints; otherwise None."""
-    if t is None:
-        return None
-    prod = 1
-    for d in t:
-        if not isinstance(d, int):
-            return None
-        prod *= d
-    return prod
 
-def _try_read_const_numpy_from_value(v: "ir.Value") -> Optional[np.ndarray]:
-    """Best-effort read of a constant payload from a Value."""
-    for attr in ("const_value", "value", "data", "numpy"):
-        x = getattr(v, attr, None)
-        if x is not None:
-            try:
-                return np.asarray(x)
-            except Exception:
-                pass
-    return None
-
-def _try_write_const_numpy_to_value(v: "ir.Value", arr: np.ndarray) -> bool:
-    """Best-effort writeback of a constant payload to a Value."""
-    try:
-        ten = getattr(ir, "tensor", None)
-        payload = ten(arr) if callable(ten) else arr
-    except Exception:
-        payload = arr
-    for attr in ("const_value", "value", "data"):
-        if hasattr(v, attr):
-            try:
-                setattr(v, attr, payload)
-                return True
-            except Exception:
-                continue
-    return False
-
-def _find_producer_idx(nodes: List["ir.Node"], val: Optional["ir.Value"]) -> Optional[int]:
-    """Return index of the node that produces 'val', if any."""
-    if val is None:
-        return None
-    for idx, n in enumerate(nodes):
-        for ov in _node_outputs(n):
-            if ov is val:
-                return idx
-    return None
-
-def _try_read_const_numpy_from_constant_node(n: "ir.Node") -> Optional[np.ndarray]:
-    """Best-effort read of Constant(value=...) attribute tensor."""
-    if getattr(n, "op_type", "") != "Constant":
-        return None
-    a = _get_attr(n, "value")
-    if a is None:
-        return None
-    # Common patterns: Attr with .value, or tuple-like payloads
-    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
-        if hasattr(a, field):
-            try:
-                return np.asarray(getattr(a, field))
-            except Exception:
-                pass
-    # Fallback: Attr may behave like (name,value)
-    try:
-        payload = getattr(a, "__iter__", None)
-        if callable(payload):
-            seq = list(a)
-            if len(seq) >= 2:
-                return np.asarray(seq[1])
-    except Exception:
-        pass
-    return None
-
-def _try_write_const_numpy_to_constant_node(n: "ir.Node", arr: np.ndarray) -> bool:
-    """Best-effort writeback into Constant(value=...) attribute tensor."""
-    if getattr(n, "op_type", "") != "Constant":
-        return False
-    a = _get_attr(n, "value")
-    if a is None:
-        # Try to set attributes list
-        for attr_name in ("attributes", "attribute"):
-            al = getattr(n, attr_name, None)
-            if isinstance(al, list) and al:
-                a = al[0]
-                break
-    if a is None:
-        return False
-    # Prefer a.value if available
-    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
-        if hasattr(a, field):
-            try:
-                setattr(a, field, arr)
-                return True
-            except Exception:
-                continue
-    # Fallback: replace attributes list entirely
-    for attr_name in ("attributes", "attribute"):
-        al = getattr(n, attr_name, None)
-        if isinstance(al, list):
-            try:
-                # Try creating a fresh Attr if available
-                Attr = getattr(ir, "Attr", None)
-                ten = getattr(ir, "tensor", None)
-                payload = ten(arr) if callable(ten) else arr
-                if Attr is not None:
-                    try:
-                        new_a = Attr("value", payload)
-                        setattr(n, attr_name, [new_a])
-                        return True
-                    except Exception:
-                        pass
-                # Last resort: store raw numpy
-                setattr(n, attr_name, [payload])
-                return True
-            except Exception:
-                continue
-    return False
-
-def _get_node_seq_and_setter(graph) -> Tuple[List["ir.Node"], Optional[Tuple[object, str]]]:
+def _get_node_seq_and_setter(
+    graph,
+) -> Tuple[List["ir.Node"], Optional[Tuple[object, str]]]:
+    """
+    Return (nodes_container, (parent, attr)) such that:
+      • If the underlying container is a mutable list, we return that **live** list
+        so in-place mutations persist immediately.
+      • Otherwise we return a Python list copy and the caller should call _set_nodes
+        to persist changes.
+    """
     for attr in ("nodes", "_nodes", "node"):
         if hasattr(graph, attr):
-            nodes = list(getattr(graph, attr))
-            return nodes, (graph, attr)
+            cont = getattr(graph, attr)
+            # If it's already a mutable Python list, use it directly (no copy).
+            if isinstance(cont, list):
+                return cont, (graph, attr)
+            # Else, fall back to a list copy with write-back responsibility.
+            try:
+                return list(cont), (graph, attr)
+            except Exception:
+                # As a last resort, expose an empty list with a setter; caller will set later.
+                return [], (graph, attr)
     return [], None
+
 
 def _set_nodes(store: Optional[Tuple[object, str]], nodes: List["ir.Node"]) -> None:
     if store is None:
         return
-    parent, attr = store
-    try:
-        setattr(parent, attr, nodes)
-    except Exception:
-        pass
+    parent, _ = store
+    # Persist to ALL known containers to avoid copy-on-write / mirror mismatches.
+    for attr in ("nodes", "_nodes", "node"):
+        if hasattr(parent, attr):
+            try:
+                setattr(parent, attr, nodes)
+            except Exception:
+                # Try in-place replace if container is a mutable sequence
+                try:
+                    seq = getattr(parent, attr)
+                    if isinstance(seq, list):
+                        seq.clear()
+                        seq.extend(nodes)
+                except Exception:
+                    pass
+
 
 def _replace_everywhere(
     nodes: List["ir.Node"],
@@ -226,8 +366,14 @@ def _replace_everywhere(
         ins = _node_inputs(m)
         changed = False
         for i, iv in enumerate(ins):
-            if (old_v is not None and iv is old_v) or (old_name and _v_name(iv) == old_name):
+            if (old_v is not None and iv is old_v) or (
+                old_name and _v_name(iv) == old_name
+            ):
                 ins[i] = new_v
+                changed = True
+            elif isinstance(iv, str) and old_name and iv == old_name:
+                new_name = _v_name(new_v)
+                ins[i] = new_name if new_name is not None else ""
                 changed = True
         if changed:
             if hasattr(m, "replace_input_with"):
@@ -238,14 +384,25 @@ def _replace_everywhere(
                 except Exception:
                     pass
             try:
-                m.inputs = tuple(ins)
+                _set_node_inputs(m, ins)
             except Exception:
+                # Fallback for pure string inputs
+                names = []
+                for iv in ins:
+                    if isinstance(iv, str):
+                        names.append(iv)
+                    else:
+                        nm = _v_name(iv)
+                        names.append(nm if nm is not None else "")
                 try:
-                    m.inputs = list(ins)
+                    m.input = tuple(names)
                 except Exception:
-                    pass
+                    m.input = list(names)
 
-def _replace_in_graph_outputs(graph, old_v: Optional["ir.Value"], old_name: Optional[str], new_v: "ir.Value") -> None:
+
+def _replace_in_graph_outputs(
+    graph, old_v: Optional["ir.Value"], old_name: Optional[str], new_v: "ir.Value"
+) -> None:
     for attr in ("outputs", "output"):
         outs = getattr(graph, attr, None)
         if outs is None:
@@ -256,7 +413,9 @@ def _replace_in_graph_outputs(graph, old_v: Optional["ir.Value"], old_name: Opti
             continue
         changed = False
         for i, ov in enumerate(lst):
-            if (old_v is not None and ov is old_v) or (old_name and _v_name(ov) == old_name):
+            if (old_v is not None and ov is old_v) or (
+                old_name and _v_name(ov) == old_name
+            ):
                 lst[i] = new_v
                 changed = True
         if changed:
@@ -265,11 +424,14 @@ def _replace_in_graph_outputs(graph, old_v: Optional["ir.Value"], old_name: Opti
             except Exception:
                 # last resort: rename
                 for i, ov in enumerate(getattr(graph, attr, [])):
-                    if (old_v is not None and ov is old_v) or (old_name and _v_name(ov) == old_name):
+                    if (old_v is not None and ov is old_v) or (
+                        old_name and _v_name(ov) == old_name
+                    ):
                         try:
                             ov.name = _v_name(new_v)
                         except Exception:
                             pass
+
 
 def _build_use_maps(nodes: List["ir.Node"]):
     prod_by_obj: Dict[int, int] = {}
@@ -294,7 +456,10 @@ def _build_use_maps(nodes: List["ir.Node"]):
                 cons_by_name[nm].add(i)
     return prod_by_obj, prod_by_name, cons_by_obj, cons_by_name
 
-def _unique_consumer(cons_by_obj, cons_by_name, val: Optional["ir.Value"]) -> Optional[int]:
+
+def _unique_consumer(
+    cons_by_obj, cons_by_name, val: Optional["ir.Value"]
+) -> Optional[int]:
     if val is None:
         return None
     nm = _v_name(val)
@@ -303,11 +468,13 @@ def _unique_consumer(cons_by_obj, cons_by_name, val: Optional["ir.Value"]) -> Op
         S |= set(cons_by_name.get(nm, set()))
     return next(iter(S)) if len(S) == 1 else None
 
+
 def _producer_idx_for(val: Optional["ir.Value"], prod_obj, prod_name) -> Optional[int]:
     if val is None:
         return None
     nm = _v_name(val)
     return prod_obj.get(id(val)) or (prod_name.get(nm) if nm else None)
+
 
 def _all_consumers(cons_by_obj, cons_by_name, v: Optional["ir.Value"]) -> Set[int]:
     if v is None:
@@ -318,23 +485,58 @@ def _all_consumers(cons_by_obj, cons_by_name, v: Optional["ir.Value"]) -> Set[in
         S |= set(cons_by_name.get(nm, set()))
     return S
 
+
 # ---------------- Attr access ----------------
 
+
 def _get_attr(node, name: str):
+    """
+    Robustly fetch a node attribute 'name' across onnx_ir variants:
+      • dict-like or mapping containers (Attributes)
+      • sequences of Attrs
+      • direct attribute on the node
+    """
     for attr_name in ("attributes", "attrs", "_attrs"):
         d = getattr(node, attr_name, None)
-        if isinstance(d, dict) and name in d:
-            return d[name]
+        if d is None:
+            continue
+        # Mapping-like with .get
+        if hasattr(d, "get"):
+            try:
+                a = d.get(name)
+                if a is not None:
+                    return a
+            except Exception:
+                pass
+        # Mapping-like via __getitem__
+        try:
+            a = d[name]  # type: ignore[index]
+            return a
+        except Exception:
+            pass
+        # Iterable of Attrs or (key, value) pairs
+        try:
+            it = d.values() if hasattr(d, "values") else d
+            for item in it:
+                an = getattr(item, "name", getattr(item, "key", None))
+                if an == name:
+                    return item
+        except Exception:
+            pass
+    # Fallback: explicit sequence 'attribute'
     seq = getattr(node, "attribute", None)
     if isinstance(seq, (list, tuple)):
         for a in seq:
             if getattr(a, "name", None) == name:
                 return a
+    # Last resort: direct attribute
     if hasattr(node, name):
         return getattr(node, name)
     return None
 
+
 # ---------------- Transpose folding ----------------
+
 
 def _transpose_perm(node) -> Optional[List[int]]:
     a = _get_attr(node, "perm")
@@ -352,6 +554,7 @@ def _transpose_perm(node) -> Optional[List[int]]:
     if isinstance(a, dict) and "ints" in a and isinstance(a["ints"], (list, tuple)):
         return list(a["ints"])
     return None
+
 
 def remove_redundant_transpose_pairs_ir(graph) -> None:
     nodes, store = _get_node_seq_and_setter(graph)
@@ -408,7 +611,14 @@ def remove_redundant_transpose_pairs_ir(graph) -> None:
                 i += 1
                 continue
             if TRN_DEBUG:
-                print("[transposefold]", [nodes[k].op_type for k in chain_idx], "perm1", perm1, "perm2", perm2)
+                print(
+                    "[transposefold]",
+                    [nodes[k].op_type for k in chain_idx],
+                    "perm1",
+                    perm1,
+                    "perm2",
+                    perm2,
+                )
             t1_in = (_node_inputs(T1) or [None])[0]
             if t1_in is None:
                 i += 1
@@ -416,7 +626,9 @@ def remove_redundant_transpose_pairs_ir(graph) -> None:
             if allowed_idx:
                 first_allowed = nodes[allowed_idx[0]]
                 last_allowed = nodes[allowed_idx[-1]]
-                _replace_everywhere([first_allowed], _node_output(T1), _v_name(_node_output(T1)), t1_in)
+                _replace_everywhere(
+                    [first_allowed], _node_output(T1), _v_name(_node_output(T1)), t1_in
+                )
                 new_src = _node_output(last_allowed) or t1_in
             else:
                 new_src = t1_in
@@ -430,14 +642,18 @@ def remove_redundant_transpose_pairs_ir(graph) -> None:
             break
     _set_nodes(store, nodes)
 
+
 # ---------------- Reshape folding ----------------
+
 
 def remove_redundant_reshape_pairs_ir(graph) -> None:
     nodes, store = _get_node_seq_and_setter(graph)
     if not nodes:
         return
+
     def _producer_idx_for_local(val, pbo, pbn):
         return _producer_idx_for(val, pbo, pbn)
+
     changed = True
     while changed:
         changed = False
@@ -476,12 +692,20 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
                 continue
             allowed_fwd = list(reversed(allowed_idxs))
             if RSH_DEBUG:
-                print("[reshapefold/up]", [nodes[k].op_type for k in ([T1_idx] + allowed_fwd + [i])],
-                      "src", _shape_tuple(src), "dst", _shape_tuple(dst))
+                print(
+                    "[reshapefold/up]",
+                    [nodes[k].op_type for k in ([T1_idx] + allowed_fwd + [i])],
+                    "src",
+                    _shape_tuple(src),
+                    "dst",
+                    _shape_tuple(dst),
+                )
             if allowed_fwd:
                 first_allowed = nodes[allowed_fwd[0]]
-                last_allowed  = nodes[allowed_fwd[-1]]
-                _replace_everywhere([first_allowed], _node_output(T1), _v_name(_node_output(T1)), src)
+                last_allowed = nodes[allowed_fwd[-1]]
+                _replace_everywhere(
+                    [first_allowed], _node_output(T1), _v_name(_node_output(T1)), src
+                )
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
@@ -495,133 +719,455 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
             break
     _set_nodes(store, nodes)
 
-# ---------------- Dropout.training_mode inlining (missing-input sentinel) ----------------
 
-def _unwrap_bool_chain(nodes, start_v, prod_obj, prod_name, max_depth=6):
-    """Unwrap Not/Identity/Cast/CastLike; return (origin_v, origin_pidx, not_parity, chain_ops)."""
-    parity = 0
-    v = start_v
-    chain = []
-    depth = 0
-    while v is not None and depth < max_depth:
-        pidx = _producer_idx_for(v, prod_obj, prod_name)
-        if pidx is None:
-            return v, None, parity, chain
-        n = nodes[pidx]
-        op = n.op_type
-        chain.append(op)
-        if op == "Not":
-            parity ^= 1
-            v = (_node_inputs(n) or [None])[0]
-            depth += 1
-            continue
-        if op in {"Identity","Cast","CastLike"}:
-            v = (_node_inputs(n) or [None])[0]
-            depth += 1
-            continue
-        return v, pidx, parity, chain
-    return v, _producer_idx_for(v, prod_obj, prod_name), parity, chain
+# ---------------- Shape propagation helpers ----------------
 
-def _missing_input_value() -> "ir.Value":
-    # ONNX denotes missing optional inputs by an empty string.
-    return ir.Value(name="", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
 
-def inline_dropout_training_mode_ir(graph) -> None:
+def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bool:
     """
-    If training_mode resolves to:
-      • constant False  (or Not(True)) → replace input #2 with a *missing* input (empty name).
-      • a scalar-bool graph input used only to drive this flag through Not/Identity/Cast* → same.
-    This preserves node count (no Constant), keeps Dropout present, and DCE removes Not.
+    Copy shape & dtype from src -> dst if present; return True if anything changed.
+    """
+    if dst is None or src is None:
+        return False
+    changed = False
+    s_shp = getattr(src, "shape", None)
+    d_shp = getattr(dst, "shape", None)
+    if s_shp is not None:
+        need = False
+        if d_shp is None:
+            need = True
+        else:
+            try:
+                for d in d_shp:
+                    if not isinstance(d, int) or d < 0:
+                        need = True
+                        break
+            except Exception:
+                need = True
+        if need:
+            try:
+                dst.shape = s_shp
+                changed = True
+            except Exception:
+                pass
+    s_ty = getattr(src, "type", None)
+    d_ty = getattr(dst, "type", None)
+    if s_ty is not None and s_ty is not d_ty:
+        try:
+            dst.type = s_ty
+            changed = True
+        except Exception:
+            pass
+    return changed
+
+
+def propagate_unary_shapes_ir(graph) -> None:
+    """
+    For known unary dataflow ops, set the first output's shape & dtype = first input's,
+    when output metadata is missing/unknown. This helps preserve batch symbols across
+    elementwise ops (e.g., BxN through Dropout/Gelu/etc.).
     """
     nodes, store = _get_node_seq_and_setter(graph)
     if not nodes:
         return
-
-    prod_obj, prod_name, cons_by_obj, cons_by_name = _build_use_maps(nodes)
-    graph_inputs = set(id(v) for v in _graph_inputs_list(graph))
-
     changed = False
-    i = 0
-    while i < len(nodes):
-        n = nodes[i]
-        if getattr(n, "op_type", None) != "Dropout":
-            i += 1
+    for n in nodes:
+        op = getattr(n, "op_type", "")
+        if op not in UNARY_DATAFLOW_OPS:
             continue
-
         ins = _node_inputs(n)
-        if len(ins) < 3:
-            i += 1
+        outs = _node_outputs(n)
+        if not ins or not outs:
             continue
-        tm = ins[2]
-
-        origin_v, origin_pidx, parity, chain = _unwrap_bool_chain(nodes, tm, prod_obj, prod_name)
-
-        # Case 1: constant path
-        cval = None
-        for attr in ("const_value", "value", "data", "numpy"):
-            x = getattr(origin_v, attr, None) if origin_v is not None else None
-            if x is not None:
-                try:
-                    cval = bool(np.asarray(x).reshape(()).astype(np.bool_).item())
-                except Exception:
-                    pass
-                break
-
-        if cval is not None:
-            eff = (not cval) if parity == 1 else bool(cval)
-            _d_dropout(f"Dropout@{i}: tm constant chain={chain} cval={cval} parity={parity} -> eff={eff}")
-            if eff is False:
-                miss = _missing_input_value()
-                if hasattr(n, "replace_input_with"):
-                    try:
-                        n.replace_input_with(2, miss)
-                    except Exception:
-                        pass
-                ins2 = _node_inputs(n)
-                try:
-                    ins2[2] = miss
-                    n.inputs = tuple(ins2)
-                except Exception:
-                    try:
-                        n.inputs = list(ins2)
-                    except Exception:
-                        pass
-                changed = True
-            i += 1
-            continue
-
-        # Case 2: origin graph input used only for this corridor → inline to missing
-        if origin_pidx is None and id(origin_v) in graph_inputs:
-            uses = _all_consumers(cons_by_obj, cons_by_name, origin_v)
-            _d_dropout(f"Dropout@{i}: tm from graph input {_v_name(origin_v)} chain={chain} parity={parity} consumers={sorted(list(uses))}")
-            ok = len(uses) <= 1 or (len(uses) == 2 and i in uses)
-            if ok:
-                miss = _missing_input_value()
-                if hasattr(n, "replace_input_with"):
-                    try:
-                        n.replace_input_with(2, miss)
-                    except Exception:
-                        pass
-                ins2 = _node_inputs(n)
-                try:
-                    ins2[2] = miss
-                    n.inputs = tuple(ins2)
-                except Exception:
-                    try:
-                        n.inputs = list(ins2)
-                    except Exception:
-                        pass
-                changed = True
-            i += 1
-            continue
-
-        _d_dropout(f"Dropout@{i}: did not inline (origin_pidx={origin_pidx}, chain={chain})")
-        i += 1
-
+        if _copy_shape_dtype(outs[0], ins[0]):
+            changed = True
     if changed:
         _set_nodes(store, nodes)
 
+
+# ---------------- Dropout.training_mode constant inlining ----------------
+
+
+def _find_producer_idx(
+    nodes: List["ir.Node"], val_or_name: Optional[object]
+) -> Optional[int]:
+    """
+    Return the index of the node that produces the given tensor.
+    Accepts either a Value object or a tensor name (str).
+    Tries object identity first, then falls back to name-based matching.
+    """
+    if val_or_name is None:
+        return None
+    # Object identity match
+    for idx, n in enumerate(nodes):
+        for ov in _node_outputs(n):
+            if ov is val_or_name:
+                return idx
+    # Name-based match
+    name: Optional[str]
+    if isinstance(val_or_name, str):
+        name = val_or_name
+    else:
+        name = _v_name(val_or_name)  # type: ignore[arg-type]
+    if not name:
+        return None
+    for idx, n in enumerate(nodes):
+        for ov in _node_outputs(n):
+            if _v_name(ov) == name:
+                return idx
+    return None
+
+
+def _to_numpy_from_any(x: object) -> Optional[np.ndarray]:
+    """
+    Best-effort conversion of various IR/ONNX payloads (including onnx_ir wrappers)
+    to a NumPy array:
+      - numpy-like / scalar                → np.asarray(x)
+      - has .numpy or .to_numpy()         → np.asarray(that)
+      - has common payload attrs          → np.asarray(getattr(x, ...))
+      - TensorProto-like (raw_data + dims)→ decoded buffer
+      - typed *_data fields               → np.asarray(field, dtype)
+      - last resort                       → np.asarray(x) (may still fail)
+    """
+    # Direct adapters that expose numpy-like payloads (call before np.asarray)
+    for accessor in ("numpy", "to_numpy"):
+        try:
+            attr = getattr(x, accessor, None)
+            if attr is None:
+                continue
+            data = attr() if callable(attr) else attr
+            arr = np.asarray(data)
+            if isinstance(arr, np.ndarray) or np.isscalar(arr):
+                return arr
+        except Exception:
+            pass
+
+    # Fast path: already array/scalar-ish
+    try:
+        arr0 = np.asarray(x)
+        if isinstance(arr0, np.ndarray) or np.isscalar(arr0):
+            # If it's an object 0D array, attempt unwrap
+            if isinstance(arr0, np.ndarray) and arr0.dtype == object and arr0.size == 1:
+                try:
+                    inner = arr0.reshape(()).item()
+                    inner_arr = np.asarray(inner)
+                    if isinstance(inner_arr, np.ndarray) or np.isscalar(inner_arr):
+                        return inner_arr
+                except Exception:
+                    pass
+            return arr0
+    except Exception:
+        pass
+
+    # onnx_ir tensor wrapper heuristics: probe typical payload attrs
+    for payload_attr in ("value", "data", "array", "_array", "val"):
+        try:
+            payload = getattr(x, payload_attr, None)
+            if payload is not None:
+                return np.asarray(payload)
+        except Exception:
+            pass
+
+    # TensorProto-like decoding (raw_data / dims / data_type)
+    try:
+        raw = getattr(x, "raw_data", None)
+        if raw is not None:
+            dt = int(getattr(x, "data_type", 0))
+            # minimal map: FLOAT=1, BOOL=9, DOUBLE=11
+            dt_map = {1: np.float32, 9: np.bool_, 11: np.float64}
+            dtype = dt_map.get(dt, np.uint8)
+            arr = np.frombuffer(raw, dtype=dtype)
+            dims = tuple(getattr(x, "dims", ()))
+            return arr.reshape(dims) if dims else (arr[0] if arr.size == 1 else arr)
+        # fallback to typed data fields (include common ones)
+        typed_fields = (
+            ("float_data", np.float32),
+            ("double_data", np.float64),
+            ("int32_data", np.int32),
+            ("int64_data", np.int64),
+            ("bool_data", np.bool_),
+        )
+        for fld, dtype in typed_fields:
+            if getattr(x, fld, None):
+                arr = np.asarray(getattr(x, fld), dtype=dtype)
+                dims = tuple(getattr(x, "dims", ()))
+                return arr.reshape(dims) if dims else (arr[0] if arr.size == 1 else arr)
+    except Exception:
+        pass
+
+    # Last resort
+    try:
+        arr_last = np.asarray(x)
+        if (
+            isinstance(arr_last, np.ndarray)
+            and arr_last.dtype == object
+            and arr_last.size == 1
+        ):
+            try:
+                val = arr_last.reshape(()).item()
+                # common string representations
+                if isinstance(val, str):
+                    lv = val.strip().lower()
+                    if lv in ("true", "false"):
+                        return np.asarray(lv == "true", dtype=np.bool_)
+                return np.asarray(val)
+            except Exception:
+                pass
+        return arr_last
+    except Exception:
+        return None
+
+
+def _read_scalar_bool_from_value_or_constant(
+    nodes: List["ir.Node"], v_or_name: Optional[object]
+) -> Optional[bool]:
+    """
+    Try to read a scalar bool from:
+      • a Value object carrying const payload, or
+      • its Constant producer (found via object or name), or
+      • a string tensor name produced by a Constant.
+    """
+    if v_or_name is None:
+        return None
+    # Value carries a const?
+    if not isinstance(v_or_name, str):
+        for attr in ("const_value", "value", "data", "numpy"):
+            x = getattr(v_or_name, attr, None)
+            if x is None:
+                continue
+            if isinstance(x, (bool, np.bool_)):
+                val = bool(x)
+                _dbg_tm("read Value-const (bool)", type(v_or_name).__name__, "→", val)
+                return val
+            arr = _to_numpy_from_any(x)
+            if arr is not None:
+                try:
+                    val = bool(np.asarray(arr).reshape(()).astype(np.bool_).item())
+                    _dbg_tm("read Value-const:", type(v_or_name).__name__, "→", val)
+                    return val
+                except Exception:
+                    pass
+    # Producer Constant?
+    pidx = _find_producer_idx(nodes, v_or_name)
+    if pidx is None:
+        return None
+    n = nodes[pidx]
+    if getattr(n, "op_type", "") != "Constant":
+        return None
+    _dbg_tm(
+        "producer Constant idx",
+        pidx,
+        "for",
+        v_or_name if isinstance(v_or_name, str) else _v_name(v_or_name),
+    )
+    a = _get_attr(n, "value")
+    if a is None:
+        # Some builds store Constant attributes in mapping-like containers
+        # or as sequences of Attr / (key, payload) pairs.
+        for attr_name in ("attributes", "attribute"):
+            al = getattr(n, attr_name, None)
+            if al is None:
+                continue
+            # Normalize to an iterable of items
+            try:
+                it = al.values() if hasattr(al, "values") else al
+            except Exception:
+                it = []
+            for item in it:
+                # (key, payload) pair
+                if (
+                    isinstance(item, (list, tuple))
+                    and len(item) >= 2
+                    and item[0] == "value"
+                ):
+                    payload = item[1]
+                    if isinstance(payload, (bool, np.bool_)):
+                        val = bool(payload)
+                        _dbg_tm("read Const-attr (pair-bool) →", val)
+                        return val
+                    arr = _to_numpy_from_any(payload)
+                    if arr is not None:
+                        try:
+                            val = bool(
+                                np.asarray(arr).reshape(()).astype(np.bool_).item()
+                            )
+                            _dbg_tm("read Const-attr (pair) →", val)
+                            return val
+                        except Exception:
+                            continue
+                # object with .name/.value-like fields
+                name_k = getattr(item, "name", getattr(item, "key", None))
+                if name_k == "value":
+                    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
+                        if hasattr(item, field):
+                            payload = getattr(item, field)
+                            if isinstance(payload, (bool, np.bool_)):
+                                val = bool(payload)
+                                _dbg_tm("read Const-attr (obj.", field, " bool) →", val)
+                                return val
+                            arr = _to_numpy_from_any(payload)
+                            if arr is not None:
+                                try:
+                                    val = bool(
+                                        np.asarray(arr)
+                                        .reshape(())
+                                        .astype(np.bool_)
+                                        .item()
+                                    )
+                                    _dbg_tm("read Const-attr (obj.", field, ") →", val)
+                                    return val
+                                except Exception:
+                                    continue
+        # Could not find a 'value' attribute in any known form
+        return None
+    # Known fields
+    for field in ("value", "t", "i", "ints", "f", "floats", "s"):
+        if hasattr(a, field):
+            payload = getattr(a, field)
+            if isinstance(payload, (bool, np.bool_)):
+                val = bool(payload)
+                _dbg_tm("read Const-attr (", field, " bool) →", val)
+                return val
+            arr = _to_numpy_from_any(payload)
+            if arr is not None:
+                try:
+                    val = bool(np.asarray(arr).reshape(()).astype(np.bool_).item())
+                    _dbg_tm("read Const-attr (", field, ") →", val)
+                    return val
+                except Exception:
+                    continue
+    # Fallback: list-like attr
+    try:
+        seq = list(a)
+        if len(seq) >= 2:
+            payload = seq[1]
+            if isinstance(payload, (bool, np.bool_)):
+                val = bool(payload)
+                _dbg_tm("read Const-attr (seq[1] bool) →", val)
+                return val
+            arr = _to_numpy_from_any(payload)
+            if arr is not None:
+                val = bool(np.asarray(arr).reshape(()).astype(np.bool_).item())
+                _dbg_tm("read Const-attr (seq[1]) →", val)
+                return val
+    except Exception:
+        pass
+    return None
+
+
+def _missing_bool_value() -> "ir.Value":
+    return ir.Value(name="", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
+
+
+def inline_dropout_training_mode_constants_ir(graph) -> None:
+    """
+    Constant-only inlining for Dropout.training_mode:
+      - If training_mode is a constant False → drop it (make input #2 missing)
+      - If training_mode is Not(True)        → drop it (make input #2 missing)
+    This preserves dynamic (graph-input) cases: they are NOT inlined.
+    """
+    nodes, store = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+    changed = False
+    del_not_nodes: List[ir.Node] = []
+    del_not_names: Set[str] = set()
+    for idx, n in enumerate(nodes):
+        if n is None:
+            continue
+        if getattr(n, "op_type", "") != "Dropout":
+            continue
+        ins = _node_inputs(n)
+        if len(ins) < 3:
+            continue
+        tm = ins[2]
+        _dbg_tm(
+            "Dropout@",
+            idx,
+            "tm input:",
+            (tm if isinstance(tm, str) else _v_name(tm)),
+            "type:",
+            type(tm).__name__,
+        )
+        # Case A: training_mode itself constant False
+        val = _read_scalar_bool_from_value_or_constant(nodes, tm)
+        if val is not None and bool(val) is False:
+            miss = _missing_bool_value()
+            ins_new = list(ins)
+            ins_new[2] = miss
+            try:
+                _set_node_inputs(n, ins_new)
+                nodes[idx] = n
+            except Exception:
+                nodes[idx] = _rebuild_node_with_inputs(n, ins_new)
+            changed = True
+            continue
+        # Case B: training_mode is Not(True)
+        pidx = _find_producer_idx(nodes, tm)
+        if pidx is None:
+            continue
+        p = nodes[pidx]
+        if getattr(p, "op_type", "") != "Not":
+            continue
+        _dbg_tm("tm producer is Not @", pidx)
+        not_in = (_node_inputs(p) or [None])[0]
+        nv = _read_scalar_bool_from_value_or_constant(nodes, not_in)
+        if nv is not None and bool(nv) is True:
+            miss = _missing_bool_value()
+            ins_new = list(ins)
+            ins_new[2] = miss
+            old_not_out = _node_output(p)
+            _replace_everywhere(nodes, old_not_out, _v_name(old_not_out), miss)
+            _replace_in_graph_outputs(graph, old_not_out, _v_name(old_not_out), miss)
+            try:
+                _set_node_inputs(n, ins_new)
+                nodes[idx] = n
+            except Exception:
+                nodes[idx] = _rebuild_node_with_inputs(n, ins_new)
+            changed = True
+            del_not_nodes.append(p)
+            out_v = _node_output(p)
+            out_name = _v_name(out_v)
+            if out_name:
+                del_not_names.add(out_name)
+            try:
+                nodes[pidx] = None
+            except Exception:
+                pass
+        else:
+            _dbg_tm("Not input could not be proven True; nv=", nv)
+    if changed:
+        # Explicitly delete orphan Not producers we identified
+        # Remove any Not nodes whose outputs have no remaining consumers
+        if del_not_names:
+            still_needed: Set[str] = set()
+            for m in nodes:
+                if m is None:
+                    continue
+                for iv in _node_inputs(m):
+                    nm = _v_name(iv)
+                    if nm:
+                        still_needed.add(nm)
+            del_not_names = {nm for nm in del_not_names if nm not in still_needed}
+
+        new_nodes: List[ir.Node] = []
+        for m in nodes:
+            if m is None:
+                continue
+            out_names = {_v_name(ov) for ov in _node_outputs(m)}
+            if any(m is rem for rem in del_not_nodes) or (
+                del_not_names and (out_names & del_not_names)
+            ):
+                if TRN_DEBUG or os.getenv("JAX2ONNX_TM_DEBUG"):
+                    print("[tm-inline] removed orphan Not")
+                continue
+            new_nodes.append(m)
+        nodes = new_nodes
+        _set_nodes(store, nodes)
+
+
 # ---------------- Graph IO (for DCE/prune) ----------------
+
 
 def _graph_inputs_list(graph) -> List["ir.Value"]:
     for attr in ("inputs", "input"):
@@ -633,6 +1179,7 @@ def _graph_inputs_list(graph) -> List["ir.Value"]:
                 pass
     return []
 
+
 def _graph_outputs_list(graph) -> List["ir.Value"]:
     for attr in ("outputs", "output"):
         outs = getattr(graph, attr, None)
@@ -643,14 +1190,18 @@ def _graph_outputs_list(graph) -> List["ir.Value"]:
                 pass
     return []
 
+
 # ---------------- DCE ----------------
+
 
 def remove_dead_nodes_ir(graph) -> None:
     nodes, store = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     prod_obj, prod_name, _cbo, _cbn = _build_use_maps(nodes)
-    worklist: List["ir.Value"] = [v for v in _graph_outputs_list(graph) if v is not None]
+    worklist: List["ir.Value"] = [
+        v for v in _graph_outputs_list(graph) if v is not None
+    ]
     live_nodes: Set[int] = set()
     while worklist:
         v = worklist.pop()
@@ -673,14 +1224,15 @@ def remove_dead_nodes_ir(graph) -> None:
         print("[dce] removed", len(nodes) - len(new_nodes), "nodes:", dropped)
     _set_nodes(store, new_nodes)
 
+
 # ---------------- Prune unused graph inputs (top graph only) ----------------
+
 
 def prune_unused_graph_inputs_ir(graph) -> None:
     """
     Remove graph inputs that are not consumed by any node and are not graph outputs.
     (We do NOT run this on function bodies to avoid changing function signatures.)
     """
-    # Collect used names from node inputs and graph outputs
     nodes, _ = _get_node_seq_and_setter(graph)
     used: Set[str] = set()
     for n in nodes:
@@ -693,7 +1245,6 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         if nm:
             used.add(nm)
 
-    # Read inputs container
     for attr in ("inputs", "input"):
         arr = getattr(graph, attr, None)
         if arr is None:
@@ -706,7 +1257,6 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         removed = []
         for v in lst:
             nm = _v_name(v)
-            # Keep if used or unnamed (shouldn't happen) or empty name
             if nm and (nm in used):
                 keep.append(v)
             elif not nm:
@@ -718,79 +1268,17 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         try:
             setattr(graph, attr, keep)
         except Exception:
-            # fall back to in-place clear+extend if list-like
             try:
                 arr[:] = keep
             except Exception:
                 pass
-        break  # we set one of inputs/input; don't set both
+        break
 
-def fix_mismatched_reshape_shapes_ir(graph) -> None:
-    """
-    If a Reshape's shape input is a constant (Value or Constant node) with no '-1'
-    and its element-count product does not match the input tensor's numel (and the
-    input has a fully known numel), rewrite the FIRST target dim to -1 so ORT can
-    infer it at runtime. This is applied to top graphs and function bodies.
-    """
-    nodes, store = _get_node_seq_and_setter(graph)
-    if not nodes:
-        return
-    changed = False
-    for i, n in enumerate(nodes):
-        if getattr(n, "op_type", "") != "Reshape":
-            continue
-        ins = _node_inputs(n)
-        if len(ins) < 2:
-            continue
-        data_v, shape_v = ins[0], ins[1]
-        in_numel = _numel_of_shape_tuple(_shape_tuple(data_v))
-        if in_numel is None:
-            continue  # cannot prove mismatch safely
-        # Try to read shape as numpy from value or constant node
-        shp_arr = _try_read_const_numpy_from_value(shape_v)
-        wrote_v = False
-        wrote_c = False
-        prod_idx = None
-        if shp_arr is None:
-            prod_idx = _find_producer_idx(nodes, shape_v)
-            if prod_idx is not None:
-                shp_arr = _try_read_const_numpy_from_constant_node(nodes[prod_idx])
-        if shp_arr is None:
-            continue
-        try:
-            dims = [int(x) for x in np.asarray(shp_arr).flatten().tolist()]
-        except Exception:
-            continue
-        # Skip if already has '-1'
-        if any(int(d) == -1 for d in dims):
-            continue
-        # Compute product of target dims
-        try:
-            tgt_prod = 1
-            for d in dims:
-                tgt_prod *= int(d)
-        except Exception:
-            continue
-        if tgt_prod == in_numel:
-            continue  # already consistent
-        # Rewrite first dim to -1 and write back
-        if len(dims) >= 1:
-            dims[0] = -1
-            new_arr = np.asarray(dims, dtype=np.int64)
-            # Try value writeback
-            if _try_write_const_numpy_to_value(shape_v, new_arr):
-                wrote_v = True
-            # Or constant node attribute writeback
-            elif prod_idx is not None:
-                wrote_c = _try_write_const_numpy_to_constant_node(nodes[prod_idx], new_arr)
-            if wrote_v or wrote_c:
-                changed = True
-    if changed:
-        _set_nodes(store, nodes)
 
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
+
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     # Top graph
@@ -799,8 +1287,9 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         if gr is not None:
             remove_redundant_transpose_pairs_ir(gr)
             remove_redundant_reshape_pairs_ir(gr)
-            # Do not inline/remove Dropout.training_mode in IR:
-            # tests expect 3 inputs (and Not->Dropout in call-params).
+            # Constant-only: inline training_mode when provably false / Not(True)
+            inline_dropout_training_mode_constants_ir(gr)
+            propagate_unary_shapes_ir(gr)
             remove_dead_nodes_ir(gr)
             prune_unused_graph_inputs_ir(gr)
     except Exception as _e:
@@ -808,7 +1297,9 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
 
     # Function bodies – do NOT prune function inputs (signature!)
     try:
-        funcs = getattr(ir_model, "functions", None) or getattr(ir_model, "_functions", None)
+        funcs = getattr(ir_model, "functions", None) or getattr(
+            ir_model, "_functions", None
+        )
         values = funcs.values() if isinstance(funcs, dict) else funcs
         for fn in values:
             fgr = getattr(fn, "graph", None)
@@ -816,12 +1307,12 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
                 try:
                     remove_redundant_transpose_pairs_ir(fgr)
                     remove_redundant_reshape_pairs_ir(fgr)
-                    # Do not inline/remove Dropout.training_mode in function bodies either.
+                    inline_dropout_training_mode_constants_ir(fgr)
+                    propagate_unary_shapes_ir(fgr)
                     remove_dead_nodes_ir(fgr)
                 except Exception as _fe:
                     _dbg("optimize_graph: function pass skipped:", _fe)
     except Exception as _e:
         _dbg("optimize_graph: functions traversal skipped:", _e)
 
-    return ir_model
     return ir_model

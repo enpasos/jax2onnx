@@ -186,5 +186,3 @@ class IRBuilder:
             opset_imports={"": self.opset},
         )
         return ir.Model(graph, ir_version=ir_version)
- 
- 

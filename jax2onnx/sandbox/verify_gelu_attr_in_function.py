@@ -5,6 +5,7 @@ import onnx
 OUT_DIR = "tmp_verify_gelu"
 os.makedirs(OUT_DIR, exist_ok=True)
 
+
 # ---- robust STRING attribute maker (works across ir variants) ---------------
 def make_string_attr(name: str, value: str):
     Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
@@ -23,10 +24,15 @@ def make_string_attr(name: str, value: str):
     # Last resort: some builds accept (name, value)
     return Attr(name, value)
 
+
 def build_function_model(func_default_opset: int | None, out_name: str) -> str:
     # --- Function body: Gelu(approximate="tanh") over (3,)
-    fx = ir.Value(name="fx", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,)))
-    fy = ir.Value(name="fy", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,)))
+    fx = ir.Value(
+        name="fx", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
+    fy = ir.Value(
+        name="fy", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
+    )
     gelu_fn = ir.Node(
         op_type="Gelu",
         domain="",
@@ -71,6 +77,7 @@ def build_function_model(func_default_opset: int | None, out_name: str) -> str:
     ir.save(model, path)
     return path
 
+
 def dump(path: str):
     print(f"\n=== Inspect: {path} ===")
     m = onnx.load_model(path)
@@ -92,18 +99,29 @@ def dump(path: str):
                 attrs = {}
                 for a in n.attribute:
                     if a.type == onnx.AttributeProto.AttributeType.STRING:
-                        val = a.s.decode() if isinstance(a.s, (bytes, bytearray)) else str(a.s)
+                        val = (
+                            a.s.decode()
+                            if isinstance(a.s, (bytes, bytearray))
+                            else str(a.s)
+                        )
                         attrs[a.name] = val
                 print("  Gelu node attrs:", attrs)
 
+
 # A: function graph WITHOUT default domain opset
-pA = build_function_model(func_default_opset=None, out_name="func_gelu_no_func_opset.onnx")
+pA = build_function_model(
+    func_default_opset=None, out_name="func_gelu_no_func_opset.onnx"
+)
 dump(pA)
 
 # B: function graph WITH default domain opset 21
-pB = build_function_model(func_default_opset=21, out_name="func_gelu_func_opset_21.onnx")
+pB = build_function_model(
+    func_default_opset=21, out_name="func_gelu_func_opset_21.onnx"
+)
 dump(pB)
 
 print("\nInterpretation:")
 print(" - If A shows Gelu with attrs {}, and B shows {'approximate': 'tanh'},")
-print("   the attribute was dropped due to missing default-domain opset on the function graph.")
+print(
+    "   the attribute was dropped due to missing default-domain opset on the function graph."
+)

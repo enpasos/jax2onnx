@@ -46,8 +46,12 @@ custom_tanh_function = ir.Function(
 # === Step 3: Construct the Main Graph and Model ===
 print("Building the main graph that calls 'CustomTanh'...")
 shape = (3,)
-x = ir.Value(name="main_x", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
-y = ir.Value(name="main_y", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
+x = ir.Value(
+    name="main_x", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT)
+)
+y = ir.Value(
+    name="main_y", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT)
+)
 
 # Create a node that calls our custom function
 # Note the custom domain specified here.

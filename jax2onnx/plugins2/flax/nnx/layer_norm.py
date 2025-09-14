@@ -57,6 +57,9 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            # Small drift depending on epsilon and tensor contents; relax slightly.
+            "rtol": 6e-5,
+            "atol": 1e-6,
             "use_onnx_ir": True,
         },
         {

@@ -26,7 +26,7 @@ EG2(
   [
     "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
   ],
-  symbols={"B": None},   # unify B across the path
+  symbols={"B": None},   # bind B to the first actual dimension we encounter
   must_absent=["Not"],   # fail if Not is anywhere in the model
   no_unused_inputs=True, # fail if dangling graph inputs remain (e.g., 'deterministic')
 )
@@ -94,7 +94,7 @@ Examples:
 
 ## Extra arguments
 
-* `symbols={"B": None}` — declare symbols in the path; they’ll bind to actual sizes when they are known.
+* `symbols={"B": None}` — declare symbols in the path; they bind to the first concrete size (int or symbol) encountered for that dimension.
 * `must_absent=["Not", "Identity"]` — fail if any of these ops appear.
 * `no_unused_inputs=True` — fail if the **top graph** contains dangling inputs.
 * `mode="all" | "any"` — all specs must match (default), or at least one.

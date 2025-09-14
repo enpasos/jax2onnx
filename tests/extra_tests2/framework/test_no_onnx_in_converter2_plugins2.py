@@ -88,6 +88,5 @@ def test_no_onnx_imports_in_converter2_and_plugins2():
         detailed = "\n".join(msg_lines)
         pytest.fail(
             "onnx imports found in converter2/plugins2 modules.\n"
-            "These packages must be IR-only and must not import 'onnx'.\n"
-            + detailed
+            "These packages must be IR-only and must not import 'onnx'.\n" + detailed
         )

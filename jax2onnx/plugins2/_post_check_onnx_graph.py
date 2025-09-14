@@ -66,7 +66,7 @@ def expect_graph(patterns: Sequence[str], mode: str = "any", match: str = "conta
     require_all = mode == "all"
 
     def _check(model) -> bool:
-        onnx = importlib.import_module("onnx")
+        importlib.import_module("onnx")
         paths = _op_paths(model)
         # Fast path for the common 'contains' / 'prefix' / 'suffix' modes
         if match != "exact":

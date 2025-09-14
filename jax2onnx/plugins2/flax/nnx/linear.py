@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     class _HasNodeAttrs(Protocol):
         def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None: ...
 
+
 def _attr_i(name: str, val: int):
     """Robust INT attribute across onnx_ir variants."""
     Attr = getattr(ir, "Attr", None)
@@ -49,6 +50,7 @@ def _attr_i(name: str, val: int):
         return Attr(name, AttrType.INT, ival)
     return Attr(name, ival)
 
+
 def _attr_t(name: str, tensor_obj):
     """Robust TENSOR attribute for Constant.value across onnx_ir variants."""
     Attr = getattr(ir, "Attr", None)
@@ -60,6 +62,7 @@ def _attr_t(name: str, tensor_obj):
     if AttrType is not None:
         return Attr(name, AttrType.TENSOR, tensor_obj)
     return Attr(name, tensor_obj)
+
 
 def _const_i64(ctx, data, *, name: str):
     """
@@ -408,7 +411,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
 
             if all_batch_static:
-                final_vals   = [int(d) for d in batch_dim_vals] + [int(out_features)]
+                final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
                 final_shape_c = _const_i64(ctx, final_vals, name="final_shape_c")
 
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
@@ -446,9 +449,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Shape"),
                     )
                 )
-                starts   = _const_i64(ctx, [0],                  name="slice_starts")
-                ends     = _const_i64(ctx, [len(x_shape) - 1],   name="slice_ends")
-                axes_val = _const_i64(ctx, [0],                  name="slice_axes")
+                starts = _const_i64(ctx, [0], name="slice_starts")
+                ends = _const_i64(ctx, [len(x_shape) - 1], name="slice_ends")
+                axes_val = _const_i64(ctx, [0], name="slice_axes")
                 # Missing output placeholder for Slice → define it before the node.
                 batch_dims = ir.Value(
                     name=ctx.fresh_name("batch_dims"),
@@ -550,6 +553,8 @@ def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
     if use_bias and bias is not None:
         y = y + bias
     return y
+
+
 @LinearPlugin._PRIM.def_impl
 def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)

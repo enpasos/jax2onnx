@@ -51,8 +51,12 @@ custom_leaky_relu_function = ir.Function(
 # === Step 3: Construct the Main Graph and Model ===
 print("Building the main graph that calls 'CustomLeakyRelu' with a specific alpha...")
 shape = (3, 4)
-x = ir.Value(name="main_x", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
-y = ir.Value(name="main_y", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT))
+x = ir.Value(
+    name="main_x", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT)
+)
+y = ir.Value(
+    name="main_y", shape=ir.Shape(shape), type=ir.TensorType(ir.DataType.FLOAT)
+)
 
 # Create a node that calls our custom function.
 # We provide a concrete value for the 'alpha' attribute here.

@@ -37,7 +37,8 @@ if TYPE_CHECKING:
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "none"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "none"),
         },
         {
             "testcase": "gelu_1",
@@ -45,37 +46,41 @@ if TYPE_CHECKING:
             "input_shapes": [(1, 10)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "none"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "none"),
         },
         {
             "testcase": "gelu_2",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [(1,)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "tanh"),
         },
         {
             "testcase": "gelu_3",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [("B", 10)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "tanh"),
         },
-        
         {
             "testcase": "gelu_4",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [(1,)],
             "use_onnx_ir": True,
             # default path (no flag) must be approximate=True => "tanh"
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "tanh"),
         },
         {
             "testcase": "gelu_5",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [("B", 10)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m) and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
+            and _approx_attr_equals(m, "tanh"),
         },
     ],
 )
@@ -140,8 +145,6 @@ class GeluPlugin(PrimitiveLeafPlugin):
         )
         ctx.add_node(gelu_node)
 
-
-
         # Re-assert for value_info readability
         _stamp_type_and_shape(y_val, y_meta)
         _add_value_info(ctx, y_val)
@@ -199,7 +202,9 @@ def _approx_attr_equals(model, expected: str) -> bool:
         s = getattr(a, "s", None)
         if s:
             try:
-                sval = s.decode("utf-8") if isinstance(s, (bytes, bytearray)) else str(s)
+                sval = (
+                    s.decode("utf-8") if isinstance(s, (bytes, bytearray)) else str(s)
+                )
                 return sval == expected
             except Exception:
                 pass
@@ -208,7 +213,11 @@ def _approx_attr_equals(model, expected: str) -> bool:
         if strs and len(strs) > 0:
             try:
                 sval = strs[0]
-                sval = sval.decode("utf-8") if isinstance(sval, (bytes, bytearray)) else str(sval)
+                sval = (
+                    sval.decode("utf-8")
+                    if isinstance(sval, (bytes, bytearray))
+                    else str(sval)
+                )
                 return sval == expected
             except Exception:
                 pass

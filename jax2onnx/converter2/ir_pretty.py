@@ -1,19 +1,21 @@
 # jax2onnx/utils/ir_pretty.py
 from __future__ import annotations
 
-from typing import Iterable, List, Sequence, Optional, Any
+from typing import Iterable, List, Sequence, Any
 import numpy as np
 
 import onnx_ir as ir
 
 from jax2onnx.converter2.function_scope import FunctionDef  # noqa: F401
- 
+
 
 # ------------------------------ helpers ------------------------------
+
 
 def _indent(lines: Iterable[str], n: int = 2) -> List[str]:
     pad = " " * n
     return [pad + s for s in lines]
+
 
 def _dtype_str(v_or_type: Any) -> str:
     # ir.TensorType(elem_type=ir.DataType.FLOAT) or elem_type directly
@@ -26,6 +28,7 @@ def _dtype_str(v_or_type: Any) -> str:
     except Exception:
         return "tensor(?)"
 
+
 def _shape_str(v_or_shape: Any) -> str:
     try:
         shp = v_or_shape
@@ -37,24 +40,29 @@ def _shape_str(v_or_shape: Any) -> str:
             dims = shp
         if dims is None:
             return "?"
+
         def _fmt(d):
             if isinstance(d, (int, np.integer)):
                 return str(int(d))
             s = str(d) if d is not None else ""
             return s if s else "?"
+
         return "×".join(_fmt(d) for d in dims)
     except Exception:
         return "?"
 
+
 def _value_meta(v: Any) -> str:
     t = getattr(v, "type", None)
     return f"{_dtype_str(t)} [{_shape_str(v)}]"
+
 
 def _vname(x: Any) -> str:
     # Accept either ir.Value or plain string names
     if isinstance(x, str):
         return x
     return getattr(x, "name", "")
+
 
 def _short_tensor(val: Any) -> str:
     """
@@ -79,6 +87,7 @@ def _short_tensor(val: Any) -> str:
     s = str(val)
     return s if len(s) <= 64 else (s[:61] + "...")
 
+
 def _attr_kv_lines(attrs: Any) -> List[str]:
     """
     ir.Node.attributes may be:
@@ -102,7 +111,9 @@ def _attr_kv_lines(attrs: Any) -> List[str]:
                 lines.append(f"{k}: {val}")
     return lines
 
+
 # ----------------------------- IR model ------------------------------
+
 
 def format_ir_model(m: ir.Model, *, show_initializers: bool = True) -> str:
     """
@@ -111,7 +122,9 @@ def format_ir_model(m: ir.Model, *, show_initializers: bool = True) -> str:
     """
     g = m.graph
     out: List[str] = []
-    out.append(f"IR-Model name={getattr(g, 'name', '<unnamed>')} ir={getattr(m, 'ir_version', '')} opset={getattr(m, 'opset_imports', {})}")
+    out.append(
+        f"IR-Model name={getattr(g, 'name', '<unnamed>')} ir={getattr(m, 'ir_version', '')} opset={getattr(m, 'opset_imports', {})}"
+    )
     out.append("Graph:")
 
     # Inputs
@@ -162,7 +175,9 @@ def format_ir_model(m: ir.Model, *, show_initializers: bool = True) -> str:
             out.extend(_indent(["attributes:"] + _indent(attr_lines), n=6))
     return "\n".join(out)
 
+
 # ------------------------ converter2 FunctionDef ----------------------
+
 
 def format_function_defs(funcs: Sequence["FunctionDef"]) -> str:
     """
@@ -191,8 +206,12 @@ def format_function_defs(funcs: Sequence["FunctionDef"]) -> str:
         for i, n in enumerate(nodes):
             nm = getattr(n, "name", "") or ""
             dom = getattr(n, "domain", "") or ""
-            ins = ", ".join(getattr(v, "name", "") for v in (getattr(n, "inputs", []) or []))
-            outs2 = ", ".join(getattr(v, "name", "") for v in (getattr(n, "outputs", []) or []))
+            ins = ", ".join(
+                getattr(v, "name", "") for v in (getattr(n, "inputs", []) or [])
+            )
+            outs2 = ", ".join(
+                getattr(v, "name", "") for v in (getattr(n, "outputs", []) or [])
+            )
             out.append(f"    [{i}] {n.op_type}{'(' + dom + ')' if dom else ''}  {nm}")
             out.extend(_indent([f"inputs:  {ins}", f"outputs: {outs2}"]))
             attr_lines = _attr_kv_lines(getattr(n, "attributes", None))
@@ -212,11 +231,14 @@ def format_function_defs(funcs: Sequence["FunctionDef"]) -> str:
         out.append("")  # blank line between functions
     return "\n".join(out).rstrip()
 
+
 # ------------------------------ convenience ------------------------------
+
 
 def print_ir_model(m: ir.Model, *, show_initializers: bool = True) -> None:
     str = format_ir_model(m, show_initializers=show_initializers)
     print(str)
 
-def print_function_defs(funcs: Sequence[FunctionDef]) -> None:  
+
+def print_function_defs(funcs: Sequence[FunctionDef]) -> None:
     print(format_function_defs(funcs))

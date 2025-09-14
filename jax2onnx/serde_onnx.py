@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import onnx
 import onnx_ir as ir
-import tempfile, os
+import tempfile
+import os
+
 
 def ir_to_onnx(ir_model: "ir.Model") -> onnx.ModelProto:
     """

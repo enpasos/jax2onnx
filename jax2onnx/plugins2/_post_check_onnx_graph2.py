@@ -1,20 +1,23 @@
 # jax2onnx/plugins2/_post_check_onnx_graph2.py
 from __future__ import annotations
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, Set
+
+ShapeDim = Optional[Union[int, str]]
 
 # No onnx imports here by policy — we work via duck-typing only.
 
 SpecItem = Union[
-    str,                                         # "A[:shape] -> B[:shape] -> C[:shape]"
-    Tuple[str, Dict[str, Any]],                  # ("path", { extra predicates })
+    str,  # "A[:shape] -> B[:shape] -> C[:shape]"
+    Tuple[str, Dict[str, Any]],  # ("path", { extra predicates })
 ]
+
 
 def expect_graph2(
     specs: Sequence[SpecItem],
     *,
     symbols: Optional[Dict[str, Optional[int]]] = None,
-    mode: str = "all",               # "all" (default) or "any"
+    mode: str = "all",  # "all" (default) or "any"
     must_absent: Optional[Iterable[str]] = None,
     no_unused_inputs: bool = False,
     search_functions: bool = False,  # default: check TOP graph only
@@ -51,12 +54,21 @@ def expect_graph2(
     callable
         A predicate you can use in tests:  assert expect_graph2([...])(model)
     """
+
     def _run(model) -> bool:
         gv = _GraphView(
             model,
             search_functions=search_functions,
             passthrough_ops=set(passthrough_ops or ())
-            or {"Reshape", "Identity", "Cast", "CastLike", "Squeeze", "Unsqueeze", "Flatten"},
+            or {
+                "Reshape",
+                "Identity",
+                "Cast",
+                "CastLike",
+                "Squeeze",
+                "Unsqueeze",
+                "Flatten",
+            },
         )
         ok = True
         # must_absent
@@ -99,12 +111,14 @@ def expect_graph2(
             for line in gv.errors:
                 print("  -", line)
         return ok
+
     return _run
 
 
 # ---------------- Implementation ----------------
 
 _SHAPE_SEP = re.compile(r"\s*[x×]\s*")
+
 
 def _parse_shape(s: str) -> Tuple:
     """
@@ -137,6 +151,7 @@ def _parse_shape(s: str) -> Tuple:
             dims.append(p)  # treat as symbol
     return tuple(dims)
 
+
 class _GraphView:
     def __init__(self, model, *, search_functions: bool, passthrough_ops: set[str]):
         self.model = model
@@ -152,9 +167,12 @@ class _GraphView:
                 self._add_graph(f"fn:{name}", g)
 
         # Build shape indices (name -> tuple dims) for each graph we see (ONNX only).
-        self._shape_index: Dict[str, Dict[str, Tuple]] = {}
+        self._shape_index: Dict[str, Dict[str, Tuple[ShapeDim, ...]]] = {}
+        # Live-node indices (reachable from graph outputs) for each graph.
+        self._live_index: Dict[str, Set[int]] = {}
         for gname, g in self.graphs:
             self._shape_index[gname] = _build_shape_index(g)
+            self._live_index[gname] = _compute_live_node_indices(g)
 
     def _add_graph(self, name: str, g: Any):
         if g is not None:
@@ -167,17 +185,25 @@ class _GraphView:
 
     def count_op(self, op_type: str) -> int:
         c = 0
-        for _, g in self.graphs:
-            for n in _nodes(g):
-                if n.op_type == op_type:
+        for gname, g in self.graphs:
+            nodes = _nodes(g)
+            live = self._live_index.get(gname, set())
+            for idx, n in enumerate(nodes):
+                if live and idx not in live:
+                    continue
+                if getattr(n, "op_type", "") == op_type:
                     c += 1
         return c
 
     def list_ops(self, op_type: str) -> List[Tuple[str, int]]:
         out = []
         for gname, g in self.graphs:
-            for idx, n in enumerate(_nodes(g)):
-                if n.op_type == op_type:
+            nodes = _nodes(g)
+            live = self._live_index.get(gname, set())
+            for idx, n in enumerate(nodes):
+                if live and idx not in live:
+                    continue
+                if getattr(n, "op_type", "") == op_type:
                     out.append((gname, idx))
         return out
 
@@ -207,9 +233,9 @@ class _GraphView:
         self,
         path: str,
         *,
-        symbols: Dict[str, Optional[int]],
-        attrs: Dict[str, Any] = None,
-        counts: Dict[str, int] = None,
+        symbols: Dict[str, ShapeDim],
+        attrs: Optional[Dict[str, Any]] = None,
+        counts: Optional[Dict[str, int]] = None,
     ) -> bool:
         attrs = attrs or {}
         counts = counts or {}
@@ -228,7 +254,12 @@ class _GraphView:
 
         for gname, g in self.graphs:
             ok, why = _match_path_on_graph(
-                g, steps, dict(symbols), self.passthrough_ops, gname, self._shape_index[gname]
+                g,
+                steps,
+                dict(symbols),
+                self.passthrough_ops,
+                gname,
+                self._shape_index[gname],
             )
             if ok:
                 # extra: counts
@@ -261,8 +292,33 @@ class _GraphView:
 
 # ---------- helpers for IR/ONNX without importing onnx ----------
 
+
+def _node_has_attrs(node, reqs: Dict[str, Any]) -> bool:
+    attrs = getattr(node, "attributes", None)
+    if attrs is None:
+        attrs = getattr(node, "attribute", None)
+    attr_map = {}
+    if isinstance(attrs, dict):
+        attr_map = attrs
+    elif isinstance(attrs, (list, tuple)):
+        for a in attrs:
+            name = getattr(a, "name", None)
+            if name:
+                val = getattr(a, "value", None)
+                if val is None and hasattr(a, "ints"):
+                    val = tuple(getattr(a, "ints"))
+                attr_map[name] = val
+    else:
+        attr_map = getattr(node, "_attributes", {}) or {}
+    for key, expected in (reqs or {}).items():
+        if attr_map.get(key) != expected:
+            return False
+    return True
+
+
 def _top_graph(model):
     return getattr(model, "graph", None)
+
 
 def _function_graphs(model):
     """
@@ -271,11 +327,16 @@ def _function_graphs(model):
     - ONNX: model.functions (list of FunctionProto) — we return the function object
             directly; _nodes() can read 'node' from it; shapes may be unavailable.
     """
-    funcs = getattr(model, "functions", None) or getattr(model, "_functions", None) or []
+    funcs = (
+        getattr(model, "functions", None) or getattr(model, "_functions", None) or []
+    )
     if isinstance(funcs, dict):
         vals = funcs.values()
         for f in vals:
-            yield (f"{getattr(f,'domain','')}:{getattr(f,'name','')}", getattr(f, "graph", None))
+            yield (
+                f"{getattr(f,'domain','')}:{getattr(f,'name','')}",
+                getattr(f, "graph", None),
+            )
     else:
         try:
             for f in funcs:
@@ -285,9 +346,11 @@ def _function_graphs(model):
         except Exception:
             return
 
+
 def _nodes(g):
     # onnx_ir graphs may use .nodes/_nodes; ONNX uses .node
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
+
 
 def _graph_inputs(g):
     arr = getattr(g, "inputs", getattr(g, "input", []))
@@ -296,6 +359,7 @@ def _graph_inputs(g):
     except Exception:
         return []
 
+
 def _graph_outputs(g):
     arr = getattr(g, "outputs", getattr(g, "output", []))
     try:
@@ -303,14 +367,18 @@ def _graph_outputs(g):
     except Exception:
         return []
 
+
 def _inputs_of(n):
     return getattr(n, "inputs", getattr(n, "input", []))
+
 
 def _outputs_of(n):
     return getattr(n, "outputs", getattr(n, "output", []))
 
+
 def _value_name(v) -> str:
     return getattr(v, "name", v if isinstance(v, str) else "")
+
 
 def _shape_of_value(v) -> Optional[Tuple]:
     """onnx_ir Value -> shape tuple; ONNX will use _shape_of_output via index."""
@@ -332,6 +400,7 @@ def _shape_of_value(v) -> Optional[Tuple]:
 
 
 # ---------- ONNX shape index (duck-typed) ----------
+
 
 def _build_shape_index(g) -> Dict[str, Tuple]:
     """
@@ -356,6 +425,7 @@ def _build_shape_index(g) -> Dict[str, Tuple]:
         except Exception:
             continue
     return idx
+
 
 def _shape_from_value_info(vi) -> Optional[Tuple]:
     """
@@ -395,6 +465,7 @@ def _shape_from_value_info(vi) -> Optional[Tuple]:
     except Exception:
         return None
 
+
 def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
     """
     v can be a name (ONNX) or a Value (onnx_ir).
@@ -409,7 +480,10 @@ def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
 
 # ---------- Strict unification ----------
 
-def _unify_shape(expected: Tuple, actual: Optional[Tuple], env: Dict[str, Optional[int]]) -> bool:
+
+def _unify_shape(
+    expected: Tuple, actual: Optional[Tuple], env: Dict[str, Optional[int]]
+) -> bool:
     """
     Strict unification:
       - If expected is an int: actual must be the same int (not None).
@@ -431,13 +505,31 @@ def _unify_shape(expected: Tuple, actual: Optional[Tuple], env: Dict[str, Option
             if a != e:
                 return False
         elif isinstance(e, str):
-            if not isinstance(a, int):
+            aval = None
+            if isinstance(a, int):
+                aval = a
+            elif isinstance(a, str):
+                sval = a.strip()
+                if sval in ("", "None", "?", "unk", "unknown"):
+                    aval = None
+                else:
+                    aval = sval
+            else:
+                try:
+                    aval = int(a)
+                except Exception:
+                    sval = str(a).strip() if a is not None else None
+                    if sval in ("", "None", "?", "unk", "unknown"):
+                        aval = None
+                    else:
+                        aval = sval
+            if aval is None:
                 return False
             bound = env.get(e)
             if bound is None:
-                env[e] = a
+                env[e] = aval
             else:
-                if a != bound:
+                if bound != aval:
                     return False
         else:
             return False
@@ -445,6 +537,7 @@ def _unify_shape(expected: Tuple, actual: Optional[Tuple], env: Dict[str, Option
 
 
 # ---------- Core matching ----------
+
 
 def _match_path_on_graph(
     g,
@@ -466,7 +559,10 @@ def _match_path_on_graph(
     if not starts:
         present = sorted(set(n.op_type for n in nodes))
         show = ", ".join(present[:10])
-        return False, f"[{gname}] missing start op '{start_op}' (ops present: {show}{'…' if len(present)>10 else ''})"
+        return (
+            False,
+            f"[{gname}] missing start op '{start_op}' (ops present: {show}{'…' if len(present)>10 else ''})",
+        )
     reason = "start mismatch"
     for i0 in starts:
         env_copy = dict(env)
@@ -476,6 +572,7 @@ def _match_path_on_graph(
             return True, ""
         reason = r
     return False, reason
+
 
 def _path_from(
     nodes,
@@ -498,14 +595,20 @@ def _path_from(
         # check ONLY first output (main data tensor)
         a0 = _shape_of_output(outs[0], shape_index)
         if not _unify_shape(sh, a0, env):
-            return False, f"shape mismatch after {nodes[i].op_type}: expected {sh}, actual_first={a0}"
+            return (
+                False,
+                f"shape mismatch after {nodes[i].op_type}: expected {sh}, actual_first={a0}",
+            )
 
     # walk adjacency by “shares an output → input”; allow passthrough ops
     for s in range(1, len(steps)):
         want_op, want_shape = steps[s]
         next_idx, trace = _walk_to_op(nodes, i, want_op, passthrough_ops)
         if next_idx is None:
-            return False, f"could not reach '{want_op}' from '{nodes[i].op_type}' (next chain: {trace})"
+            return (
+                False,
+                f"could not reach '{want_op}' from '{nodes[i].op_type}' (next chain: {trace})",
+            )
         if want_shape is not None:
             outs = _outputs_of(nodes[next_idx])
             if not outs:
@@ -513,9 +616,13 @@ def _path_from(
             # check ONLY first output (main data tensor)
             a0 = _shape_of_output(outs[0], shape_index)
             if not _unify_shape(want_shape, a0, env):
-                return False, f"shape mismatch after {nodes[next_idx].op_type}: expected {want_shape}, actual_first={a0}"
+                return (
+                    False,
+                    f"shape mismatch after {nodes[next_idx].op_type}: expected {want_shape}, actual_first={a0}",
+                )
         i = next_idx
     return True, ""
+
 
 def _unique_successor(nodes, i: int) -> Optional[int]:
     outs = _outputs_of(nodes[i])
@@ -529,7 +636,10 @@ def _unique_successor(nodes, i: int) -> Optional[int]:
             break
     return succ
 
-def _walk_to_op(nodes, i: int, target_op: str, passthrough_ops: set[str]) -> Tuple[Optional[int], List[str]]:
+
+def _walk_to_op(
+    nodes, i: int, target_op: str, passthrough_ops: set[str]
+) -> Tuple[Optional[int], List[str]]:
     """
     Starting from node index i, walk forward along data edges, skipping any number
     of 'passthrough' ops, until a node with op_type == target_op is found.
@@ -554,3 +664,52 @@ def _walk_to_op(nodes, i: int, target_op: str, passthrough_ops: set[str]) -> Tup
         # hit a different non-passthrough node -> stop
         break
     return None, trace
+
+
+# ---------- Liveness (reachable-from-outputs) ----------
+
+
+def _compute_live_node_indices(g) -> Set[int]:
+    """
+    Compute the set of node indices reachable from graph outputs by walking
+    backwards along producer edges (name-based). Works for ONNX and onnx_ir.
+    """
+    nodes = _nodes(g)
+    if not nodes:
+        return set()
+    # Build name -> producer index map
+    prod_by_name: Dict[str, int] = {}
+    for idx, n in enumerate(nodes):
+        for out_name in _outputs_of(n):
+            nm = _value_name(out_name)
+            if nm:
+                prod_by_name[nm] = idx
+    # Seed with graph outputs (names)
+    frontier: List[str] = [_value_name(v) for v in _graph_outputs(g) if _value_name(v)]
+    live_nodes: Set[int] = set()
+    visited_tensors: Set[str] = set()
+    steps = 0
+    while frontier and steps < 100000:
+        steps += 1
+        name = frontier.pop()
+        if not name or name in visited_tensors:
+            continue
+        visited_tensors.add(name)
+        pidx = prod_by_name.get(name)
+        if pidx is None:
+            continue
+        if pidx in live_nodes:
+            continue
+        live_nodes.add(pidx)
+        # enqueue this producer's *data-flow* input tensor names
+        # Special-case known ops with control-like inputs (e.g., Dropout.training_mode at idx 2)
+        n = nodes[pidx]
+        ins = list(_inputs_of(n))
+        if getattr(n, "op_type", "") == "Dropout":
+            # Follow only data input (0) and ratio (1) if present; skip training_mode (2)
+            ins = ins[:2]
+        for iv in ins:
+            ivn = _value_name(iv)
+            if ivn:
+                frontier.append(ivn)
+    return live_nodes

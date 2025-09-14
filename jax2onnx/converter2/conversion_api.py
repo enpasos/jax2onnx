@@ -39,6 +39,7 @@ _ORT_SAFE_IR_VERSION = 10
 # Helpers
 # ---------------------------
 
+
 def _np_float_dtype(enable_double_precision: bool):
     return np.float64 if enable_double_precision else np.float32
 
@@ -106,6 +107,7 @@ def _as_sds_list(
 # Minimal IR Build Context facade (for plugins)
 # ---------------------------
 
+
 class _IRBuildContext:
     def __init__(self, *, opset: int, default_float_dtype: np.dtype):
         self.opset = opset
@@ -159,7 +161,9 @@ class _IRBuildContext:
             raise TypeError(f"Unsupported var type: {type(var)}")
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))),
+            type=ir.TensorType(
+                _to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))
+            ),
             shape=_to_ir_shape(getattr(aval, "shape", ())),
         )
         self._var2val[var] = v
@@ -345,12 +349,14 @@ def to_onnx(
                 )
                 fstore[key] = fn_ir
         elif isinstance(fstore, list):
+
             def _fid(f):
                 return (
                     getattr(f, "domain", "") or "",
                     getattr(f, "name", "") or "",
                     getattr(f, "overload", "") or "",
                 )
+
             existing = {_fid(f) for f in fstore}
             for fn_ir in ir_funcs:
                 if _fid(fn_ir) not in existing:
@@ -359,7 +365,9 @@ def to_onnx(
             ir_model.functions = list(ir_funcs)
 
         # Ensure model-level opset imports cover default "" and each function domain
-        model_imports: Dict[str, int] = dict(getattr(ir_model, "opset_imports", {}) or {})
+        model_imports: Dict[str, int] = dict(
+            getattr(ir_model, "opset_imports", {}) or {}
+        )
         if "" not in model_imports:
             try:
                 default_opset = int(getattr(getattr(ctx, "builder", None), "opset", 21))
@@ -383,6 +391,7 @@ def to_onnx(
         optimize_graph(ir_model)
     except Exception as _e:
         import logging as _logging
+
         _logging.getLogger("jax2onnx.converter2.ir_optimizations").debug(
             "optimize_graph skipped: %s", _e
         )
@@ -401,7 +410,9 @@ def to_onnx(
             return Attr(name, AttrType.INT, ival)
         return Attr(name, ival)
 
-    def _apply_ir_attr_overrides_to_graph(gr: "ir.Graph", overrides: dict[str, dict[str, object]]):
+    def _apply_ir_attr_overrides_to_graph(
+        gr: "ir.Graph", overrides: dict[str, dict[str, object]]
+    ):
         if not overrides or gr is None:
             return
         nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
@@ -422,6 +433,7 @@ def to_onnx(
             except Exception:
                 try:
                     import numpy as _np
+
                     attr_obj = ir.Attr(k, ir.tensor(_np.asarray(v)))
                 except Exception:
                     return
@@ -438,7 +450,11 @@ def to_onnx(
                 except Exception:
                     pass
                 continue
-            attr_list = current if isinstance(current, list) else getattr(n, "_attributes", None)
+            attr_list = (
+                current
+                if isinstance(current, list)
+                else getattr(n, "_attributes", None)
+            )
             if isinstance(attr_list, list):
                 for k_attr, v_attr in (kv or {}).items():
                     _mutate_attr_list(attr_list, k_attr, v_attr)
@@ -461,14 +477,22 @@ def to_onnx(
                 pass
 
     # Apply overrides/fixes to top graph
-    _apply_ir_attr_overrides_to_graph(ir_model.graph, getattr(ctx, "_attr_overrides", {}))
+    _apply_ir_attr_overrides_to_graph(
+        ir_model.graph, getattr(ctx, "_attr_overrides", {})
+    )
     _fix_concat_axis_in_graph(ir_model.graph)
     # …and to all function bodies (if any)
     _func_container = getattr(ir_model, "functions", None) or []
-    _func_values = (_func_container.values() if isinstance(_func_container, dict) else _func_container)
+    _func_values = (
+        _func_container.values()
+        if isinstance(_func_container, dict)
+        else _func_container
+    )
     for fn in _func_values:
         try:
-            _apply_ir_attr_overrides_to_graph(fn.graph, getattr(ctx, "_attr_overrides", {}))
+            _apply_ir_attr_overrides_to_graph(
+                fn.graph, getattr(ctx, "_attr_overrides", {})
+            )
             _fix_concat_axis_in_graph(fn.graph)
         except Exception:
             pass
