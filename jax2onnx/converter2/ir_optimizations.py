@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, Iterable, Any
 import os
 import numpy as np
 
@@ -16,7 +16,6 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     "relu",
     "sigmoid",
     "tanh",
-    "dropout",
     "leakyrelu",
     "identity",
     "cast",
@@ -30,7 +29,6 @@ ALLOWED_ELEMWISE = {
     "Relu",
     "Sigmoid",
     "Tanh",
-    "Dropout",
     "LeakyRelu",
     "Identity",
     "Cast",
@@ -544,7 +542,17 @@ def _transpose_perm(node) -> Optional[List[int]]:
         return None
     ints = getattr(a, "ints", None)
     if ints is not None:
-        return list(ints)
+        return [int(v) for v in ints]
+    if hasattr(a, "as_ints"):
+        try:
+            ints = a.as_ints()
+            if ints is not None:
+                return [int(v) for v in ints]
+        except Exception:
+            pass
+    value = getattr(a, "value", None)
+    if isinstance(value, (list, tuple)):
+        return [int(v) for v in value]
     try:
         seq = list(a)
         if all(isinstance(x, int) for x in seq):
@@ -552,7 +560,7 @@ def _transpose_perm(node) -> Optional[List[int]]:
     except Exception:
         pass
     if isinstance(a, dict) and "ints" in a and isinstance(a["ints"], (list, tuple)):
-        return list(a["ints"])
+        return [int(v) for v in a["ints"]]
     return None
 
 
@@ -1300,7 +1308,12 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         funcs = getattr(ir_model, "functions", None) or getattr(
             ir_model, "_functions", None
         )
-        values = funcs.values() if isinstance(funcs, dict) else funcs
+        if isinstance(funcs, dict):
+            values: Iterable[Any] = funcs.values()
+        elif funcs is None:
+            values = ()
+        else:
+            values = funcs
         for fn in values:
             fgr = getattr(fn, "graph", None)
             if fgr is not None:

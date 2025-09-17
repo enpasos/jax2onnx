@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins2/flax/nnx/gelu.py
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Callable, Any
 
 import jax
 from jax.extend.core import Primitive
@@ -226,4 +226,4 @@ def _approx_attr_equals(model, expected: str) -> bool:
 
 
 # simple presence expectation
-EXPECT_GELU = expect_graph(["Gelu"], match="contains")
+EXPECT_GELU: Callable[[Any], bool] = expect_graph(["Gelu"], match="contains")

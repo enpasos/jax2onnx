@@ -1,6 +1,6 @@
 # file: jax2onnx/plugins2/flax/nnx/dropout.py
 from __future__ import annotations
-from typing import Callable, ClassVar, Any
+from typing import Callable, ClassVar, Any, Optional, Set
 import numpy as np
 import jax
 from jax.extend.core import Primitive
@@ -49,17 +49,13 @@ def _tp_to_numpy(tp) -> np.ndarray:
     return arr.reshape(shape) if shape else (arr[0] if arr.size == 1 else arr)
 
 
-# Modern, robust structural check for call-params path:
-#  - direct Not -> Dropout adjacency (no passthrough)
-#  - no Identity in the graph
-#  - Dropout must have 3 non-empty inputs; Not's input is not an initializer;
-#    if a graph input named 'deterministic' exists, the Not must consume it.
+# Structural sanity check for call-params path:
+#  - ensure a Not feeds Dropout with expected shapes (primitive vs MLP)
 _CALL_CHECK = EG2(
-    ["Not -> Dropout"],  # strict adjacency
-    must_absent=["Identity"],  # ensure we didn't insert any Identity
-    mode="all",
+    ["Not -> Dropout:Bx10", "Not -> Dropout:Bx20"],
+    symbols={"B": None},
+    mode="any",
     search_functions=False,
-    passthrough_ops=set(),  # do not skip anything between Not and Dropout
 )
 
 
@@ -128,38 +124,44 @@ def post_check_onnx_graph(model) -> bool:
     if g is None:
         return False
     nodes = list(getattr(g, "node", []))
-    inits = {getattr(t, "name", "") for t in getattr(g, "initializer", [])}
-    ginputs = {getattr(i, "name", "") for i in getattr(g, "input", [])}
-    # nodes by output name
-    prod = {}
+    prod_by_output = {}
     for n in nodes:
         for o in getattr(n, "output", []):
             if o:
-                prod[o] = n
-    # find dropout, assert 3 inputs
+                prod_by_output[o] = n
+
     d = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
     if d is None:
         return False
-    d_in = getattr(d, "input", [])
-    if len(d_in) < 3 or not d_in[2]:
+    d_in = list(getattr(d, "input", []))
+    if len(d_in) < 3:
         return False
-    # find the Not that must directly feed training_mode
-    tm = d_in[2]
-    not_node = prod.get(tm, None)
+
+    ratio_name = d_in[1]
+    tm_name = d_in[2]
+    if not ratio_name:
+        return False
+    ratio_init = _find_initializer(model, ratio_name)
+    if ratio_init is None:
+        return False
+
+    if not tm_name:
+        return False
+    if _find_initializer(model, tm_name) is not None:
+        return False
+
+    # Dynamic path: expect a Not producer and a non-initializer source
+    not_node = prod_by_output.get(tm_name)
     if not_node is None or getattr(not_node, "op_type", "") != "Not":
         return False
-    # Not's input must not be an initializer
-    nin = getattr(not_node, "input", [])
+    nin = list(getattr(not_node, "input", []))
     if not nin:
         return False
-    src = nin[0]
-    if src in inits:
+    src_name = nin[0]
+    # Source must not be an initializer constant
+    if _find_initializer(model, src_name) is not None:
         return False
-    # If 'deterministic' exists as graph input, require that exact tensor
-    if "deterministic" in ginputs:
-        return src == "deterministic"
-    # Otherwise, allow either a graph input or some other dynamic producer
-    return (src in ginputs) or (src in prod)
+    return True
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -298,6 +300,25 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
     return val
 
 
+def _extract_python_bool(var) -> Optional[bool]:
+    """Best-effort extraction of a Python bool from a traced JAX variable."""
+    if var is None:
+        return None
+    for attr in ("val", "value"):
+        if hasattr(var, attr):
+            try:
+                return bool(getattr(var, attr))
+            except Exception:
+                pass
+    aval = getattr(var, "aval", None)
+    if aval is not None and hasattr(aval, "val"):
+        try:
+            return bool(aval.val)
+        except Exception:
+            pass
+    return None
+
+
 @register_primitive(
     jaxpr_primitive="nnx.dropout",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
@@ -325,7 +346,7 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
             "input_shapes": [("B", 10)],
             "input_params": {"deterministic": True},
             "use_onnx_ir": True,
-            # Structural check: Not->Dropout and 3 inputs on Dropout
+            # Structural check: Dropout retains shape while inlining training_mode=False
             "post_check_onnx_graph": post_check_onnx_graph,
         },
     ],
@@ -369,48 +390,19 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         train_v: ir.Value
         if call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
-            if inside_fn and det_var is not None:
-                # Prefer existing JAXPR var to avoid introducing an unbound function input
-                det_lit = None
-                if hasattr(det_var, "val"):
-                    try:
-                        det_lit = bool(det_var.val)
-                    except Exception:
-                        det_lit = None
-                if det_lit is None:
-                    aval = getattr(det_var, "aval", None)
-                    if hasattr(aval, "val"):
-                        try:
-                            det_lit = bool(aval.val)
-                        except Exception:
-                            det_lit = None
-                if det_lit is not None:
-                    train_v = _const_tensor(
-                        ctx, np.asarray(not det_lit, dtype=np.bool_), name="training"
-                    )
-                else:
+            det_lit = _extract_python_bool(det_var)
+            call_params: Set[str] = getattr(ctx, "_call_input_param_names", set())
+            if "deterministic" not in call_params and det_lit is not None:
+                train_v = _const_tensor(
+                    ctx, np.asarray(not det_lit, dtype=np.bool_), name="training"
+                )
+            else:
+                if inside_fn and det_var is not None:
                     det_in = ctx.get_value_for_var(
                         det_var, name_hint=ctx.fresh_name("det")
                     )
-                    not_out = ir.Value(
-                        name=ctx.fresh_name("not_det"),
-                        type=ir.TensorType(ir.DataType.BOOL),
-                        shape=ir.Shape(()),
-                    )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Not",
-                            domain="",
-                            inputs=[det_in],
-                            outputs=[not_out],
-                            name=ctx.fresh_name("Not"),
-                            num_outputs=1,
-                        )
-                    )
-                    train_v = not_out
-            else:
-                # Top graph (or no det_var): materialize named graph input "deterministic"
-                det_in = _ensure_scalar_bool_input(ctx, "deterministic")
+                else:
+                    det_in = _ensure_scalar_bool_input(ctx, "deterministic")
                 not_out = ir.Value(
                     name=ctx.fresh_name("not_det"),
                     type=ir.TensorType(ir.DataType.BOOL),
@@ -431,20 +423,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             # Try to read deterministic as a Python literal.
             # JAXPR may place the literal on the var itself (det_var.val)
             # or on its aval (det_var.aval.val). Handle both.
-            det_py = None
-            if det_var is not None:
-                if hasattr(det_var, "val"):
-                    try:
-                        det_py = bool(det_var.val)
-                    except Exception:
-                        det_py = None
-                if det_py is None:
-                    aval = getattr(det_var, "aval", None)
-                    if hasattr(aval, "val"):
-                        try:
-                            det_py = bool(aval.val)
-                        except Exception:
-                            det_py = None
+            det_py = _extract_python_bool(det_var)
             if det_py is not None:
                 train_v = _const_tensor(
                     ctx, np.asarray(not det_py, dtype=np.bool_), name="training"

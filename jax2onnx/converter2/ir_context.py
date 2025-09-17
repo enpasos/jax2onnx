@@ -318,7 +318,9 @@ class IRContext:
             self.builder.add_opset_import(domain, version)
 
     def to_model_proto(self, *, name: str, ir_version: int = 10):
-        return self.builder.to_model_proto(name=name, ir_version=ir_version)
+        if hasattr(self.builder, "to_model_proto"):
+            return self.builder.to_model_proto(name=name, ir_version=ir_version)
+        return self.builder.to_ir_model(name=name, ir_version=ir_version)
 
 
 EMPTY_SHAPE: Tuple[Any, ...] = ()

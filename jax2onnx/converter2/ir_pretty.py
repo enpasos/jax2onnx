@@ -128,17 +128,17 @@ def format_ir_model(m: ir.Model, *, show_initializers: bool = True) -> str:
     out.append("Graph:")
 
     # Inputs
-    ins = list(getattr(g, "inputs", []) or [])
-    if ins:
+    graph_inputs = list(getattr(g, "inputs", []) or [])
+    if graph_inputs:
         out.append("  Inputs:")
-        for v in ins:
+        for v in graph_inputs:
             out.append(f"    - {v.name}: {_value_meta(v)}")
 
     # Outputs
-    outs = list(getattr(g, "outputs", []) or [])
-    if outs:
+    graph_outputs = list(getattr(g, "outputs", []) or [])
+    if graph_outputs:
         out.append("  Outputs:")
-        for v in outs:
+        for v in graph_outputs:
             out.append(f"    - {v.name}: {_value_meta(v)}")
 
     # Initializers
@@ -166,10 +166,10 @@ def format_ir_model(m: ir.Model, *, show_initializers: bool = True) -> str:
     for i, n in enumerate(nodes):
         nm = getattr(n, "name", "") or ""
         dom = getattr(n, "domain", "") or ""
-        ins = ", ".join(_vname(v) for v in (getattr(n, "inputs", []) or []))
-        outs2 = ", ".join(_vname(v) for v in (getattr(n, "outputs", []) or []))
+        node_inputs = ", ".join(_vname(v) for v in (getattr(n, "inputs", []) or []))
+        node_outputs = ", ".join(_vname(v) for v in (getattr(n, "outputs", []) or []))
         out.append(f"    [{i}] {n.op_type}{'(' + dom + ')' if dom else ''}  {nm}")
-        out.extend(_indent([f"inputs:  {ins}", f"outputs: {outs2}"]))
+        out.extend(_indent([f"inputs:  {node_inputs}", f"outputs: {node_outputs}"]))
         attr_lines = _attr_kv_lines(getattr(n, "attributes", None))
         if attr_lines:
             out.extend(_indent(["attributes:"] + _indent(attr_lines), n=6))

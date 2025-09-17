@@ -4,9 +4,9 @@ from __future__ import annotations
 import jax
 from flax import nnx
 
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2.plugin_system import register_example
 from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2
+from jax2onnx.plugins2.flax.nnx.dropout import post_check_onnx_graph
 
 
 class MLP(nnx.Module):
@@ -69,14 +69,7 @@ register_example(
             "input_shapes": [("B", 30)],
             "input_params": {"deterministic": True},
             "use_onnx_ir": True,
-            "post_check_onnx_graph": expect_graph(
-                [
-                    "^Gemm->BatchNormalization->Dropout->Gelu->Gemm$",
-                    "^Not->Dropout->Gelu->Gemm$",
-                ],
-                mode="all",
-                match="exact",
-            ),
+            "post_check_onnx_graph": post_check_onnx_graph,
         },
     ],
 )

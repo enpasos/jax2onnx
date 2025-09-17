@@ -265,6 +265,11 @@ def to_onnx(
         enable_double_precision=enable_double_precision,
         input_specs=sds_list,
     )
+    setattr(
+        ctx,
+        "_call_input_param_names",
+        set(input_params.keys()) if input_params else set(),
+    )
     # Expose knobs for downstream (optional)
     setattr(ctx, "loosen_internal_shapes", bool(loosen_internal_shapes))
     if record_primitive_calls_file:
@@ -428,34 +433,107 @@ def to_onnx(
                 aname = getattr(a, "name", getattr(a, "key", None))
                 if aname == k:
                     del attr_list[i]
-            try:
-                attr_obj = ir.Attr(k, v)
-            except Exception:
-                try:
-                    import numpy as _np
+            attr_obj = _make_attr(k, v)
+            if attr_obj is not None:
+                attr_list.append(attr_obj)
 
-                    attr_obj = ir.Attr(k, ir.tensor(_np.asarray(v)))
+        def _make_attr(name: str, value: object) -> Optional["ir.Attr"]:
+            Attr = getattr(ir, "Attr", None)
+            if Attr is None:
+                return None
+
+            # Direct two-arg construction (older onnx_ir builds)
+            try:
+                return Attr(name, value)  # type: ignore[misc]
+            except TypeError:
+                pass
+            except Exception:
+                pass
+
+            AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+            if AttrType is None:
+                return None
+
+            import numpy as _np
+
+            v = value
+            # Scalars -------------------------------------------------
+            if isinstance(v, (bool, _np.bool_, int, _np.integer)):
+                return Attr(name, AttrType.INT, int(v))
+            if isinstance(v, (float, _np.floating)):
+                return Attr(name, AttrType.FLOAT, float(v))
+            if isinstance(v, str):
+                return Attr(name, AttrType.STRING, v)
+
+            # Sequences ----------------------------------------------
+            if isinstance(v, (list, tuple)):
+                if all(isinstance(x, (bool, _np.bool_, int, _np.integer)) for x in v):
+                    return Attr(name, AttrType.INTS, [int(x) for x in v])
+                if all(isinstance(x, (float, _np.floating)) for x in v):
+                    return Attr(name, AttrType.FLOATS, [float(x) for x in v])
+                if all(isinstance(x, str) for x in v):
+                    return Attr(name, AttrType.STRINGS, list(v))
+
+            # Tensor fallback ---------------------------------------
+            tensor_ctor = getattr(ir, "tensor", None)
+            if tensor_ctor is not None:
+                try:
+                    tensor_val = (
+                        v
+                        if getattr(v, "data_type", None) is not None
+                        else tensor_ctor(_np.asarray(v))
+                    )
+                    return Attr(name, AttrType.TENSOR, tensor_val)
                 except Exception:
-                    return
-            attr_list.append(attr_obj)
+                    return None
+
+            return None
 
         for nm, kv in (overrides or {}).items():
             n = name2node.get(nm)
             if not n:
                 continue
             current = getattr(n, "attributes", None)
-            if hasattr(current, "update"):
-                try:
-                    current.update(kv or {})
-                except Exception:
-                    pass
-                continue
-            attr_list = (
-                current
-                if isinstance(current, list)
-                else getattr(n, "_attributes", None)
-            )
-            if isinstance(attr_list, list):
+            if current is not None:
+                added_any = False
+                if hasattr(current, "add"):
+                    for k_attr, v_attr in (kv or {}).items():
+                        attr_obj = _make_attr(k_attr, v_attr)
+                        if attr_obj is None:
+                            continue
+                        try:
+                            current.pop(k_attr, None)
+                        except Exception:
+                            pass
+                        try:
+                            current.add(attr_obj)
+                            added_any = True
+                        except Exception:
+                            pass
+                if added_any:
+                    continue
+                if hasattr(current, "update"):
+                    try:
+                        current.update(kv or {})
+                        continue
+                    except Exception:
+                        pass
+            attr_list = None
+            if current is not None and hasattr(current, "append"):
+                attr_list = current
+            if attr_list is None:
+                alt = getattr(n, "_attributes", None)
+                if alt is not None and hasattr(alt, "append"):
+                    attr_list = alt
+            if attr_list is None:
+                proto_attrs = getattr(n, "attribute", None)
+                if proto_attrs is not None and hasattr(proto_attrs, "append"):
+                    attr_list = proto_attrs
+            if (
+                attr_list is not None
+                and hasattr(attr_list, "__len__")
+                and hasattr(attr_list, "__getitem__")
+            ):
                 for k_attr, v_attr in (kv or {}).items():
                     _mutate_attr_list(attr_list, k_attr, v_attr)
 

@@ -1,7 +1,18 @@
 # jax2onnx/plugins2/_post_check_onnx_graph2.py
 from __future__ import annotations
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, Set
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    Set,
+    Mapping,
+)
 
 ShapeDim = Optional[Union[int, str]]
 
@@ -16,7 +27,7 @@ SpecItem = Union[
 def expect_graph2(
     specs: Sequence[SpecItem],
     *,
-    symbols: Optional[Dict[str, Optional[int]]] = None,
+    symbols: Optional[Mapping[str, ShapeDim]] = None,
     mode: str = "all",  # "all" (default) or "any"
     must_absent: Optional[Iterable[str]] = None,
     no_unused_inputs: bool = False,
@@ -97,7 +108,8 @@ def expect_graph2(
                     path, preds = item
                 else:
                     path, preds = item, {}
-                m = gv.match_path_with_shapes(path, symbols=symbols or {}, **preds)
+                symbol_env: Dict[str, ShapeDim] = dict(symbols or {})
+                m = gv.match_path_with_shapes(path, symbols=symbol_env, **preds)
                 matches.append(m)
                 ok = ok and m
             if mode == "any":
@@ -140,7 +152,7 @@ def _parse_shape(s: str) -> Tuple:
     # normalize separators and remove spaces: "B x 20" -> "Bx20"
     s = _SHAPE_SEP.sub("x", s.replace(" ", ""))
     parts = s.split("x") if s else []
-    dims: List[Optional[Union[int, str]]] = []
+    dims: List[ShapeDim] = []
     for p in parts:
         if p in ("?", "None", ""):
             dims.append(None)
@@ -183,25 +195,27 @@ class _GraphView:
 
     # -- basic queries --
 
-    def count_op(self, op_type: str) -> int:
+    def count_op(self, op_type: str, *, live_only: bool = True) -> int:
         c = 0
         for gname, g in self.graphs:
             nodes = _nodes(g)
-            live = self._live_index.get(gname, set())
+            live = self._live_index.get(gname, set()) if live_only else None
             for idx, n in enumerate(nodes):
-                if live and idx not in live:
+                if live is not None and idx not in live:
                     continue
                 if getattr(n, "op_type", "") == op_type:
                     c += 1
         return c
 
-    def list_ops(self, op_type: str) -> List[Tuple[str, int]]:
+    def list_ops(
+        self, op_type: str, *, live_only: bool = True
+    ) -> List[Tuple[str, int]]:
         out = []
         for gname, g in self.graphs:
             nodes = _nodes(g)
-            live = self._live_index.get(gname, set())
+            live = self._live_index.get(gname, set()) if live_only else None
             for idx, n in enumerate(nodes):
-                if live and idx not in live:
+                if live is not None and idx not in live:
                     continue
                 if getattr(n, "op_type", "") == op_type:
                     out.append((gname, idx))
@@ -233,7 +247,7 @@ class _GraphView:
         self,
         path: str,
         *,
-        symbols: Dict[str, ShapeDim],
+        symbols: Mapping[str, ShapeDim],
         attrs: Optional[Dict[str, Any]] = None,
         counts: Optional[Dict[str, int]] = None,
     ) -> bool:
@@ -380,13 +394,13 @@ def _value_name(v) -> str:
     return getattr(v, "name", v if isinstance(v, str) else "")
 
 
-def _shape_of_value(v) -> Optional[Tuple]:
+def _shape_of_value(v) -> Optional[Tuple[ShapeDim, ...]]:
     """onnx_ir Value -> shape tuple; ONNX will use _shape_of_output via index."""
     shp = getattr(v, "shape", None)
     if shp is None:
         return None
     # onnx_ir shape → tuple of ints/strings/None
-    dims = []
+    dims: List[ShapeDim] = []
     for d in getattr(shp, "dims", getattr(shp, "dim", shp)):
         if isinstance(d, int):
             dims.append(d)
@@ -438,7 +452,7 @@ def _shape_from_value_info(vi) -> Optional[Tuple]:
         dims_msg = getattr(shape, "dim", None) or getattr(shape, "dims", None)
         if dims_msg is None:
             return None
-        dims = []
+        dims: List[ShapeDim] = []
         for d in dims_msg:
             # Try HasField if present (protobuf API); otherwise, fall back
             has_field = getattr(d, "HasField", None)
@@ -482,7 +496,9 @@ def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
 
 
 def _unify_shape(
-    expected: Tuple, actual: Optional[Tuple], env: Dict[str, Optional[int]]
+    expected: Tuple[ShapeDim, ...],
+    actual: Optional[Tuple[ShapeDim, ...]],
+    env: Dict[str, ShapeDim],
 ) -> bool:
     """
     Strict unification:
@@ -505,7 +521,7 @@ def _unify_shape(
             if a != e:
                 return False
         elif isinstance(e, str):
-            aval = None
+            aval: ShapeDim
             if isinstance(a, int):
                 aval = a
             elif isinstance(a, str):
@@ -515,14 +531,18 @@ def _unify_shape(
                 else:
                     aval = sval
             else:
-                try:
-                    aval = int(a)
-                except Exception:
-                    sval = str(a).strip() if a is not None else None
-                    if sval in ("", "None", "?", "unk", "unknown"):
-                        aval = None
-                    else:
-                        aval = sval
+                if a is None:
+                    aval = None
+                else:
+                    try:
+                        aval = int(a)  # type: ignore[arg-type]
+                    except Exception:
+                        sval = str(a).strip()
+                        aval = (
+                            None
+                            if sval in ("", "None", "?", "unk", "unknown")
+                            else sval
+                        )
             if aval is None:
                 return False
             bound = env.get(e)
@@ -542,7 +562,7 @@ def _unify_shape(
 def _match_path_on_graph(
     g,
     steps: List[Tuple[str, Optional[Tuple]]],
-    env: Dict[str, Optional[int]],
+    env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
     gname: str,
     shape_index: Dict[str, Tuple],
@@ -578,7 +598,7 @@ def _path_from(
     nodes,
     i0: int,
     steps: List[Tuple[str, Optional[Tuple]]],
-    env: Dict[str, Optional[int]],
+    env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
     shape_index: Dict[str, Tuple],
 ) -> Tuple[bool, str]:
@@ -706,8 +726,10 @@ def _compute_live_node_indices(g) -> Set[int]:
         n = nodes[pidx]
         ins = list(_inputs_of(n))
         if getattr(n, "op_type", "") == "Dropout":
-            # Follow only data input (0) and ratio (1) if present; skip training_mode (2)
-            ins = ins[:2]
+            if len(ins) > 2 and _value_name(ins[2]):
+                ins = ins[:3]
+            else:
+                ins = ins[:2]
         for iv in ins:
             ivn = _value_name(iv)
             if ivn:

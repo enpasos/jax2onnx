@@ -553,11 +553,3 @@ def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
     if use_bias and bias is not None:
         y = y + bias
     return y
-
-
-@LinearPlugin._PRIM.def_impl
-def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
-    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
-    if use_bias and bias is not None:
-        y = y + bias
-    return y
