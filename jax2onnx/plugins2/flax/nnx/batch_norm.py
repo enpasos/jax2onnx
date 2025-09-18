@@ -11,7 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
@@ -28,10 +28,36 @@ if TYPE_CHECKING:
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
 # Rank <= 2: a single BatchNormalization node (no layout converts).
-EXPECT_BN_ONLY = expect_graph(["BatchNormalization"], match="exact")
+EXPECT_BN_ONLY = EG(
+    [
+        (
+            "BatchNormalization",
+            {
+                "counts": {
+                    "BatchNormalization": 1,
+                    "Transpose": 0,
+                    "Reshape": 0,
+                    "CastLike": 0,
+                }
+            },
+        )
+    ]
+)
 # Rank > 2: NHWC -> NCHW, BN, then NCHW -> NHWC.
-EXPECT_T_BN_T = expect_graph(
-    ["^Transpose->BatchNormalization->Transpose$"], match="exact"
+EXPECT_T_BN_T = EG(
+    [
+        (
+            "Transpose -> BatchNormalization -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 2,
+                    "BatchNormalization": 1,
+                    "Reshape": 0,
+                    "CastLike": 0,
+                }
+            },
+        )
+    ]
 )
 
 

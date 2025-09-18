@@ -1,183 +1,133 @@
-# Graph Pattern Matcher (tests)
+# `expect_graph` — Shape-aware ONNX/IR graph checks
 
-A tiny, readable way to assert the **shape of an ONNX graph** in tests by describing paths like
+`expect_graph` is our structure+shape assertion helper for ONNX graphs and
+`onnx_ir` models. It supersedes the legacy matcher with richer semantics:
 
-```
-"Transpose(0)->Conv(1)->Transpose(2)"
-```
-
-This checks that there is a **direct producer→consumer chain** of nodes with those op types (and—if given—those exact graph indices).
-
-> Import:
-> `from jax2onnx.plugins2._post_check_onnx_graph import expect_graph`
+- **Shape-aware** edges (`Conv:Bx32`, `Reshape:?x10`) including symbol binding.
+- **Counts / attribute predicates** per-operator when you need extra guards.
+- **Global policies** such as `must_absent=["Not"]` or `no_unused_inputs=True`.
+- Works on the **top graph** and, optionally, **function bodies**.
+- Format agnostic: ONNX `ModelProto` or `onnx_ir` objects.
 
 ---
 
-## Why
+## Import
 
-* Replace bespoke lambdas like `_expect_transpose_conv_transpose`.
-* Make tests self-documenting: the expectation is in the string.
-* Control how strict the match is (subpath vs. full-graph coverage) with anchors or a `match` mode.
+```python
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
+```
+
+Many tests alias it to `EG` so expectations stay compact.
 
 ---
 
 ## Quick start
 
-```python
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+### Static shapes
 
-testcase = {
-    "testcase": "conv_basic_bias",
-    "callable": ...,
-    "input_shapes": [("B", 28, 28, 3)],
-    "use_onnx_ir": True,
-    "run_only_f32_variant": True,
-    "post_check_onnx_graph": expect_graph([
-        "Transpose->Conv->Transpose",  # op sequence as a direct chain
-    ]),
-}
+```python
+EXPECT_DROPOUT_PATH = EG(
+    [
+        "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
+    ],
+    symbols={"B": None},   # bind B the first time we see it
+    must_absent=["Not"],   # fail if Not is anywhere in the model
+    no_unused_inputs=True, # ensure no dangling graph inputs remain
+)
 ```
 
-If you need to pin to **specific node indices** (0-based in `model.graph.node`):
+### Dynamic shapes (unknown batch)
+
+Use `?` to tolerate unknown dimensions:
 
 ```python
-"post_check_onnx_graph": expect_graph([
-    "Transpose(0)->Conv(1)->Transpose(2)",
-]),
+EXPECT_DYNAMIC = EG(
+    [
+        "Gemm:?x20 -> BatchNormalization:?x20 -> Dropout:?x20 -> Gelu:?x20 -> Gemm:?x10",
+    ]
+)
 ```
 
-Multiple patterns:
+### Multiple specs with counts / attrs
 
 ```python
-# All must match (default)
-expect_graph([
-    "Transpose->Conv->Transpose",
-    "Conv",  # also ensure at least one Conv exists anywhere
-])
+EXPECT_DROPOUT_ATTRS = EG(
+    [
+        (
+            "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
+            {
+                "attrs": {
+                    "Dropout": {"ratio": lambda v: 0.0 < float(v) <= 0.1000001},
+                },
+                "counts": {"Dropout": 1, "Not": 0},
+            },
+        ),
+    ],
+    symbols={"B": None},
+)
+```
 
-# Any may match
-expect_graph([
-    "Transpose->Conv->Transpose",
-    "Conv->Relu",
-], mode="any")
+### Searching function bodies
+
+By default only the **top graph** is inspected. Set `search_functions=True` to
+scan function graphs as well:
+
+```python
+EXPECT_FN_BODY = EG(
+    ["Reshape:?xK -> Gemm:?xN"],
+    search_functions=True,
+)
 ```
 
 ---
 
-## Pattern syntax
+## Path & shape syntax
 
-A pattern is a single **path**:
-
-```
-OPTYPE[(INDEX)]->OPTYPE[(INDEX)]->...
-```
-
-* `OPTYPE` is the node’s `op_type` (e.g., `Conv`, `Transpose`).
-* `(INDEX)` is **optional**. When present, it must match the node’s absolute index in `model.graph.node` (0-based). When omitted, **any** node of that type can match.
-* `->` means **direct adjacency**: at least one output of the left node is consumed as an input of the right node (no intervening nodes).
-
-### Anchors (optional)
-
-You can add anchors to the pattern string itself:
-
-* `^pattern` – the first node must be a **graph source** (no producers).
-* `pattern$` – the last node must be a **graph sink** (no consumers).
-* `^pattern$` – both must hold.
+* `->` connects producer/consumer nodes.
+* Append `:shape` to check the edge leaving that node:
+  * `Bx20` → two dims: symbol `B`, literal `20`.
+  * `?x10` → unknown dim, then `10`.
+  * `20`   → 1-D tensor of length `20`.
+* Symbols declared in `symbols={...}` unify across all uses in a spec.
+* Unknown actual dims unify with `?` and with unbound symbols (they simply
+  refuse to bind).
 
 Examples:
 
 ```
-"Conv"                          # at least one Conv exists
-"Transpose->Conv"               # some Transpose directly feeds some Conv
-"Transpose(3)->Conv(4)"         # specifically node 3 → node 4 with those types
-"^Transpose->Conv->Transpose$"  # exact chain from source to sink
+"Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"
+"Transpose:?xCxH -> Conv:?xKxH -> Transpose:?xHxK"
 ```
 
 ---
 
-## Match strictness
+## Extra arguments
 
-By default, `expect_graph` looks for each pattern **as a subpath** in the graph (i.e., the graph may be larger):
-
-```python
-expect_graph(["Transpose->Conv->Transpose"])                 # default: match="contains"
-```
-
-To control strictness, use the `match` keyword:
-
-```python
-# Require that the chain starts at a graph source
-expect_graph(["Transpose->Conv->Transpose"], match="prefix")
-
-# Require that the chain ends at a graph sink
-expect_graph(["Transpose->Conv->Transpose"], match="suffix")
-
-# Require the chain to be both source-anchored and sink-anchored
-# AND that there are no other root→sink paths in the graph
-# (i.e., the provided patterns account for the entire operator graph).
-expect_graph(["Transpose->Conv->Transpose"], match="exact")
-```
-
-You can also encode anchors inline (equivalent to the `match` modes):
-
-```python
-expect_graph(["^Transpose->Conv->Transpose$"])  # same as match="exact" + “nothing else”
-```
-
-### Common gotcha
-
-If your graph is `Transpose->Conv->Transpose` and you write:
-
-```python
-expect_graph(["Transpose->Conv"])   # passes (it's a subpath)
-```
-
-…it will **pass** in the default `contains` mode. If you intend this to **fail** because the final `Transpose` is also required, then either:
-
-* specify the full chain, or
-* use `match="exact"` (or anchors `^...$`) **with the full chain**.
-  Note that `exact` will also **fail** if the graph contains **any additional root→sink operator paths** beyond those described by your patterns (e.g., an extra `Concat->Reshape` side-path).
+* `symbols={"B": None}` — declare shape symbols used in paths.
+* `must_absent=["Not", "Identity"]` — globally forbid operators.
+* `no_unused_inputs=True` — fail if the top graph has dangling inputs.
+* `mode="all" | "any"` — require every spec (default) or any single spec.
+* `passthrough_ops={...}` — extend the set of ops skipped while walking
+  between anchors (`Reshape`, `Identity`, `Cast*`, `Squeeze`, `Unsqueeze`,
+  `Flatten` are included by default).
+* `explain_on_fail=False` — silence the debug dump when a check fails.
 
 ---
 
-## What it checks under the hood
+## Return value
 
-* Builds a lightweight adjacency from node **output names → input names**.
-* Supports both `onnx_ir` style (`.inputs`/`.outputs`) and ONNX `ModelProto` style (`.input`/`.output`).
-* Backtracks through candidate nodes to find a chain that matches the pattern.
-* `match="prefix"` / `"suffix"` are enforced by checking node in-/out-degree at the ends.
-* `match="exact"` additionally requires that **every** root→sink operator path in the graph fully matches **one of the provided patterns** (full-graph coverage; “nothing else”).
+`EG([...])` returns a predicate that accepts an ONNX/IR model and resolves to
+`True`/`False`. In test metadata you typically wire it through
+`"post_check_onnx_graph": EG([...])` and then `assert post_check(model)`.
 
 ---
 
-## API
+## Notes & tips
 
-```python
-def expect_graph(
-    patterns: Iterable[str],
-    *,
-    mode: str = "all",
-    match: str = "contains",
-) -> Callable[[Any], bool]
-```
-
-* `patterns`: one or more path strings (see syntax above).
-* `mode`:
-
-  * `"all"` (default): **every** pattern must be found.
-  * `"any"`: **at least one** pattern must be found.
-* `match`:
-
-  * `"contains"` (default): pattern may appear as a subpath in a larger chain.
-  * `"prefix"`: first node must be a **source**.
-  * `"suffix"`: last node must be a **sink**.
-  * `"exact"`: both source & sink (equivalent to `^pattern$`) **and nothing else**
-    — all root→sink operator paths in the graph must be matched by the provided patterns.
-
----
-
-## Tips
-
-* Prefer **no indices** unless you truly want to lock the graph to a specific order; this keeps tests resilient to benign node reordering.
-* Patterns assert **direct** edges. If you need “reachable through any number of nodes,” that’s a different matcher; this one only matches immediate producer→consumer chains.
-* If you want to forbid stray shape plumbing (e.g., `Concat` that builds a constant shape), write a single `match="exact"` pattern that describes the *entire* intended data-flow chain; any extra operator path will cause the check to fail.
+* Works with both ONNX protobuf models and `onnx_ir` graphs (duck-typed).
+* Counts/attrs are validated **after** a path matches; use them to assert that
+  required operators appear exactly once (or never).
+* When shapes are missing from the model, shape checks fall back to `None`; use
+  `?` in the spec or keep symbols unbound to tolerate that.
+* The matcher only inspects data-flow edges; control-flow subgraphs can be
+  added later by extending `_function_graphs` if needed.

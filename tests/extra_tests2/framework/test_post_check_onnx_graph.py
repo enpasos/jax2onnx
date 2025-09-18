@@ -1,7 +1,7 @@
-# tests/extra_tests/test_post_check_onnx_graph2.py
+# tests/extra_tests/test_post_check_onnx_graph.py
 from __future__ import annotations
 import onnx_ir as ir
-from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2 as EG2
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 
 def V(name, dtype=ir.DataType.FLOAT, shape=()):
@@ -100,7 +100,7 @@ def build_chain_with_dangling_input():
 
 def test_static_path_with_shapes_and_symbols_and_no_unused():
     m = build_static_chain(B=3)
-    check = EG2(
+    check = EG(
         [
             "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"
         ],
@@ -113,7 +113,7 @@ def test_static_path_with_shapes_and_symbols_and_no_unused():
 
 def test_dynamic_unknown_batch_via_question_mark():
     m = build_dynamic_chain()
-    check = EG2(
+    check = EG(
         [
             "Gemm:?x20 -> BatchNormalization:?x20 -> Dropout:?x20 -> Gelu:?x20 -> Gemm:?x10"
         ],
@@ -124,7 +124,7 @@ def test_dynamic_unknown_batch_via_question_mark():
 
 def test_no_unused_inputs_catches_dangling():
     m = build_chain_with_dangling_input()
-    check = EG2(
+    check = EG(
         [
             "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"
         ],
@@ -184,7 +184,7 @@ def test_function_body_search_matches():
             pass
     assert attached, "Could not attach function body to the test Model"
 
-    check = EG2(
+    check = EG(
         ["Reshape -> Gelu -> Reshape"],  # will be found in the function body
         must_absent=["Not"],
         search_functions=True,
@@ -212,7 +212,7 @@ def test_strict_symbols_reject_unknown_dims():
                 dout.shape = ir.Shape((None, 20))
         except Exception:
             pass
-    check = EG2(
+    check = EG(
         [
             "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"
         ],
@@ -269,7 +269,7 @@ def test_must_absent_ignores_unreachable_nodes():
             pass
 
     # The main path and shapes are correct; 'Not' is unreachable → should not trip must_absent
-    check = EG2(
+    check = EG(
         [
             "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"
         ],

@@ -49,7 +49,7 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 ### Structure
 
 * `converter2/ir_optimizations.py` contains IR-level graph passes (reshape/transpose pair folding, Dropout cleanup, dead code elimination, etc.).
-* `plugins2/_post_check_onnx_graph2.py` provides **expect\_graph2** – structural assertions helpers for tests.
+* `plugins2/_post_check_onnx_graph.py` provides **expect\_graph** – structural assertions helpers for tests.
 * `plugins2/flax/nnx/*` contains Flax NNX lowering (e.g., `dropout.py`).
 
 ### Coding style
@@ -80,12 +80,12 @@ JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests2/framework/test_ir_op
 
 ## Testing patterns you’ll see (and should follow)
 
-### expect\_graph2 – readable structural tests
+### expect\_graph – readable structural tests
 
-Use `expect_graph2` to assert shapes/paths/operators without heavy fixtures:
+Use `expect_graph` to assert shapes/paths/operators without heavy fixtures:
 
 ```python
-from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2 as EG2
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG2
 
 check = EG2(
     ["Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"],

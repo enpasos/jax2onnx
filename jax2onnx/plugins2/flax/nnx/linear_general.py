@@ -12,7 +12,7 @@ import onnx_ir as ir
 from jax2onnx.plugins2._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     _prod,
@@ -125,19 +125,39 @@ def _init_dims(m, name):
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
 # Basic presence of a single Gemm (no flatten/reshape path needed).
-EXPECT_GEMM_ONLY = expect_graph(["Gemm"], match="contains")
+EXPECT_GEMM_ONLY = EG([("Gemm", {"counts": {"Gemm": 1}})])
 # Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
-EXPECT_RGR = expect_graph(["Reshape->Gemm->Reshape"], match="contains")
+EXPECT_RGR = EG(
+    [
+        (
+            "Reshape -> Gemm -> Reshape",
+            {
+                "counts": {
+                    "Gemm": 1,
+                    "CastLike": 0,
+                    "Transpose": 0,
+                }
+            },
+        )
+    ]
+)
 # Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
 # (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
-EXPECT_DYNAMIC_RGR = expect_graph(
+EXPECT_DYNAMIC_RGR = EG(
     [
-        "Reshape->Gemm",
-        "Shape->Slice->Concat->Reshape",
-        "Gemm->Reshape",
-    ],
-    mode="all",
-    match="contains",
+        (
+            "Reshape -> Gemm -> Reshape",
+            {
+                "counts": {
+                    "Gemm": 1,
+                    "CastLike": 0,
+                    "Transpose": 0,
+                }
+            },
+        ),
+        "Shape -> Slice -> Concat -> Reshape",
+        "Gemm -> Reshape",
+    ]
 )
 
 

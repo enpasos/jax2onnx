@@ -13,7 +13,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
@@ -27,11 +27,47 @@ logger = logging.getLogger("jax2onnx.plugins2.flax.nnx.conv")
 
 # --- graph pattern expectations for tests ---
 # Single-path: Transpose -> Conv -> Transpose
-EXPECT_TCT = expect_graph(["Transpose->Conv->Transpose"], match="exact")
+EXPECT_TCT = EG(
+    [
+        (
+            "Transpose -> Conv -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 2,
+                    "Conv": 1,
+                    "Reshape": 0,
+                    "Add": 0,
+                    "CastLike": 0,
+                    "Shape": 0,
+                    "Gather": 0,
+                    "Unsqueeze": 0,
+                    "Concat": 0,
+                }
+            },
+        )
+    ]
+)
 # Flattened-path (mixed-dim inputs):
 # Reshape -> Transpose -> Conv -> Transpose -> Reshape
-EXPECT_FLATTEN_TCT = expect_graph(
-    ["Reshape->Transpose->Conv->Transpose->Reshape"], match="exact"
+EXPECT_FLATTEN_TCT = EG(
+    [
+        (
+            "Reshape -> Transpose -> Conv -> Transpose -> Reshape",
+            {
+                "counts": {
+                    "Reshape": 2,
+                    "Transpose": 2,
+                    "Conv": 1,
+                    "Add": 0,
+                    "CastLike": 0,
+                    "Shape": 0,
+                    "Gather": 0,
+                    "Unsqueeze": 0,
+                    "Concat": 0,
+                }
+            },
+        )
+    ]
 )
 
 
@@ -527,9 +563,7 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
             "expected_output_shapes": [("B", 28, 28, 16)],
-            "post_check_onnx_graph": expect_graph(
-                ["Transpose->Conv->Transpose"], match="exact"
-            ),
+            "post_check_onnx_graph": EXPECT_TCT,
         },
         {
             "testcase": "conv_basic_bias_2",

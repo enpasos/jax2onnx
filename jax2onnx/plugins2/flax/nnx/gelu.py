@@ -15,7 +15,7 @@ from jax2onnx.plugins2._ir_shapes import (
     is_shape_all_unknown,
     _ensure_value_info as _add_value_info,
 )
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -226,4 +226,4 @@ def _approx_attr_equals(model, expected: str) -> bool:
 
 
 # simple presence expectation
-EXPECT_GELU: Callable[[Any], bool] = expect_graph(["Gelu"], match="contains")
+EXPECT_GELU: Callable[[Any], bool] = EG([("Gelu", {"counts": {"Gelu": 1}})])

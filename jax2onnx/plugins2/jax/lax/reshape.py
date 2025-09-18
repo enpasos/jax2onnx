@@ -16,7 +16,7 @@ from jax2onnx.plugins2._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_info as _add_value_info,
 )
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -56,12 +56,22 @@ def _no_const_concat_shape(model) -> bool:
 # --- pattern helpers in the same style as nnx.linear ---
 # A single Reshape is expected (the tiny graphs in these tests contain only one),
 # and we do not want any dynamic shape ops for the all-static case.
-EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = expect_graph(
-    ["^Reshape$"], match="contains", mode="any"
+EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = EG(
+    [
+        (
+            "Reshape",
+            {
+                "counts": {
+                    "Reshape": 1,
+                    "Concat": 0,
+                    "Gather": 0,
+                    "Shape": 0,
+                }
+            },
+        )
+    ]
 )
-EXPECT_NO_DYNAMIC_SHAPE_NODES = expect_graph(
-    ["^(?!.*(Concat|Gather|Shape)).*$"], match="contains", mode="any"
-)
+EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"])
 
 
 @register_primitive(

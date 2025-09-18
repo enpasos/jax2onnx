@@ -5,7 +5,7 @@ import jax
 from flax import nnx
 
 from jax2onnx.plugins2.plugin_system import register_example
-from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2.flax.nnx.dropout import post_check_onnx_graph
 
 
@@ -36,7 +36,7 @@ register_example(
             "callable": MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(17)),
             "input_shapes": [(7, 30)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": expect_graph2(
+            "post_check_onnx_graph": expect_graph(
                 [
                     # edge-shape after each node (leaving that node)
                     "Gemm:7x20 -> BatchNormalization:7x20 -> Dropout:7x20 -> Gelu:7x20 -> Gemm:7x10",
@@ -52,7 +52,7 @@ register_example(
             "input_shapes": [("B", 30)],
             "use_onnx_ir": True,
             "run_only_dynamic": True,
-            "post_check_onnx_graph": expect_graph2(
+            "post_check_onnx_graph": expect_graph(
                 [
                     # edge-shape after each node (leaving that node)
                     "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",

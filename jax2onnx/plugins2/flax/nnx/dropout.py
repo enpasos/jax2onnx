@@ -14,7 +14,7 @@ from jax2onnx.plugins2._ir_shapes import (
     _ensure_value_info as _add_value_info,
 )
 
-from jax2onnx.plugins2._post_check_onnx_graph2 import expect_graph2 as EG2
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 from flax import nnx
 
@@ -51,7 +51,7 @@ def _tp_to_numpy(tp) -> np.ndarray:
 
 # Structural sanity check for call-params path:
 #  - ensure a Not feeds Dropout with expected shapes (primitive vs MLP)
-_CALL_CHECK = EG2(
+_CALL_CHECK = EG(
     ["Not -> Dropout:Bx10", "Not -> Dropout:Bx20"],
     symbols={"B": None},
     mode="any",
@@ -77,7 +77,7 @@ def post_check_onnx_graph_init(model) -> bool:
       • both ratio and training_mode are initializers, with values 0.5 and False
     """
     # 1) Structural + shape check on the top graph
-    ok_path = EG2(
+    ok_path = EG(
         ["Dropout:Bx10"],
         symbols={"B": None},
         must_absent=["Not"],
@@ -337,7 +337,7 @@ def _extract_python_bool(var) -> Optional[bool]:
             "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(5)),
             "input_shapes": [("B", 10)],
             "use_onnx_ir": True,
-            # Modern check: shape/path via expect_graph2 and strict initializer values
+            # Modern check: shape/path via expect_graph and strict initializer values
             "post_check_onnx_graph": post_check_onnx_graph_init,
         },
         {

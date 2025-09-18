@@ -1,7 +1,7 @@
 import jax
 from flax import nnx
 
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2.plugin_system import register_example
 
 
@@ -42,12 +42,22 @@ register_example(
             "input_shapes": [(3, 28, 28, 1)],
             "run_only_f32_variant": True,
             "expected_output_shapes": [(3, 10)],
-            "post_check_onnx_graph": expect_graph(
+            "post_check_onnx_graph": EG(
                 [
-                    "^Transpose->Conv->Relu->AveragePool->Conv->Relu->AveragePool->Transpose->Reshape->Gemm->Relu->Gemm$",
-                ],
-                mode="all",
-                match="exact",
+                    (
+                        "Transpose -> Conv -> Relu -> AveragePool -> Conv -> Relu -> AveragePool -> Transpose -> Reshape -> Gemm -> Relu -> Gemm",
+                        {
+                            "counts": {
+                                "Transpose": 2,
+                                "Conv": 2,
+                                "Relu": 3,
+                                "AveragePool": 2,
+                                "Reshape": 1,
+                                "Gemm": 2,
+                            }
+                        },
+                    ),
+                ]
             ),
             "use_onnx_ir": True,
         },

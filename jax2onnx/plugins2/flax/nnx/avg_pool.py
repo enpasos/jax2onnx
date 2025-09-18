@@ -11,7 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2._patching import MonkeyPatchSpec
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
@@ -27,7 +27,22 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-EXPECT_T_POOL_T = expect_graph(["^Transpose->AveragePool->Transpose$"], match="exact")
+EXPECT_T_POOL_T = EG(
+    [
+        (
+            "Transpose -> AveragePool -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 2,
+                    "AveragePool": 1,
+                    "Reshape": 0,
+                    "CastLike": 0,
+                    "Identity": 0,
+                }
+            },
+        )
+    ]
+)
 
 
 @register_primitive(
