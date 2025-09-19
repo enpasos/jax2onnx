@@ -1,7 +1,7 @@
 # file: jax2onnx/converter2/function_scope.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import onnx_ir as ir
 
@@ -79,6 +79,7 @@ class FunctionScope:
         self._inputs: List[ir.Value] = []
         self._outputs: List[ir.Value] = []
         self._sealed = False
+        self._attr_overrides: Dict[str, Dict[str, object]] = {}
 
         self.fn_def: Optional[FunctionDef] = None
 
@@ -115,6 +116,7 @@ class FunctionScope:
         self._outputs = list(outputs)
         nodes = list(getattr(self.ctx, "_nodes", []) or [])
         overrides = dict(getattr(self.ctx, "_attr_overrides", {}) or {})
+        self._attr_overrides = overrides
         # Restore previous scope flag
         setattr(
             self.ctx, "_inside_function_scope", getattr(self, "_prev_inside", False)
@@ -146,12 +148,14 @@ class FunctionScope:
             opset_imports={"": body_opset},
         )
         # Create the Function (domain/name must match the call-site)
-        return ir.Function(
+        fn = ir.Function(
             domain=self.domain,
             name=self.name,
             graph=g,
             attributes=[],
         )
+        setattr(fn, "_attr_overrides", dict(self._attr_overrides or {}))
+        return fn
 
 
 def attach_functions_to_model(*args, **kwargs):

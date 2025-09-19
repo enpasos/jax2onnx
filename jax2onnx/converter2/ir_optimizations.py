@@ -731,6 +731,31 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
 # ---------------- Shape propagation helpers ----------------
 
 
+def _copy_shape_only(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bool:
+    """Copy shape metadata from src → dst when dst is missing/unknown."""
+    if dst is None or src is None:
+        return False
+    s_shp = getattr(src, "shape", None)
+    if s_shp is None:
+        return False
+    d_shp = getattr(dst, "shape", None)
+    if d_shp is not None:
+        try:
+            # keep existing concrete dims; only copy when dst is unknown/symbolic
+            for d in d_shp:
+                if not isinstance(d, int) or d < 0:
+                    break
+            else:
+                return False
+        except Exception:
+            pass
+    try:
+        dst.shape = s_shp
+        return True
+    except Exception:
+        return False
+
+
 def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bool:
     """
     Copy shape & dtype from src -> dst if present; return True if anything changed.
@@ -786,6 +811,10 @@ def propagate_unary_shapes_ir(graph) -> None:
         ins = _node_inputs(n)
         outs = _node_outputs(n)
         if not ins or not outs:
+            continue
+        if op in {"Cast", "CastLike"}:
+            if _copy_shape_only(outs[0], ins[0]):
+                changed = True
             continue
         if _copy_shape_dtype(outs[0], ins[0]):
             changed = True

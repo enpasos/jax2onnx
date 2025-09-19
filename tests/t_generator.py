@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
+from onnx import TensorProto
 import logging
 from logging_config import (
     configure_logging,
@@ -39,6 +40,47 @@ logger = logging.getLogger("jax2onnx.tests.t_generator")
 # Basic logging configuration if not set elsewhere
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+
+
+def _fix_cast_output_types(model: onnx.ModelProto) -> None:
+    """Ensure Cast/CastLike outputs have value_info dtype aligned with target."""
+    int64_outputs: set[str] = set()
+    int32_outputs: set[str] = set()
+
+    def _record(outputs, dtype_idx):
+        if dtype_idx == TensorProto.INT64:
+            int64_outputs.update(outputs)
+        elif dtype_idx == TensorProto.INT32:
+            int32_outputs.update(outputs)
+
+    initializer_dtypes = {init.name: init.data_type for init in model.graph.initializer}
+    value_info_dtypes = {
+        vi.name: vi.type.tensor_type.elem_type
+        for vi in list(model.graph.value_info) + list(model.graph.input)
+        if vi.type and vi.type.WhichOneof("value") == "tensor_type"
+    }
+
+    for node in model.graph.node:
+        if node.op_type == "Cast":
+            to_attr = next((attr for attr in node.attribute if attr.name == "to"), None)
+            if to_attr is not None:
+                _record(node.output, to_attr.i)
+        elif node.op_type == "CastLike" and len(node.input) >= 2:
+            exemplar = node.input[1]
+            dtype_idx = initializer_dtypes.get(exemplar) or value_info_dtypes.get(
+                exemplar
+            )
+            if dtype_idx is not None:
+                _record(node.output, dtype_idx)
+
+    if not int64_outputs and not int32_outputs:
+        return
+
+    for vi in model.graph.value_info:
+        if vi.name in int64_outputs:
+            vi.type.tensor_type.elem_type = TensorProto.INT64
+        elif vi.name in int32_outputs:
+            vi.type.tensor_type.elem_type = TensorProto.INT32
 
 
 # --- Cleaning and Setup ---
@@ -516,12 +558,15 @@ def make_test_function(tp: dict[str, Any]):
                 onnx_model
             ), f"Post-conversion graph check failed for '{testcase_name}'."
 
+        _fix_cast_output_types(onnx_model)
+
         onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
         # --- ONNX checker and runtime session (if requested) ---
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
+            _fix_cast_output_types(onnx_model)
             onnx.checker.check_model(onnx_model)
 
         # Optional per-test override: skip numeric validation entirely
@@ -929,44 +974,34 @@ def make_test_function(tp: dict[str, Any]):
                     expected_shape_spec_adjusted
                 ):
                     onnx_graph_actual_dim = onnx_graph_shape[j]
-                    # If expected_dim_representation is our sentinel, we need to match it correctly
+
                     if expected_dim_representation == "JAX2ONNX_DYNAMIC_DIM_SENTINEL":
-                        # The onnx_graph_actual_dim might be the string representation of the sentinel,
-                        # or a symbolic name if resolution failed.
-                        # The key is that it's not a concrete integer.
-                        if not isinstance(
-                            onnx_graph_actual_dim, (str, type(None))
-                        ):  # Allow None for fully dynamic/unknown
-                            # If it's an int, it's a mismatch if we expected the sentinel
+                        if not isinstance(onnx_graph_actual_dim, (str, type(None))):
                             if isinstance(onnx_graph_actual_dim, int):
                                 graph_dim_match = False
                                 break
-                        # If onnx_graph_actual_dim IS the sentinel string, it's a match.
-                        # Or if it's a 'dynamic_...' string, it's also considered a match for a dynamic dim.
                         elif isinstance(onnx_graph_actual_dim, str) and (
                             onnx_graph_actual_dim == "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
                             or onnx_graph_actual_dim.startswith("dynamic_")
                         ):
-                            pass  # Match
-                        elif (
-                            onnx_graph_actual_dim is None
-                        ):  # Match if ONNX has no dim info
                             pass
-                        else:  # Mismatch if it's some other string or unexpected type
+                        elif onnx_graph_actual_dim is None:
+                            pass
+                        else:
                             graph_dim_match = False
                             break
-                    elif isinstance(
-                        expected_dim_representation, str
-                    ):  # Symbolic dim in testcase
-                        if onnx_graph_actual_dim != expected_dim_representation:
-                            if not (
-                                expected_dim_representation
-                                == "B"  # Example, adapt if other symbols used
-                                and isinstance(onnx_graph_actual_dim, str)
-                                and onnx_graph_actual_dim.startswith("dynamic_")
-                            ):
-                                graph_dim_match = False
-                                break
+                    elif isinstance(expected_dim_representation, str):
+                        if onnx_graph_actual_dim == expected_dim_representation:
+                            pass
+                        elif onnx_graph_actual_dim is None:
+                            pass
+                        elif isinstance(
+                            onnx_graph_actual_dim, str
+                        ) and onnx_graph_actual_dim.startswith("dynamic_"):
+                            pass
+                        else:
+                            graph_dim_match = False
+                            break
                     elif isinstance(
                         expected_dim_representation, int
                     ):  # Concrete dim in testcase

@@ -568,9 +568,10 @@ def to_onnx(
     )
     for fn in _func_values:
         try:
-            _apply_ir_attr_overrides_to_graph(
-                fn.graph, getattr(ctx, "_attr_overrides", {})
-            )
+            fn_overrides = dict(getattr(fn, "_attr_overrides", {}) or {})
+            if not fn_overrides:
+                fn_overrides = getattr(ctx, "_attr_overrides", {}) or {}
+            _apply_ir_attr_overrides_to_graph(fn.graph, fn_overrides)
             _fix_concat_axis_in_graph(fn.graph)
         except Exception:
             pass
