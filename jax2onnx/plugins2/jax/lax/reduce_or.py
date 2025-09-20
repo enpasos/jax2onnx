@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.6.1",
     context="primitives2.lax",
     component="reduce_or",
     testcases=[

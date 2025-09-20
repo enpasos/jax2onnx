@@ -33,7 +33,7 @@ _DTYPE_TO_IR = {
             "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.5.0",
     context="primitives2.lax",
     component="iota",
     testcases=[

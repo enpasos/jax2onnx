@@ -19,7 +19,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Min.html",
         }
     ],
-    since="v0.2.0",
+    since="v0.1.0",
     context="primitives2.lax",
     component="min",
     testcases=[

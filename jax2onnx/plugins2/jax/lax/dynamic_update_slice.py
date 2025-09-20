@@ -73,7 +73,7 @@ def _add_elementwise(
             "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.8.1",
     context="primitives2.lax",
     component="dynamic_update_slice",
     testcases=[

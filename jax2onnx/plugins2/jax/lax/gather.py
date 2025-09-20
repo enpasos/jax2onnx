@@ -32,7 +32,7 @@ def _is_integer_dtype(dtype) -> bool:
             "doc": "https://onnx.ai/onnx/operators/onnx__GatherND.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.2.0",
     context="primitives2.lax",
     component="gather",
     testcases=[

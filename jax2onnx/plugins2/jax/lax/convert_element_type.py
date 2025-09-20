@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
     onnx=[
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"}
     ],
-    since="v0.1.0",
+    since="v0.2.0",
     context="primitives2.lax",
     component="convert_element_type",
     testcases=[],

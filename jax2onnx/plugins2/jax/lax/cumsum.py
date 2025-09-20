@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
@@ -30,7 +29,7 @@ def _cumsum_last_axis_reverse(x):
             "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.7.4",
     context="primitives2.lax",
     component="cumsum",
     testcases=[
@@ -61,9 +60,7 @@ class CumSumPlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("cumsum_in")
         )
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("cumsum_out")
-        )
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("cumsum_out"))
 
         operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
         rank = len(operand_shape)

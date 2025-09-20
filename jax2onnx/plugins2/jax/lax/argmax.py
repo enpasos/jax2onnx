@@ -8,7 +8,11 @@ import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter2.ir_builder import _dtype_to_ir
-from jax2onnx.plugins2._ir_shapes import _ensure_value_info, _stamp_type_and_shape, _to_ir_dim_for_shape
+from jax2onnx.plugins2._ir_shapes import (
+    _ensure_value_info,
+    _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
+)
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -24,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__ArgMax.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.2.0",
     context="primitives2.lax",
     component="argmax",
     testcases=[
@@ -67,7 +71,9 @@ class ArgMaxPlugin(PrimitiveLeafPlugin):
 
         input_for_argmax = operand_val
         if operand_dtype == np.bool_:
-            cast_dtype = _dtype_to_ir(np.dtype(np.int64), ctx.builder.enable_double_precision)
+            cast_dtype = _dtype_to_ir(
+                np.dtype(np.int64), ctx.builder.enable_double_precision
+            )
             cast_val = ir.Value(
                 name=ctx.fresh_name("argmax_cast"),
                 type=ir.TensorType(cast_dtype),
@@ -109,9 +115,7 @@ class ArgMaxPlugin(PrimitiveLeafPlugin):
         _ensure_value_info(ctx, tmp_out)
 
         target_enum = _dtype_to_ir(index_dtype, ctx.builder.enable_double_precision)
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("argmax_out")
-        )
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("argmax_out"))
         if target_enum != ir.DataType.INT64:
             ctx.add_node(
                 ir.Node(
