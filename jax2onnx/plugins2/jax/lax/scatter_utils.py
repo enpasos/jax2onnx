@@ -121,7 +121,13 @@ def _reshape_indices_to_2d(
             ir.Node(
                 op_type="Slice",
                 domain="",
-                inputs=[indices_shape, batch_starts, batch_ends, batch_axes, batch_steps],
+                inputs=[
+                    indices_shape,
+                    batch_starts,
+                    batch_ends,
+                    batch_axes,
+                    batch_steps,
+                ],
                 outputs=[batch_shape],
                 name=ctx.fresh_name("Slice"),
             )
@@ -147,9 +153,7 @@ def _reshape_indices_to_2d(
     else:
         num_updates = _scalar_i64(ctx, 1, "scatter_num_updates")
 
-    last_start = _const_i64(
-        ctx, np.asarray([batch_rank], dtype=np.int64), "scatter_ls"
-    )
+    last_start = _const_i64(ctx, np.asarray([batch_rank], dtype=np.int64), "scatter_ls")
     last_end = _const_i64(
         ctx, np.asarray([batch_rank + 1], dtype=np.int64), "scatter_le"
     )
@@ -319,7 +323,10 @@ def lower_scatter_elementwise(
 
     if indices_shape:
         index_depth = indices_shape[-1]
-        if isinstance(index_depth, (int, np.integer)) and int(index_depth) != operand_rank:
+        if (
+            isinstance(index_depth, (int, np.integer))
+            and int(index_depth) != operand_rank
+        ):
             raise NotImplementedError(
                 "scatter lowering expects index depth equal to operand rank"
             )
@@ -347,7 +354,7 @@ def lower_scatter_elementwise(
         inputs=[operand_val, indices_ordered, updates_flat],
         outputs=[out_val],
         name=ctx.fresh_name("ScatterND"),
-        attributes=attributes if attributes else None,
+        attributes=attributes,
     )
 
     ctx.add_node(scatter_node)
@@ -364,7 +371,10 @@ def ensure_supported_mode(mode: Any) -> None:
     if mode is None:
         return
     mode_name = getattr(mode, "name", None)
-    if mode_name is not None and mode_name.upper() in {"FILL_OR_DROP", "PROMISE_IN_BOUNDS"}:
+    if mode_name is not None and mode_name.upper() in {
+        "FILL_OR_DROP",
+        "PROMISE_IN_BOUNDS",
+    }:
         return
     as_str = str(mode).upper()
     if any(token in as_str for token in ("FILL_OR_DROP", "PROMISE_IN_BOUNDS")):

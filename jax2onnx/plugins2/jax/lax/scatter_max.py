@@ -40,4 +40,3 @@ class ScatterMaxPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         lower_scatter_common(ctx, eqn, reduction="max")
-
