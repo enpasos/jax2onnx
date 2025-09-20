@@ -1,27 +1,14 @@
 from typing import TYPE_CHECKING
 
 import jax
-import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.jax.lax._index_utils import _const_i64
 
 if TYPE_CHECKING:
     pass
-
-
-def _const_i64(ctx, values, name_hint):
-    arr = np.asarray(values, dtype=np.int64)
-    shape = () if arr.ndim == 0 else (arr.size,)
-    val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(shape),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(val)
-    return val
 
 
 @register_primitive(

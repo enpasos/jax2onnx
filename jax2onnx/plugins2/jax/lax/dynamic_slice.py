@@ -1,85 +1,19 @@
 from typing import TYPE_CHECKING, Any, Dict
 
 import jax
-import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
-from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.jax.lax._index_utils import (
+    _const_i64,
+    _cast_to_i64,
+    _infer_rank,
+)
 
 if TYPE_CHECKING:
     pass
-
-
-def _const_i64(ctx, values, name_hint):
-    arr = np.asarray(values, dtype=np.int64)
-    shape = () if arr.ndim == 0 else (arr.size,)
-    val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(shape),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(val)
-    return val
-
-
-def _scalar_i64(ctx, value, name_hint):
-    return _const_i64(ctx, np.asarray(value, dtype=np.int64), name_hint)
-
-
-def _cast_to_i64(ctx, tensor_val, name_hint):
-    exemplar = _scalar_i64(ctx, 0, "dyn_slice_cast_like_exemplar")
-    out = ctx.cast_like(tensor_val, exemplar, name_hint=name_hint)
-    out.dtype = getattr(exemplar, "dtype", ir.DataType.INT64)
-    shape_obj = getattr(tensor_val, "shape", None)
-    if shape_obj is None:
-        dims = ()
-    else:
-        dims = getattr(shape_obj, "dims", None)
-        if dims is None:
-            try:
-                dims = tuple(shape_obj)
-            except Exception:
-                dims = ()
-    _stamp_type_and_shape(out, dims)
-    _ensure_value_info(ctx, out)
-    return out
-
-
-def _infer_rank(value: ir.Value, axis: int) -> int:
-    rank = None
-    shape_obj = getattr(value, "shape", None)
-    if shape_obj is not None:
-        dims = getattr(shape_obj, "dims", None)
-        if dims is not None:
-            rank = len(dims)
-        else:
-            try:
-                rank = len(tuple(shape_obj))
-            except TypeError:
-                rank = None
-    if rank is None:
-        type_obj = getattr(value, "type", None)
-        if isinstance(type_obj, ir.TensorType):
-            type_shape = getattr(type_obj, "shape", None)
-            if type_shape is not None:
-                dims = getattr(type_shape, "dims", None)
-                if dims is not None:
-                    rank = len(dims)
-                else:
-                    try:
-                        rank = len(tuple(type_shape))
-                    except TypeError:
-                        rank = None
-    if rank is None:
-        aval = getattr(value, "aval", None)
-        if aval is not None:
-            rank = len(getattr(aval, "shape", ()) or ())
-    if rank is None:
-        rank = int(axis) + 1
-    return rank
 
 
 @register_primitive(
