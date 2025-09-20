@@ -14,39 +14,39 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.reduce_sum_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
+    jaxpr_primitive=jax.lax.reduce_prod_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_prod.html",
     onnx=[
         {
-            "component": "ReduceSum",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
+            "component": "ReduceProd",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceProd.html",
         }
     ],
     since="v0.1.0",
     context="primitives2.lax",
-    component="reduce_sum",
+    component="reduce_prod",
     testcases=[
         {
-            "testcase": "reduce_sum_axis0",
-            "callable": lambda x: jnp.sum(x, axis=0),
+            "testcase": "reduce_prod_axis0",
+            "callable": lambda x: jnp.prod(x, axis=0),
             "input_shapes": [(3, 3)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "reduce_sum_all_axes",
-            "callable": lambda x: jnp.sum(x),
+            "testcase": "reduce_prod_all_axes",
+            "callable": lambda x: jnp.prod(x),
             "input_shapes": [(2, 3, 4)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "reduce_sum_keepdims",
-            "callable": lambda x: jnp.sum(x, axis=1, keepdims=True),
+            "testcase": "reduce_prod_keepdims",
+            "callable": lambda x: jnp.prod(x, axis=1, keepdims=True),
             "input_shapes": [(3, 4)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "reduce_sum_dtype_promotion",
-            "callable": lambda x: jnp.sum(x, axis=(0, 1), dtype=jnp.float32),
+            "testcase": "reduce_prod_dtype_promotion",
+            "callable": lambda x: jnp.prod(x, axis=(0, 1), dtype=jnp.float32),
             "input_shapes": [(2, 2)],
             "input_dtypes": [np.int32],
             "expected_output_dtypes": [np.float32],
@@ -54,8 +54,8 @@ if TYPE_CHECKING:  # pragma: no cover
         },
     ],
 )
-class ReduceSumPlugin(PrimitiveLeafPlugin):
-    """IR-only lowering of ``lax.reduce_sum`` via ONNX ReduceSum."""
+class ReduceProdPlugin(PrimitiveLeafPlugin):
+    """IR-only lowering of ``lax.reduce_prod`` via ONNX ReduceProd."""
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
-        lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
+        lower_reduction(ctx, eqn, op_type="ReduceProd", allow_dtype_param=True)
