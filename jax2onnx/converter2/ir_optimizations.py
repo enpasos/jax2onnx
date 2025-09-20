@@ -7,6 +7,7 @@ import os
 import numpy as np
 
 import onnx_ir as ir
+from onnx_ir import AttributeType as IRAttrType
 
 # ---------------- Config ----------------
 
@@ -181,6 +182,8 @@ def _find_next_consumer_idx(
 def _v_name(v: ir.Value | None) -> Optional[str]:
     if v is None:
         return None
+    if isinstance(v, str):
+        return v or None
     nm = getattr(v, "name", None)
     return nm if isinstance(nm, str) and nm != "" else None
 
@@ -1265,18 +1268,101 @@ def remove_dead_nodes_ir(graph) -> None:
 # ---------------- Prune unused graph inputs (top graph only) ----------------
 
 
+def _attr_kind(attr: object) -> Optional[str]:
+    if attr is None:
+        return None
+    atype = getattr(attr, "type", None)
+    if atype is None:
+        return None
+    if isinstance(atype, str):
+        return atype.upper()
+    name = getattr(atype, "name", None)
+    if isinstance(name, str):
+        return name.upper()
+    try:
+        val = int(atype)
+    except Exception:
+        return None
+    for label in ("GRAPH", "GRAPHS"):
+        try:
+            enum_val = getattr(IRAttrType, label)
+        except AttributeError:
+            continue
+        try:
+            if val == int(enum_val.value):
+                return label
+        except Exception:
+            if val == int(enum_val):
+                return label
+    return None
+
+
+def _iter_node_attrs(node: object) -> Iterable[object]:
+    raw = getattr(node, "attributes", None)
+    if raw:
+        if hasattr(raw, "values"):
+            for val in raw.values():
+                yield val
+        elif isinstance(raw, dict):
+            for val in raw.values():
+                yield val
+        else:
+            for val in raw:
+                yield val
+    raw_alt = getattr(node, "attribute", None)
+    if raw_alt:
+        for val in raw_alt:
+            yield val
+
+
+def _collect_used_value_names(graph, used: Set[str]) -> None:
+    nodes, _ = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+    for node in nodes:
+        for iv in _node_inputs(node):
+            nm = _v_name(iv)
+            if nm:
+                used.add(nm)
+        for attr in _iter_node_attrs(node):
+            kind = _attr_kind(attr)
+            if kind == "GRAPH":
+                sub = getattr(attr, "value", None)
+                if sub is None:
+                    sub = getattr(attr, "g", None)
+                if sub is not None:
+                    _collect_used_value_names(sub, used)
+                    for ov in _graph_outputs_list(sub):
+                        nm = _v_name(ov)
+                        if nm:
+                            used.add(nm)
+            elif kind == "GRAPHS":
+                subs = getattr(attr, "value", None)
+                if subs is None:
+                    subs = getattr(attr, "graphs", None)
+                if subs is None:
+                    continue
+                try:
+                    iterator = list(subs)
+                except Exception:
+                    iterator = subs
+                for sub in iterator or []:
+                    if sub is None:
+                        continue
+                    _collect_used_value_names(sub, used)
+                    for ov in _graph_outputs_list(sub):
+                        nm = _v_name(ov)
+                        if nm:
+                            used.add(nm)
+
+
 def prune_unused_graph_inputs_ir(graph) -> None:
     """
     Remove graph inputs that are not consumed by any node and are not graph outputs.
     (We do NOT run this on function bodies to avoid changing function signatures.)
     """
-    nodes, _ = _get_node_seq_and_setter(graph)
     used: Set[str] = set()
-    for n in nodes:
-        for iv in _node_inputs(n):
-            nm = _v_name(iv)
-            if nm:
-                used.add(nm)
+    _collect_used_value_names(graph, used)
     for ov in _graph_outputs_list(graph):
         nm = _v_name(ov)
         if nm:

@@ -25,9 +25,7 @@ def test_since_attribute_matches_between_legacy_and_ir(_):
 
         legacy_ctx = legacy_plugin.metadata.get("context")
         ir_ctx = ir_plugin.metadata.get("context")
-        if not (
-            legacy_ctx == "primitives.lax" and ir_ctx == "primitives2.lax"
-        ):
+        if not (legacy_ctx == "primitives.lax" and ir_ctx == "primitives2.lax"):
             continue
 
         legacy_since = legacy_plugin.metadata.get("since")
@@ -37,6 +35,8 @@ def test_since_attribute_matches_between_legacy_and_ir(_):
                 f"{primitive}: legacy since={legacy_since!r}, plugins2 since={ir_since!r}"
             )
 
-    assert not mismatches, (
-        "Converted primitives must keep their `since` metadata.\n" + "\n".join(mismatches)
+    assert (
+        not mismatches
+    ), "Converted primitives must keep their `since` metadata.\n" + "\n".join(
+        mismatches
     )

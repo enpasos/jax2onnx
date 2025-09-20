@@ -43,22 +43,20 @@ class PowPlugin(PrimitiveLeafPlugin):
         base_var, exponent_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        base_val = ctx.get_value_for_var(
-            base_var, name_hint=ctx.fresh_name("pow_base")
-        )
+        base_val = ctx.get_value_for_var(base_var, name_hint=ctx.fresh_name("pow_base"))
         exp_val = ctx.get_value_for_var(
             exponent_var, name_hint=ctx.fresh_name("pow_exp")
         )
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("pow_out")
-        )
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
 
         target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
         exp_dtype = np.dtype(getattr(exponent_var.aval, "dtype", target_dtype))
         if exp_dtype != target_dtype:
             cast_val = ir.Value(
                 name=ctx.fresh_name("pow_exp_cast"),
-                type=ir.TensorType(_dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)),
+                type=ir.TensorType(
+                    _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+                ),
                 shape=exp_val.shape,
             )
             ctx.add_node(
@@ -72,7 +70,11 @@ class PowPlugin(PrimitiveLeafPlugin):
                         IRAttr(
                             "to",
                             IRAttrType.INT,
-                            int(_dtype_to_ir(target_dtype, ctx.builder.enable_double_precision).value),
+                            int(
+                                _dtype_to_ir(
+                                    target_dtype, ctx.builder.enable_double_precision
+                                ).value
+                            ),
                         )
                     ],
                 )

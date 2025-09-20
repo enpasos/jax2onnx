@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Sequence
+from typing import TYPE_CHECKING, Sequence, cast
 
 import jax
 import numpy as np
@@ -68,7 +68,9 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     testcases=[
         {
             "testcase": "conv_nchw",
-            "callable": lambda x, w: jax.lax.conv(x, w, window_strides=(1, 1), padding="VALID"),
+            "callable": lambda x, w: jax.lax.conv(
+                x, w, window_strides=(1, 1), padding="VALID"
+            ),
             "input_shapes": [(1, 2, 5, 5), (3, 2, 3, 3)],
             "use_onnx_ir": True,
             "run_only_f32_variant": True,
@@ -109,15 +111,9 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 f"Unsupported conv layouts: lhs={lhs_spec}, rhs={rhs_spec}, out={out_spec}"
             )
 
-        lhs_val = ctx.get_value_for_var(
-            lhs_var, name_hint=ctx.fresh_name("conv_lhs")
-        )
-        rhs_val = ctx.get_value_for_var(
-            rhs_var, name_hint=ctx.fresh_name("conv_rhs")
-        )
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("conv_out")
-        )
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("conv_lhs"))
+        rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("conv_rhs"))
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("conv_out"))
 
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
@@ -180,7 +176,9 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
 
         conv_attrs: list[IRAttr] = []
         strides = params.get("window_strides", (1, 1))
-        conv_attrs.append(IRAttr("strides", IRAttrType.INTS, list(int(s) for s in strides)))
+        conv_attrs.append(
+            IRAttr("strides", IRAttrType.INTS, list(int(s) for s in strides))
+        )
 
         padding = params.get("padding", "VALID")
         if isinstance(padding, str):
@@ -192,11 +190,33 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             else:
                 raise NotImplementedError(f"Unsupported padding mode {padding}")
         else:
-            conv_attrs.append(IRAttr("pads", IRAttrType.INTS, _flatten_padding(padding)))
+            num_spatial = max(len(lhs_shape) - 2, 0)
+            if padding is None:
+                pad_pairs: Sequence[Sequence[int]] = tuple(
+                    (0, 0) for _ in range(num_spatial)
+                )
+            else:
+                if not isinstance(padding, Sequence):
+                    raise TypeError(f"Unsupported padding spec type: {type(padding)!r}")
+                padding_seq = tuple(padding)
+                if not padding_seq:
+                    pad_pairs = tuple((0, 0) for _ in range(num_spatial))
+                else:
+                    first_entry = padding_seq[0]
+                    if not isinstance(first_entry, Sequence):
+                        raise NotImplementedError(
+                            "Expected padding as sequence of (low, high) pairs"
+                        )
+                    pad_pairs = cast(Sequence[Sequence[int]], padding_seq)
+            conv_attrs.append(
+                IRAttr("pads", IRAttrType.INTS, _flatten_padding(pad_pairs))
+            )
 
         rhs_dilation = params.get("rhs_dilation")
         if rhs_dilation:
-            conv_attrs.append(IRAttr("dilations", IRAttrType.INTS, list(int(d) for d in rhs_dilation)))
+            conv_attrs.append(
+                IRAttr("dilations", IRAttrType.INTS, list(int(d) for d in rhs_dilation))
+            )
 
         groups = params.get("feature_group_count", 1)
         if groups != 1:
@@ -213,14 +233,18 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         ctx.add_node(conv_node)
 
         conv_dtype_enum = _dtype_to_ir(
-            np.dtype(getattr(out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32))),
+            np.dtype(
+                getattr(
+                    out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)
+                )
+            ),
             ctx.builder.enable_double_precision,
         )
-        conv_shape_intermediate = (
-            tuple(out_shape)
-            if not need_output_transpose
-            else tuple(out_shape[i] for i in perm_to_nchw)
-        )
+        if need_output_transpose:
+            assert perm_to_nchw is not None
+            conv_shape_intermediate = tuple(out_shape[i] for i in perm_to_nchw)
+        else:
+            conv_shape_intermediate = tuple(out_shape)
         conv_outputs_intermediate.type = ir.TensorType(conv_dtype_enum)
         _stamp_type_and_shape(conv_outputs_intermediate, conv_shape_intermediate)
         _ensure_value_info(ctx, conv_outputs_intermediate)

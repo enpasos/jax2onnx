@@ -59,19 +59,15 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         ]
 
         if lhs_batch or rhs_batch:
-            raise NotImplementedError("Batched dot_general not yet supported in plugins2")
+            raise NotImplementedError(
+                "Batched dot_general not yet supported in plugins2"
+            )
 
-        lhs_val = ctx.get_value_for_var(
-            lhs_var, name_hint=ctx.fresh_name("dot_lhs")
-        )
-        rhs_val = ctx.get_value_for_var(
-            rhs_var, name_hint=ctx.fresh_name("dot_rhs")
-        )
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("dot_out")
-        )
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("dot_lhs"))
+        rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("dot_rhs"))
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dot_out"))
 
-        lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
+        tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
@@ -110,7 +106,9 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             _ensure_value_info(ctx, transposed)
             rhs_input = transposed
 
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)))
+        out_dtype = np.dtype(
+            getattr(out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32))
+        )
         bias_val = ctx.builder.add_initializer_from_scalar(
             ctx.fresh_name("dot_bias"), np.array(0, dtype=out_dtype)
         )
@@ -129,5 +127,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         ctx.add_node(node)
 
         _stamp_type_and_shape(out_val, out_shape)
-        out_val.type = ir.TensorType(_dtype_to_ir(out_dtype, ctx.builder.enable_double_precision))
+        out_val.type = ir.TensorType(
+            _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        )
         _ensure_value_info(ctx, out_val)

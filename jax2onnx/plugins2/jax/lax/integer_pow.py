@@ -48,9 +48,7 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
         base_val = ctx.get_value_for_var(
             base_var, name_hint=ctx.fresh_name("ipow_base")
         )
-        out_val = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("ipow_out")
-        )
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ipow_out"))
 
         target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
         exp_const = ctx.builder.add_initializer_from_scalar(

@@ -414,6 +414,8 @@ If conversion doesn't work out of the box, it could be due to:
 |:--------------|:---------| 
 | `JAX`         | 0.6.2    | 
 | `Flax`        | 0.11.2   | 
+| `Equinox`     | 0.13.1   | 
+| `onnx-ir`     | 0.1.9    | 
 | `onnx`        | 1.18.0   |  
 | `onnxruntime` | 1.22.1   |  
 

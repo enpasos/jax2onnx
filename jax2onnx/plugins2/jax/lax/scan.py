@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import inspect
-import types
 from typing import TYPE_CHECKING
 
 import jax
@@ -17,27 +15,14 @@ import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape
-from jax2onnx.plugins2.plugin_system import (
-    PLUGIN_REGISTRY2,
-    PrimitiveLeafPlugin,
-    register_primitive,
+from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.jax.lax._control_flow_utils import (
+    lower_jaxpr_eqns,
+    make_subgraph_context,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter2.ir_context import IRContext
-
-
-def _call_plugin_lower(plugin, ctx, eqn):
-    lower_fn = getattr(plugin, "lower", None)
-    if lower_fn is None:
-        raise NotImplementedError(f"Plugin for '{plugin}' lacks a lower() method.")
-    try:
-        sig = inspect.signature(lower_fn)
-        if "params" in sig.parameters:
-            return lower_fn(ctx, eqn, getattr(eqn, "params", None))
-    except (ValueError, TypeError):
-        pass
-    return lower_fn(ctx, eqn)
 
 
 def _maybe_var_type(mod):
@@ -108,40 +93,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
 
         # Build a child IR context for the Scan body graph.
-        body_ctx = type(ctx)(
-            opset=getattr(ctx.builder, "opset", 21),
-            enable_double_precision=getattr(
-                ctx.builder, "enable_double_precision", False
-            ),
-            input_specs=[],
-        )
-        body_ctx._function_mode = True  # emit Constant nodes for literals
-        body_ctx._inside_function_scope = True
-
-        # Ensure nested graph names do not collide with outer graph SSA names.
-        body_prefix = ctx.fresh_name("scan_body")
-        orig_ctx_fresh = body_ctx.fresh_name
-        setattr(
-            body_ctx,
-            "fresh_name",
-            types.MethodType(
-                lambda self, base, _orig=orig_ctx_fresh, _pref=body_prefix: _orig(
-                    f"{_pref}/{base}"
-                ),
-                body_ctx,
-            ),
-        )
-        orig_builder_fresh = body_ctx.builder.fresh_name
-        setattr(
-            body_ctx.builder,
-            "fresh_name",
-            types.MethodType(
-                lambda self, base, _orig=orig_builder_fresh, _pref=body_prefix: _orig(
-                    f"{_pref}/{base}"
-                ),
-                body_ctx.builder,
-            ),
-        )
+        body_ctx = make_subgraph_context(ctx, prefix="scan_body")
 
         # Bind consts inside the body context.
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
@@ -154,14 +106,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_inputs.append(val)
 
         # Lower body equations using the shared plugin registry.
-        for inner_eqn in jaxpr.eqns:
-            prim = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY2.get(prim)
-            if plugin is None:
-                raise NotImplementedError(
-                    f"[scan] No plugins2 registered for primitive '{prim}' inside scan body"
-                )
-            _call_plugin_lower(plugin, body_ctx, inner_eqn)
+        lower_jaxpr_eqns(body_ctx, jaxpr)
 
         # Collect body outputs: const passthrough → carry outputs → stacked outputs.
         body_outputs: list[ir.Value] = []
