@@ -23,9 +23,7 @@ _ELU_PRIM.multiple_results = False
 @register_primitive(
     jaxpr_primitive=_ELU_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.elu.html",
-    onnx=[
-        {"component": "Elu", "doc": "https://onnx.ai/onnx/operators/onnx__Elu.html"}
-    ],
+    onnx=[{"component": "Elu", "doc": "https://onnx.ai/onnx/operators/onnx__Elu.html"}],
     since="v0.7.1",
     context="primitives2.nn",
     component="elu",

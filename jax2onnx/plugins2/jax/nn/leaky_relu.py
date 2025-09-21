@@ -65,12 +65,8 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         (y_var,) = eqn.outvars
         negative_slope = float(eqn.params.get("negative_slope", 0.01))
 
-        x_val = ctx.get_value_for_var(
-            x_var, name_hint=ctx.fresh_name("leaky_relu_in")
-        )
-        y_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("leaky_relu_out")
-        )
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("leaky_relu_in"))
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("leaky_relu_out"))
 
         attr = IRAttr("alpha", IRAttrType.FLOAT, negative_slope)
         ctx.add_node(

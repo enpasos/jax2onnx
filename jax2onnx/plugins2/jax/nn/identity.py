@@ -61,9 +61,7 @@ class IdentityPlugin(PrimitiveLeafPlugin):
         y_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("identity_in"))
-        y_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("identity_out")
-        )
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("identity_out"))
 
         ctx.add_node(
             ir.Node(
