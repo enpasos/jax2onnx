@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Callable
 
-import jax.numpy as jnp
 from jax.extend.core import Primitive
 
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
@@ -34,7 +33,9 @@ def jnp_binding_specs(
         return lambda *args, **kwargs: prim.bind(*args, **kwargs)
 
     return [
-        AssignSpec(target="jax.numpy", attr=attr_name, value=prim, delete_if_missing=True),
+        AssignSpec(
+            target="jax.numpy", attr=attr_name, value=prim, delete_if_missing=True
+        ),
         MonkeyPatchSpec(
             target="jax.numpy",
             attr=func_name,
@@ -44,7 +45,9 @@ def jnp_binding_specs(
     ]
 
 
-def get_orig_impl(prim: Primitive, func_name: str, store_attr: str = "__orig_impl__") -> Callable:
+def get_orig_impl(
+    prim: Primitive, func_name: str, store_attr: str = "__orig_impl__"
+) -> Callable:
     storage_slot = f"{store_attr}_{func_name}"
     orig = getattr(prim, storage_slot, None)
     if orig is None:

@@ -10,6 +10,30 @@ if TYPE_CHECKING:
     pass  # for type hints
 
 
+def lower_add(ctx, eqn) -> None:
+    """Shared lowering routine for lax/jnp Add plugins."""
+
+    x_var, y_var = eqn.invars
+    out_var = eqn.outvars[0]
+
+    prefer_dt: Optional[np.dtype] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+
+    a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_lhs"))
+    b_val = ctx.get_value_for_var(
+        y_var, name_hint=ctx.fresh_name("add_rhs"), prefer_np_dtype=prefer_dt
+    )
+    out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
+
+    node = ir.Node(
+        op_type="Add",
+        domain="",
+        inputs=[a_val, b_val],
+        outputs=[out_val],
+        name=ctx.fresh_name("add"),
+    )
+    ctx.add_node(node)
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.add_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html",
@@ -39,25 +63,4 @@ if TYPE_CHECKING:
 )
 class AddPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx, eqn):
-        x_var, y_var = eqn.invars
-        out_var = eqn.outvars[0]
-
-        # Prefer the dtype of the first operand for any floating literal on RHS.
-        prefer_dt: Optional[np.dtype] = np.dtype(
-            getattr(x_var.aval, "dtype", np.float32)
-        )
-
-        a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_lhs"))
-        b_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("add_rhs"), prefer_np_dtype=prefer_dt
-        )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
-
-        node = ir.Node(
-            op_type="Add",
-            domain="",  # default ONNX domain
-            inputs=[a_val, b_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("add"),
-        )
-        ctx.add_node(node)
+        lower_add(ctx, eqn)

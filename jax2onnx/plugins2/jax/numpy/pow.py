@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 import jax
 import jax.numpy as jnp
 
-from jax2onnx.plugins2.jax.lax.pow import PowPlugin as _LaxPowPlugin
+from jax2onnx.plugins2.jax.lax.pow import lower_pow
 from jax2onnx.plugins2.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -40,7 +40,7 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(shape, x.dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
-        _LaxPowPlugin.lower(self, ctx, eqn)
+        lower_pow(ctx, eqn)
 
     @classmethod
     def binding_specs(cls):

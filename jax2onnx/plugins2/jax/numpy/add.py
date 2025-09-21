@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax2onnx.plugins2.jax.lax.add import AddPlugin as _LaxAddPlugin
+from jax2onnx.plugins2.jax.lax.add import lower_add
 
 from jax2onnx.plugins2.jax.numpy._common import (
     get_orig_impl,
@@ -24,9 +24,7 @@ _ADD_PRIM = make_jnp_primitive("jax.numpy.add")
 @register_primitive(
     jaxpr_primitive=_ADD_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
-    onnx=[
-        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"}
-    ],
+    onnx=[{"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"}],
     since="v0.8.0",
     context="primitives2.jnp",
     component="add",
@@ -59,10 +57,7 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(out_shape, out_dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
-        x_var, y_var = eqn.invars
-        out_var = eqn.outvars[0]
-
-        _LaxAddPlugin.lower(self, ctx, eqn)
+        lower_add(ctx, eqn)
 
     @classmethod
     def binding_specs(cls):
