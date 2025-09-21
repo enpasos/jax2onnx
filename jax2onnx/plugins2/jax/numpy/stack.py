@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Dict, Sequence
+from typing import TYPE_CHECKING, ClassVar
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
@@ -25,8 +24,14 @@ _STACK_PRIM = make_jnp_primitive("jax.numpy.stack")
     jaxpr_primitive=_STACK_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.stack.html",
     onnx=[
-        {"component": "Unsqueeze", "doc": "https://onnx.ai/onnx/operators/onnx__Unsqueeze.html"},
-        {"component": "Concat", "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html"},
+        {
+            "component": "Unsqueeze",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Unsqueeze.html",
+        },
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
     ],
     since="v0.8.0",
     context="primitives2.jnp",
@@ -66,7 +71,9 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*in_avals: jax.core.ShapedArray, axis: int, **_) -> jax.core.ShapedArray:
+    def abstract_eval(
+        *in_avals: jax.core.ShapedArray, axis: int, **_
+    ) -> jax.core.ShapedArray:
         if not in_avals:
             raise ValueError("jnp.stack requires at least one array")
 
@@ -132,8 +139,10 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
 
         out_var = eqn.outvars[0]
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stack_out"))
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        concat_axis = axis if axis >= 0 else axis + len(out_shape)
+        out_shape_tuple = tuple(getattr(out_var.aval, "shape", ()))
+        concat_axis = axis if axis >= 0 else axis + len(out_shape_tuple)
+
+        out_shape = list(out_shape_tuple)
 
         ctx.add_node(
             ir.Node(
@@ -166,7 +175,9 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
             return _patched
 
         return [
-            AssignSpec("jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True),
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
             MonkeyPatchSpec(
                 target="jax.numpy",
                 attr=cls._FUNC_NAME,
