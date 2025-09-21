@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Tuple
 
 import jax
 import numpy as np
+import jax.numpy as jnp
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
@@ -37,14 +38,6 @@ def _extract_branches(
     return (true_jaxpr, true_consts), (false_jaxpr, false_consts)
 
 
-def _clone_value_for_subgraph(parent_val: ir.Value) -> ir.Value:
-    return ir.Value(
-        name=parent_val.name,
-        type=parent_val.type,
-        shape=parent_val.shape,
-    )
-
-
 @register_primitive(
     jaxpr_primitive=jax.lax.cond_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cond.html",
@@ -59,14 +52,88 @@ def _clone_value_for_subgraph(parent_val: ir.Value) -> ir.Value:
     component="cond",
     testcases=[
         {
-            "testcase": "cond_scalar_bool",
-            "callable": lambda x: jax.lax.cond(
+            "testcase": "cond_scalar",
+            "callable": lambda: jax.lax.cond(
                 True,
-                lambda v: v + 1,
-                lambda v: v - 1,
-                x,
+                lambda x: x + 1,
+                lambda x: x - 1,
+                np.int32(3),
             ),
-            "input_shapes": [()],
+            "input_shapes": [],
+            "expected_output_shapes": [()],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_multiple_operands_in_tuple",
+            "callable": lambda: jax.lax.cond(
+                True,
+                lambda tup: tup[0] + tup[1] - tup[2],
+                lambda tup: tup[0] - tup[1] + tup[2],
+                (np.array(10, np.int32), np.array(5, np.int32), np.array(2, np.int32)),
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [()],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_my_new_complex_scenario",
+            "callable": lambda op1, op2: jax.lax.cond(
+                jnp.all(op1 > 0),
+                lambda t: (t[0] * 2 + t[1], jnp.sum(t[0], axis=(-2, -1))),
+                lambda t: (t[0] - t[1] * 2, jnp.sum(t[0], axis=(-2, -1))),
+                (op1, op2),
+            ),
+            "input_shapes": [(11, 3, 4), (3, 4)],
+            "input_dtypes": [np.float32, np.float32],
+            "expected_output_shapes": [(11, 3, 4), (11,)],
+            "expected_output_dtypes": [np.float32, np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_nested_conditional",
+            "callable": lambda x, y, z_pred: jax.lax.cond(
+                x > 5,
+                lambda op: jax.lax.cond(
+                    z_pred,
+                    lambda inner_op: inner_op * 10,
+                    lambda inner_op: inner_op - 10,
+                    op,
+                ),
+                lambda op: op + 100,
+                y,
+            ),
+            "input_shapes": [(), (), ()],
+            "input_dtypes": [np.int32, np.float32, np.bool_],
+            "expected_output_shapes": [()],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_variables",
+            "callable": lambda x, y: jax.lax.cond(
+                x > 5,
+                lambda op: op - 100,
+                lambda op: op + 100,
+                y,
+            ),
+            "input_shapes": [(), ()],
+            "input_dtypes": [np.int32, np.float32],
+            "expected_output_shapes": [()],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_passthrough_identity",
+            "callable": lambda pred, x, y: jax.lax.cond(
+                pred,
+                lambda op_x, op_y: jax.lax.add(op_x, op_y),
+                lambda op_x, op_y: op_x,
+                x,
+                y,
+            ),
+            "input_values": [
+                np.array(True),
+                np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                np.array([4.0, 5.0, 6.0], dtype=np.float32),
+            ],
             "use_onnx_ir": True,
         },
     ],
@@ -123,6 +190,11 @@ class CondPlugin(PrimitiveLeafPlugin):
             ctx.get_value_for_var(v, name_hint=ctx.fresh_name("cond_operand"))
             for v in operand_vars
         ]
+        for var, val in zip(operand_vars, branch_input_vals):
+            _stamp_type_and_shape(
+                val, tuple(getattr(getattr(var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(ctx, val)
 
         (true_jaxpr, true_consts), (false_jaxpr, false_consts) = _extract_branches(
             eqn.params
@@ -182,13 +254,26 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         branch_inputs: list[ir.Value] = []
         for outer_val, inner_var in zip(operand_vals, branch_jaxpr.invars):
-            # ONNX If subgraphs do not receive explicit inputs. Instead they
-            # "capture" values from the parent scope by name. Mirror the
-            # parent value metadata but keep graph inputs empty so ORT does
-            # not expect additional feeds.
-            cloned = _clone_value_for_subgraph(outer_val)
-            branch_ctx.bind_value_for_var(inner_var, cloned)
-            branch_inputs.append(cloned)
+            capture = ir.Value(
+                name=branch_ctx.fresh_name("cond_capture"),
+                type=outer_val.type,
+                shape=outer_val.shape,
+            )
+            branch_ctx.add_node(
+                ir.Node(
+                    op_type="Identity",
+                    domain="",
+                    inputs=[outer_val],
+                    outputs=[capture],
+                    name=branch_ctx.fresh_name("Identity"),
+                )
+            )
+            _stamp_type_and_shape(
+                capture, tuple(getattr(getattr(inner_var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(branch_ctx, capture)
+            branch_ctx.bind_value_for_var(inner_var, capture)
+            branch_inputs.append(capture)
 
         lower_jaxpr_eqns(branch_ctx, branch_jaxpr)
 

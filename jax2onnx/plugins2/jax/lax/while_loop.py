@@ -37,7 +37,9 @@ def _clone_value_for_subgraph(v: ir.Value) -> ir.Value:
     return ir.Value(name=v.name, type=tensor_type, shape=shape)
 
 
-def _ensure_bool_value(ctx: "IRContext", value: ir.Value, *, name_hint: str) -> ir.Value:
+def _ensure_bool_value(
+    ctx: "IRContext", value: ir.Value, *, name_hint: str
+) -> ir.Value:
     dtype = getattr(getattr(value, "type", None), "dtype", None)
     if dtype == ir.DataType.BOOL:
         return value
@@ -130,7 +132,9 @@ def _build_loop_body_graph(
     lower_jaxpr_eqns(body_ctx, body_jaxpr)
 
     state_outputs = [
-        body_ctx.get_value_for_var(out_var, name_hint=body_ctx.fresh_name("loop_state_out"))
+        body_ctx.get_value_for_var(
+            out_var, name_hint=body_ctx.fresh_name("loop_state_out")
+        )
         for out_var in body_jaxpr.outvars
     ]
     for out_var, out_val in zip(body_jaxpr.outvars, state_outputs):
@@ -210,12 +214,19 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         if cond_cj is None or body_cj is None:
             raise NotImplementedError("while_loop lowering requires cond/body jaxpr")
 
-        state_vals = [ctx.get_value_for_var(var, name_hint=ctx.fresh_name("while_state")) for var in eqn.invars]
+        state_vals = [
+            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("while_state"))
+            for var in eqn.invars
+        ]
 
-        cond_init = _evaluate_closed_jaxpr(ctx, cond_cj, state_vals, prefix="while_cond")
+        cond_init = _evaluate_closed_jaxpr(
+            ctx, cond_cj, state_vals, prefix="while_cond"
+        )
         if not cond_init:
             raise RuntimeError("while_loop cond_jaxpr produced no outputs")
-        cond_init_val = _ensure_bool_value(ctx, cond_init[0], name_hint="while_cond_bool")
+        cond_init_val = _ensure_bool_value(
+            ctx, cond_init[0], name_hint="while_cond_bool"
+        )
 
         body_graph = _build_loop_body_graph(ctx, cond_cj, body_cj, state_vals)
 
@@ -246,7 +257,10 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             if aval is None:
                 continue
             shape = tuple(getattr(aval, "shape", ()))
-            dtype = _dtype_to_ir(np.dtype(getattr(aval, "dtype", np.float32)), ctx.builder.enable_double_precision)
+            dtype = _dtype_to_ir(
+                np.dtype(getattr(aval, "dtype", np.float32)),
+                ctx.builder.enable_double_precision,
+            )
             val.type = ir.TensorType(dtype)
             _stamp_type_and_shape(val, shape)
             _ensure_value_info(ctx, val)

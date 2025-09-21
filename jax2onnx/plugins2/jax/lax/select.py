@@ -35,6 +35,72 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_dtypes": [np.bool_, np.float32, np.float32],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "select_mask_scores_tensor_else_dynamic",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(2 * 12 * 5 * 5).reshape(2, 12, 5, 5) % 2 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=2 * 12 * 5 * 5, dtype=np.float32).reshape(
+                    2, 12, 5, 5
+                ),
+                np.linspace(1.0, 2.0, num=2 * 12 * 5 * 5, dtype=np.float32).reshape(
+                    2, 12, 5, 5
+                ),
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else_dynamic_f64",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(2 * 12 * 5 * 5).reshape(2, 12, 5, 5) % 3 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=2 * 12 * 5 * 5, dtype=np.float64).reshape(
+                    2, 12, 5, 5
+                ),
+                np.linspace(1.0, 2.0, num=2 * 12 * 5 * 5, dtype=np.float64).reshape(
+                    2, 12, 5, 5
+                ),
+            ],
+            "use_onnx_ir": True,
+            "enable_double_precision": True,
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(3 * 12 * 4 * 4).reshape(3, 12, 4, 4) % 2 == 1, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=3 * 12 * 4 * 4, dtype=np.float32).reshape(
+                    3, 12, 4, 4
+                ),
+                np.linspace(1.0, 2.0, num=3 * 12 * 4 * 4, dtype=np.float32).reshape(
+                    3, 12, 4, 4
+                ),
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else_f64",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(3 * 12 * 4 * 4).reshape(3, 12, 4, 4) % 4 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=3 * 12 * 4 * 4, dtype=np.float64).reshape(
+                    3, 12, 4, 4
+                ),
+                np.linspace(1.0, 2.0, num=3 * 12 * 4 * 4, dtype=np.float64).reshape(
+                    3, 12, 4, 4
+                ),
+            ],
+            "use_onnx_ir": True,
+            "enable_double_precision": True,
+        },
     ],
 )
 class SelectPlugin(PrimitiveLeafPlugin):

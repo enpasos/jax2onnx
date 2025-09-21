@@ -10,6 +10,7 @@ from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax2onnx.plugins2._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins2.jax.lax._index_utils import _cast_to_i64, _const_i64
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+import jax.numpy as jnp
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter2.ir_context import IRContext
@@ -31,7 +32,81 @@ if TYPE_CHECKING:  # pragma: no cover
     since="v0.2.0",
     context="primitives2.lax",
     component="select_n",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "select_n_bool_predicate_two_cases_float",
+            "callable": lambda pred, on_false, on_true: jax.lax.select_n(
+                pred, on_false, on_true
+            ),
+            "input_values": [
+                jnp.array([True, False, True], dtype=jnp.bool_),
+                jnp.array([1.0, 2.0, 3.0], dtype=jnp.float32),
+                jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
+            ],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_n_bool_predicate_two_cases_int",
+            "callable": lambda pred, on_false, on_true: jax.lax.select_n(
+                pred, on_false, on_true
+            ),
+            "input_values": [
+                jnp.array([[True, False], [False, True]], dtype=jnp.bool_),
+                jnp.array([[10, 20], [30, 40]], dtype=jnp.int32),
+                jnp.array([[50, 60], [70, 80]], dtype=jnp.int32),
+            ],
+            "expected_output_shapes": [(2, 2)],
+            "expected_output_dtypes": [np.int32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_n_bool_predicate_scalar_broadcast",
+            "callable": lambda pred, on_false, on_true: jax.lax.select_n(
+                pred, on_false, on_true
+            ),
+            "input_values": [
+                jnp.array(True, dtype=jnp.bool_),
+                jnp.array([1.0, 2.0, 3.0], dtype=jnp.float32),
+                jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
+            ],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_n_int_indices_three_cases",
+            "callable": lambda indices, c0, c1, c2: jax.lax.select_n(
+                indices, c0, c1, c2
+            ),
+            "input_values": [
+                jnp.array([0, 1, 2, 0], dtype=jnp.int32),
+                jnp.array([10, 11, 12, 13], dtype=jnp.float32),
+                jnp.array([20, 21, 22, 23], dtype=jnp.float32),
+                jnp.array([30, 31, 32, 33], dtype=jnp.float32),
+            ],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_n_int_indices_four_cases",
+            "callable": lambda indices, c0, c1, c2, c3: jax.lax.select_n(
+                indices, c0, c1, c2, c3
+            ),
+            "input_values": [
+                jnp.array([0, 1, 2, 3, 1, 0], dtype=jnp.int32),
+                jnp.array([1.0, 1.1, 1.2, 1.3, 1.4, 1.5], dtype=jnp.float32),
+                jnp.array([2.0, 2.1, 2.2, 2.3, 2.4, 2.5], dtype=jnp.float32),
+                jnp.array([3.0, 3.1, 3.2, 3.3, 3.4, 3.5], dtype=jnp.float32),
+                jnp.array([4.0, 4.1, 4.2, 4.3, 4.4, 4.5], dtype=jnp.float32),
+            ],
+            "expected_output_shapes": [(6,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+    ],
 )
 class SelectNPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.select_n`` using ``Where`` cascades."""
