@@ -87,7 +87,9 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
         if axes is None:
             axes_tuple = tuple(range(ndim))
         else:
-            axes_tuple = tuple(int(ax) % ndim if ndim and int(ax) < 0 else int(ax) for ax in axes)
+            axes_tuple = tuple(
+                int(ax) % ndim if ndim and int(ax) < 0 else int(ax) for ax in axes
+            )
 
         if axes is None:
             if keepdims:
