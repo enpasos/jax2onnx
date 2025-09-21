@@ -96,12 +96,24 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
     jaxpr_primitive=_DPA_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html",
     onnx=[
-        {"component": "Transpose", "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html"},
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "Transpose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
+        },
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
     ],
     since="v0.8.0",
     context="primitives2.nn",
@@ -286,7 +298,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 np.asarray(-np.inf, dtype=np_dtype),
             )
             masked = _make_tensor_value(
-                ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_causal"
+                ctx,
+                current_logits,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_causal",
             )
             ctx.add_node(
                 ir.Node(
@@ -316,7 +331,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             mask_dtype = np.dtype(getattr(mask_var.aval, "dtype", np.bool_))
             if mask_dtype != np.bool_:
                 mask_bool = _make_bool_tensor_value(
-                    ctx, getattr(mask_val.shape, "dims", mask_val.shape), base="dpa_mask_bool"
+                    ctx,
+                    getattr(mask_val.shape, "dims", mask_val.shape),
+                    base="dpa_mask_bool",
                 )
                 ctx.add_node(
                     ir.Node(
@@ -340,7 +357,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
             )
             mask_float = _make_tensor_value(
-                ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_mask_f"
+                ctx,
+                current_logits,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_mask_f",
             )
             ctx.add_node(
                 ir.Node(
@@ -352,14 +372,19 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     attributes=[IRAttr("to", IRAttrType.INT, int(dtype_enum.value))],
                 )
             )
-            _stamp_type_and_shape(mask_float, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _stamp_type_and_shape(
+                mask_float, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
             _add_value_info(ctx, mask_float)
 
             one_const = ctx.builder.add_initializer_from_scalar(
                 ctx.fresh_name("dpa_mask_one"), np.asarray(1.0, dtype=np_dtype)
             )
             inv_mask = _make_tensor_value(
-                ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_mask_inv"
+                ctx,
+                current_logits,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_mask_inv",
             )
             ctx.add_node(
                 ir.Node(
@@ -370,11 +395,16 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     name=ctx.fresh_name("Sub"),
                 )
             )
-            _stamp_type_and_shape(inv_mask, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _stamp_type_and_shape(
+                inv_mask, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
             _add_value_info(ctx, inv_mask)
 
             penalty = _make_tensor_value(
-                ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_mask_penalty"
+                ctx,
+                current_logits,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_mask_penalty",
             )
             ctx.add_node(
                 ir.Node(
@@ -389,7 +419,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _add_value_info(ctx, penalty)
 
             masked_logits = _make_tensor_value(
-                ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_masked"
+                ctx,
+                current_logits,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_masked",
             )
             ctx.add_node(
                 ir.Node(
@@ -400,12 +433,17 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     name=ctx.fresh_name("Add"),
                 )
             )
-            _stamp_type_and_shape(masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _stamp_type_and_shape(
+                masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
             _add_value_info(ctx, masked_logits)
             current_logits = masked_logits
 
         weights = _make_tensor_value(
-            ctx, current_logits, (batch_dim, num_heads, q_len, k_len), base="dpa_weights"
+            ctx,
+            current_logits,
+            (batch_dim, num_heads, q_len, k_len),
+            base="dpa_weights",
         )
         ctx.add_node(
             ir.Node(
@@ -526,7 +564,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             return _bind
 
         return [
-            AssignSpec("jax.nn", "dot_product_attention_p", cls._PRIM, delete_if_missing=True),
+            AssignSpec(
+                "jax.nn", "dot_product_attention_p", cls._PRIM, delete_if_missing=True
+            ),
             MonkeyPatchSpec(
                 target="jax.nn",
                 attr="dot_product_attention",
