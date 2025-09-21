@@ -91,6 +91,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             raise ValueError(
                 "Inconsistent Scan arity: expected consts/carry/scan to match jaxpr invars"
             )
+        length = params.get("length")
 
         # Build a child IR context for the Scan body graph.
         body_ctx = make_subgraph_context(ctx, prefix="scan_body")
@@ -140,6 +141,31 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         body_ctx.builder.outputs = body_outputs
 
+        dummy_scan_init: ir.Value | None = None
+        if num_scan == 0:
+            if not isinstance(length, (int, np.integer)):
+                raise NotImplementedError(
+                    "Scan without xs and non-constant length is not supported yet"
+                )
+            trip_count = int(length)
+            dummy_seq = np.zeros((trip_count,), dtype=np.int64)
+            dummy_scan_init = ir.Value(
+                name=ctx.fresh_name("scan_dummy"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape((trip_count,)),
+                const_value=ir.tensor(dummy_seq),
+            )
+            ctx.builder.initializers.append(dummy_scan_init)
+
+            dummy_iter = ir.Value(
+                name=body_ctx.fresh_name("scan_dummy_in"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(()),
+            )
+            body_ctx.builder.inputs.append(dummy_iter)
+            _stamp_type_and_shape(dummy_iter, ())
+            num_scan = 1
+
         body_graph = ir.Graph(
             inputs=list(body_ctx.builder.inputs),
             outputs=list(body_ctx.builder.outputs),
@@ -151,6 +177,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         # Bind node inputs/outputs to the outer context.
         node_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
+        if dummy_scan_init is not None:
+            node_inputs.append(dummy_scan_init)
 
         num_consts + num_carry
         node_outputs: list[ir.Value] = []
