@@ -105,6 +105,21 @@ class FunctionScope:
             # Register as graph input in child
             self.ctx._inputs.append(fin)
             self.fn_def.inputs.append(fin)
+
+            parent_origin = getattr(self.parent, "get_symbolic_dim_origin", None)
+            if callable(parent_origin):
+                vin_shape = getattr(vin, "shape", None)
+                dims = (
+                    getattr(vin_shape, "dims", vin_shape)
+                    if vin_shape is not None
+                    else ()
+                )
+                for axis, dim in enumerate(dims):
+                    origin = parent_origin(dim)
+                    if origin is None and isinstance(dim, str):
+                        origin = parent_origin(str(dim))
+                    if origin is not None:
+                        self.ctx.builder.record_symbol_origin(dim, fin, axis)
         return self.fn_def.inputs
 
     def end(self, outputs: List[ir.Value]) -> FunctionDef:
@@ -138,14 +153,35 @@ class FunctionScope:
         except Exception:
             body_opset = 21
 
+        inputs = list(self.ctx.builder.inputs or [])
+        outputs = list(self._outputs or [])
+        nodes = list(self.ctx.builder.nodes or [])
+        initializers = list(self.ctx.builder.initializers or [])
+
+        # Ensure the function body declares every domain used by its nodes
+        opset_imports: Dict[str, int] = {"": body_opset}
+        extra_domains = set()
+
+        fn_domain = (self.domain or "").strip()
+        if fn_domain:
+            extra_domains.add(fn_domain)
+
+        for node in nodes:
+            node_domain = (getattr(node, "domain", "") or "").strip()
+            if node_domain:
+                extra_domains.add(node_domain)
+
+        for dom in sorted(extra_domains):
+            opset_imports.setdefault(dom, 1)
+
         # Build an IR graph for the function body
         g = ir.Graph(
-            inputs=list(self.ctx.builder.inputs or []),
-            outputs=list(self._outputs or []),
-            nodes=list(self.ctx.builder.nodes or []),
-            initializers=list(self.ctx.builder.initializers or []),
+            inputs=inputs,
+            outputs=outputs,
+            nodes=nodes,
+            initializers=initializers,
             name=self.name,
-            opset_imports={"": body_opset},
+            opset_imports=opset_imports,
         )
         # Create the Function (domain/name must match the call-site)
         fn = ir.Function(

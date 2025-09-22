@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, Optional, TYPE_CHECKING
 
 import jax
+from jax.extend import core as jcore_ext
 import numpy as np
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
@@ -368,7 +369,92 @@ class FunctionPlugin(PrimitivePlugin):
             in_sigs.append((shape, str(dtype)))
         in_sigs_t = tuple(in_sigs)
         qualname = self.name
-        capture_sig = (id(callee),)
+
+        def _capture_dynamic_from_var(var: Any) -> tuple[Any, ...]:
+            aval = getattr(var, "aval", None)
+            if aval is None:
+                return ("dynamic", "<unknown>")
+            return (
+                "dynamic",
+                tuple(getattr(aval, "shape", ())),
+                str(getattr(aval, "dtype", "")),
+            )
+
+        def _capture_const(value: Any) -> tuple[Any, ...]:
+            arr = np.asarray(value)
+            return (
+                "const",
+                tuple(arr.shape),
+                str(arr.dtype),
+                hash(arr.tobytes()),
+            )
+
+        def _resolve_tracer_var(tracer: Any):
+            frame = getattr(getattr(tracer, "_trace", None), "frame", None)
+            if frame is None:
+                return None
+            var = frame.tracer_to_var.get(id(tracer))
+            if var is None:
+                return None
+            const_val = frame.constvar_to_val.get(var)
+            if const_val is not None:
+                return const_val
+            return var
+
+        def _shape_dtype_struct_from_var(var: Any) -> jax.ShapeDtypeStruct:
+            aval = getattr(var, "aval", None)
+            raw_shape = tuple(getattr(aval, "shape", ()))
+            resolved_shape: list[Any] = []
+            origin_lookup = getattr(ctx, "get_symbolic_dim_origin", None)
+            for axis, dim in enumerate(raw_shape):
+                actual_dim = dim
+                if origin_lookup is not None and not isinstance(dim, (int, np.integer)):
+                    origin = origin_lookup(dim) or origin_lookup(str(dim))
+                    if origin is not None:
+                        src_val, src_axis = origin
+                        src_shape = getattr(src_val, "shape", None)
+                        src_dims = getattr(src_shape, "dims", src_shape)
+                        if src_dims is not None and len(src_dims) > src_axis:
+                            candidate = src_dims[src_axis]
+                            if isinstance(candidate, (int, np.integer)):
+                                actual_dim = int(candidate)
+                resolved_shape.append(actual_dim)
+            dtype = getattr(aval, "dtype", None) or np.float32
+            return jax.ShapeDtypeStruct(tuple(resolved_shape), dtype)
+
+        dynamic_entries: list[dict[str, Any]] = []
+        static_params: dict[str, Any] = {}
+        capture_items: list[tuple[str, tuple[Any, ...]]] = []
+
+        for pname, pval in params.items():
+            resolved = _resolve_tracer_var(pval) if hasattr(pval, "aval") else None
+
+            if isinstance(resolved, jcore_ext.Var):
+                dynamic_entries.append(
+                    {
+                        "name": pname,
+                        "var": resolved,
+                        "sds": _shape_dtype_struct_from_var(resolved),
+                    }
+                )
+                capture_items.append((pname, _capture_dynamic_from_var(resolved)))
+            else:
+                value_for_capture = resolved if resolved is not None else pval
+                try:
+                    capture_items.append((pname, _capture_const(value_for_capture)))
+                except Exception:
+                    capture_items.append(
+                        (pname, ("static", type(value_for_capture).__name__))
+                    )
+                static_params[pname] = pval
+
+        for entry in dynamic_entries:
+            entry["ir_value"] = ctx.get_value_for_var(
+                entry["var"], name_hint=entry["name"]
+            )
+
+        param_values = [entry["ir_value"] for entry in dynamic_entries]
+        capture_sig = (id(callee), tuple(capture_items))
         fkey = FunctionKey(
             qualified_name=qualname, input_sig=in_sigs_t, capture_sig=capture_sig
         )
@@ -385,11 +471,11 @@ class FunctionPlugin(PrimitivePlugin):
                 )
 
             # parent → child inputs for this call-site
-            in_vals_parent = [ctx.get_value_for_var(v) for v in eqn.invars]
+            base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
+            in_vals_parent = base_inputs + param_values
             in_vals_child = fscope.begin(in_vals_parent)
 
             # ---- Trace the callee with child input specs and lower into CHILD ctx ----
-            import jax
 
             # Build ShapeDtypeStructs from the *outer* eqn's invars (safer than IR dtypes)
             sds = []
@@ -401,13 +487,26 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 )
 
+            dynamic_sds = [entry["sds"] for entry in dynamic_entries]
+            base_arg_count = len(sds)
+
+            def _wrapped(*all_args):
+                core_args = all_args[:base_arg_count]
+                dyn_args = all_args[base_arg_count:]
+                kw = dict(static_params)
+                for dyn_val, entry in zip(dyn_args, dynamic_entries):
+                    kw[entry["name"]] = dyn_val
+                return callee(*core_args, **kw)
+
             from types import SimpleNamespace
 
             active = set(_IN_FUNCTION_BUILD.get())
             _IN_FUNCTION_BUILD.set(active | {self.name})
             try:
                 with _activate_full_plugin_worlds_for_body():
-                    closed = jax.make_jaxpr(callee)(*sds)
+                    closed = jax.make_jaxpr(_wrapped)(
+                        *(tuple(sds) + tuple(dynamic_sds))
+                    )
                 jpr_f = closed.jaxpr
             finally:
                 _IN_FUNCTION_BUILD.set(active)
@@ -462,11 +561,16 @@ class FunctionPlugin(PrimitivePlugin):
                 setattr(ctx, "_ir_functions", bucket)
             bucket.append(ir_fn)
 
+            nested_ir_fns = list(getattr(fscope.ctx, "_ir_functions", []) or [])
+            if nested_ir_fns:
+                bucket.extend(nested_ir_fns)
+
             # Keep the friendly name and domain around (for call-site)
             freg.put(fkey, fdef)
 
         # Emit call-site
-        in_vals = [ctx.get_value_for_var(v) for v in eqn.invars]
+        base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
+        in_vals = base_inputs + param_values
         out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
         call = ir.Node(
             op_type=fdef.name,  # friendly name like 'SuperBlock_1'
