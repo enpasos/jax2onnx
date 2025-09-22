@@ -9,6 +9,7 @@ from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins2._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.converter2.ir_builder import _dtype_to_ir
 from jax2onnx.plugins2.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -158,11 +159,9 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         dtype = getattr(getattr(var, "aval", None), "dtype", target_dtype)
         if dtype == target_dtype:
             return val
-        target_ir_dtype = getattr(
-            ir.DataType, str(np.dtype(target_dtype)).upper(), None
+        target_ir_dtype = _dtype_to_ir(
+            np.dtype(target_dtype), ctx.builder.enable_double_precision
         )
-        if target_ir_dtype is None:
-            return val
         cast = ir.Value(
             name=ctx.fresh_name("select_cast"),
             type=ir.TensorType(target_ir_dtype),

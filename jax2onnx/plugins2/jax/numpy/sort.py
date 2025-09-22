@@ -89,9 +89,7 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         axis_size = arr_shape[axis] if arr_shape else 1
         if not isinstance(axis_size, (int, np.integer)):
             raise TypeError("jnp.sort requires static axis length")
-        k_val = _const_i64(
-            ctx, np.asarray([axis_size], dtype=np.int64), "sort_k"
-        )
+        k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
         values = ir.Value(
             name=ctx.fresh_name("sort_values"),
             type=arr_val.type,
@@ -145,7 +143,9 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
 
             def _patched(a, axis=-1, kind=None, order=None):
                 if order is not None:
-                    raise NotImplementedError("jnp.sort order parameter is not supported")
+                    raise NotImplementedError(
+                        "jnp.sort order parameter is not supported"
+                    )
                 if kind not in (None, "stable", "mergesort"):
                     raise NotImplementedError("Only default/stable sorts supported")
                 return cls._PRIM.bind(a, axis=axis, kind=kind, order=order)
