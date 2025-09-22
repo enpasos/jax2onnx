@@ -81,6 +81,10 @@ def _as_sds_list(
     symnames: list[str] = []
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
+            shape = getattr(spec, "shape", ())
+            for d in shape:
+                if isinstance(d, str) and d not in symnames:
+                    symnames.append(d)
             continue
         if isinstance(spec, (list, tuple)):
             for d in spec:
@@ -93,7 +97,16 @@ def _as_sds_list(
     # 3) build SDS list
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            sds_list.append(jax.ShapeDtypeStruct(tuple(spec.shape), spec.dtype))
+            shape = tuple(spec.shape)
+            dims = tuple(
+                (
+                    name2sym[d]
+                    if isinstance(d, str)
+                    else int(d) if isinstance(d, (int, np.integer)) else d
+                )
+                for d in shape
+            )
+            sds_list.append(jax.ShapeDtypeStruct(dims, spec.dtype))
         elif isinstance(spec, (list, tuple)):
             dt = jnp.float64 if enable_double_precision else jnp.float32
             dims = tuple(name2sym[d] if isinstance(d, str) else int(d) for d in spec)

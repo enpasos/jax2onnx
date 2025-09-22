@@ -29,66 +29,33 @@ _EINSUM_MODULE_PRIM.multiple_results = False
 
 
 EXPECT_EINSUM_ONLY = EG(
-    [(
-        "Einsum",
-        {
-            "counts": {
-                "Einsum": 1,
-                "Add": 0,
-            }
-        },
-    )]
+    [
+        (
+            "Einsum",
+            {
+                "counts": {
+                    "Einsum": 1,
+                    "Add": 0,
+                }
+            },
+        )
+    ]
 )
 
 
 EXPECT_EINSUM_WITH_BIAS = EG(
-    [(
-        "Einsum -> Add",
-        {
-            "counts": {
-                "Einsum": 1,
-                "Add": 1,
-            }
-        },
-    )]
+    [
+        (
+            "Einsum -> Add",
+            {
+                "counts": {
+                    "Einsum": 1,
+                    "Add": 1,
+                }
+            },
+        )
+    ]
 )
-
-
-def _einsum_call_with_dummy(
-    x,
-    kernel,
-    bias: Optional[Any],
-    *,
-    einsum_str: str,
-    precision: Any | None,
-    dtype: Any | None,
-    param_dtype: Any | None,
-    orig_call: Callable[[Any, Any], Any] | None,
-):
-    if orig_call is None:
-        raise RuntimeError("Original nnx.Einsum.__call__ not captured")
-
-    def infer_bias_shape(self, x_shape, einsum_output_shape, input_for_bias=None):  # noqa: D401
-        return getattr(self, "bias_shape", None)
-
-    dummy = SimpleNamespace(
-        kernel=SimpleNamespace(value=kernel),
-        bias=SimpleNamespace(value=bias) if bias is not None else None,
-        einsum_str=einsum_str,
-        _einsum_str_check=lambda s: None,
-        _infer_broadcasted_bias_shape=infer_bias_shape,
-        precision=precision,
-        dtype=dtype,
-        param_dtype=param_dtype,
-        bias_init=None,
-        kernel_init=None,
-        kernel_shape=getattr(kernel, "shape", None),
-        bias_shape=None if bias is None else getattr(bias, "shape", None),
-        promote_dtype=lambda arr, **kw: arr,
-        einsum_op=jnp.einsum,
-        use_bias=bias is not None,
-    )
-    return orig_call(dummy, x)
 
 
 @register_primitive(
@@ -107,7 +74,9 @@ def _einsum_call_with_dummy(
     testcases=[
         {
             "testcase": "einsum_module_with_bias",
-            "callable": nnx.Einsum("nta,hab->nthb", (8, 2, 4), (8, 4), rngs=nnx.Rngs(0)),
+            "callable": nnx.Einsum(
+                "nta,hab->nthb", (8, 2, 4), (8, 4), rngs=nnx.Rngs(0)
+            ),
             "input_shapes": [(16, 11, 2)],
             "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_EINSUM_WITH_BIAS,
@@ -134,22 +103,25 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         einsum_str: str,
         use_bias_bool: bool,
         precision: Any | None = None,
+        optimize: Any | None = None,
+        preferred_element_type: Any | None = None,
         dtype: Any | None = None,
         param_dtype: Any | None = None,
     ):
         bias = maybe_bias[0] if maybe_bias else None
 
         def _shape_fn(x_arg, kernel_arg, bias_arg=None):
-            return _einsum_call_with_dummy(
+            result = jnp.einsum(
+                einsum_str,
                 x_arg,
                 kernel_arg,
-                bias_arg if use_bias_bool else None,
-                einsum_str=einsum_str,
                 precision=precision,
-                dtype=dtype,
-                param_dtype=param_dtype,
-                orig_call=EinsumModulePlugin._ORIG_CALL,
+                optimize=optimize,
+                preferred_element_type=preferred_element_type,
             )
+            if use_bias_bool and bias_arg is not None:
+                result = result + bias_arg
+            return result
 
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         kernel_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
@@ -184,7 +156,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         kernel_val = ctx.get_value_for_var(
             kernel_var, name_hint=ctx.fresh_name("einsum_kernel")
         )
-        kernel_val = cast_param_like(ctx, kernel_val, x_val, name_hint="einsum_kernel_cast")
+        kernel_val = cast_param_like(
+            ctx, kernel_val, x_val, name_hint="einsum_kernel_cast"
+        )
 
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("einsum_out"))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
@@ -216,7 +190,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             bias_val = ctx.get_value_for_var(
                 bias_var, name_hint=ctx.fresh_name("einsum_bias")
             )
-            bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="einsum_bias_cast")
+            bias_val = cast_param_like(
+                ctx, bias_val, x_val, name_hint="einsum_bias_cast"
+            )
             ctx.add_node(
                 ir.Node(
                     op_type="Add",
@@ -253,7 +229,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             return _patched
 
         return [
-            AssignSpec("flax.nnx", "einsum_module_p", cls._PRIM, delete_if_missing=True),
+            AssignSpec(
+                "flax.nnx", "einsum_module_p", cls._PRIM, delete_if_missing=True
+            ),
             MonkeyPatchSpec(
                 target="flax.nnx.Einsum",
                 attr="__call__",
@@ -269,6 +247,49 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
 
+def _runtime_einsum(
+    x,
+    kernel,
+    bias: Optional[Any],
+    *,
+    einsum_str: str,
+    precision: Any | None,
+    optimize: Any | None,
+    preferred_element_type: Any | None,
+    dtype: Any | None,
+    param_dtype: Any | None,
+    orig_call: Callable[[Any, Any], Any] | None,
+):
+    if orig_call is None:
+        raise RuntimeError("Original nnx.Einsum.__call__ not captured")
+
+    def infer_bias_shape(self, x_shape, einsum_output_shape, input_for_bias=None):
+        return getattr(self, "bias_shape", None)
+
+    sanitized_bias_shape = getattr(bias, "shape", None) if bias is not None else None
+
+    dummy = SimpleNamespace(
+        kernel=SimpleNamespace(value=kernel),
+        bias=SimpleNamespace(value=bias) if bias is not None else None,
+        einsum_str=einsum_str,
+        _einsum_str_check=lambda s: None,
+        _infer_broadcasted_bias_shape=infer_bias_shape,
+        precision=precision,
+        dtype=dtype,
+        param_dtype=param_dtype,
+        bias_init=None,
+        kernel_init=None,
+        kernel_shape=getattr(kernel, "shape", None),
+        bias_shape=sanitized_bias_shape,
+        promote_dtype=lambda arr, **kw: arr,
+        einsum_op=jnp.einsum,
+        use_bias=bias is not None,
+        optimize=optimize,
+        preferred_element_type=preferred_element_type,
+    )
+    return orig_call(dummy, x)
+
+
 @EinsumModulePlugin._PRIM.def_impl
 def _einsum_impl(
     x,
@@ -277,16 +298,20 @@ def _einsum_impl(
     einsum_str: str,
     use_bias_bool: bool,
     precision: Any | None = None,
+    optimize: Any | None = None,
+    preferred_element_type: Any | None = None,
     dtype: Any | None = None,
     param_dtype: Any | None = None,
 ):
     bias = maybe_bias[0] if maybe_bias else None
-    return _einsum_call_with_dummy(
+    return _runtime_einsum(
         x,
         kernel,
         bias if use_bias_bool else None,
         einsum_str=einsum_str,
         precision=precision,
+        optimize=optimize,
+        preferred_element_type=preferred_element_type,
         dtype=dtype,
         param_dtype=param_dtype,
         orig_call=EinsumModulePlugin._ORIG_CALL,

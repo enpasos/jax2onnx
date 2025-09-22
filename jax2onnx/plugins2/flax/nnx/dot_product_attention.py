@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
+from typing import TYPE_CHECKING, Callable, ClassVar
 
 import numpy as np
-import jax
-import jax.numpy as jnp
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
@@ -21,7 +19,7 @@ from jax2onnx.plugins2._utils import cast_param_like
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter2.ir_context import IRContext
+    from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRContext  # type: ignore
 
 
 def _require_static_dim(dim, name: str) -> int:
@@ -39,7 +37,9 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     return dtype
 
 
-def _make_tensor_value(ctx: "IRContext", like: ir.Value, shape, *, base: str) -> ir.Value:
+def _make_tensor_value(
+    ctx: "IRContext", like: ir.Value, shape, *, base: str
+) -> ir.Value:
     dtype = _dtype_enum_from_value(like)
     return ir.Value(
         name=ctx.fresh_name(base),
@@ -53,17 +53,20 @@ DPA_PRIM.multiple_results = False
 
 
 EXPECT_DPA_BASE = EG(
-    [(
-        "Transpose -> MatMul -> Mul -> Softmax -> MatMul -> Transpose",
-        {
-            "counts": {
-                "Transpose": 4,
-                "MatMul": 2,
-                "Mul": 1,
-                "Softmax": 1,
-            }
-        },
-    )]
+    [
+        (
+            "Transpose -> MatMul -> Mul -> Softmax -> MatMul -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 4,
+                    "MatMul": 2,
+                    "Mul": 1,
+                    "Softmax": 1,
+                }
+            },
+        )
+    ],
+    passthrough_ops={"Add", "Where", "Cast"},
 )
 
 
@@ -79,11 +82,20 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             "component": "Transpose",
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
     ],
     since="v0.1.0",
     context="primitives2.nnx",
@@ -153,7 +165,9 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
                             np.eye(8, dtype=bool)[None, None],
                             False,
                             True,
-                        ).repeat(2, axis=0).repeat(4, axis=1),
+                        )
+                        .repeat(2, axis=0)
+                        .repeat(4, axis=1),
                         np.zeros((2, 4, 8, 8), dtype=np.float64),
                     )
                 )(np.random.RandomState(0))
@@ -318,7 +332,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 mask_var, name_hint=ctx.fresh_name("dpa_mask")
             )
             mask_dims = tuple(getattr(getattr(mask_var, "aval", None), "shape", ()))
-            mask_dtype = np.dtype(getattr(getattr(mask_var, "aval", None), "dtype", np.bool_))
+            mask_dtype = np.dtype(
+                getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
+            )
             if mask_dtype != np.bool_:
                 mask_bool = _make_tensor_value(
                     ctx,
@@ -457,7 +473,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             return patched
 
         return [
-            AssignSpec("flax.nnx", "dot_product_attention_p", cls._PRIM, delete_if_missing=True),
+            AssignSpec(
+                "flax.nnx", "dot_product_attention_p", cls._PRIM, delete_if_missing=True
+            ),
             MonkeyPatchSpec(
                 target="flax.nnx",
                 attr="dot_product_attention",

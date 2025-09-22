@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -60,7 +60,13 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*avals, equation: str):
+    def abstract_eval(
+        *avals,
+        equation: str,
+        precision: Any | None = None,
+        optimize: Any | None = None,
+        preferred_element_type: Any | None = None,
+    ):
         shape, dtype = _einsum_shape(avals, equation)
         return core.ShapedArray(shape, dtype)
 
@@ -93,17 +99,27 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
     def binding_specs(cls):
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
+        allowed_kwargs = {"precision", "optimize", "preferred_element_type"}
+
         def _make_value(orig):
             if orig is None:
                 raise RuntimeError("Original jnp.einsum not found")
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(equation, *operands, **kwargs):
-                if kwargs:
+                unknown = set(kwargs) - allowed_kwargs
+                if unknown:
                     raise NotImplementedError(
-                        f"Unsupported kwargs for jnp.einsum: {tuple(kwargs.keys())}"
+                        f"Unsupported kwargs for jnp.einsum: {tuple(sorted(unknown))}"
                     )
-                return cls._PRIM.bind(*operands, equation=str(equation))
+
+                bind_kwargs = {"equation": str(equation)}
+                for key in allowed_kwargs:
+                    value = kwargs.get(key, None)
+                    if value is not None:
+                        bind_kwargs[key] = value
+
+                return cls._PRIM.bind(*operands, **bind_kwargs)
 
             return _patched
 
@@ -121,9 +137,22 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
 
 @JnpEinsumPlugin._PRIM.def_impl
-def _einsum_impl(equation, *operands):
+def _einsum_impl(
+    equation,
+    *operands,
+    precision=None,
+    optimize=None,
+    preferred_element_type=None,
+):
     orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
-    return orig(equation, *operands)
+    kwargs = {}
+    if precision is not None:
+        kwargs["precision"] = precision
+    if optimize is not None:
+        kwargs["optimize"] = optimize
+    if preferred_element_type is not None:
+        kwargs["preferred_element_type"] = preferred_element_type
+    return orig(equation, *operands, **kwargs)
 
 
 JnpEinsumPlugin._PRIM.def_abstract_eval(JnpEinsumPlugin.abstract_eval)
