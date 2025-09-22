@@ -32,6 +32,13 @@ from jax import ShapeDtypeStruct
 logger = logging.getLogger("jax2onnx.converter.jaxpr_converter")
 
 
+# Temporary aliases so legacy primitive names produced by tracing still resolve
+# to the new plugin handlers during the migration period.
+LEGACY_PRIMITIVE_ALIASES = {
+    "jax.numpy.cumsum": "jnp.cumsum",
+}
+
+
 class Jaxpr2OnnxConverter:
     """
     Converts JAX's JAXPR representation to ONNX format, enabling interoperability
@@ -739,6 +746,14 @@ class Jaxpr2OnnxConverter:
             primitive = plugin.primitive
 
             self.primitive_handlers[primitive.name] = plugin.get_handler(self)
+
+        # Backwards-compat: duplicate handlers under legacy primitive names.
+        for alias_name, canonical_name in LEGACY_PRIMITIVE_ALIASES.items():
+            if alias_name in self.primitive_handlers:
+                continue
+            handler = self.primitive_handlers.get(canonical_name)
+            if handler is not None:
+                self.primitive_handlers[alias_name] = handler
 
         # built‑in call‑style primitive that we inline
         self.primitive_handlers["pjit"] = lambda conv, eqn, params: conv._handle_pjit(

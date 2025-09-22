@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/flax/nnx/group_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -40,6 +40,12 @@ def _check_group_norm_transposed(model) -> bool:
 
 GROUP_NORM_PRIM = Primitive("nnx.group_norm")
 GROUP_NORM_PRIM.multiple_results = False
+
+
+def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
+    setter = getattr(ctx, "set_node_attrs", None)
+    if callable(setter):
+        setter(node, attrs)
 
 
 @register_primitive(
@@ -171,13 +177,17 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("Transpose"),
             )
             ctx.add_node(transpose_in)
-            ctx.set_node_attrs(transpose_in, {"perm": tuple(perm)})
+            _set_attrs(ctx, transpose_in, {"perm": tuple(perm)})
             _stamp_type_and_shape(gn_input, nchw_dims)
 
-        gn_out = y_val if not need_layout_convert else ir.Value(
-            name=ctx.fresh_name("gn_nchw_out"),
-            type=gn_input.type,
-            shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims)),
+        gn_out = (
+            y_val
+            if not need_layout_convert
+            else ir.Value(
+                name=ctx.fresh_name("gn_nchw_out"),
+                type=gn_input.type,
+                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims)),
+            )
         )
 
         gn_node = ir.Node(
@@ -188,7 +198,8 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             name=ctx.fresh_name("GroupNorm"),
         )
         ctx.add_node(gn_node)
-        ctx.set_node_attrs(
+        _set_attrs(
+            ctx,
             gn_node,
             {
                 "epsilon": float(epsilon),
@@ -206,7 +217,7 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("Transpose"),
             )
             ctx.add_node(transpose_out)
-            ctx.set_node_attrs(transpose_out, {"perm": tuple(inv_perm)})
+            _set_attrs(ctx, transpose_out, {"perm": tuple(inv_perm)})
             _stamp_type_and_shape(y_val, nhwc_dims)
         else:
             _stamp_type_and_shape(y_val, nhwc_dims)
@@ -250,21 +261,17 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             if channels is None:
                 raise ValueError("GroupNorm requires a known channel dimension")
 
-            scale_val = (
-                cls._prepare_param(
-                    self.scale.value if getattr(self, "use_scale", False) else None,
-                    channels,
-                    param_dtype,
-                    default=1.0,
-                )
+            scale_val = cls._prepare_param(
+                self.scale.value if getattr(self, "use_scale", False) else None,
+                channels,
+                param_dtype,
+                default=1.0,
             )
-            bias_val = (
-                cls._prepare_param(
-                    self.bias.value if getattr(self, "use_bias", False) else None,
-                    channels,
-                    param_dtype,
-                    default=0.0,
-                )
+            bias_val = cls._prepare_param(
+                self.bias.value if getattr(self, "use_bias", False) else None,
+                channels,
+                param_dtype,
+                default=0.0,
             )
 
             return cls._PRIM.bind(
@@ -286,7 +293,9 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
 
 
 @GroupNormPlugin._PRIM.def_impl
-def _impl_group_norm(x, scale, bias, *, epsilon: float, num_groups: int, channel_axis: int):
+def _impl_group_norm(
+    x, scale, bias, *, epsilon: float, num_groups: int, channel_axis: int
+):
     axis = int(channel_axis)
     if axis < 0:
         axis += x.ndim

@@ -1,7 +1,7 @@
 # file: jax2onnx/plugins2/flax/nnx/rms_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -36,6 +36,12 @@ def _check_rms_graph(model) -> bool:
 
 RMS_NORM_PRIM = Primitive("nnx.rms_norm")
 RMS_NORM_PRIM.multiple_results = False
+
+
+def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
+    setter = getattr(ctx, "set_node_attrs", None)
+    if callable(setter):
+        setter(node, attrs)
 
 
 @register_primitive(
@@ -125,7 +131,9 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                     opset = imports.get("", None)
         opset = int(opset) if opset is not None else 0
 
-        dims = tuple(_dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(rank))
+        dims = tuple(
+            _dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(rank)
+        )
 
         if opset >= 23:
             rms = ir.Node(
@@ -136,12 +144,18 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("RMSNorm"),
             )
             ctx.add_node(rms)
-            ctx.set_node_attrs(rms, {"axis": int(axis), "epsilon": float(epsilon)})
+            _set_attrs(
+                ctx,
+                rms,
+                {"axis": int(axis), "epsilon": float(epsilon)},
+            )
             _stamp_type_and_shape(y_val, dims)
             _add_value_info(ctx, y_val)
             return
 
-        x_np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_np_dtype = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
         def _const(
@@ -201,7 +215,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             name=ctx.fresh_name("ReduceMean"),
         )
         ctx.add_node(mean_node)
-        ctx.set_node_attrs(mean_node, {"keepdims": 1})
+        _set_attrs(ctx, mean_node, {"keepdims": 1})
         _stamp_type_and_shape(mean_out, mean_dims)
 
         add_out = ir.Value(
