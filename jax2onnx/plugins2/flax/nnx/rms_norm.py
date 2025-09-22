@@ -19,23 +19,39 @@ from jax2onnx.plugins2._ir_shapes import (
     _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-
-def _check_rms_graph(model) -> bool:
-    nodes = list(getattr(getattr(model, "graph", None), "node", []))
-    op_types = {getattr(n, "op_type", "") for n in nodes}
-    if "RMSNormalization" in op_types:
-        # Native op available
-        return True
-    required = {"Pow", "ReduceMean", "Add", "Sqrt", "Div", "Mul"}
-    return required.issubset(op_types)
-
-
 RMS_NORM_PRIM = Primitive("nnx.rms_norm")
 RMS_NORM_PRIM.multiple_results = False
+
+
+EXPECT_RMS_NORM_GRAPH = EG(
+    [
+        (
+            "RMSNormalization",
+            {
+                "counts": {"RMSNormalization": 1},
+            },
+        ),
+        (
+            "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul",
+            {
+                "counts": {
+                    "Pow": 1,
+                    "ReduceMean": 1,
+                    "Add": 1,
+                    "Sqrt": 1,
+                    "Div": 1,
+                    "Mul": 1,
+                }
+            },
+        ),
+    ],
+    mode="any",
+)
 
 
 def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
@@ -63,7 +79,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_rms_graph,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
             "testcase": "rms_norm_no_scale",
@@ -71,7 +87,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_rms_graph,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
             "testcase": "rms_norm_rank4",
@@ -79,7 +95,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_rms_graph,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
     ],
 )
@@ -158,6 +174,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         )
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
+        builder = getattr(ctx, "builder", None)
+
         def _const(
             name: str,
             value: np.ndarray,
@@ -166,6 +184,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             ir_dtype=None,
         ) -> ir.Value:
             arr = np.asarray(value, dtype=np_dtype or x_np_dtype)
+            if builder is not None and hasattr(builder, "add_initializer_from_array"):
+                return builder.add_initializer_from_array(ctx.fresh_name(name), arr)
             val = ir.Value(
                 name=ctx.fresh_name(name),
                 type=ir.TensorType(ir_dtype or x_ir_dtype),

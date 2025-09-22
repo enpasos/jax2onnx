@@ -55,7 +55,6 @@ def _require_static_dim(dim, name: str) -> int:
     )
 
 
-
 def _make_tensor_value(
     ctx: "IRContext", like: ir.Value, shape, *, base: str
 ) -> ir.Value:

@@ -15,7 +15,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 import jax
-from jax.core import Primitive as JaxPrimitive
+
+try:  # JAX 0.4+ lives in jax.extend.core
+    from jax.extend.core import Primitive as JaxPrimitive  # type: ignore
+except ImportError:  # pragma: no cover - fallback for older JAX
+    from jax.core import Primitive as JaxPrimitive  # type: ignore
 
 
 @jax.custom_jvp

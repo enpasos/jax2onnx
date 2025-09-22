@@ -18,28 +18,43 @@ from jax2onnx.plugins2._ir_shapes import (
     _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-
-def _count_ops(model, op_type: str) -> int:
-    nodes = getattr(getattr(model, "graph", None), "node", [])
-    return sum(1 for n in nodes if getattr(n, "op_type", "") == op_type)
-
-
-def _check_group_norm_plain(model) -> bool:
-    return _count_ops(model, "GroupNormalization") == 1
-
-
-def _check_group_norm_transposed(model) -> bool:
-    if _count_ops(model, "GroupNormalization") != 1:
-        return False
-    return _count_ops(model, "Transpose") >= 2
-
-
 GROUP_NORM_PRIM = Primitive("nnx.group_norm")
 GROUP_NORM_PRIM.multiple_results = False
+
+
+EXPECT_GROUP_NORM_PLAIN = EG(
+    [
+        (
+            "GroupNormalization",
+            {
+                "counts": {
+                    "GroupNormalization": 1,
+                    "Transpose": 0,
+                }
+            },
+        )
+    ]
+)
+
+
+EXPECT_GROUP_NORM_TRANSPOSED = EG(
+    [
+        (
+            "Transpose -> GroupNormalization -> Transpose",
+            {
+                "counts": {
+                    "GroupNormalization": 1,
+                    "Transpose": 2,
+                }
+            },
+        )
+    ]
+)
 
 
 def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
@@ -67,7 +82,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [("B", 8)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_group_norm_plain,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_PLAIN,
         },
         {
             "testcase": "group_norm_rank4",
@@ -75,7 +90,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(3, 7, 7, 64)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_group_norm_transposed,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_bias",
@@ -88,7 +103,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [("B", 5, 5, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_group_norm_transposed,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_scale",
@@ -101,7 +116,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [("B", 5, 5, 32)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _check_group_norm_transposed,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
     ],
 )
