@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 import jax
+from jax.core import Primitive as JaxPrimitive
 
 
 @jax.custom_jvp
@@ -47,7 +48,7 @@ def _square_jvp(primals, tangents):
 class CustomJvpCallPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``custom_jvp_call`` primitive into the current IR."""
 
-    _PRIM: ClassVar | None = None
+    _PRIM: ClassVar[JaxPrimitive | None] = None
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         closed = eqn.params.get("call_jaxpr")

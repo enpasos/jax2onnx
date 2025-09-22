@@ -34,7 +34,9 @@ def _make_float_attr(name: str, value: float):
 
 
 def _alpha_attr_equals(model, expected: float) -> bool:
-    node = next((n for n in getattr(model.graph, "node", []) if n.op_type == "LeakyRelu"), None)
+    node = next(
+        (n for n in getattr(model.graph, "node", []) if n.op_type == "LeakyRelu"), None
+    )
     if node is None:
         return False
     for attr in getattr(node, "attribute", []):
@@ -59,7 +61,10 @@ def _alpha_attr_equals(model, expected: float) -> bool:
     jaxpr_primitive="nnx.leaky_relu",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.leaky_relu.html",
     onnx=[
-        {"component": "LeakyRelu", "doc": "https://onnx.ai/onnx/operators/onnx__LeakyRelu.html"}
+        {
+            "component": "LeakyRelu",
+            "doc": "https://onnx.ai/onnx/operators/onnx__LeakyRelu.html",
+        }
     ],
     since="v0.2.0",
     context="primitives2.nnx",

@@ -25,7 +25,10 @@ if TYPE_CHECKING:
     jaxpr_primitive="nnx.sigmoid",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.sigmoid",
     onnx=[
-        {"component": "Sigmoid", "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html"}
+        {
+            "component": "Sigmoid",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
+        }
     ],
     since="v0.2.0",
     context="primitives2.nnx",
