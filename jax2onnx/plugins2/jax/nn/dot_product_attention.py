@@ -13,6 +13,7 @@ from jax2onnx.plugins2._ir_shapes import (
     _ensure_value_info as _add_value_info,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG2
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -22,6 +23,13 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _DPA_PRIM = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
+
+_EXPECT_DPA_MASK_WHERE = EG2(
+    [
+        "MatMul:BxNxTxS -> Mul:BxNxTxS -> Where:BxNxTxS -> Softmax:BxNxTxS -> MatMul:BxNxTxH"
+    ],
+    symbols={"B": None, "N": None, "T": None, "S": None, "H": None},
+)
 
 
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
@@ -46,31 +54,6 @@ def _require_static_dim(dim, name: str) -> int:
         " symbolic dimensions are not yet supported."
     )
 
-
-def _cast_if_needed(
-    ctx: "IRContext", value: ir.Value, target_dtype: ir.DataType, *, name: str
-) -> ir.Value:
-    cur_dtype = getattr(getattr(value, "type", None), "dtype", None)
-    if cur_dtype == target_dtype:
-        return value
-    out = ir.Value(
-        name=ctx.fresh_name(name),
-        type=ir.TensorType(target_dtype),
-        shape=value.shape,
-    )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[out],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target_dtype.value))],
-        )
-    )
-    _stamp_type_and_shape(out, tuple(getattr(value.shape, "dims", ())))
-    _add_value_info(ctx, out)
-    return out
 
 
 def _make_tensor_value(
@@ -160,6 +143,7 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
             ],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
+            "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
         },
         {
             "testcase": "jaxnn_dpa_causal",
@@ -202,7 +186,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
         np_dtype = _numpy_dtype_from_aval(q_var)
-        dtype_enum = _dtype_enum_from_value(q_val)
 
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
@@ -356,68 +339,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 ctx.fresh_name("dpa_mask_fill"),
                 np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
             )
-            mask_float = _make_tensor_value(
-                ctx,
-                current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_mask_f",
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[mask_bool],
-                    outputs=[mask_float],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(dtype_enum.value))],
-                )
-            )
-            _stamp_type_and_shape(
-                mask_float, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-            _add_value_info(ctx, mask_float)
-
-            one_const = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_mask_one"), np.asarray(1.0, dtype=np_dtype)
-            )
-            inv_mask = _make_tensor_value(
-                ctx,
-                current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_mask_inv",
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Sub",
-                    domain="",
-                    inputs=[one_const, mask_float],
-                    outputs=[inv_mask],
-                    name=ctx.fresh_name("Sub"),
-                )
-            )
-            _stamp_type_and_shape(
-                inv_mask, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-            _add_value_info(ctx, inv_mask)
-
-            penalty = _make_tensor_value(
-                ctx,
-                current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_mask_penalty",
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Mul",
-                    domain="",
-                    inputs=[inv_mask, fill_value],
-                    outputs=[penalty],
-                    name=ctx.fresh_name("Mul"),
-                )
-            )
-            _stamp_type_and_shape(penalty, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
-            _add_value_info(ctx, penalty)
-
             masked_logits = _make_tensor_value(
                 ctx,
                 current_logits,
@@ -426,11 +347,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             ctx.add_node(
                 ir.Node(
-                    op_type="Add",
+                    op_type="Where",
                     domain="",
-                    inputs=[current_logits, penalty],
+                    inputs=[mask_bool, current_logits, fill_value],
                     outputs=[masked_logits],
-                    name=ctx.fresh_name("Add"),
+                    name=ctx.fresh_name("Where"),
                 )
             )
             _stamp_type_and_shape(
