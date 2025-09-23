@@ -139,13 +139,12 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"]
             "input_shapes": [(201, 1, 5)],
             "use_onnx_ir": True,
         },
-        # TODO: fix the issue with this test
-        # {
-        #     "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
-        #     "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
-        #     "input_shapes": [("N", "M", "K")],
-        #     "use_onnx_ir": True,
-        # },
+        {
+            "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
+            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "input_shapes": [("N", "M", "K")],
+            "use_onnx_ir": True,
+        },
         {
             "testcase": "reshape_with_inferred_dimension_from_input_dynamic",
             "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),

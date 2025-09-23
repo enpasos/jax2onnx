@@ -837,11 +837,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: fori_loop_counter, fori_loop_example, fori_loop_test, fori_loop_test_f64, fori_loop_vector, fori_loop_zero
 
 ### gather
-- Coverage: ⚠️ partial (missing: gather_f64_data_i32_indices_cast_and_output_is_f64, gather_f64_data_i64_indices_output_is_f64)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: gather_dynamic_batch_simple_index, gather_f64_data_i32_indices_cast_and_output_is_f64, gather_f64_data_i64_indices_output_is_f64, gather_static, gather_trig_where_pipeline_f64_indices_i32, gather_trig_where_pipeline_f64_indices_i64
-- Converter2 testcases: gather_dynamic_batch_simple_index, gather_static, gather_trig_where_pipeline_f64_indices_i32, gather_trig_where_pipeline_f64_indices_i64
+- Converter2 testcases: gather_dynamic_batch_simple_index, gather_f64_data_i32_indices_cast_and_output_is_f64, gather_f64_data_i64_indices_output_is_f64, gather_static, gather_trig_where_pipeline_f64_indices_i32, gather_trig_where_pipeline_f64_indices_i64
 
 ### greater_equal
 - Coverage: ✅ complete
@@ -939,11 +939,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 contexts: primitives2.lax
 
 ### pow
-- Coverage: ⚠️ partial (missing: pow_lax)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: pow_lax
-- Converter2 testcases: pow_basic
+- Converter2 testcases: pow_basic, pow_lax
 
 ### reduce_and
 - Coverage: ✅ complete
@@ -1007,11 +1007,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 contexts: primitives2.lax
 
 ### reshape
-- Coverage: ⚠️ partial (missing: reshape_with_target_shape_from_symbolic_dim_computation)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reshape, reshape_merge_symbolic_with_static_and_check_name, reshape_valid_flatten_trailing, reshape_valid_squeeze_middle_dim_from_problematic_source, reshape_with_inferred_dimension_from_input, reshape_with_inferred_dimension_from_input_dynamic, reshape_with_target_shape_from_symbolic_dim_computation
-- Converter2 testcases: reshape, reshape_after_transpose_folds_const_shape, reshape_flatten_trailing_folds_const_shape, reshape_merge_symbolic_with_static_and_check_name, reshape_valid_flatten_trailing, reshape_valid_squeeze_middle_dim_from_problematic_source, reshape_with_inferred_dimension_from_input, reshape_with_inferred_dimension_from_input_dynamic
+- Converter2 testcases: reshape, reshape_after_transpose_folds_const_shape, reshape_flatten_trailing_folds_const_shape, reshape_merge_symbolic_with_static_and_check_name, reshape_valid_flatten_trailing, reshape_valid_squeeze_middle_dim_from_problematic_source, reshape_with_inferred_dimension_from_input, reshape_with_inferred_dimension_from_input_dynamic, reshape_with_target_shape_from_symbolic_dim_computation
 
 ### rev
 - Coverage: ✅ complete

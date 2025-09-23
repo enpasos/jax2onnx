@@ -21,18 +21,18 @@ TARGETS: Dict[str, str] = {
 
 def format_testcase(spec) -> str:
     lines: List[str] = ["        {"]
-    lines.append(f"            \"testcase\": \"{spec.testcase}\",")
+    lines.append(f'            "testcase": "{spec.testcase}",')
     if spec.values is not None:
         lines.append(
-            "            \"input_values\": [" + repr(spec.values.tolist()) + "],"
+            '            "input_values": [' + repr(spec.values.tolist()) + "],"
         )
     elif spec.dtype is not None:
         lines.append(
-            "            \"input_shapes\": [(2, 3)],"  # placeholder; edit manually if needed
+            '            "input_shapes": [(2, 3)],'  # placeholder; edit manually if needed
         )
     else:
-        lines.append("            \"input_shapes\": [(3, 3)],")
-    lines.append("            \"use_onnx_ir\": True,")
+        lines.append('            "input_shapes": [(3, 3)],')
+    lines.append('            "use_onnx_ir": True,')
     lines.append("        },")
     return "\n".join(lines)
 

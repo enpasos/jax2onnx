@@ -92,7 +92,17 @@ def _as_sds_list(
                     symnames.append(d)
 
     # 2) create symbolic sizes
-    name2sym: dict[str, object] = {n: jax_export.symbolic_shape(n)[0] for n in symnames}
+    name2sym: dict[str, object] = {}
+    shared_scope = jax_export.SymbolicScope() if symnames else None
+    for n in symnames:
+        syms = jax_export.symbolic_shape(n, scope=shared_scope)
+        if not syms:
+            raise ValueError(f"symbolic_shape('{n}') returned no dimensions")
+        if len(syms) != 1:
+            raise ValueError(
+                f"symbolic_shape('{n}') produced {len(syms)} dims; expected 1"
+            )
+        name2sym[n] = syms[0]
 
     # 3) build SDS list
     for spec in inputs:

@@ -77,6 +77,46 @@ def _is_integer_dtype(dtype) -> bool:
             "use_onnx_ir": True,
         },
         {
+            "testcase": "gather_f64_data_i64_indices_output_is_f64",
+            "callable": lambda data, idx: data[idx],
+            "input_values": [
+                np.array(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ],
+                    dtype=np.float64,
+                ),
+                np.array([0, 2], dtype=np.int64),
+            ],
+            "expected_output_shapes": [(2, 3)],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "gather_f64_data_i32_indices_cast_and_output_is_f64",
+            "callable": lambda data, idx: data[idx],
+            "input_values": [
+                np.array(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ],
+                    dtype=np.float64,
+                ),
+                np.array([1, 3], dtype=np.int32),
+            ],
+            "expected_output_shapes": [(2, 3)],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "gather_static",
             "callable": lambda x: jax.lax.gather(
                 x,
