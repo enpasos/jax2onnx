@@ -21,10 +21,10 @@ if TYPE_CHECKING:
     ],
     since="v0.7.5",
     context="primitives2.lax",
-    component="ge",
+    component="greater_equal",
     testcases=[
         {
-            "testcase": "ge",
+            "testcase": "greater_equal",
             "callable": lambda x1, x2: jax.lax.ge(x1, x2),
             "input_shapes": [(3,), (3,)],
             "use_onnx_ir": True,

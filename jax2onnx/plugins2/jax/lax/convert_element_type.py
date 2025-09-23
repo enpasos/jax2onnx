@@ -23,7 +23,14 @@ if TYPE_CHECKING:  # pragma: no cover
     since="v0.2.0",
     context="primitives2.lax",
     component="convert_element_type",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "convert_element_type",
+            "callable": lambda x: x.astype(np.int16),
+            "input_shapes": [(3,)],
+            "use_onnx_ir": True,
+        }
+    ],
 )
 class ConvertElementTypePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.convert_element_type`` to a single ONNX Cast."""

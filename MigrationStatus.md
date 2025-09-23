@@ -676,9 +676,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: add, add_const
 
 ### add_any
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
+- Converter2 contexts: primitives2.lax
 - Legacy testcases: add_any_via_jvp_on_mul
+- Converter2 testcases: add_any_via_jvp_on_mul
 
 ### and
 - Coverage: ✅ complete
@@ -716,14 +718,18 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: broadcast_in_dim, broadcast_in_dim_2d_to_3d, broadcast_in_dim_batch, broadcast_in_dim_dynamic_B, broadcast_in_dim_scalar
 
 ### clamp
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
+- Converter2 contexts: primitives2.lax
 - Legacy testcases: clamp_i32_scalar_bounds, clamp_pyint_bounds_promote_to_x_dtype, clamp_scalar_float_bounds_match_x, clamp_vector_bounds_match
+- Converter2 testcases: clamp_i32_scalar_bounds, clamp_pyint_bounds_promote_to_x_dtype, clamp_scalar_float_bounds_match_x, clamp_vector_bounds_match
 
 ### concatenate
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
+- Converter2 contexts: primitives2.lax
 - Legacy testcases: concatenate, concatenate_3d, concatenate_axis0, concatenate_axis1, concatenate_internal_int32_then_cast_to_f32_zeroarg
+- Converter2 testcases: concatenate, concatenate_3d, concatenate_axis0, concatenate_axis1, concatenate_internal_int32_then_cast_to_f32_zeroarg
 
 ### cond
 - Coverage: ⚠️ partial (missing: cond_internal_constant_f64, cond_with_scatter)
@@ -740,10 +746,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: conv_nchw, conv_nhwc
 
 ### convert_element_type
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: convert_element_type
+- Converter2 testcases: convert_element_type
 
 ### copy
 - Coverage: ✅ complete
@@ -836,15 +843,12 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Legacy testcases: gather_dynamic_batch_simple_index, gather_f64_data_i32_indices_cast_and_output_is_f64, gather_f64_data_i64_indices_output_is_f64, gather_static, gather_trig_where_pipeline_f64_indices_i32, gather_trig_where_pipeline_f64_indices_i64
 - Converter2 testcases: gather_dynamic_batch_simple_index, gather_static, gather_trig_where_pipeline_f64_indices_i32, gather_trig_where_pipeline_f64_indices_i64
 
-### ge
-- Coverage: -
-- Converter2 contexts: primitives2.lax
-- Converter2 testcases: ge
-
 ### greater_equal
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
+- Converter2 contexts: primitives2.lax
 - Legacy testcases: greater_equal
+- Converter2 testcases: greater_equal
 
 ### gt
 - Coverage: ✅ complete
@@ -1101,9 +1105,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: slice_3d_none_strides, slice_scan_axis_drop, slice_test1
 
 ### sort
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
+- Converter2 contexts: primitives2.lax
 - Legacy testcases: sort_1d, sort_2d
+- Converter2 testcases: sort_1d, sort_2d
 
 ### split
 - Coverage: ✅ complete
