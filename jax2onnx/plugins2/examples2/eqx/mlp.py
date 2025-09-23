@@ -4,7 +4,6 @@ import equinox as eqx
 import jax
 import jax.random as jr
 import numpy as np
-from onnx import numpy_helper
 
 from jax2onnx.plugins2.plugin_system import register_example
 
@@ -39,16 +38,44 @@ _inference_model = eqx.nn.inference_mode(_model, value=True)
 _batched_model = jax.vmap(_model, in_axes=(0, None))
 
 
+_ONNX_BOOL = 9  # TensorProto.DataType.BOOL without importing onnx
+
+
+def _tensor_proto_first_bool(tensor_proto) -> bool | None:
+    """Return the first bool element stored in ``tensor_proto`` if present."""
+
+    if getattr(tensor_proto, "data_type", None) != _ONNX_BOOL:
+        return None
+
+    if getattr(tensor_proto, "raw_data", None):
+        arr = np.frombuffer(tensor_proto.raw_data, dtype=np.bool_)
+        return bool(arr[0]) if arr.size else None
+
+    for field in ("int32_data", "int64_data", "uint64_data", "float_data"):
+        data = getattr(tensor_proto, field, None)
+        if data:
+            return bool(np.array(data, dtype=np.bool_)[0])
+
+    # Scalar bools can also surface via explicit ``bools`` attribute in some builds.
+    data = getattr(tensor_proto, "bool_data", None)
+    if data:
+        return bool(data[0])
+
+    return None
+
+
 def _check_dropout_training_mode(model, expected_mode: bool) -> bool:
     try:
         dropout_node = next(n for n in model.graph.node if n.op_type == "Dropout")
         training_mode_input_name = dropout_node.input[2]
+        if training_mode_input_name == "":
+            # Missing optional input encodes inference (False).
+            return expected_mode is False
         training_mode_init = next(
             i for i in model.graph.initializer if i.name == training_mode_input_name
         )
-        return np.isclose(
-            numpy_helper.to_array(training_mode_init), expected_mode
-        ).all()
+        value = _tensor_proto_first_bool(training_mode_init)
+        return value is not None and value == expected_mode
     except StopIteration:
         return False
 

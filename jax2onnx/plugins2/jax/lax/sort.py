@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     onnx=[
         {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"}
     ],
-    since="v0.8.0",
+    since="v0.2.0",
     context="primitives2.lax",
     component="sort",
     testcases=[

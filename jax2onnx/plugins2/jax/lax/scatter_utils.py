@@ -1,11 +1,8 @@
 """IR helpers for lax scatter family in plugins2.
 
-This module currently implements a narrow path that covers element-wise
-scatter updates where each index resolves a concrete position across every
-operand axis (i.e. the scatter depth equals the operand rank and no window
-dimensions are present).  That is enough for the first batch of tests we
-enable for the plugins2 port; support for windowed scatter updates will be
-added incrementally.
+This module supports element-wise scatter updates (index depth equals operand
+rank) and a basic slice variant where scatter axes form a leading prefix and
+the remaining axes are updated as a contiguous window.
 """
 
 from __future__ import annotations
@@ -56,29 +53,45 @@ def _normalize_dimension_numbers(dnums_like: Any) -> ScatterSpec:
     )
 
 
-def _require_simple_elementwise(spec: ScatterSpec, operand_rank: int) -> None:
-    """Ensure the current lowering only sees element-wise scatter patterns."""
+def _classify_scatter_pattern(spec: ScatterSpec, operand_rank: int) -> str:
+    """Return the supported scatter kind: ``"elementwise"`` or ``"slice"``."""
 
-    if spec.update_window_dims:
+    scatter_axes = tuple(int(a) for a in spec.scatter_dims_to_operand_dims)
+    if any(ax < 0 or ax >= operand_rank for ax in scatter_axes):
+        raise NotImplementedError("scatter axes out of operand rank range")
+
+    if len(scatter_axes) == operand_rank:
+        if spec.update_window_dims:
+            raise NotImplementedError(
+                "window dims not supported for fully elementwise scatter"
+            )
+        if tuple(sorted(scatter_axes)) != tuple(range(operand_rank)):
+            raise NotImplementedError(
+                "scatter axes must cover each operand axis exactly once"
+            )
+        return "elementwise"
+
+    # For now support slices when scatter axes form a leading prefix.
+    expected_prefix = tuple(range(len(scatter_axes)))
+    if tuple(scatter_axes) != expected_prefix:
         raise NotImplementedError(
-            "scatter window dimensions are not supported in plugins2 yet"
+            "scatter lowering currently supports prefix scatter axes only"
         )
-    scatter_axes = spec.scatter_dims_to_operand_dims
-    if len(scatter_axes) != operand_rank:
-        raise NotImplementedError(
-            "scatter lowering currently supports only full-depth indices"
-        )
-    if tuple(sorted(scatter_axes)) != tuple(range(operand_rank)):
-        raise NotImplementedError(
-            "scatter axes must cover each operand axis exactly once"
-        )
+
+    # Basic sanity on metadata for slice updates to avoid overly general cases.
+    if spec.inserted_window_dims and tuple(spec.inserted_window_dims) != tuple(
+        range(len(spec.inserted_window_dims))
+    ):
+        raise NotImplementedError("unsupported inserted_window_dims pattern")
+
+    return "slice"
 
 
 def _reshape_indices_to_2d(
     ctx: Any,
     indices_val: ir.Value,
     batch_rank: int,
-    operand_rank: int,
+    index_depth: int,
 ) -> Tuple[ir.Value, ir.Value]:
     """Return ``(indices_2d, num_updates_scalar)``.
 
@@ -211,7 +224,7 @@ def _reshape_indices_to_2d(
     indices_2d = ir.Value(
         name=ctx.fresh_name("scatter_indices_2d"),
         type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, operand_rank)),
+        shape=ir.Shape((None, index_depth)),
     )
     ctx.add_node(
         ir.Node(
@@ -234,16 +247,16 @@ def _reorder_indices_columns(
 ) -> ir.Value:
     """Ensure the final column order matches ``range(operand_rank)``."""
 
-    operand_rank = len(scatter_axes)
+    index_depth = len(scatter_axes)
     order = np.argsort(np.asarray(scatter_axes, dtype=np.int64))
-    if np.array_equal(order, np.arange(operand_rank, dtype=np.int64)):
+    if np.array_equal(order, np.arange(index_depth, dtype=np.int64)):
         return indices_2d
 
     order_const = _const_i64(ctx, order, "scatter_order")
     reordered = ir.Value(
         name=ctx.fresh_name("scatter_indices_reordered"),
         type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, operand_rank)),
+        shape=ir.Shape((None, index_depth)),
     )
     ctx.add_node(
         ir.Node(
@@ -301,6 +314,23 @@ def _reshape_updates_flat(
     return updates_flat
 
 
+def _prepare_updates_for_scatternd(
+    ctx: Any,
+    updates_val: ir.Value,
+    num_updates: ir.Value,
+    slice_shape: Sequence[Any],
+) -> ir.Value:
+    """Return updates shaped as expected by ``ScatterND`` for the pattern."""
+
+    if slice_shape:
+        # Updates already carry the slice payload shape (indices batch dims first);
+        # keep them untouched so ONNX runtime receives the correct layout.
+        _ensure_value_info(ctx, updates_val)
+        return updates_val
+
+    return _reshape_updates_flat(ctx, updates_val, num_updates)
+
+
 def lower_scatter_elementwise(
     ctx: Any,
     *,
@@ -314,31 +344,33 @@ def lower_scatter_elementwise(
     reduction: str,
     out_val: ir.Value,
 ) -> None:
-    """Lower the supported element-wise scatter variant to ``ScatterND``."""
+    """Lower supported scatter variants to ``ScatterND``."""
 
     operand_rank = len(operand_shape)
-    _require_simple_elementwise(spec, operand_rank)
+    pattern = _classify_scatter_pattern(spec, operand_rank)
 
     scatter_axes = spec.scatter_dims_to_operand_dims
+    index_depth = len(scatter_axes)
 
     if indices_shape:
-        index_depth = indices_shape[-1]
-        if (
-            isinstance(index_depth, (int, np.integer))
-            and int(index_depth) != operand_rank
-        ):
-            raise NotImplementedError(
-                "scatter lowering expects index depth equal to operand rank"
-            )
+        shape_depth = indices_shape[-1]
+        if isinstance(shape_depth, (int, np.integer)):
+            if int(shape_depth) != index_depth:
+                raise NotImplementedError(
+                    "scatter index depth does not match scatter axes"
+                )
     batch_rank = max(len(indices_shape) - 1, 0)
 
     indices_i64 = _cast_to_i64(ctx, indices_val, "scatter_indices_i64")
     indices_2d, num_updates = _reshape_indices_to_2d(
-        ctx, indices_i64, batch_rank, operand_rank
+        ctx, indices_i64, batch_rank, index_depth
     )
     indices_ordered = _reorder_indices_columns(ctx, indices_2d, scatter_axes)
 
-    updates_flat = _reshape_updates_flat(ctx, updates_val, num_updates)
+    slice_shape = () if pattern == "elementwise" else operand_shape[index_depth:]
+    updates_prepared = _prepare_updates_for_scatternd(
+        ctx, updates_val, num_updates, slice_shape
+    )
 
     reduction_norm = (reduction or "none").lower()
     if reduction_norm not in {"none", "add", "max", "min", "mul"}:
@@ -351,7 +383,7 @@ def lower_scatter_elementwise(
     scatter_node = ir.Node(
         op_type="ScatterND",
         domain="",
-        inputs=[operand_val, indices_ordered, updates_flat],
+        inputs=[operand_val, indices_ordered, updates_prepared],
         outputs=[out_val],
         name=ctx.fresh_name("ScatterND"),
         attributes=attributes,

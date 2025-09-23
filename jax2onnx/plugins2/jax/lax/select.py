@@ -29,6 +29,13 @@ if TYPE_CHECKING:  # pragma: no cover
     component="select",
     testcases=[
         {
+            "testcase": "select_simple",
+            "callable": lambda c, x, y: jax.lax.select(c, x, y),
+            "input_shapes": [(3,), (3,), (3,)],
+            "input_dtypes": [np.bool_, np.float32, np.float32],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "select_basic",
             "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],

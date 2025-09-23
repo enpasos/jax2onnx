@@ -520,11 +520,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: clip_broadcast_bounds, clip_f32_scalar_bounds_no_upcast_f64_mode, clip_i32_scalar_bounds, clip_only_lower, clip_only_upper
 
 ### concatenate
-- Coverage: ⚠️ partial (missing: concatenate_abstract_middle_dim, concatenate_basic, concatenate_mixed_dtypes, concatenate_tile_and_symbolic, concatenate_with_explicit_dtype, concatenate_with_explicit_dtype_casts_inputs)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: concatenate_abstract_middle_dim, concatenate_basic, concatenate_mixed_dtypes, concatenate_tile_and_symbolic, concatenate_with_explicit_dtype, concatenate_with_explicit_dtype_casts_inputs
-- Converter2 testcases: jnp_concatenate_basic, jnp_concatenate_dtype
+- Converter2 testcases: concatenate_abstract_middle_dim, concatenate_basic, concatenate_mixed_dtypes, concatenate_tile_and_symbolic, concatenate_with_explicit_dtype, concatenate_with_explicit_dtype_casts_inputs
 
 ### cumsum
 - Coverage: ⚠️ partial (missing: cumsum_axis2_i32, cumsum_axis2_reverse_i32)
@@ -732,11 +732,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: concatenate, concatenate_3d, concatenate_axis0, concatenate_axis1, concatenate_internal_int32_then_cast_to_f32_zeroarg
 
 ### cond
-- Coverage: ⚠️ partial (missing: cond_internal_constant_f64, cond_with_scatter)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: cond_internal_constant_f64, cond_multiple_operands_in_tuple, cond_my_new_complex_scenario, cond_nested_conditional, cond_passthrough_identity, cond_scalar, cond_variables, cond_with_scatter
-- Converter2 testcases: cond_multiple_operands_in_tuple, cond_my_new_complex_scenario, cond_nested_conditional, cond_passthrough_identity, cond_scalar, cond_variables
+- Converter2 testcases: cond_internal_constant_f64, cond_multiple_operands_in_tuple, cond_my_new_complex_scenario, cond_nested_conditional, cond_passthrough_identity, cond_scalar, cond_variables, cond_with_scatter
 
 ### conv
 - Coverage: ⚠️ partial (missing: conv, conv2, conv_general_dilated_nhwc_output)
@@ -1028,46 +1028,46 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: scan_identity_slice_helper
 
 ### scatter
-- Coverage: ⚠️ partial (missing: scatter_clip_2d_window_at_edge, scatter_correct_axis_determination, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_from_user_warning_shapes_valid_jax, scatter_set_axis0, scatter_set_middle, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_updates_slice_needed_axis0, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64)
+- Coverage: ⚠️ partial (missing: scatter_clip_2d_window_at_edge, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_set_axis0, scatter_set_middle, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_clip_2d_window_at_edge, scatter_correct_axis_determination, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_from_user_warning_shapes_valid_jax, scatter_set_axis0, scatter_set_middle, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_updates_slice_needed_axis0, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64
-- Converter2 testcases: scatter_set_single, scatter_set_vector
+- Converter2 testcases: scatter_correct_axis_determination, scatter_from_user_warning_shapes_valid_jax, scatter_set_single, scatter_set_vector, scatter_updates_slice_needed_axis0
 
 ### scatter_add
-- Coverage: ⚠️ partial (missing: scatter_add_batch_updates_1d_operand, scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_simple_1d, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch)
+- Coverage: ⚠️ partial (missing: scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_add_batch_updates_1d_operand, scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_simple_1d, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch
-- Converter2 testcases: scatter_add_scalar, scatter_add_vector
+- Converter2 testcases: scatter_add_batch_updates_1d_operand, scatter_add_scalar, scatter_add_simple_1d, scatter_add_vector
 
 ### scatter_max
-- Coverage: ⚠️ partial (missing: scatter_max_batch_updates_1d_operand, scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_simple_1d, scatter_max_window_2d_operand_1d_indices)
+- Coverage: ⚠️ partial (missing: scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_window_2d_operand_1d_indices)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_max_batch_updates_1d_operand, scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_simple_1d, scatter_max_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_max_simple
+- Converter2 testcases: scatter_max_batch_updates_1d_operand, scatter_max_simple_1d
 
 ### scatter_min
-- Coverage: ⚠️ partial (missing: scatter_min_batch_updates_1d_operand, scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_simple_1d, scatter_min_window_2d_operand_1d_indices)
+- Coverage: ⚠️ partial (missing: scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_window_2d_operand_1d_indices)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_min_batch_updates_1d_operand, scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_simple_1d, scatter_min_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_min_simple
+- Converter2 testcases: scatter_min_batch_updates_1d_operand, scatter_min_simple_1d
 
 ### scatter_mul
-- Coverage: ⚠️ partial (missing: scatter_mul_batch_updates_1d_operand, scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_simple_1d, scatter_mul_window_2d_operand_1d_indices)
+- Coverage: ⚠️ partial (missing: scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_window_2d_operand_1d_indices)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_mul_batch_updates_1d_operand, scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_simple_1d, scatter_mul_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_mul_simple
+- Converter2 testcases: scatter_mul_batch_updates_1d_operand, scatter_mul_simple_1d
 
 ### select
-- Coverage: ⚠️ partial (missing: select_simple)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: select_mask_scores_tensor_else, select_simple
-- Converter2 testcases: select_basic, select_mask_scores_tensor_else, select_mask_scores_tensor_else_dynamic, select_mask_scores_tensor_else_dynamic_f64, select_mask_scores_tensor_else_f64
+- Converter2 testcases: select_basic, select_mask_scores_tensor_else, select_mask_scores_tensor_else_dynamic, select_mask_scores_tensor_else_dynamic_f64, select_mask_scores_tensor_else_f64, select_simple
 
 ### select_n
 - Coverage: ✅ complete
@@ -1133,25 +1133,25 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: square
 
 ### squeeze
-- Coverage: ⚠️ partial (missing: lax_squeeze_multiple_axes, lax_squeeze_no_op_empty_dims, lax_squeeze_problem_case_input_squeeze_all_dims_explicitly, lax_squeeze_problem_case_input_squeeze_axes_0_2, lax_squeeze_problem_case_input_squeeze_only_axis_0, lax_squeeze_specific_axis_0)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: lax_squeeze_multiple_axes, lax_squeeze_no_op_empty_dims, lax_squeeze_problem_case_input_squeeze_all_dims_explicitly, lax_squeeze_problem_case_input_squeeze_axes_0_2, lax_squeeze_problem_case_input_squeeze_only_axis_0, lax_squeeze_specific_axis_0
-- Converter2 testcases: squeeze_all_unit_dims_default, squeeze_single_axis
+- Converter2 testcases: lax_squeeze_multiple_axes, lax_squeeze_no_op_empty_dims, lax_squeeze_problem_case_input_squeeze_all_dims_explicitly, lax_squeeze_problem_case_input_squeeze_axes_0_2, lax_squeeze_problem_case_input_squeeze_only_axis_0, lax_squeeze_specific_axis_0, squeeze_all_unit_dims_default, squeeze_single_axis
 
 ### stop_gradient
-- Coverage: ⚠️ partial (missing: stop_gradient)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: stop_gradient
-- Converter2 testcases: stop_gradient_basic
+- Converter2 testcases: stop_gradient, stop_gradient_basic
 
 ### sub
-- Coverage: ⚠️ partial (missing: sub_test1, sub_test2)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: sub_test1, sub_test2
-- Converter2 testcases: sub, sub_const
+- Converter2 testcases: sub_const, sub_test1, sub_test2
 
 ### tanh
 - Coverage: ✅ complete

@@ -26,11 +26,17 @@ if TYPE_CHECKING:  # pragma: no cover
     component="stop_gradient",
     testcases=[
         {
+            "testcase": "stop_gradient",
+            "callable": lambda x: jax.lax.stop_gradient(x),
+            "input_shapes": [(3,)],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "stop_gradient_basic",
             "callable": lambda x: jax.lax.stop_gradient(x),
             "input_shapes": [(4,)],
             "use_onnx_ir": True,
-        }
+        },
     ],
 )
 class StopGradientPlugin(PrimitiveLeafPlugin):

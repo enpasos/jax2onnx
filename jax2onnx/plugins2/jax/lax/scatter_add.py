@@ -39,6 +39,38 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(6,)],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "scatter_add_simple_1d",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (2, 1), (2,)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_add_batch_updates_1d_operand",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (2, 2, 1), (2, 2)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

@@ -48,7 +48,7 @@ def _cast_value(
         {"component": "Max", "doc": "https://onnx.ai/onnx/operators/onnx__Max.html"},
         {"component": "Min", "doc": "https://onnx.ai/onnx/operators/onnx__Min.html"},
     ],
-    since="v0.8.0",
+    since="v0.7.5",
     context="primitives2.lax",
     component="clamp",
     testcases=[

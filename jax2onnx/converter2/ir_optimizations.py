@@ -1242,6 +1242,20 @@ def remove_dead_nodes_ir(graph) -> None:
     worklist: List["ir.Value"] = [
         v for v in _graph_outputs_list(graph) if v is not None
     ]
+    used_names: Set[str] = set()
+    _collect_used_value_names(graph, used_names)
+    if used_names:
+        seen_names: Set[str] = set()
+        for name in used_names:
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            idx = prod_name.get(name)
+            if idx is None:
+                continue
+            for ov in _node_outputs(nodes[idx]):
+                if _v_name(ov) == name:
+                    worklist.append(ov)
     live_nodes: Set[int] = set()
     while worklist:
         v = worklist.pop()

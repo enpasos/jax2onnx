@@ -65,7 +65,7 @@ def _cast_value(
         },
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
     ],
-    since="v0.8.0",
+    since="v0.2.0",
     context="primitives2.lax",
     component="concatenate",
     testcases=[

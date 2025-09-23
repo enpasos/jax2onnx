@@ -26,13 +26,37 @@ if TYPE_CHECKING:  # pragma: no cover
     component="scatter_mul",
     testcases=[
         {
-            "testcase": "scatter_mul_simple",
-            "callable": lambda x: x.at[jnp.array([2], dtype=jnp.int32)].multiply(
-                jnp.array([2.0], dtype=x.dtype)
+            "testcase": "scatter_mul_simple_1d",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
             ),
-            "input_shapes": [(5,)],
+            "input_shapes": [(5,), (2, 1), (2,)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
             "use_onnx_ir": True,
-        }
+        },
+        {
+            "testcase": "scatter_mul_batch_updates_1d_operand",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_mul(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (2, 2, 1), (2, 2)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScatterMulPlugin(PrimitiveLeafPlugin):

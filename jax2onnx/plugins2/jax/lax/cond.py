@@ -121,6 +121,21 @@ def _extract_branches(
             "use_onnx_ir": True,
         },
         {
+            "testcase": "cond_internal_constant_f64",
+            "callable": lambda: jax.lax.cond(
+                False,
+                lambda x: x * 2.0,
+                lambda x: x + 1.0,
+                jnp.zeros((2, 4), dtype=jnp.float64),
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [(2, 4)],
+            "expected_output_dtypes": [np.float64],
+            "enable_double_precision": True,
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "cond_passthrough_identity",
             "callable": lambda pred, x, y: jax.lax.cond(
                 pred,
@@ -133,6 +148,30 @@ def _extract_branches(
                 np.array(True),
                 np.array([1.0, 2.0, 3.0], dtype=np.float32),
                 np.array([4.0, 5.0, 6.0], dtype=np.float32),
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cond_with_scatter",
+            "callable": lambda operand, updates: jax.lax.cond(
+                True,
+                lambda op, upd: jax.lax.scatter_add(
+                    op,
+                    jnp.array([[1], [3]], dtype=jnp.int32),
+                    upd,
+                    jax.lax.ScatterDimensionNumbers(
+                        update_window_dims=(1,),
+                        inserted_window_dims=(0,),
+                        scatter_dims_to_operand_dims=(0,),
+                    ),
+                ),
+                lambda op, upd: op,
+                operand,
+                updates,
+            ),
+            "input_values": [
+                np.ones((5, 3), dtype=np.float32),
+                np.ones((2, 3), dtype=np.float32) * 9,
             ],
             "use_onnx_ir": True,
         },

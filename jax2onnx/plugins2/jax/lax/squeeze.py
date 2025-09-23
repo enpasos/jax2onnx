@@ -68,6 +68,48 @@ def _dim_const_value(dim) -> int | None:
             "expected_output_shapes": [(3, 4)],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "lax_squeeze_specific_axis_0",
+            "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
+            "input_shapes": [(1, 3)],
+            "expected_output_shapes": [(3,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "lax_squeeze_multiple_axes",
+            "callable": lambda x: lax.squeeze(x, dimensions=(0, 2, 4)),
+            "input_shapes": [(1, 3, 1, 4, 1)],
+            "expected_output_shapes": [(3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "lax_squeeze_no_op_empty_dims",
+            "callable": lambda x: lax.squeeze(x, dimensions=()),
+            "input_shapes": [(1, 3, 1)],
+            "expected_output_shapes": [(1, 3, 1)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_only_axis_0",
+            "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201, 1, 1)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_axes_0_2",
+            "callable": lambda x: lax.squeeze(x, dimensions=(0, 2)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201, 1)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "lax_squeeze_problem_case_input_squeeze_all_dims_explicitly",
+            "callable": lambda x: lax.squeeze(x, dimensions=(0, 2, 3)),
+            "input_shapes": [(1, 201, 1, 1)],
+            "expected_output_shapes": [(201,)],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class SqueezePlugin(PrimitiveLeafPlugin):

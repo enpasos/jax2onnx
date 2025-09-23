@@ -39,6 +39,54 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(5,)],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "scatter_correct_axis_determination",
+            "callable": lambda op, idx, upd_scalar_batch: jax.lax.scatter(
+                op,
+                idx,
+                jnp.reshape(upd_scalar_batch, idx.shape[:-1]),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_updates_slice_needed_axis0",
+            "callable": lambda op, idx, upd_scalar_batch: jax.lax.scatter(
+                op,
+                idx,
+                jnp.reshape(upd_scalar_batch, idx.shape[:-1]),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_from_user_warning_shapes_valid_jax",
+            "callable": lambda operand, indices, updates_sliced_scalar_batch: jax.lax.scatter(
+                operand,
+                indices,
+                jnp.reshape(updates_sliced_scalar_batch, indices.shape[:-1]),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):

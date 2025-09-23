@@ -38,6 +38,16 @@ def _promote_dtype(dtypes: Sequence[np.dtype]) -> np.dtype:
     return result
 
 
+def _concat_dynamic_tile(x: jnp.ndarray) -> jnp.ndarray:
+    """Mimic the legacy concat-with-token pattern used in Transformer blocks."""
+
+    # x : (B, N, D)
+    d_feature = x.shape[2]
+    token = jnp.zeros((1, 1, d_feature), dtype=x.dtype)
+    tiled = jnp.broadcast_to(token, (x.shape[0], 1, d_feature))
+    return jnp.concatenate([tiled, x], axis=1)
+
+
 _CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
 
 
@@ -55,17 +65,48 @@ _CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
     component="concatenate",
     testcases=[
         {
-            "testcase": "jnp_concatenate_basic",
+            "testcase": "concatenate_basic",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "jnp_concatenate_dtype",
-            "callable": lambda a, b: jnp.concatenate((a, b), axis=1, dtype=jnp.float64),
-            "input_shapes": [(2, 1), (2, 1)],
+            "testcase": "concatenate_mixed_dtypes",
+            "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
+            "input_shapes": [(3,), (3,)],
+            "input_dtypes": [np.float32, np.int32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "concatenate_with_explicit_dtype",
+            "callable": lambda a, b: jnp.concatenate((a, b), axis=0, dtype=jnp.float64),
+            "input_shapes": [(3,), (3,)],
+            "input_dtypes": [np.float32, np.int32],
             "use_onnx_ir": True,
             "enable_double_precision": True,
+        },
+        {
+            "testcase": "concatenate_with_explicit_dtype_casts_inputs",
+            "callable": lambda a, b: jnp.concatenate((a, b), axis=1, dtype=jnp.float32),
+            "input_shapes": [(5, 1), (5, 1)],
+            "input_dtypes": [np.int32, np.int32],
+            "expected_output_shapes": [(5, 2)],
+            "use_onnx_ir": True,
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "concatenate_abstract_middle_dim",
+            "callable": lambda a, b: jnp.concatenate((a, b), axis=1),
+            "input_shapes": [("B", 1, 8), ("B", 10, 8)],
+            "expected_output_shapes": [("B", 11, 8)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "concatenate_tile_and_symbolic",
+            "callable": _concat_dynamic_tile,
+            "input_shapes": [("B", 49, 256)],
+            "expected_output_shapes": [("B", 50, 256)],
+            "use_onnx_ir": True,
         },
     ],
 )
