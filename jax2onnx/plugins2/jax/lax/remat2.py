@@ -33,9 +33,11 @@ if not hasattr(lax, "remat2_p"):
     else:
         base_core = jax_core_ext
     if base_core is not None:
-        remat2_prim = base_core.Primitive("lax.remat2")
+        remat2_prim = base_core.Primitive("remat2")
         remat2_prim.multiple_results = True
         lax.remat2_p = remat2_prim  # type: ignore[attr-defined]
+else:
+    lax.remat2_p.multiple_results = True  # type: ignore[attr-defined]
 
 
 @register_primitive(

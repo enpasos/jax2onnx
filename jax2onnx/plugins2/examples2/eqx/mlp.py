@@ -16,7 +16,12 @@ class Mlp(eqx.Module):
     linear2: eqx.nn.Linear
 
     def __init__(
-        self, in_features: int, hidden_features: int, out_features: int, *, key: jax.Array
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int,
+        *,
+        key: jax.Array,
     ):
         key_1, key_2 = jr.split(key, 2)
         self.linear1 = eqx.nn.Linear(in_features, hidden_features, key=key_1)
@@ -80,7 +85,9 @@ register_example(
         {
             "testcase": "mlp_batched_training_mode",
             "callable": (
-                lambda x, *, model=_batched_model, _k=jax.random.PRNGKey(0): model(x, _k)
+                lambda x, *, model=_batched_model, _k=jax.random.PRNGKey(0): model(
+                    x, _k
+                )
             ),
             "input_shapes": [(8, 30)],
             "use_onnx_ir": True,
