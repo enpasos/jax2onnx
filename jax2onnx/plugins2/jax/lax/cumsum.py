@@ -34,15 +34,17 @@ def _cumsum_last_axis_reverse(x):
     component="cumsum",
     testcases=[
         {
-            "testcase": "cumsum_axis2",
+            "testcase": "cumsum_i32_axis2",
             "callable": lambda x: jax.lax.cumsum(x, axis=2),
             "input_shapes": [(2, 3, 4)],
+            "input_dtypes": [np.int32],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "cumsum_reverse_last_axis",
-            "callable": _cumsum_last_axis_reverse,
+            "testcase": "cumsum_f32_axism1_reverse",
+            "callable": lambda x: jax.lax.cumsum(x, axis=x.ndim - 1, reverse=True),
             "input_shapes": [(1, 2, 3, 4)],
+            "input_dtypes": [np.float32],
             "use_onnx_ir": True,
         },
     ],

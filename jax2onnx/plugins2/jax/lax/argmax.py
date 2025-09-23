@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
@@ -33,15 +34,45 @@ if TYPE_CHECKING:  # pragma: no cover
     component="argmax",
     testcases=[
         {
-            "testcase": "argmax_axis0",
-            "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=np.int32),
-            "input_shapes": [(3, 4)],
+            "testcase": "argmax_float_axis0",
+            "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=jnp.int32),
+            "input_shapes": [(3, 3)],
+            "input_dtypes": [jnp.float32],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "argmax_bool",
-            "callable": lambda x: jax.lax.argmax(x, axis=1, index_dtype=np.int64),
-            "input_shapes": [(2, 3)],
+            "testcase": "argmax_float_axis1",
+            "callable": lambda x: jax.lax.argmax(x, axis=1, index_dtype=jnp.int32),
+            "input_shapes": [(3, 3)],
+            "input_dtypes": [jnp.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "argmax_boolean_input_axis0_specific_values",
+            "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=jnp.int32),
+            "input_values": [
+                np.array(
+                    [[False, True, False], [True, False, True], [False, False, False]],
+                    dtype=np.bool_,
+                )
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "argmax_boolean_input_axis1_specific_values",
+            "callable": lambda x: jax.lax.argmax(x, axis=1, index_dtype=jnp.int32),
+            "input_values": [
+                np.array(
+                    [[False, True, False], [True, False, True], [False, True, True]],
+                    dtype=np.bool_,
+                )
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "argmax_boolean_random_input_axis0",
+            "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=jnp.int32),
+            "input_shapes": [(4, 5)],
             "input_dtypes": [np.bool_],
             "use_onnx_ir": True,
         },

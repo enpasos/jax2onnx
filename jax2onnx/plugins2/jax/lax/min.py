@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     component="min",
     testcases=[
         {
-            "testcase": "min",
+            "testcase": "min_test1",
             "callable": lambda x1, x2: jax.lax.min(x1, x2),
             "input_shapes": [(3,), (3,)],
             "use_onnx_ir": True,

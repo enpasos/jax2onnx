@@ -690,18 +690,18 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: and_bool, and_int
 
 ### argmax
-- Coverage: ⚠️ partial (missing: argmax_boolean_input_axis0_specific_values, argmax_boolean_input_axis1_specific_values, argmax_boolean_random_input_axis0, argmax_float_axis0, argmax_float_axis1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: argmax_boolean_input_axis0_specific_values, argmax_boolean_input_axis1_specific_values, argmax_boolean_random_input_axis0, argmax_float_axis0, argmax_float_axis1
-- Converter2 testcases: argmax_axis0, argmax_bool
+- Converter2 testcases: argmax_boolean_input_axis0_specific_values, argmax_boolean_input_axis1_specific_values, argmax_boolean_random_input_axis0, argmax_float_axis0, argmax_float_axis1
 
 ### argmin
-- Coverage: ⚠️ partial (missing: argmin_test1, argmin_test2)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: argmin_test1, argmin_test2
-- Converter2 testcases: argmin_axis0, argmin_axis1
+- Converter2 testcases: argmin_test1, argmin_test2
 
 ### bitwise_not
 - Coverage: ✅ complete
@@ -774,11 +774,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: cosh
 
 ### cumsum
-- Coverage: ⚠️ partial (missing: cumsum_f32_axism1_reverse, cumsum_i32_axis2)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: cumsum_f32_axism1_reverse, cumsum_i32_axis2
-- Converter2 testcases: cumsum_axis2, cumsum_reverse_last_axis
+- Converter2 testcases: cumsum_f32_axism1_reverse, cumsum_i32_axis2
 
 ### device_put
 - Coverage: ✅ complete
@@ -858,11 +858,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: gt
 
 ### integer_pow
-- Coverage: ⚠️ partial (missing: integer_pow)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: integer_pow
-- Converter2 testcases: integer_pow_square
+- Converter2 testcases: integer_pow
 
 ### iota
 - Coverage: ✅ complete
@@ -900,18 +900,18 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: max
 
 ### min
-- Coverage: ⚠️ partial (missing: min_test1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: min_test1
-- Converter2 testcases: min
+- Converter2 testcases: min_test1
 
 ### mul
-- Coverage: ⚠️ partial (missing: mul_pyfloat_promotes_to_array_dtype_f64, mul_scalar_broadcast_promote_to_f64, mul_test1, mul_test2)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: mul_pyfloat_promotes_to_array_dtype_f64, mul_scalar_broadcast_promote_to_f64, mul_test1, mul_test2
-- Converter2 testcases: mul, mul_const
+- Converter2 testcases: mul_pyfloat_promotes_to_array_dtype_f64, mul_scalar_broadcast_promote_to_f64, mul_test1, mul_test2
 
 ### ne
 - Coverage: ✅ complete

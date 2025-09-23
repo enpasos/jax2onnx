@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
@@ -33,15 +34,15 @@ if TYPE_CHECKING:  # pragma: no cover
     component="argmin",
     testcases=[
         {
-            "testcase": "argmin_axis0",
-            "callable": lambda x: jax.lax.argmin(x, axis=0, index_dtype=np.int32),
-            "input_shapes": [(3, 4)],
+            "testcase": "argmin_test1",
+            "callable": lambda x: jax.lax.argmin(x, axis=0, index_dtype=jnp.int32),
+            "input_shapes": [(3, 3)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "argmin_axis1",
-            "callable": lambda x: jax.lax.argmin(x, axis=1, index_dtype=np.int64),
-            "input_shapes": [(2, 5)],
+            "testcase": "argmin_test2",
+            "callable": lambda x: jax.lax.argmin(x, axis=1, index_dtype=jnp.int32),
+            "input_shapes": [(3, 3)],
             "use_onnx_ir": True,
         },
     ],
