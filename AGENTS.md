@@ -46,6 +46,14 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 
 * ONNX **protobuf** shape inference or serialization should live in top-level adapters, not in IR passes or plugins.
 
+### Coverage migration focus
+
+* We are in the **full test coverage phase**: every legacy converter/plugin test needs an equivalent in `plugins2`.
+* Use `MigrationStatus.md` as the source of truth for coverage gaps. It is auto-generated via `poetry run python scripts/generate_migration_status.py` and marks items as ✅ complete, ⚠️ partial, or ❌ missing.
+* When picking work, choose a ❌/⚠️ entry, port the missing legacy testcase(s) into the IR-only pipeline, and add/extend tests under `tests/` (typically `tests/extra_tests2/...`).
+* After landing new coverage, rerun the generator to refresh `MigrationStatus.md` so future contributors see the updated status.
+* Keep migrations incremental: one plugin/test family per PR keeps diffs small and makes review easier.
+
 ### Structure
 
 * `converter2/ir_optimizations.py` contains IR-level graph passes (reshape/transpose pair folding, Dropout cleanup, dead code elimination, etc.).

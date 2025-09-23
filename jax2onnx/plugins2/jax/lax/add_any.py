@@ -3,7 +3,7 @@ from __future__ import annotations
 import jax
 
 from jax2onnx.plugins2.jax.lax.add import AddPlugin, lower_add
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import register_primitive
 
 
 @register_primitive(
@@ -16,7 +16,9 @@ from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primit
     testcases=[
         {
             "testcase": "add_any_via_jvp_on_mul",
-            "callable": lambda x1, x2: jax.jvp(lambda a, b: a * b, (x1, x2), (x1, x2))[1],
+            "callable": lambda x1, x2: jax.jvp(lambda a, b: a * b, (x1, x2), (x1, x2))[
+                1
+            ],
             "input_shapes": [(3,), (3,)],
             "use_onnx_ir": True,
         }

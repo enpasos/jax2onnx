@@ -26,22 +26,23 @@ if TYPE_CHECKING:  # pragma: no cover
     component="reduce_or",
     testcases=[
         {
-            "testcase": "reduce_or_axis0",
-            "callable": lambda x: jnp.any(x, axis=0),
+            "testcase": "reduce_or_all_false",
+            "callable": lambda x: jnp.any(x, axis=None),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.bool_],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "reduce_or_all_axes",
-            "callable": lambda x: jnp.any(x),
-            "input_shapes": [(2, 3, 4)],
-            "input_dtypes": [jnp.bool_],
+            "testcase": "reduce_or_one_true",
+            "callable": lambda x: jnp.any(x, axis=None),
+            "input_values": [
+                jnp.array([[False, False], [True, False]], dtype=jnp.bool_)
+            ],
             "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_or_keepdims",
-            "callable": lambda x: jnp.any(x, axis=1, keepdims=True),
+            "callable": lambda x: jnp.any(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
             "use_onnx_ir": True,

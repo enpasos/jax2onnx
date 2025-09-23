@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax2onnx.plugins2.jax.lax._reduce_utils import lower_boolean_reduction
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -30,17 +31,31 @@ if TYPE_CHECKING:  # pragma: no cover
     component="reduce_xor",
     testcases=[
         {
-            "testcase": "reduce_xor_axis0",
-            "callable": lambda x: jnp.logical_xor.reduce(x, axis=0),
-            "input_shapes": [(3, 3)],
+            "testcase": "reduce_xor_all_false",
+            "callable": lambda x: jnp.logical_xor.reduce(x),
+            "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
+            "input_values": [np.zeros((3, 4), dtype=np.bool_)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "reduce_xor_all_axes",
+            "testcase": "reduce_xor_one_true",
             "callable": lambda x: jnp.logical_xor.reduce(x),
-            "input_shapes": [(2, 3, 4)],
+            "input_shapes": [(2, 3)],
             "input_dtypes": [jnp.bool_],
+            "input_values": [
+                np.array([[True, False, False], [False, False, False]], dtype=np.bool_)
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reduce_xor_two_true",
+            "callable": lambda x: jnp.logical_xor.reduce(x),
+            "input_shapes": [(2, 3)],
+            "input_dtypes": [jnp.bool_],
+            "input_values": [
+                np.array([[True, False, False], [False, True, False]], dtype=np.bool_)
+            ],
             "use_onnx_ir": True,
         },
         {
@@ -48,6 +63,16 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda x: jnp.logical_xor.reduce(x, axis=1, keepdims=True),
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
+            "input_values": [
+                np.array(
+                    [
+                        [False, True, False, False],
+                        [True, False, False, False],
+                        [False, False, True, False],
+                    ],
+                    dtype=np.bool_,
+                )
+            ],
             "use_onnx_ir": True,
         },
     ],

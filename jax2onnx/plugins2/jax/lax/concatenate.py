@@ -59,7 +59,10 @@ def _cast_value(
     jaxpr_primitive=jax.lax.concatenate_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.concatenate.html",
     onnx=[
-        {"component": "Concat", "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html"},
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
     ],
     since="v0.8.0",
@@ -94,8 +97,10 @@ def _cast_value(
             "testcase": "concatenate_internal_int32_then_cast_to_f32_zeroarg",
             "callable": (
                 lambda: jax.lax.concatenate(
-                    (jax.numpy.array([1], dtype=jax.numpy.int32),
-                     jax.numpy.array([2], dtype=jax.numpy.int32)),
+                    (
+                        jax.numpy.array([1], dtype=jax.numpy.int32),
+                        jax.numpy.array([2], dtype=jax.numpy.int32),
+                    ),
                     dimension=0,
                 ).astype(jax.numpy.float32)
             ),
@@ -127,7 +132,7 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         for var, shape, dtype in zip(in_vars, shapes, dtypes):
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("concat_in"))
             if np.dtype(dtype) != target_dtype:
-                val = _cast_value(ctx, val, target_enum, shape, "ConcatCast")
+                val = _cast_value(ctx, val, target_enum, shape)
             inputs.append(val)
 
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("concat_out"))

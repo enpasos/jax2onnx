@@ -946,53 +946,53 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: pow_basic
 
 ### reduce_and
-- Coverage: ⚠️ partial (missing: reduce_and_all_true, reduce_and_one_false)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_and_all_true, reduce_and_keepdims, reduce_and_one_false
-- Converter2 testcases: reduce_and_all_axes, reduce_and_axis0, reduce_and_keepdims
+- Converter2 testcases: reduce_and_all_true, reduce_and_keepdims, reduce_and_one_false
 
 ### reduce_max
-- Coverage: ⚠️ partial (missing: reduce_max, reduce_max_allaxes)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_max, reduce_max_allaxes, reduce_max_axes_input, reduce_max_keepdims
-- Converter2 testcases: reduce_max_all_axes, reduce_max_axes_input, reduce_max_axis0, reduce_max_keepdims
+- Converter2 testcases: reduce_max, reduce_max_allaxes, reduce_max_axes_input, reduce_max_keepdims
 
 ### reduce_min
-- Coverage: ⚠️ partial (missing: reduce_min, reduce_min_allaxes)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_min, reduce_min_allaxes, reduce_min_keepdims
-- Converter2 testcases: reduce_min_all_axes, reduce_min_axis0, reduce_min_keepdims
+- Converter2 testcases: reduce_min, reduce_min_allaxes, reduce_min_keepdims
 
 ### reduce_or
-- Coverage: ⚠️ partial (missing: reduce_or_all_false, reduce_or_one_true)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_or_all_false, reduce_or_keepdims, reduce_or_one_true
-- Converter2 testcases: reduce_or_all_axes, reduce_or_axis0, reduce_or_keepdims
+- Converter2 testcases: reduce_or_all_false, reduce_or_keepdims, reduce_or_one_true
 
 ### reduce_prod
-- Coverage: ⚠️ partial (missing: reduce_prod, reduce_prod_allaxes, reduce_prod_dtype, reduce_prod_dtype_f64)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_prod, reduce_prod_allaxes, reduce_prod_dtype, reduce_prod_dtype_f64, reduce_prod_keepdims
-- Converter2 testcases: reduce_prod_all_axes, reduce_prod_axis0, reduce_prod_dtype_promotion, reduce_prod_keepdims
+- Converter2 testcases: reduce_prod, reduce_prod_allaxes, reduce_prod_dtype, reduce_prod_dtype_f64, reduce_prod_keepdims
 
 ### reduce_sum
-- Coverage: ⚠️ partial (missing: reduce_sum, reduce_sum_allaxes, reduce_sum_dtype, reduce_sum_dtype_f64)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_sum, reduce_sum_allaxes, reduce_sum_dtype, reduce_sum_dtype_f64, reduce_sum_keepdims
-- Converter2 testcases: reduce_sum_all_axes, reduce_sum_axis0, reduce_sum_dtype_promotion, reduce_sum_keepdims
+- Converter2 testcases: reduce_sum, reduce_sum_allaxes, reduce_sum_dtype, reduce_sum_dtype_f64, reduce_sum_keepdims
 
 ### reduce_xor
-- Coverage: ⚠️ partial (missing: reduce_xor_all_false, reduce_xor_one_true, reduce_xor_two_true)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: reduce_xor_all_false, reduce_xor_keepdims, reduce_xor_one_true, reduce_xor_two_true
-- Converter2 testcases: reduce_xor_all_axes, reduce_xor_axis0, reduce_xor_keepdims
+- Converter2 testcases: reduce_xor_all_false, reduce_xor_keepdims, reduce_xor_one_true, reduce_xor_two_true
 
 ### rem
 - Coverage: ✅ complete

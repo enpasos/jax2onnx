@@ -92,9 +92,7 @@ def gather() -> Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]:
     return store
 
 
-def format_table(
-    store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]
-) -> str:
+def format_table(store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]) -> str:
     lines: list[str] = []
     lines.append("# Migration Status")
     lines.append("")
@@ -110,7 +108,9 @@ def format_table(
         lines.append(f"## {canon_context}")
         lines.append("")
         for component in sorted(all_components):
-            legacy_entry = data["legacy"].get(component, {"contexts": set(), "tests": set()})
+            legacy_entry = data["legacy"].get(
+                component, {"contexts": set(), "tests": set()}
+            )
             new_entry = data["new"].get(component, {"contexts": set(), "tests": set()})
 
             legacy_tests = legacy_entry["tests"]
