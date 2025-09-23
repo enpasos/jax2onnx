@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 from jax.extend.core import Primitive
+from jax.interpreters import batching
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
@@ -107,3 +108,13 @@ class GeluPlugin(PrimitiveLeafPlugin):
 @GeluPlugin._PRIM.def_impl
 def _gelu_impl(*args, **kwargs):
     return jax.nn.gelu(*args, **kwargs)
+
+
+def _gelu_batch_rule(batched_args, batch_dims, *, approximate=True):
+    (x,) = batched_args
+    (bd,) = batch_dims
+    out = GeluPlugin._PRIM.bind(x, approximate=approximate)
+    return out, bd
+
+
+batching.primitive_batchers[GeluPlugin._PRIM] = _gelu_batch_rule
