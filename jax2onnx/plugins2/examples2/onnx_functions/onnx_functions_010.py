@@ -142,7 +142,7 @@ register_example(
                 rngs=nnx.Rngs(0),
             ),
             "input_shapes": [("B", 10, 256)],
-            "expected_number_of_function_instances": 25,
+            "expected_number_of_function_instances": 20,
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
         },

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable, ClassVar, Tuple, Union, cast
 
 import numpy as np
 from flax import nnx
@@ -12,6 +12,7 @@ from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax2onnx.plugins2._ir_shapes import (
     _ensure_value_info as _add_value_info,
     _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
@@ -22,12 +23,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRContext  # type: ignore
 
 
-def _require_static_dim(dim, name: str) -> int:
+DimLike = Union[int, str]
+
+
+def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
-        return int(dim)
-    raise NotImplementedError(
-        f"nnx.dot_product_attention converter2 requires static {name} dimension"
-    )
+        return int(dim), True
+    return str(dim), False
 
 
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
@@ -41,10 +43,11 @@ def _make_tensor_value(
     ctx: "IRContext", like: ir.Value, shape, *, base: str
 ) -> ir.Value:
     dtype = _dtype_enum_from_value(like)
+    dims = tuple(_to_ir_dim_for_shape(d) for d in shape)
     return ir.Value(
         name=ctx.fresh_name(base),
         type=ir.TensorType(dtype),
-        shape=ir.Shape(tuple(shape)),
+        shape=ir.Shape(dims),
     )
 
 
@@ -218,11 +221,21 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
 
-        batch_dim_i = _require_static_dim(batch_dim, "batch")
-        q_len_i = _require_static_dim(q_len, "query length")
-        num_heads_i = _require_static_dim(num_heads, "num_heads")
-        head_dim_i = _require_static_dim(head_dim, "head")
-        k_len_i = _require_static_dim(k_len, "key length")
+        batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
+        q_len_v, _ = _coerce_dim(q_len, "query length")
+        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        head_dim_v, head_static = _coerce_dim(head_dim, "head")
+        if not head_static:
+            raise NotImplementedError(
+                "nnx.dot_product_attention requires static head dimension"
+            )
+        k_len_v, _ = _coerce_dim(k_len, "key length")
+
+        head_dim_i = cast(int, head_dim_v)
+        num_heads_i: DimLike = num_heads_v
+        batch_dim_i: DimLike = batch_dim_v
+        q_len_i: DimLike = q_len_v
+        k_len_i: DimLike = k_len_v
 
         q_t = _make_tensor_value(
             ctx, q_val, (batch_dim, num_heads, q_len, head_dim), base="dpa_qT"
@@ -331,7 +344,12 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             mask_val = ctx.get_value_for_var(
                 mask_var, name_hint=ctx.fresh_name("dpa_mask")
             )
-            mask_dims = tuple(getattr(getattr(mask_var, "aval", None), "shape", ()))
+            mask_shape = tuple(getattr(getattr(mask_var, "aval", None), "shape", ()))
+            mask_dims: list[DimLike] = []
+            for idx, dim in enumerate(mask_shape):
+                dim_val, _ = _coerce_dim(dim, f"mask_dim_{idx}")
+                mask_dims.append(dim_val)
+            mask_dims_tuple = tuple(mask_dims)
             mask_dtype = np.dtype(
                 getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
             )
@@ -339,7 +357,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 mask_bool = _make_tensor_value(
                     ctx,
                     mask_val,
-                    mask_dims,
+                    mask_dims_tuple,
                     base="dpa_mask_bool",
                 )
                 ctx.add_node(
@@ -355,10 +373,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     )
                 )
                 mask_val = mask_bool
-                _stamp_type_and_shape(mask_val, mask_dims)
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
                 _add_value_info(ctx, mask_val)
             else:
-                _stamp_type_and_shape(mask_val, mask_dims)
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
                 _add_value_info(ctx, mask_val)
 
             fill_value = ctx.builder.add_initializer_from_scalar(

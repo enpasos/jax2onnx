@@ -8,6 +8,37 @@ from .ir_builder import IRBuilder, _dtype_to_ir
 
 from jax.extend import core as jcore_ext  # type: ignore
 
+
+class _InitializerProxy:
+    """List-like view over builder.initializers that is function-safe."""
+
+    def __init__(self, ctx: "IRContext") -> None:  # type: ignore[name-defined]
+        self._ctx = ctx
+        self._storage = ctx.builder.initializers
+
+    def append(self, value: ir.Value) -> None:
+        self._ctx._handle_initializer_append(value)
+
+    def extend(self, values):
+        for value in values:
+            self.append(value)
+
+    def __iter__(self):
+        return iter(self._storage)
+
+    def __len__(self) -> int:
+        return len(self._storage)
+
+    def __getitem__(self, item):
+        return self._storage[item]
+
+    def __bool__(self) -> bool:
+        return bool(self._storage)
+
+    def __getattr__(self, name):
+        return getattr(self._storage, name)
+
+
 _LITERAL_TYPES = (jcore_ext.Literal,)
 
 
@@ -36,14 +67,19 @@ class IRContext:
         self.builder = IRBuilder(
             opset=opset, enable_double_precision=enable_double_precision
         )
+        self.builder._function_mode = False
         self._default_float_dtype = (
             np.float64 if enable_double_precision else np.float32
         )
         # Back-compat views some plugins touch directly
         self._var2val = self.builder._var2val
-        self._initializers = self.builder.initializers
+        self._initializers = _InitializerProxy(self)
         self._nodes = self.builder.nodes
         self._inputs = self.builder.inputs
+        # Intermediate ValueInfo staging (mirrors builder.value_info)
+        self._value_info = self.builder.value_info
+        # Some helpers expect _value_infos (legacy alias)
+        self._value_infos = self.builder.value_info
         # Track where each symbolic dim came from (object if hashable, and always string)
         self._sym_origin: dict[object, tuple[ir.Value, int]] = {}
         self._sym_origin_str: dict[str, tuple[ir.Value, int]] = {}
@@ -166,6 +202,44 @@ class IRContext:
         # maintain legacy signature; plugins pass a constructed ir.Node
         self.builder.nodes.append(node)
         return node
+
+    # ---------- initializer management ----------
+    def _handle_initializer_append(self, value: ir.Value) -> None:
+        if getattr(self, "_inside_function_scope", False) or getattr(
+            self, "_function_mode", False
+        ):
+            tensor = getattr(value, "const_value", None)
+            if tensor is None:
+                # Fallback: store as initializer to avoid data loss.
+                self.builder.initializers.append(value)
+                return
+            self._materialize_constant_value(value, tensor)
+            return
+        self.builder.initializers.append(value)
+
+    def _materialize_constant_value(self, value: ir.Value, tensor) -> None:
+        Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
+        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+        attributes: list[Any] = []
+        if Attr is not None:
+            try:
+                if hasattr(Attr, "t"):
+                    attributes.append(Attr.t("value", tensor))
+                elif AttrType is not None:
+                    attributes.append(Attr("value", AttrType.TENSOR, tensor))
+                else:
+                    attributes.append(Attr("value", tensor))
+            except Exception:
+                pass
+        node = ir.Node(
+            op_type="Constant",
+            domain="",
+            inputs=[],
+            outputs=[value],
+            name=self.fresh_name("Constant"),
+            attributes=attributes,
+        )
+        self.add_node(node)
 
     def cast_like(
         self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None

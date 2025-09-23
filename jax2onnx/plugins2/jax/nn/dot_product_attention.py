@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional, Tuple, Union, cast
 
 import numpy as np
 import jax
@@ -12,6 +12,7 @@ from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax2onnx.plugins2._ir_shapes import (
     _ensure_value_info as _add_value_info,
     _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG2
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
@@ -46,31 +47,33 @@ def _numpy_dtype_from_aval(var) -> np.dtype:
     return np.dtype(aval_dtype)
 
 
-def _require_static_dim(dim, name: str) -> int:
+DimLike = Union[int, str]
+
+
+def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
-        return int(dim)
-    raise NotImplementedError(
-        f"jax.nn.dot_product_attention converter2 requires static {name} dimension;"
-        " symbolic dimensions are not yet supported."
-    )
+        return int(dim), True
+    return str(dim), False
 
 
 def _make_tensor_value(
     ctx: "IRContext", like: ir.Value, shape, *, base: str
 ) -> ir.Value:
     dtype = _dtype_enum_from_value(like)
+    dims = tuple(_to_ir_dim_for_shape(d) for d in shape)
     return ir.Value(
         name=ctx.fresh_name(base),
         type=ir.TensorType(dtype),
-        shape=ir.Shape(tuple(shape)),
+        shape=ir.Shape(dims),
     )
 
 
 def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
+    dims = tuple(_to_ir_dim_for_shape(d) for d in shape)
     return ir.Value(
         name=ctx.fresh_name(base),
         type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(tuple(shape)),
+        shape=ir.Shape(dims),
     )
 
 
@@ -189,11 +192,21 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
 
-        batch_dim_i = _require_static_dim(batch_dim, "batch")
-        num_heads_i = _require_static_dim(num_heads, "num_heads")
-        head_dim_i = _require_static_dim(head_dim, "head")
-        q_len_i = _require_static_dim(q_len, "query length")
-        k_len_i = _require_static_dim(k_len, "key length")
+        batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
+        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        head_dim_v, head_static = _coerce_dim(head_dim, "head")
+        if not head_static:
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires static head dimension"
+            )
+        q_len_v, _ = _coerce_dim(q_len, "query length")
+        k_len_v, _ = _coerce_dim(k_len, "key length")
+
+        head_dim_i = cast(int, head_dim_v)
+        batch_dim_i: DimLike = batch_dim_v
+        num_heads_i: DimLike = num_heads_v
+        q_len_i: DimLike = q_len_v
+        k_len_i: DimLike = k_len_v
 
         q_t = _make_tensor_value(
             ctx,
@@ -268,10 +281,22 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         current_logits: ir.Value = scaled
 
         if is_causal:
-            tril = np.tril(np.ones((q_len_i, k_len_i), dtype=bool))
+            if not (
+                isinstance(num_heads_v, (int, np.integer))
+                and isinstance(q_len_v, (int, np.integer))
+                and isinstance(k_len_v, (int, np.integer))
+            ):
+                raise NotImplementedError(
+                    "jax.nn.dot_product_attention with is_causal=True "
+                    "requires static num_heads/query/key dimensions"
+                )
+            num_heads_static = int(num_heads_v)
+            q_len_static = int(q_len_v)
+            k_len_static = int(k_len_v)
+            tril = np.tril(np.ones((q_len_static, k_len_static), dtype=bool))
             tril_broadcast = np.broadcast_to(
-                tril, (num_heads_i, q_len_i, k_len_i)
-            ).reshape(1, num_heads_i, q_len_i, k_len_i)
+                tril, (num_heads_static, q_len_static, k_len_static)
+            ).reshape(1, num_heads_static, q_len_static, k_len_static)
             mask_const = ctx.builder.add_initializer_from_array(
                 ctx.fresh_name("dpa_causal_mask"), tril_broadcast
             )
@@ -303,18 +328,19 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 mask_var, name_hint=ctx.fresh_name("dpa_mask")
             )
             mask_shape = tuple(getattr(getattr(mask_var, "aval", None), "shape", ()))
-            mask_shape_ints = tuple(
-                _require_static_dim(dim, f"mask_dim_{idx}")
-                for idx, dim in enumerate(mask_shape)
-            )
+            mask_dims: list[DimLike] = []
+            for idx, dim in enumerate(mask_shape):
+                dim_val, _ = _coerce_dim(dim, f"mask_dim_{idx}")
+                mask_dims.append(dim_val)
+            mask_dims_tuple = tuple(mask_dims)
             if mask_shape:
-                _stamp_type_and_shape(mask_val, mask_shape_ints)
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
                 _add_value_info(ctx, mask_val)
             mask_dtype = np.dtype(getattr(mask_var.aval, "dtype", np.bool_))
             if mask_dtype != np.bool_:
                 mask_bool = _make_bool_tensor_value(
                     ctx,
-                    getattr(mask_val.shape, "dims", mask_val.shape),
+                    mask_dims_tuple,
                     base="dpa_mask_bool",
                 )
                 ctx.add_node(
@@ -329,7 +355,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                         ],
                     )
                 )
-                _stamp_type_and_shape(mask_bool, mask_shape_ints)
+                _stamp_type_and_shape(mask_bool, mask_dims_tuple)
                 _add_value_info(ctx, mask_bool)
             else:
                 mask_bool = mask_val

@@ -336,7 +336,9 @@ class FunctionPlugin(PrimitivePlugin):
         Keeps a per-context counter per base name.
         """
         base = _sanitize_op_type_name(self._friendly_name_base())
-        counters = getattr(ctx, "_func_name_counters", None) or {}
+        counters = getattr(ctx, "_func_name_counters", None)
+        if counters is None:
+            counters = {}
         idx = counters.get(base, 0) + 1
         counters[base] = idx
         setattr(ctx, "_func_name_counters", counters)
@@ -469,6 +471,9 @@ class FunctionPlugin(PrimitivePlugin):
                 setattr(
                     fscope.ctx, "_function_registry", getattr(ctx, "_function_registry")
                 )
+            counters = getattr(ctx, "_func_name_counters", None)
+            if counters is not None:
+                setattr(fscope.ctx, "_func_name_counters", counters)
 
             # parent → child inputs for this call-site
             base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]

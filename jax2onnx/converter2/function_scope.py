@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import onnx_ir as ir
 
 from .ir_context import IRContext
@@ -76,6 +77,7 @@ class FunctionScope:
             input_specs=[],  # set on begin()
         )
         self.ctx._function_mode = True  # tell constant binder to emit Constant nodes
+        self.ctx.builder._function_mode = True
         self._inputs: List[ir.Value] = []
         self._outputs: List[ir.Value] = []
         self._sealed = False
@@ -119,7 +121,17 @@ class FunctionScope:
                     if origin is None and isinstance(dim, str):
                         origin = parent_origin(str(dim))
                     if origin is not None:
-                        self.ctx.builder.record_symbol_origin(dim, fin, axis)
+                        sym_key = str(dim)
+                        self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
+                        try:
+                            if not isinstance(dim, (int, np.integer)):
+                                self.ctx._sym_origin[dim] = (fin, axis)
+                        except Exception:
+                            pass
+                        try:
+                            self.ctx._sym_origin_str[str(dim)] = (fin, axis)
+                        except Exception:
+                            pass
         return self.fn_def.inputs
 
     def end(self, outputs: List[ir.Value]) -> FunctionDef:
@@ -183,6 +195,12 @@ class FunctionScope:
             name=self.name,
             opset_imports=opset_imports,
         )
+        value_info = list(getattr(self.ctx.builder, "value_info", []) or [])
+        if value_info:
+            if hasattr(g, "value_info"):
+                g.value_info = value_info
+            elif hasattr(g, "_value_info"):
+                g._value_info = value_info
         # Create the Function (domain/name must match the call-site)
         fn = ir.Function(
             domain=self.domain,

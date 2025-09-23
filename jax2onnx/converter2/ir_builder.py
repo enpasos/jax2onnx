@@ -51,6 +51,9 @@ class IRBuilder:
         self.nodes: list[ir.Node] = []
         self.initializers: list[ir.Value] = []
         self.initializers_by_name: dict[str, ir.Value] = {}
+        # Intermediate ValueInfo entries (propagated to ir.Graph)
+        self.value_info: list[ir.Value] = []
+        self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
@@ -74,12 +77,39 @@ class IRBuilder:
     # public helpers for initializers (used by FunctionPlugin)
     def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
         arr = np.asarray(value)
+        if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
+            arr = arr.astype(np.float32)
+        tensor = ir.tensor(arr)
         v = ir.Value(
             name=name,
             shape=ir.Shape(arr.shape if arr.shape else ()),
             type=ir.TensorType(_dtype_to_ir(arr.dtype, self.enable_double_precision)),
-            const_value=ir.tensor(arr),
+            const_value=tensor,
         )
+        if getattr(self, "_function_mode", False):
+            Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
+            AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+            attributes: list[Any] = []
+            if Attr is not None:
+                try:
+                    if hasattr(Attr, "t"):
+                        attributes.append(Attr.t("value", tensor))
+                    elif AttrType is not None:
+                        attributes.append(Attr("value", AttrType.TENSOR, tensor))
+                    else:
+                        attributes.append(Attr("value", tensor))
+                except Exception:
+                    pass
+            node = ir.Node(
+                op_type="Constant",
+                domain="",
+                inputs=[],
+                outputs=[v],
+                name=self.fresh_name("Constant"),
+                attributes=attributes,
+            )
+            self.nodes.append(node)
+            return v
         # overwrite-safe: last wins
         self.initializers_by_name[name] = v
         # keep list for stable order
@@ -185,4 +215,10 @@ class IRBuilder:
             name=name or "jax2onnx_ir_graph",
             opset_imports={"": self.opset},
         )
+        if self.value_info:
+            vi = list(self.value_info)
+            if hasattr(graph, "value_info"):
+                graph.value_info = vi
+            elif hasattr(graph, "_value_info"):
+                graph._value_info = vi
         return ir.Model(graph, ir_version=ir_version)

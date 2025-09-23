@@ -16,7 +16,7 @@ def _append_initializer(ctx: Any, value: ir.Value) -> None:
         return
     try:
         inits = getattr(ctx, "_initializers", None)
-        if isinstance(inits, list):
+        if inits is not None and hasattr(inits, "append"):
             inits.append(value)
             return
     except Exception:
