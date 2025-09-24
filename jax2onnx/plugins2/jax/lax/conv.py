@@ -47,10 +47,9 @@ def _perm(src_layout: str, dst_layout: str) -> list[int]:
 
 
 def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
-    flat: list[int] = []
-    for before, after in pads:
-        flat.extend([int(before), int(after)])
-    return flat
+    befores = [int(before) for before, _ in pads]
+    afters = [int(after) for _, after in pads]
+    return befores + afters
 
 
 @register_primitive(
@@ -66,6 +65,28 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     context="primitives2.lax",
     component="conv",
     testcases=[
+        {
+            "testcase": "conv",
+            "callable": lambda x, w: jax.lax.conv(
+                x, w, window_strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
+            "use_onnx_ir": True,
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "conv2",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding="VALID",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
+            "use_onnx_ir": True,
+            "run_only_f32_variant": True,
+        },
         {
             "testcase": "conv_nchw",
             "callable": lambda x, w: jax.lax.conv(
@@ -85,6 +106,23 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 5, 5, 3), (3, 3, 3, 4)],
+            "use_onnx_ir": True,
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "conv_general_dilated_nhwc_output",
+            "callable": lambda x, k: jax.lax.conv_general_dilated(
+                x,
+                k,
+                window_strides=(1, 1),
+                padding="SAME",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_values": [
+                np.ones((1, 5, 5, 3), dtype=np.float32),
+                np.ones((2, 2, 3, 4), dtype=np.float32),
+            ],
+            "expected_output_shapes": [(1, 5, 5, 4)],
             "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },

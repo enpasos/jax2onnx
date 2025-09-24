@@ -39,6 +39,33 @@ def _promote_dtype(*dtypes):
     component="select",
     testcases=[
         {
+            "testcase": "select_simple",
+            "callable": lambda: jnp.select(
+                [jnp.array([True, False]), jnp.array([False, True])],
+                [jnp.array([1, 2]), jnp.array([3, 4])],
+                default=jnp.array([0, 0]),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_broadcast",
+            "callable": lambda: jnp.select(
+                [jnp.array([True, False]), jnp.array([False, True])],
+                [jnp.array([1, 2]), jnp.array([3, 4])],
+                default=0,
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "select_gpt2_attention_mask",
+            "callable": lambda scores, mask: jnp.select(
+                [mask], [scores], default=jnp.array(-1e9, dtype=jnp.float32)
+            ),
+            "input_shapes": [("B", 12, "T", "T"), ("B", 1, "T", "T")],
+            "input_dtypes": [np.float32, np.bool_],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "select_basic",
             "callable": lambda: jnp.select(
                 [jnp.array([True, False]), jnp.array([False, True])],
@@ -46,7 +73,7 @@ def _promote_dtype(*dtypes):
                 default=jnp.array([0, 0]),
             ),
             "use_onnx_ir": True,
-        }
+        },
     ],
 )
 class JnpSelectPlugin(PrimitiveLeafPlugin):

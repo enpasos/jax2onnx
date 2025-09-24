@@ -67,7 +67,63 @@ def _is_jax_var(obj) -> bool:
             )[1],
             "input_shapes": [(2, 3, 4, 5)],
             "use_onnx_ir": True,
-        }
+        },
+        {
+            "testcase": "scan_cumsum",
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c + x),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[1],
+            "input_shapes": [(5,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scan_carry_only",
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[0],
+            "input_shapes": [(3,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scan_multiple_sequences",
+            "callable": lambda xs, ys: jax.lax.scan(
+                lambda c, xy: (c + xy[0] * xy[1], c + xy[0]),
+                jnp.zeros((), dtype=xs.dtype),
+                (xs, ys),
+            )[1],
+            "input_shapes": [(4,), (4,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scan_multiple_carry",
+            "callable": lambda xs: jax.lax.scan(
+                lambda carry, x: (
+                    (carry[0] + x, carry[1] * x),
+                    carry[0] + carry[1],
+                ),
+                (
+                    jnp.zeros((), dtype=xs.dtype),
+                    jnp.ones((), dtype=xs.dtype),
+                ),
+                xs,
+            )[1],
+            "input_shapes": [(3,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scan_matrix_carry_multidim_xs",
+            "callable": lambda init_carry, xs_seq: jax.lax.scan(
+                lambda c_mat, x_slice: (c_mat + x_slice, jnp.sum(c_mat + x_slice)),
+                init_carry,
+                xs_seq,
+            )[1],
+            "input_shapes": [(3, 2), (5, 3, 2)],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScanPlugin(PrimitiveLeafPlugin):

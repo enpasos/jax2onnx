@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
@@ -37,6 +38,39 @@ _STACK_PRIM = make_jnp_primitive("jax.numpy.stack")
     context="primitives2.jnp",
     component="stack",
     testcases=[
+        {
+            "testcase": "stack_axis_0",
+            "callable": lambda: jnp.stack(
+                [np.arange(3, dtype=np.float32), np.arange(3, dtype=np.float32)], axis=0
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "stack_axis_1",
+            "callable": lambda: jnp.stack(
+                [np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)],
+                axis=1,
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "stack_negative_axis",
+            "callable": lambda: jnp.stack(
+                [
+                    np.array([1, 2, 3], dtype=np.float32),
+                    np.array([4, 5, 6], dtype=np.float32),
+                ],
+                axis=-1,
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "stack_scalars",
+            "callable": lambda: jnp.stack(
+                [np.array(1.0, dtype=np.float32), np.array(2.0, dtype=np.float32)]
+            ),
+            "use_onnx_ir": True,
+        },
         {
             "testcase": "jnp_stack_axis0",
             "callable": lambda x, y: jnp.stack((x, y), axis=0),

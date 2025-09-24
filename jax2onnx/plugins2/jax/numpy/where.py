@@ -20,6 +20,21 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _WHERE_PRIM = make_jnp_primitive("jax.numpy.where")
 
+# Deterministic fixtures used by regression-style testcases. Keep them small so
+# they stay easy to reason about while still exercising the broadcaster logic
+# that previously regressed when generated randomly.
+_WHERE_A_COND = np.array([[[True]], [[False]], [[True]], [[False]]], dtype=np.bool_)
+_WHERE_A_DATA = np.arange(4 * 1 * 4, dtype=np.float32).reshape(4, 1, 4)
+_WHERE_B_COND = np.array([[[False]], [[True]], [[True]], [[False]]], dtype=np.bool_)
+_WHERE_B_DATA = np.arange(4 * 1 * 4, dtype=np.int32).reshape(4, 1, 4) * 2
+
+
+def _create_problematic_where_sequence(cond_input, data_input):
+    true_val = jnp.array(1.0, dtype=data_input.dtype)
+    false_val = jnp.array(0.0, dtype=data_input.dtype)
+    where_output = jnp.where(cond_input, true_val, false_val)
+    return data_input * where_output
+
 
 @register_primitive(
     jaxpr_primitive=_WHERE_PRIM.name,
@@ -31,6 +46,101 @@ _WHERE_PRIM = make_jnp_primitive("jax.numpy.where")
     context="primitives2.jnp",
     component="where",
     testcases=[
+        {
+            "testcase": "where_simple",
+            "callable": lambda: jnp.where(
+                jnp.array([True, False, True]),
+                jnp.array([1, 2, 3], dtype=jnp.float32),
+                jnp.array([-1, -2, -3], dtype=jnp.float32),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_broadcast",
+            "callable": lambda: jnp.where(
+                jnp.array([True, False, True, False])[:, None],
+                jnp.arange(20, dtype=jnp.float32).reshape(4, 5),
+                -jnp.arange(20, dtype=jnp.float32).reshape(4, 5),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_gpt_mask_scores_literal_else",
+            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
+            "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
+            "input_dtypes": [np.bool_, np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_multidim_condition_scalar_branches_broadcast",
+            "callable": lambda: jnp.where(
+                jnp.array([[[True]], [[False]], [[True]]], dtype=np.bool_),
+                5.0,
+                -5.0,
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_A",
+            "callable": lambda: _create_problematic_where_sequence(
+                jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
+                jnp.array(_WHERE_A_DATA, dtype=jnp.float32),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_B",
+            "callable": lambda: _create_problematic_where_sequence(
+                jnp.array(_WHERE_B_COND, dtype=jnp.bool_),
+                jnp.array(_WHERE_B_DATA, dtype=jnp.int32),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_gpt_mask_scores_scalar_else",
+            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
+            "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
+            "input_dtypes": [np.bool_, np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_int_condition_cast",
+            "callable": lambda: jnp.where(
+                jnp.array([1, 0, 2], dtype=np.int32),
+                jnp.array([1.0, 2.0, 3.0], dtype=np.float32),
+                jnp.array([0.0, 0.0, 0.0], dtype=np.float32),
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_literal_else_pyfloat",
+            "callable": lambda: jnp.where(
+                jnp.array([[True, False], [False, True]]),
+                jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                -1e9,
+            ),
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "where_jax_int_literals_broadcast_f64_mode",
+            "callable": lambda: jnp.where(
+                jnp.array([[True], [False], [True]], dtype=np.bool_),
+                jnp.array(1, dtype=np.int64),
+                jnp.array(0, dtype=np.int64),
+            ),
+            "use_onnx_ir": True,
+            "enable_double_precision": True,
+        },
+        {
+            "testcase": "where_dtype_mismatch_f64_vs_i32_promote",
+            "callable": lambda: jnp.where(
+                jnp.array([1.0, -2.0, 3.0], dtype=np.float64) > 0,
+                jnp.array([1.0, -2.0, 3.0], dtype=np.float64),
+                jnp.array([1, 2, 3], dtype=np.int32),
+            ),
+            "use_onnx_ir": True,
+            "enable_double_precision": True,
+        },
         {
             "testcase": "jnp_where_basic",
             "callable": lambda c, x, y: jnp.where(c, x, y),

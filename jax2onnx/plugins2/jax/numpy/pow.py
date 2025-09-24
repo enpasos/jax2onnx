@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax2onnx.plugins2.jax.lax.pow import lower_pow
 from jax2onnx.plugins2.jax.numpy._common import (
@@ -18,17 +19,30 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _broadcast_shape(x_shape, y_shape):
-    if len(x_shape) != len(y_shape):
-        raise ValueError("Power operands must have matching rank for simple broadcast.")
-    dims = []
-    for xs, ys in zip(x_shape, y_shape):
-        if xs == -1 or ys == -1:
-            dims.append(xs if ys == -1 else ys)
-        elif xs != ys and xs != 1 and ys != 1:
-            raise ValueError(f"Shapes {x_shape} and {y_shape} are not broadcastable.")
-        else:
-            dims.append(xs if ys == 1 else ys)
-    return tuple(dims)
+    try:
+        return tuple(np.broadcast_shapes(tuple(x_shape), tuple(y_shape)))  # type: ignore[arg-type]
+    except ValueError:
+        max_rank = max(len(x_shape), len(y_shape))
+        x = (1,) * (max_rank - len(x_shape)) + tuple(x_shape)
+        y = (1,) * (max_rank - len(y_shape)) + tuple(y_shape)
+        dims = []
+        for xs, ys in zip(x, y):
+            if xs == ys:
+                dims.append(xs)
+            elif xs == 1:
+                dims.append(ys)
+            elif ys == 1:
+                dims.append(xs)
+            elif xs == -1 or ys == -1:
+                dims.append(xs if ys == 1 or ys == -1 else ys)
+            else:
+                raise ValueError(
+                    f"Shapes {x_shape} and {y_shape} are not broadcastable."
+                )
+        # Remove any leading broadcast dims we artificially introduced when both were 1.
+        while dims and dims[0] == 1 and max(len(x_shape), len(y_shape)) > 0:
+            dims = dims[1:]
+        return tuple(dims) if dims else (1,)
 
 
 class _BaseJnpPow(PrimitiveLeafPlugin):
@@ -64,6 +78,16 @@ _POWER_PRIM = make_jnp_primitive("jax.numpy.power")
             "input_shapes": [(3,), (3,)],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "pow_jnp_power",
+            "callable": lambda: jnp.power(
+                np.array([1.0, 2.0, 3.0], dtype=np.float32), 2.0
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class JnpPowerPlugin(_BaseJnpPow):
@@ -92,6 +116,16 @@ _POW_PRIM = make_jnp_primitive("jax.numpy.pow")
             "testcase": "jnp_pow_vector",
             "callable": lambda x, y: jnp.pow(x, y),
             "input_shapes": [(3,), (3,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "pow_jnp_pow",
+            "callable": lambda: jnp.pow(
+                np.array([1.0, 2.0, 3.0], dtype=np.float32), 3.0
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
             "use_onnx_ir": True,
         },
     ],

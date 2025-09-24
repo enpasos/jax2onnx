@@ -50,6 +50,20 @@ _CUMSUM_PRIM = make_jnp_primitive("jax.numpy.cumsum")
             "use_onnx_ir": True,
             "enable_double_precision": True,
         },
+        {
+            "testcase": "cumsum_axis2_i32",
+            "callable": lambda x: jnp.cumsum(x, axis=2),
+            "input_shapes": [(2, 3, 4)],
+            "input_dtypes": [np.int32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "cumsum_axis2_reverse_i32",
+            "callable": lambda x: jnp.cumsum(x, axis=2, reverse=True),
+            "input_shapes": [(2, 3, 4)],
+            "input_dtypes": [np.int32],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class JnpCumSumPlugin(PrimitiveLeafPlugin):

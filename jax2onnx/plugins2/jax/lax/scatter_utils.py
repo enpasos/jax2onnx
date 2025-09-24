@@ -8,7 +8,7 @@ the remaining axes are updated as a contiguous window.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence, Tuple
+from typing import Any, Dict, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
@@ -85,6 +85,154 @@ def _classify_scatter_pattern(spec: ScatterSpec, operand_rank: int) -> str:
         raise NotImplementedError("unsupported inserted_window_dims pattern")
 
     return "slice"
+
+
+def _compute_window_operand_dims(
+    spec: ScatterSpec, operand_rank: int
+) -> Tuple[int, ...]:
+    """Return operand axes that participate in the window portion of updates."""
+
+    inserted = set(spec.inserted_window_dims)
+    scatter_axes = tuple(int(a) for a in spec.scatter_dims_to_operand_dims)
+
+    all_window = [axis for axis in range(operand_rank) if axis not in inserted]
+    excl_scatter_window = [axis for axis in all_window if axis not in scatter_axes]
+
+    update_len = len(spec.update_window_dims)
+    if update_len == len(all_window):
+        return tuple(all_window)
+    if update_len == len(excl_scatter_window):
+        return tuple(excl_scatter_window)
+    raise NotImplementedError(
+        "scatter lowering: unsupported update_window_dims configuration"
+    )
+
+
+def _shape_of(ctx: Any, value: ir.Value, name_hint: str) -> ir.Value:
+    shape_val = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Shape",
+            domain="",
+            inputs=[value],
+            outputs=[shape_val],
+            name=ctx.fresh_name("Shape"),
+        )
+    )
+    _ensure_value_info(ctx, shape_val)
+    return shape_val
+
+
+def _gather_int_scalar(
+    ctx: Any, shape_val: ir.Value, axis: int, name_hint: str
+) -> ir.Value:
+    indices = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_idx")
+    gathered = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((1,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Gather",
+            domain="",
+            inputs=[shape_val, indices],
+            outputs=[gathered],
+            name=ctx.fresh_name("Gather"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, gathered)
+
+    scalar = ir.Value(
+        name=ctx.fresh_name(f"{name_hint}_scalar"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape(()),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Squeeze",
+            domain="",
+            inputs=[
+                gathered,
+                _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name_hint}_sq"),
+            ],
+            outputs=[scalar],
+            name=ctx.fresh_name("Squeeze"),
+        )
+    )
+    _ensure_value_info(ctx, scalar)
+    return scalar
+
+
+def _unsqueeze_scalar(
+    ctx: Any, scalar: ir.Value, axis: int, name_hint: str
+) -> ir.Value:
+    axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
+    out = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((1,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Unsqueeze",
+            domain="",
+            inputs=[scalar, axes],
+            outputs=[out],
+            name=ctx.fresh_name("Unsqueeze"),
+        )
+    )
+    _ensure_value_info(ctx, out)
+    return out
+
+
+def _mul_scalars(ctx: Any, lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.Value:
+    out = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape(()),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Mul",
+            domain="",
+            inputs=[lhs, rhs],
+            outputs=[out],
+            name=ctx.fresh_name("Mul"),
+        )
+    )
+    _ensure_value_info(ctx, out)
+    return out
+
+
+def _make_constant_of_shape(
+    ctx: Any,
+    shape_tensor: ir.Value,
+    value: np.ndarray,
+    name_hint: str,
+) -> ir.Value:
+    out = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="ConstantOfShape",
+            domain="",
+            inputs=[shape_tensor],
+            outputs=[out],
+            name=ctx.fresh_name("ConstantOfShape"),
+            attributes=[IRAttr("value", IRAttrType.TENSOR, ir.tensor(value))],
+        )
+    )
+    _ensure_value_info(ctx, out)
+    return out
 
 
 def _reshape_indices_to_2d(
@@ -319,16 +467,1174 @@ def _prepare_updates_for_scatternd(
     updates_val: ir.Value,
     num_updates: ir.Value,
     slice_shape: Sequence[Any],
+    *,
+    operand_val: ir.Value,
+    operand_shape: Sequence[Any],
+    index_depth: int,
 ) -> ir.Value:
     """Return updates shaped as expected by ``ScatterND`` for the pattern."""
 
     if slice_shape:
-        # Updates already carry the slice payload shape (indices batch dims first);
-        # keep them untouched so ONNX runtime receives the correct layout.
-        _ensure_value_info(ctx, updates_val)
-        return updates_val
+        axes0 = _const_i64(ctx, np.asarray([0], dtype=np.int64), "scatter_axes0")
+
+        num_updates_vec = ir.Value(
+            name=ctx.fresh_name("scatter_updates_num"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((1,)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Unsqueeze",
+                domain="",
+                inputs=[num_updates, axes0],
+                outputs=[num_updates_vec],
+                name=ctx.fresh_name("Unsqueeze"),
+            )
+        )
+        _ensure_value_info(ctx, num_updates_vec)
+
+        operand_shape_val = ir.Value(
+            name=ctx.fresh_name("scatter_operand_shape"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((len(operand_shape),)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Shape",
+                domain="",
+                inputs=[operand_val],
+                outputs=[operand_shape_val],
+                name=ctx.fresh_name("Shape"),
+            )
+        )
+        _ensure_value_info(ctx, operand_shape_val)
+
+        slice_start = _const_i64(
+            ctx,
+            np.asarray([index_depth], dtype=np.int64),
+            "scatter_slice_start",
+        )
+        slice_end = _const_i64(
+            ctx,
+            np.asarray([len(operand_shape)], dtype=np.int64),
+            "scatter_slice_end",
+        )
+        slice_steps = _const_i64(
+            ctx, np.asarray([1], dtype=np.int64), "scatter_slice_step"
+        )
+
+        slice_dims = ir.Value(
+            name=ctx.fresh_name("scatter_slice_dims"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((len(slice_shape),)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Slice",
+                domain="",
+                inputs=[
+                    operand_shape_val,
+                    slice_start,
+                    slice_end,
+                    axes0,
+                    slice_steps,
+                ],
+                outputs=[slice_dims],
+                name=ctx.fresh_name("Slice"),
+            )
+        )
+        _ensure_value_info(ctx, slice_dims)
+
+        target_shape = ir.Value(
+            name=ctx.fresh_name("scatter_updates_shape"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((1 + len(slice_shape),)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Concat",
+                domain="",
+                inputs=[num_updates_vec, slice_dims],
+                outputs=[target_shape],
+                name=ctx.fresh_name("Concat"),
+                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+            )
+        )
+        _ensure_value_info(ctx, target_shape)
+
+        updates_shaped = ir.Value(
+            name=ctx.fresh_name("scatter_updates_shaped"),
+            type=ir.TensorType(updates_val.type.dtype),
+            shape=ir.Shape((None,) + tuple(slice_shape)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Reshape",
+                domain="",
+                inputs=[updates_val, target_shape],
+                outputs=[updates_shaped],
+                name=ctx.fresh_name("Reshape"),
+            )
+        )
+        _ensure_value_info(ctx, updates_shaped)
+        return updates_shaped
 
     return _reshape_updates_flat(ctx, updates_val, num_updates)
+
+
+def _flatten_updates_after_permute(
+    ctx: Any,
+    updates_perm_val: ir.Value,
+    num_updates: ir.Value,
+    num_updates_vec: ir.Value,
+    window_total: ir.Value,
+    window_total_vec: ir.Value,
+    *,
+    gather_idx: ir.Value | None = None,
+) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
+    """Reshape permuted updates tensor to ``(N, window_total)`` and flatten."""
+
+    reshape_updates_shape = ir.Value(
+        name=ctx.fresh_name("scatter_updates_reshape_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((2,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[num_updates_vec, window_total_vec],
+            outputs=[reshape_updates_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, reshape_updates_shape)
+
+    updates_2d = ir.Value(
+        name=ctx.fresh_name("scatter_updates_2d"),
+        type=ir.TensorType(updates_perm_val.type.dtype),
+        shape=ir.Shape((None, None)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Reshape",
+            domain="",
+            inputs=[updates_perm_val, reshape_updates_shape],
+            outputs=[updates_2d],
+            name=ctx.fresh_name("Reshape"),
+        )
+    )
+    _ensure_value_info(ctx, updates_2d)
+
+    if gather_idx is not None:
+        updates_2d_filtered = ir.Value(
+            name=ctx.fresh_name("scatter_updates_valid"),
+            type=ir.TensorType(updates_perm_val.type.dtype),
+            shape=ir.Shape((None, None)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Gather",
+                domain="",
+                inputs=[updates_2d, gather_idx],
+                outputs=[updates_2d_filtered],
+                name=ctx.fresh_name("Gather"),
+                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+            )
+        )
+        _ensure_value_info(ctx, updates_2d_filtered)
+        updates_2d = updates_2d_filtered
+
+    total_updates = _mul_scalars(
+        ctx, num_updates, window_total, "scatter_total_updates"
+    )
+    total_updates_vec = _unsqueeze_scalar(
+        ctx, total_updates, 0, "scatter_total_updates_vec"
+    )
+
+    updates_flat = ir.Value(
+        name=ctx.fresh_name("scatter_updates_flat"),
+        type=ir.TensorType(updates_perm_val.type.dtype),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Reshape",
+            domain="",
+            inputs=[updates_2d, total_updates_vec],
+            outputs=[updates_flat],
+            name=ctx.fresh_name("Reshape"),
+        )
+    )
+    _ensure_value_info(ctx, updates_flat)
+
+    return updates_flat, updates_2d, total_updates, total_updates_vec
+
+
+def _resolve_operand_to_update_map(
+    spec: ScatterSpec, operand_rank: int
+) -> Dict[int, int]:
+    window_operand_dims = _compute_window_operand_dims(spec, operand_rank)
+    return {
+        operand_axis: int(spec.update_window_dims[i])
+        for i, operand_axis in enumerate(window_operand_dims)
+    }
+
+
+def _compute_window_sizes(
+    ctx: Any,
+    updates_val: ir.Value,
+    operand_rank: int,
+    operand_to_update: Dict[int, int],
+) -> tuple[
+    list[ir.Value],
+    ir.Value,
+    ir.Value,
+    ir.Value,
+    ir.Value,
+]:
+    updates_shape_val = _shape_of(ctx, updates_val, "scatter_updates_shape")
+
+    size_scalars: list[ir.Value] = []
+    size_unsqueezed: list[ir.Value] = []
+    window_total: ir.Value | None = None
+
+    for axis in range(operand_rank):
+        upd_axis = operand_to_update.get(axis)
+        if upd_axis is not None:
+            size_scalar = _gather_int_scalar(
+                ctx, updates_shape_val, upd_axis, f"scatter_window_size_{axis}"
+            )
+        else:
+            size_scalar = _scalar_i64(ctx, 1, f"scatter_window_size_const_{axis}")
+        size_scalars.append(size_scalar)
+
+        size_unsq = _unsqueeze_scalar(
+            ctx, size_scalar, 0, f"scatter_window_size_vec_{axis}"
+        )
+        size_unsqueezed.append(size_unsq)
+
+        window_total = (
+            size_scalar
+            if window_total is None
+            else _mul_scalars(
+                ctx, window_total, size_scalar, f"scatter_window_total_{axis}"
+            )
+        )
+
+    if window_total is None:
+        window_total = _scalar_i64(ctx, 1, "scatter_window_total_one")
+
+    window_shape_val = ir.Value(
+        name=ctx.fresh_name("scatter_window_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((operand_rank,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=size_unsqueezed,
+            outputs=[window_shape_val],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, window_shape_val)
+
+    window_total_vec = _unsqueeze_scalar(
+        ctx, window_total, 0, "scatter_window_total_vec"
+    )
+
+    return (
+        size_scalars,
+        window_total,
+        window_shape_val,
+        window_total_vec,
+        updates_shape_val,
+    )
+
+
+def _build_window_offsets_matrix(
+    ctx: Any,
+    operand_rank: int,
+    size_scalars: Sequence[ir.Value],
+    window_shape_val: ir.Value,
+    window_total_vec: ir.Value,
+    zero_scalar: ir.Value,
+    one_scalar: ir.Value,
+) -> ir.Value:
+    axes_range_cols: list[ir.Value] = []
+    for axis in range(operand_rank):
+        size_scalar = size_scalars[axis]
+        range_out = ir.Value(
+            name=ctx.fresh_name(f"scatter_range_axis{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((None,)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Range",
+                domain="",
+                inputs=[zero_scalar, size_scalar, one_scalar],
+                outputs=[range_out],
+                name=ctx.fresh_name("Range"),
+            )
+        )
+        _ensure_value_info(ctx, range_out)
+
+        axes_unsq = [i for i in range(operand_rank) if i != axis]
+        if axes_unsq:
+            axes_tensor = _const_i64(
+                ctx, np.asarray(axes_unsq, dtype=np.int64), f"scatter_unsq_axes_{axis}"
+            )
+            range_unsq = ir.Value(
+                name=ctx.fresh_name(f"scatter_range_unsq_{axis}"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(
+                    tuple([1] * axis + [None] + [1] * (operand_rank - axis - 1))
+                ),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Unsqueeze",
+                    domain="",
+                    inputs=[range_out, axes_tensor],
+                    outputs=[range_unsq],
+                    name=ctx.fresh_name("Unsqueeze"),
+                )
+            )
+            _ensure_value_info(ctx, range_unsq)
+        else:
+            range_unsq = range_out
+
+        range_b = ir.Value(
+            name=ctx.fresh_name(f"scatter_range_b_{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(tuple([None] * operand_rank)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Expand",
+                domain="",
+                inputs=[range_unsq, window_shape_val],
+                outputs=[range_b],
+                name=ctx.fresh_name("Expand"),
+            )
+        )
+        _ensure_value_info(ctx, range_b)
+
+        range_flat = ir.Value(
+            name=ctx.fresh_name(f"scatter_range_flat_{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((None,)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Reshape",
+                domain="",
+                inputs=[range_b, window_total_vec],
+                outputs=[range_flat],
+                name=ctx.fresh_name("Reshape"),
+            )
+        )
+        _ensure_value_info(ctx, range_flat)
+
+        axes_last = _const_i64(
+            ctx, np.asarray([1], dtype=np.int64), f"scatter_range_unsq_last_{axis}"
+        )
+        range_col = ir.Value(
+            name=ctx.fresh_name(f"scatter_range_col_{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((None, 1)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Unsqueeze",
+                domain="",
+                inputs=[range_flat, axes_last],
+                outputs=[range_col],
+                name=ctx.fresh_name("Unsqueeze"),
+            )
+        )
+        _ensure_value_info(ctx, range_col)
+        axes_range_cols.append(range_col)
+
+    window_offsets = ir.Value(
+        name=ctx.fresh_name("scatter_window_offsets"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=axes_range_cols,
+            outputs=[window_offsets],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 1)],
+        )
+    )
+    _ensure_value_info(ctx, window_offsets)
+    return window_offsets
+
+
+def _filter_fill_or_drop_updates(
+    ctx: Any,
+    indices_2d: ir.Value,
+    updates_perm_val: ir.Value,
+    *,
+    scatter_axes: Sequence[int],
+    size_scalars: Sequence[ir.Value],
+    operand_shape_val: ir.Value,
+    num_updates: ir.Value,
+    mode: Any,
+) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value | None]:
+    if not scatter_axes:
+        return indices_2d, updates_perm_val, num_updates, None
+
+    mode_name = getattr(mode, "name", str(mode)).upper() if mode is not None else ""
+    if "FILL_OR_DROP" not in mode_name:
+        return indices_2d, updates_perm_val, num_updates, None
+
+    zero_scalar = _scalar_i64(ctx, 0, "scatter_zero_ref")
+    axes1 = _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_axes1")
+    mask_val: ir.Value | None = None
+
+    for axis in scatter_axes:
+        col_index = scatter_axes.index(axis)
+        gather_idx = _const_i64(
+            ctx, np.asarray([col_index], dtype=np.int64), f"scatter_fill_idx_{axis}"
+        )
+        col_val = ir.Value(
+            name=ctx.fresh_name(f"scatter_base_col_{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((None, 1)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Gather",
+                domain="",
+                inputs=[indices_2d, gather_idx],
+                outputs=[col_val],
+                name=ctx.fresh_name("Gather"),
+                attributes=[IRAttr("axis", IRAttrType.INT, 1)],
+            )
+        )
+        _ensure_value_info(ctx, col_val)
+
+        ge_zero = ir.Value(
+            name=ctx.fresh_name(f"scatter_ge0_{axis}"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape((None, 1)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="GreaterOrEqual",
+                domain="",
+                inputs=[col_val, zero_scalar],
+                outputs=[ge_zero],
+                name=ctx.fresh_name("GreaterOrEqual"),
+            )
+        )
+        _ensure_value_info(ctx, ge_zero)
+
+        dim_scalar = _gather_int_scalar(
+            ctx, operand_shape_val, axis, f"scatter_dim_{axis}"
+        )
+        limit_scalar = ir.Value(
+            name=ctx.fresh_name(f"scatter_limit_{axis}"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Sub",
+                domain="",
+                inputs=[dim_scalar, size_scalars[axis]],
+                outputs=[limit_scalar],
+                name=ctx.fresh_name("Sub"),
+            )
+        )
+        _ensure_value_info(ctx, limit_scalar)
+
+        le_limit = ir.Value(
+            name=ctx.fresh_name(f"scatter_le_{axis}"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape((None, 1)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="LessOrEqual",
+                domain="",
+                inputs=[col_val, limit_scalar],
+                outputs=[le_limit],
+                name=ctx.fresh_name("LessOrEqual"),
+            )
+        )
+        _ensure_value_info(ctx, le_limit)
+
+        axis_valid = ir.Value(
+            name=ctx.fresh_name(f"scatter_valid_axis_{axis}"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape((None, 1)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="And",
+                domain="",
+                inputs=[ge_zero, le_limit],
+                outputs=[axis_valid],
+                name=ctx.fresh_name("And"),
+            )
+        )
+        _ensure_value_info(ctx, axis_valid)
+
+        if mask_val is None:
+            mask_val = axis_valid
+        else:
+            combined = ir.Value(
+                name=ctx.fresh_name("scatter_valid_mask"),
+                type=ir.TensorType(ir.DataType.BOOL),
+                shape=ir.Shape((None, 1)),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="And",
+                    domain="",
+                    inputs=[mask_val, axis_valid],
+                    outputs=[combined],
+                    name=ctx.fresh_name("And"),
+                )
+            )
+            _ensure_value_info(ctx, combined)
+            mask_val = combined
+
+    if mask_val is None:
+        return indices_2d, updates_perm_val, num_updates, None
+
+    mask_flat = ir.Value(
+        name=ctx.fresh_name("scatter_valid_flat"),
+        type=ir.TensorType(ir.DataType.BOOL),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Squeeze",
+            domain="",
+            inputs=[mask_val, axes1],
+            outputs=[mask_flat],
+            name=ctx.fresh_name("Squeeze"),
+        )
+    )
+    _ensure_value_info(ctx, mask_flat)
+
+    valid_idx = ir.Value(
+        name=ctx.fresh_name("scatter_valid_idx"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((1, None)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="NonZero",
+            domain="",
+            inputs=[mask_flat],
+            outputs=[valid_idx],
+            name=ctx.fresh_name("NonZero"),
+        )
+    )
+    _ensure_value_info(ctx, valid_idx)
+
+    valid_idx_t = ir.Value(
+        name=ctx.fresh_name("scatter_valid_idx_t"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, 1)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Transpose",
+            domain="",
+            inputs=[valid_idx],
+            outputs=[valid_idx_t],
+            name=ctx.fresh_name("Transpose"),
+            attributes=[IRAttr("perm", IRAttrType.INTS, (1, 0))],
+        )
+    )
+    _ensure_value_info(ctx, valid_idx_t)
+
+    valid_idx_flat = ir.Value(
+        name=ctx.fresh_name("scatter_valid_idx_flat"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Squeeze",
+            domain="",
+            inputs=[valid_idx_t, axes1],
+            outputs=[valid_idx_flat],
+            name=ctx.fresh_name("Squeeze"),
+        )
+    )
+    _ensure_value_info(ctx, valid_idx_flat)
+
+    valid_shape = _shape_of(ctx, valid_idx_flat, "scatter_valid_shape")
+    num_valid = _gather_int_scalar(ctx, valid_shape, 0, "scatter_num_valid")
+
+    depth = getattr(getattr(indices_2d.type, "shape", None), "dims", None)
+    depth_dim = int(depth[1]) if depth and depth[1] is not None else None
+    indices_filtered = ir.Value(
+        name=ctx.fresh_name("scatter_indices_valid"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, depth_dim)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Gather",
+            domain="",
+            inputs=[indices_2d, valid_idx_flat],
+            outputs=[indices_filtered],
+            name=ctx.fresh_name("Gather"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, indices_filtered)
+
+    return indices_filtered, updates_perm_val, num_valid, valid_idx_flat
+
+
+def _create_zero_column(
+    ctx: Any, num_updates_vec: ir.Value, name_hint: str
+) -> tuple[ir.Value, ir.Value]:
+    column_shape = ir.Value(
+        name=ctx.fresh_name(f"{name_hint}_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((2,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[
+                num_updates_vec,
+                _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_one"),
+            ],
+            outputs=[column_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, column_shape)
+
+    zero_column = _make_constant_of_shape(
+        ctx, column_shape, np.asarray([0], dtype=np.int64), name_hint
+    )
+    _stamp_type_and_shape(zero_column, (None, 1))
+    return zero_column, column_shape
+
+
+def _build_base_matrix(
+    ctx: Any,
+    indices_2d: ir.Value,
+    scatter_axes: Sequence[int],
+    num_updates_vec: ir.Value,
+    zero_column: ir.Value,
+    column_shape: ir.Value,
+    size_scalars: Sequence[ir.Value],
+    operand_shape_val: ir.Value,
+    mode: Any,
+) -> ir.Value:
+    scatter_axes = tuple(int(a) for a in scatter_axes)
+    operand_rank = len(size_scalars)
+    base_cols: list[ir.Value] = []
+    mode_name = getattr(mode, "name", str(mode)).upper() if mode is not None else ""
+    clip_mode = "CLIP" in mode_name
+
+    zero_scalar = _scalar_i64(ctx, 0, "scatter_zero_scalar")
+
+    for axis in range(operand_rank):
+        if axis in scatter_axes:
+            col_pos = scatter_axes.index(axis)
+            gather_idx = _const_i64(
+                ctx, np.asarray([col_pos], dtype=np.int64), f"scatter_base_idx_{axis}"
+            )
+            col_val = ir.Value(
+                name=ctx.fresh_name(f"scatter_base_col_{axis}"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape((None, 1)),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Gather",
+                    domain="",
+                    inputs=[indices_2d, gather_idx],
+                    outputs=[col_val],
+                    name=ctx.fresh_name("Gather"),
+                    attributes=[IRAttr("axis", IRAttrType.INT, 1)],
+                )
+            )
+            _ensure_value_info(ctx, col_val)
+
+            if clip_mode:
+                operand_dim = _gather_int_scalar(
+                    ctx, operand_shape_val, axis, f"scatter_operand_dim_{axis}"
+                )
+                window_extent = size_scalars[axis]
+                max_start = ir.Value(
+                    name=ctx.fresh_name(f"scatter_max_start_{axis}"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape(()),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Sub",
+                        domain="",
+                        inputs=[operand_dim, window_extent],
+                        outputs=[max_start],
+                        name=ctx.fresh_name("Sub"),
+                    )
+                )
+                _ensure_value_info(ctx, max_start)
+
+                max_start_nneg = ir.Value(
+                    name=ctx.fresh_name(f"scatter_max_start_nneg_{axis}"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape(()),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Max",
+                        domain="",
+                        inputs=[max_start, zero_scalar],
+                        outputs=[max_start_nneg],
+                        name=ctx.fresh_name("Max"),
+                    )
+                )
+                _ensure_value_info(ctx, max_start_nneg)
+
+                max_start_vec = _unsqueeze_scalar(
+                    ctx, max_start_nneg, 0, f"scatter_max_start_vec_{axis}"
+                )
+
+                max_broadcast = ir.Value(
+                    name=ctx.fresh_name(f"scatter_max_broadcast_{axis}"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((None, 1)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Expand",
+                        domain="",
+                        inputs=[max_start_vec, column_shape],
+                        outputs=[max_broadcast],
+                        name=ctx.fresh_name("Expand"),
+                    )
+                )
+                _ensure_value_info(ctx, max_broadcast)
+
+                col_nonneg = ir.Value(
+                    name=ctx.fresh_name(f"scatter_base_ge0_{axis}"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((None, 1)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Max",
+                        domain="",
+                        inputs=[col_val, zero_column],
+                        outputs=[col_nonneg],
+                        name=ctx.fresh_name("Max"),
+                    )
+                )
+                _ensure_value_info(ctx, col_nonneg)
+
+                col_clamped = ir.Value(
+                    name=ctx.fresh_name(f"scatter_base_clamped_{axis}"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((None, 1)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Min",
+                        domain="",
+                        inputs=[col_nonneg, max_broadcast],
+                        outputs=[col_clamped],
+                        name=ctx.fresh_name("Min"),
+                    )
+                )
+                _ensure_value_info(ctx, col_clamped)
+                col_val = col_clamped
+
+            base_cols.append(col_val)
+        else:
+            base_cols.append(zero_column)
+
+    base_matrix = ir.Value(
+        name=ctx.fresh_name("scatter_base_matrix"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=base_cols,
+            outputs=[base_matrix],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 1)],
+        )
+    )
+    _ensure_value_info(ctx, base_matrix)
+    return base_matrix
+
+
+def _expand_indices_with_offsets(
+    ctx: Any,
+    base_matrix: ir.Value,
+    window_offsets: ir.Value,
+    num_updates_vec: ir.Value,
+    window_total_vec: ir.Value,
+    operand_rank: int,
+    total_updates_vec: ir.Value,
+) -> ir.Value:
+    reshape_base_shape = ir.Value(
+        name=ctx.fresh_name("scatter_base_reshape_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((3,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[
+                num_updates_vec,
+                _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_one_vec"),
+                _const_i64(
+                    ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec"
+                ),
+            ],
+            outputs=[reshape_base_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, reshape_base_shape)
+
+    base_reshaped = ir.Value(
+        name=ctx.fresh_name("scatter_base_reshaped"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Reshape",
+            domain="",
+            inputs=[base_matrix, reshape_base_shape],
+            outputs=[base_reshaped],
+            name=ctx.fresh_name("Reshape"),
+        )
+    )
+    _ensure_value_info(ctx, base_reshaped)
+
+    expand_shape = ir.Value(
+        name=ctx.fresh_name("scatter_expand_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((3,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[
+                num_updates_vec,
+                window_total_vec,
+                _const_i64(
+                    ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec2"
+                ),
+            ],
+            outputs=[expand_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, expand_shape)
+
+    base_expanded = ir.Value(
+        name=ctx.fresh_name("scatter_base_expanded"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Expand",
+            domain="",
+            inputs=[base_reshaped, expand_shape],
+            outputs=[base_expanded],
+            name=ctx.fresh_name("Expand"),
+        )
+    )
+    _ensure_value_info(ctx, base_expanded)
+
+    reshape_offsets_shape = ir.Value(
+        name=ctx.fresh_name("scatter_offsets_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((3,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[
+                _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_one_vec2"),
+                window_total_vec,
+                _const_i64(
+                    ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec3"
+                ),
+            ],
+            outputs=[reshape_offsets_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, reshape_offsets_shape)
+
+    offsets_reshaped = ir.Value(
+        name=ctx.fresh_name("scatter_offsets_reshaped"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((1, None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Reshape",
+            domain="",
+            inputs=[window_offsets, reshape_offsets_shape],
+            outputs=[offsets_reshaped],
+            name=ctx.fresh_name("Reshape"),
+        )
+    )
+    _ensure_value_info(ctx, offsets_reshaped)
+
+    indices_expanded = ir.Value(
+        name=ctx.fresh_name("scatter_indices_expanded"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Add",
+            domain="",
+            inputs=[base_expanded, offsets_reshaped],
+            outputs=[indices_expanded],
+            name=ctx.fresh_name("Add"),
+        )
+    )
+    _ensure_value_info(ctx, indices_expanded)
+
+    final_shape = ir.Value(
+        name=ctx.fresh_name("scatter_indices_final_shape"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((2,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Concat",
+            domain="",
+            inputs=[
+                total_updates_vec,
+                _const_i64(
+                    ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec4"
+                ),
+            ],
+            outputs=[final_shape],
+            name=ctx.fresh_name("Concat"),
+            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        )
+    )
+    _ensure_value_info(ctx, final_shape)
+
+    indices_flat = ir.Value(
+        name=ctx.fresh_name("scatter_indices_flat"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None, operand_rank)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Reshape",
+            domain="",
+            inputs=[indices_expanded, final_shape],
+            outputs=[indices_flat],
+            name=ctx.fresh_name("Reshape"),
+        )
+    )
+    _ensure_value_info(ctx, indices_flat)
+    return indices_flat
+
+
+def _lower_scatter_window_full(
+    ctx: Any,
+    *,
+    operand_val: ir.Value,
+    indices_val: ir.Value,
+    updates_val: ir.Value,
+    operand_shape: Sequence[Any],
+    indices_shape: Sequence[Any],
+    updates_shape: Sequence[Any],
+    spec: ScatterSpec,
+    reduction: str,
+    out_val: ir.Value,
+    mode: Any,
+) -> bool:
+    """Lower general window scatter by expanding to element-wise ScatterND."""
+
+    operand_rank = len(operand_shape)
+    scatter_axes = tuple(int(a) for a in spec.scatter_dims_to_operand_dims)
+    if operand_rank == 0 or not scatter_axes:
+        return False
+
+    try:
+        operand_to_update = _resolve_operand_to_update_map(spec, operand_rank)
+    except NotImplementedError:
+        return False
+
+    batch_rank = max(len(indices_shape) - 1, 0)
+    indices_i64 = _cast_to_i64(ctx, indices_val, "scatter_indices_i64")
+    indices_2d, num_updates = _reshape_indices_to_2d(
+        ctx, indices_i64, batch_rank, len(scatter_axes)
+    )
+    (
+        size_scalars,
+        window_total,
+        window_shape_val,
+        window_total_vec,
+        _,
+    ) = _compute_window_sizes(ctx, updates_val, operand_rank, operand_to_update)
+
+    updates_rank = len(updates_shape)
+    window_axes_set = {int(ax) for ax in spec.update_window_dims}
+    batch_axes = [ax for ax in range(updates_rank) if ax not in window_axes_set]
+    window_axes_ordered = [
+        operand_to_update[axis]
+        for axis in range(operand_rank)
+        if axis in operand_to_update
+    ]
+    perm = batch_axes + window_axes_ordered
+    updates_perm_val = updates_val
+    if perm != list(range(updates_rank)):
+        perm_const = _const_i64(
+            ctx, np.asarray(perm, dtype=np.int64), "scatter_updates_perm"
+        )
+        perm_shape_dims: list[Any] = []
+        for idx in perm:
+            if idx < len(updates_shape):
+                perm_shape_dims.append(updates_shape[idx])
+            else:
+                perm_shape_dims.append(None)
+        updates_perm_val = ir.Value(
+            name=ctx.fresh_name("scatter_updates_perm"),
+            type=updates_val.type,
+            shape=ir.Shape(tuple(perm_shape_dims)),
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Transpose",
+                domain="",
+                inputs=[updates_val, perm_const],
+                outputs=[updates_perm_val],
+                name=ctx.fresh_name("Transpose"),
+            )
+        )
+        _ensure_value_info(ctx, updates_perm_val)
+
+    operand_shape_val = _shape_of(ctx, operand_val, "scatter_operand_shape")
+    (
+        indices_2d,
+        updates_perm_val,
+        num_updates,
+        gather_idx,
+    ) = _filter_fill_or_drop_updates(
+        ctx,
+        indices_2d,
+        updates_perm_val,
+        scatter_axes=scatter_axes,
+        size_scalars=size_scalars,
+        operand_shape_val=operand_shape_val,
+        num_updates=num_updates,
+        mode=mode,
+    )
+
+    num_updates_vec = _unsqueeze_scalar(ctx, num_updates, 0, "scatter_num_updates_vec")
+
+    updates_flat, _, total_updates, total_updates_vec = _flatten_updates_after_permute(
+        ctx,
+        updates_perm_val,
+        num_updates,
+        num_updates_vec,
+        window_total,
+        window_total_vec,
+        gather_idx=gather_idx,
+    )
+
+    zero_scalar = _scalar_i64(ctx, 0, "scatter_zero")
+    one_scalar = _scalar_i64(ctx, 1, "scatter_one")
+    window_offsets = _build_window_offsets_matrix(
+        ctx,
+        operand_rank,
+        size_scalars,
+        window_shape_val,
+        window_total_vec,
+        zero_scalar,
+        one_scalar,
+    )
+
+    zero_column, column_shape = _create_zero_column(
+        ctx, num_updates_vec, "scatter_zero_column"
+    )
+    base_matrix = _build_base_matrix(
+        ctx,
+        indices_2d,
+        scatter_axes,
+        num_updates_vec,
+        zero_column,
+        column_shape,
+        size_scalars,
+        operand_shape_val,
+        mode,
+    )
+
+    indices_flat = _expand_indices_with_offsets(
+        ctx,
+        base_matrix,
+        window_offsets,
+        num_updates_vec,
+        window_total_vec,
+        operand_rank,
+        total_updates_vec,
+    )
+
+    reduction_norm = (reduction or "none").lower()
+    if reduction_norm not in {"none", "add", "max", "min", "mul"}:
+        raise ValueError(f"unsupported scatter reduction '{reduction}'")
+
+    attributes = []
+    if reduction_norm != "none":
+        attributes.append(IRAttr("reduction", IRAttrType.STRING, reduction_norm))
+
+    scatter_node = ir.Node(
+        op_type="ScatterND",
+        domain="",
+        inputs=[operand_val, indices_flat, updates_flat],
+        outputs=[out_val],
+        name=ctx.fresh_name("ScatterND"),
+        attributes=attributes,
+    )
+    ctx.add_node(scatter_node)
+
+    _stamp_type_and_shape(out_val, tuple(operand_shape))
+    out_val.type = ir.TensorType(operand_val.type.dtype)
+    out_val.dtype = operand_val.type.dtype
+    _ensure_value_info(ctx, out_val)
+    return True
 
 
 def lower_scatter_elementwise(
@@ -369,7 +1675,13 @@ def lower_scatter_elementwise(
 
     slice_shape = () if pattern == "elementwise" else operand_shape[index_depth:]
     updates_prepared = _prepare_updates_for_scatternd(
-        ctx, updates_val, num_updates, slice_shape
+        ctx,
+        updates_val,
+        num_updates,
+        slice_shape,
+        operand_val=operand_val,
+        operand_shape=operand_shape,
+        index_depth=index_depth,
     )
 
     reduction_norm = (reduction or "none").lower()
@@ -427,7 +1739,8 @@ def lower_scatter_common(
 
     params = getattr(eqn, "params", {})
     spec = _normalize_dimension_numbers(params.get("dimension_numbers"))
-    ensure_supported_mode(params.get("mode"))
+    mode = params.get("mode")
+    ensure_supported_mode(mode)
 
     operand_val = ctx.get_value_for_var(
         operand_var, name_hint=ctx.fresh_name("scatter_operand")
@@ -444,7 +1757,24 @@ def lower_scatter_common(
     indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
     updates_shape = tuple(getattr(updates_var.aval, "shape", ()))
 
-    lower_scatter_elementwise(
+    try:
+        lower_scatter_elementwise(
+            ctx,
+            operand_val=operand_val,
+            indices_val=indices_val,
+            updates_val=updates_val,
+            operand_shape=operand_shape,
+            indices_shape=indices_shape,
+            updates_shape=updates_shape,
+            spec=spec,
+            reduction=reduction,
+            out_val=out_val,
+        )
+        return
+    except NotImplementedError:
+        pass
+
+    if _lower_scatter_window_full(
         ctx,
         operand_val=operand_val,
         indices_val=indices_val,
@@ -455,4 +1785,8 @@ def lower_scatter_common(
         spec=spec,
         reduction=reduction,
         out_val=out_val,
-    )
+        mode=mode,
+    ):
+        return
+
+    raise NotImplementedError("scatter pattern not supported in plugins2")

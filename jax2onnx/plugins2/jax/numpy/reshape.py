@@ -63,6 +63,64 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
     component="reshape",
     testcases=[
         {
+            "testcase": "reshape_1",
+            "callable": lambda a: jnp.reshape(a, (2, 6)),
+            "input_shapes": [(3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_2",
+            "callable": lambda a: jnp.reshape(a, (-1, 2)),
+            "input_shapes": [(3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_3",
+            "callable": lambda a: jnp.reshape(a, (2, -1)),
+            "input_shapes": [(3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_4",
+            "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
+            "input_shapes": [("B", 3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_to_scalar",
+            "callable": lambda: jnp.reshape(np.array([7.0], dtype=np.float32), ()),
+            "input_values": [],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_from_scalar",
+            "callable": lambda: jnp.reshape(np.array(3.0, dtype=np.float32), (1,)),
+            "input_values": [],
+            "expected_output_shapes": [(1,)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_cnn",
+            "callable": lambda x: x.reshape(x.shape[0], -1),
+            "input_shapes": [("B", 64, 14, 14)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_valid_flatten_trailing",
+            "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
+            "input_shapes": [(201, 1, 5)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
+            "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
+            "input_shapes": [("N", 3, 5)],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "reshape_basic",
             "callable": lambda a: jnp.reshape(a, (2, 6)),
             "input_shapes": [(3, 4)],
@@ -119,8 +177,9 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         input_shape = tuple(getattr(arr_var.aval, "shape", ()))
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
 
+        newshape_elems = tuple(_iter_newshape(newshape_param))
         shape_components: list[ir.Value] = []
-        shape_tensor_rank = len(target_shape)
+        shape_tensor_rank = len(newshape_elems)
 
         shape_value: ir.Value | None = None
 
@@ -189,11 +248,12 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             _ensure_value_info(ctx, unsqueezed)
             return unsqueezed
 
-        for idx, dim in enumerate(target_shape):
+        for idx, dim in enumerate(newshape_elems):
             if isinstance(dim, (int, np.integer)):
+                int_dim = int(dim)
                 val = _const_i64(
                     ctx,
-                    np.asarray([int(dim)], dtype=np.int64),
+                    np.asarray([int_dim], dtype=np.int64),
                     f"reshape_dim_const_{idx}",
                 )
                 shape_components.append(val)
@@ -201,6 +261,16 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 
             axis_idx = _find_axis_for_dim(dim, input_shape)
             if axis_idx is None:
+                if (
+                    int(getattr(dim, "__int__", lambda: -999)()) == -1
+                ):  # defensive fallback
+                    val = _const_i64(
+                        ctx,
+                        np.asarray([-1], dtype=np.int64),
+                        f"reshape_dim_const_{idx}",
+                    )
+                    shape_components.append(val)
+                    continue
                 raise TypeError(
                     "reshape with symbolic dimensions requires mapping to input axes"
                 )

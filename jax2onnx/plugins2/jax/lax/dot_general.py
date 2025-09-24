@@ -44,6 +44,22 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(3, 4), (2, 4)],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "dot_general",
+            "callable": lambda x, y: jax.lax.dot_general(
+                x, y, (((1,), (0,)), ((), ()))
+            ),
+            "input_shapes": [(3, 3), (3, 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dot_general_lhs1_rhs1",
+            "callable": lambda x, y: jax.lax.dot_general(
+                x, y, (((1,), (1,)), ((), ()))
+            ),
+            "input_shapes": [(3, 3), (3, 3)],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class DotGeneralPlugin(PrimitiveLeafPlugin):

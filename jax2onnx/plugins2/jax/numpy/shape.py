@@ -42,7 +42,13 @@ def _shape_eval(x):
             "callable": lambda x: jnp.shape(x),
             "input_shapes": [(2, 3, 4)],
             "use_onnx_ir": True,
-        }
+        },
+        {
+            "testcase": "shape_dynamic",
+            "callable": lambda x: jnp.shape(x),
+            "input_shapes": [("B", 12, "T", "T")],
+            "use_onnx_ir": True,
+        },
     ],
 )
 class JnpShapePlugin(PrimitiveLeafPlugin):

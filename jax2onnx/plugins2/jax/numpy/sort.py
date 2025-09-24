@@ -40,6 +40,18 @@ def _sort_eval(x, axis=-1):
     component="sort",
     testcases=[
         {
+            "testcase": "sort_1d",
+            "callable": lambda x: jnp.sort(x),
+            "input_shapes": [(5,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "sort_2d_axis0",
+            "callable": lambda x: jnp.sort(x, axis=0),
+            "input_shapes": [(3, 4)],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "sort_basic",
             "callable": lambda x: jnp.sort(x, axis=1),
             "input_shapes": [(3, 4)],

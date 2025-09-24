@@ -68,6 +68,24 @@ def _split_sizes(
     component="split",
     testcases=[
         {
+            "testcase": "split_by_sections",
+            "callable": lambda x: jnp.split(x, 3, axis=1),
+            "input_shapes": [(1, 9)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "split_by_indices",
+            "callable": lambda x: jnp.split(x, [2, 5], axis=1),
+            "input_shapes": [(1, 9)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "split_by_indices_symbolic",
+            "callable": lambda x: jnp.split(x, [3, 7], axis=2),
+            "input_shapes": [("B", 4, 10)],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "split_sections",
             "callable": lambda x: jnp.split(x, 3, axis=1),
             "input_shapes": [(1, 9)],

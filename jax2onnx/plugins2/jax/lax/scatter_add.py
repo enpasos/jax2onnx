@@ -71,6 +71,189 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "scatter_add_window_2d_operand_1d_indices",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=jnp.float32),
+                jnp.array([[0]], dtype=jnp.int32),
+                jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+            ),
+            "input_values": [
+                jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+                jnp.array([4], dtype=jnp.int32),
+                jnp.ones((5, 200, 1, 1), dtype=jnp.float64),
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(5, 208, 1, 1)],
+            "expected_output_dtypes": [jnp.float64],
+        },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report2",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+            ),
+            "input_values": [
+                jnp.zeros((3, 150, 1, 1), dtype=jnp.float64),
+                jnp.array([7], dtype=jnp.int32),
+                jnp.ones((3, 140, 1, 1), dtype=jnp.float64),
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(3, 150, 1, 1)],
+            "expected_output_dtypes": [jnp.float64],
+        },
+        {
+            "testcase": "scatter_add_mismatched_window_dims_from_user_report3",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+            ),
+            "input_values": [
+                jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+                jnp.array([2], dtype=jnp.int32),
+                jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(8, 50, 1, 1)],
+            "expected_output_dtypes": [jnp.float64],
+        },
+        {
+            "testcase": "scatter_add_fluids_pattern_updates_5_4_1_1",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0, 1, 2, 3),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+            ),
+            "input_values": [
+                jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+                jnp.array([0], dtype=jnp.int32),
+                jnp.ones((5, 4, 1, 1), dtype=jnp.float64),
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(5, 208, 1, 1)],
+            "expected_output_dtypes": [jnp.float64],
+        },
+        {
+            "testcase": "scatter_add_in_cond_float64",
+            "callable": lambda pred, operand, indices, updates: jax.lax.cond(
+                pred,
+                lambda op, idx, upd: jax.lax.scatter_add(
+                    op,
+                    idx,
+                    upd,
+                    jax.lax.ScatterDimensionNumbers(
+                        update_window_dims=(0, 1, 2, 3),
+                        inserted_window_dims=(),
+                        scatter_dims_to_operand_dims=(1,),
+                    ),
+                ),
+                lambda op, idx, upd: op,
+                operand,
+                indices,
+                updates,
+            ),
+            "input_values": [
+                jnp.array(True),
+                jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+                jnp.array([2], dtype=jnp.int32),
+                jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_add_fp64_dtype_mismatch",
+            "callable": lambda: jax.lax.scatter_add(
+                jnp.zeros((4, 3), dtype=jnp.float64),
+                jnp.array([[0, 0], [2, 1]], dtype=jnp.int32),
+                jnp.ones((2,), dtype=jnp.float64),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0, 1),
+                    scatter_dims_to_operand_dims=(0, 1),
+                ),
+            ),
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: (
+                __import__("onnx").checker.check_model(m) or True
+            ),
+        },
+        {
+            "testcase": "scatter_add_depth2_depth2_helper_regression",
+            "callable": lambda: jax.lax.scatter_add(
+                jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),
+                jnp.ones((2, 4, 5), dtype=jnp.float64),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1, 2),
+                    inserted_window_dims=(0, 1),
+                    scatter_dims_to_operand_dims=(0, 1),
+                ),
+            ),
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_depth2_fp64_type_mismatch",
+            "callable": lambda: jax.lax.scatter(
+                jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                jnp.array([[1]], dtype=jnp.int32),
+                jnp.ones((1, 2, 3, 4, 5), dtype=jnp.float64),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1, 2, 3, 4),
+                    inserted_window_dims=(),
+                    scatter_dims_to_operand_dims=(1,),
+                ),
+            ),
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

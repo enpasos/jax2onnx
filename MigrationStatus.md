@@ -499,11 +499,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## primitives.jnp
 
 ### add
-- Coverage: ⚠️ partial (missing: add)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: add
-- Converter2 testcases: jnp_add_broadcast, jnp_add_vector
+- Converter2 testcases: add, jnp_add_broadcast, jnp_add_vector
 
 ### arange
 - Coverage: ✅ complete
@@ -527,11 +527,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: concatenate_abstract_middle_dim, concatenate_basic, concatenate_mixed_dtypes, concatenate_tile_and_symbolic, concatenate_with_explicit_dtype, concatenate_with_explicit_dtype_casts_inputs
 
 ### cumsum
-- Coverage: ⚠️ partial (missing: cumsum_axis2_i32, cumsum_axis2_reverse_i32)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: cumsum_axis2_i32, cumsum_axis2_reverse_i32
-- Converter2 testcases: jnp_cumsum_axis1, jnp_cumsum_reverse_dtype
+- Converter2 testcases: cumsum_axis2_i32, cumsum_axis2_reverse_i32, jnp_cumsum_axis1, jnp_cumsum_reverse_dtype
 
 ### einsum
 - Coverage: ⚠️ partial (missing: einsum_attention_logits_batched, einsum_attention_logits_batched_rank_mismatch, einsum_attention_logits_orig, einsum_attention_output_batched, einsum_attention_output_orig, einsum_batch_transpose, einsum_diag, einsum_ellipsis_rank_mismatch, einsum_matrix_matrix, einsum_matrix_vector, einsum_multi_operand, einsum_sum_reduce, einsum_transpose, einsum_vector_dot)
@@ -541,11 +541,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: einsum_matmul, einsum_vecdot
 
 ### linspace
-- Coverage: ⚠️ partial (missing: linspace_static_basic, linspace_static_endpoint_false, linspace_static_int_inputs_default_dtype, linspace_static_num_0, linspace_static_num_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: linspace_static_basic, linspace_static_endpoint_false, linspace_static_int_inputs_default_dtype, linspace_static_num_0, linspace_static_num_1
-- Converter2 testcases: linspace_basic_f32, linspace_endpoint_false_i32, linspace_num_one, linspace_num_zero
+- Converter2 testcases: linspace_basic_f32, linspace_endpoint_false_i32, linspace_num_one, linspace_num_zero, linspace_static_basic, linspace_static_endpoint_false, linspace_static_int_inputs_default_dtype, linspace_static_num_0, linspace_static_num_1
 
 ### matmul
 - Coverage: ⚠️ partial (missing: matmul_1d, matmul_1d_2d, matmul_2d, matmul_2d_1d, matmul_3d, matmul_dynamic, matmul_dynamic_a)
@@ -555,60 +555,60 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: matmul_basic, matmul_batch, matmul_vector_matrix
 
 ### pow
-- Coverage: ⚠️ partial (missing: pow_jnp_pow)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: pow_jnp_pow
-- Converter2 testcases: jnp_pow_vector
+- Converter2 testcases: jnp_pow_vector, pow_jnp_pow
 
 ### power
-- Coverage: ⚠️ partial (missing: pow_jnp_power)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: pow_jnp_power
-- Converter2 testcases: jnp_power_vector
+- Converter2 testcases: jnp_power_vector, pow_jnp_power
 
 ### prod
-- Coverage: ⚠️ partial (missing: basic_prod, prod_with_axis, prod_with_keepdims)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: basic_prod, prod_with_axis, prod_with_keepdims
-- Converter2 testcases: jnp_prod_axis, jnp_prod_basic, jnp_prod_keepdims
+- Converter2 testcases: basic_prod, jnp_prod_axis, jnp_prod_basic, jnp_prod_keepdims, prod_with_axis, prod_with_keepdims
 
 ### reshape
-- Coverage: ⚠️ partial (missing: reshape_1, reshape_2, reshape_3, reshape_4, reshape_cnn, reshape_from_scalar, reshape_to_scalar, reshape_valid_flatten_trailing, reshape_with_target_shape_from_symbolic_dim_computation)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: reshape_1, reshape_2, reshape_3, reshape_4, reshape_cnn, reshape_from_scalar, reshape_to_scalar, reshape_valid_flatten_trailing, reshape_with_target_shape_from_symbolic_dim_computation
-- Converter2 testcases: reshape_basic, reshape_infer, reshape_symbolic_flatten
+- Converter2 testcases: reshape_1, reshape_2, reshape_3, reshape_4, reshape_basic, reshape_cnn, reshape_from_scalar, reshape_infer, reshape_symbolic_flatten, reshape_to_scalar, reshape_valid_flatten_trailing, reshape_with_target_shape_from_symbolic_dim_computation
 
 ### select
-- Coverage: ⚠️ partial (missing: select_broadcast, select_gpt2_attention_mask, select_simple)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: select_broadcast, select_gpt2_attention_mask, select_simple
-- Converter2 testcases: select_basic
+- Converter2 testcases: select_basic, select_broadcast, select_gpt2_attention_mask, select_simple
 
 ### shape
-- Coverage: ⚠️ partial (missing: shape_dynamic)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: shape_basic, shape_dynamic
-- Converter2 testcases: shape_basic
+- Converter2 testcases: shape_basic, shape_dynamic
 
 ### sort
-- Coverage: ⚠️ partial (missing: sort_1d, sort_2d_axis0)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: sort_1d, sort_2d_axis0
-- Converter2 testcases: sort_basic
+- Converter2 testcases: sort_1d, sort_2d_axis0, sort_basic
 
 ### split
-- Coverage: ⚠️ partial (missing: split_by_indices, split_by_indices_symbolic, split_by_sections)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: split_by_indices, split_by_indices_symbolic, split_by_sections
-- Converter2 testcases: split_indices_numpy, split_sections
+- Converter2 testcases: split_by_indices, split_by_indices_symbolic, split_by_sections, split_indices_numpy, split_sections
 
 ### squeeze
 - Coverage: ⚠️ partial (missing: squeeze_all_dims, squeeze_dynamic_and_negative_axis, squeeze_dynamic_batch, squeeze_multiple_dims, squeeze_negative_axis, squeeze_negative_axis_tuple, squeeze_single_dim, squeeze_vit_output)
@@ -618,11 +618,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: squeeze_all, squeeze_axis0, squeeze_negative
 
 ### stack
-- Coverage: ⚠️ partial (missing: stack_axis_0, stack_axis_1, stack_negative_axis, stack_scalars)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: stack_axis_0, stack_axis_1, stack_negative_axis, stack_scalars
-- Converter2 testcases: jnp_stack_axis0, jnp_stack_axis1, jnp_stack_negative_axis, jnp_stack_scalars
+- Converter2 testcases: jnp_stack_axis0, jnp_stack_axis1, jnp_stack_negative_axis, jnp_stack_scalars, stack_axis_0, stack_axis_1, stack_negative_axis, stack_scalars
 
 ### take
 - Coverage: ✅ complete
@@ -632,11 +632,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: take_basic_axis1, take_data_dependent_indices
 
 ### tile
-- Coverage: ⚠️ partial (missing: tile_a, tile_b, tile_c, tile_d, tile_dynamic_input, tile_dynamic_input_static, tile_pad, tile_param_symbolic, tile_repeats, tile_with_symbolic_repeats, tile_with_symbolic_repeats_static)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: tile_a, tile_b, tile_c, tile_d, tile_dynamic_input, tile_dynamic_input_static, tile_pad, tile_param_symbolic, tile_repeats, tile_with_symbolic_repeats, tile_with_symbolic_repeats_static
-- Converter2 testcases: jnp_tile_basic, jnp_tile_pad_rank, jnp_tile_scalar_repeats, jnp_tile_symbolic
+- Converter2 testcases: jnp_tile_basic, jnp_tile_pad_rank, jnp_tile_scalar_repeats, jnp_tile_symbolic, tile_a, tile_b, tile_c, tile_d, tile_dynamic_input, tile_dynamic_input_static, tile_pad, tile_param_symbolic, tile_repeats, tile_with_symbolic_repeats, tile_with_symbolic_repeats_static
 
 ### transpose
 - Coverage: ⚠️ partial (missing: transpose_3d, transpose_4d, transpose_no_axes, transpose_reverse, transpose_square_matrix)
@@ -653,11 +653,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: unstack_axis0, unstack_axis1
 
 ### where
-- Coverage: ⚠️ partial (missing: where_A, where_B, where_broadcast, where_dtype_mismatch_f64_vs_i32_promote, where_gpt_mask_scores_literal_else, where_gpt_mask_scores_scalar_else, where_int_condition_cast, where_jax_int_literals_broadcast_f64_mode, where_literal_else_pyfloat, where_multidim_condition_scalar_branches_broadcast, where_simple)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: where_A, where_B, where_broadcast, where_dtype_mismatch_f64_vs_i32_promote, where_gpt_mask_scores_literal_else, where_gpt_mask_scores_scalar_else, where_int_condition_cast, where_jax_int_literals_broadcast_f64_mode, where_literal_else_pyfloat, where_multidim_condition_scalar_branches_broadcast, where_simple
-- Converter2 testcases: jnp_where_basic, jnp_where_broadcast, jnp_where_scalar_else
+- Converter2 testcases: jnp_where_basic, jnp_where_broadcast, jnp_where_scalar_else, where_A, where_B, where_broadcast, where_dtype_mismatch_f64_vs_i32_promote, where_gpt_mask_scores_literal_else, where_gpt_mask_scores_scalar_else, where_int_condition_cast, where_jax_int_literals_broadcast_f64_mode, where_literal_else_pyfloat, where_multidim_condition_scalar_branches_broadcast, where_simple
 
 ## primitives.lax
 
@@ -739,11 +739,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: cond_internal_constant_f64, cond_multiple_operands_in_tuple, cond_my_new_complex_scenario, cond_nested_conditional, cond_passthrough_identity, cond_scalar, cond_variables, cond_with_scatter
 
 ### conv
-- Coverage: ⚠️ partial (missing: conv, conv2, conv_general_dilated_nhwc_output)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: conv, conv2, conv_general_dilated_nhwc_output
-- Converter2 testcases: conv_nchw, conv_nhwc
+- Converter2 testcases: conv, conv2, conv_general_dilated_nhwc_output, conv_nchw, conv_nhwc
 
 ### convert_element_type
 - Coverage: ✅ complete
@@ -795,11 +795,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: div, div_const
 
 ### dot_general
-- Coverage: ⚠️ partial (missing: dot_general, dot_general_lhs1_rhs1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: dot_general, dot_general_lhs1_rhs1
-- Converter2 testcases: dot_contract_min, dot_contract_nm
+- Converter2 testcases: dot_contract_min, dot_contract_nm, dot_general, dot_general_lhs1_rhs1
 
 ### dynamic_slice
 - Coverage: ✅ complete
@@ -1021,25 +1021,25 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: rev_matrix_axes01, rev_vector
 
 ### scan
-- Coverage: ⚠️ partial (missing: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_carry_only, scan_cumsum, scan_fn, scan_jit_no_xs, scan_jit_no_xs_f64, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast)
+- Coverage: ⚠️ partial (missing: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_fn, scan_jit_no_xs, scan_jit_no_xs_f64, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast)
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_carry_only, scan_cumsum, scan_fn, scan_jit_no_xs, scan_jit_no_xs_f64, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast
-- Converter2 testcases: scan_identity_slice_helper
+- Converter2 testcases: scan_carry_only, scan_cumsum, scan_identity_slice_helper, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences
 
 ### scatter
-- Coverage: ⚠️ partial (missing: scatter_clip_2d_window_at_edge, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_set_axis0, scatter_set_middle, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_clip_2d_window_at_edge, scatter_correct_axis_determination, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_from_user_warning_shapes_valid_jax, scatter_set_axis0, scatter_set_middle, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_updates_slice_needed_axis0, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64
-- Converter2 testcases: scatter_correct_axis_determination, scatter_from_user_warning_shapes_valid_jax, scatter_set_single, scatter_set_vector, scatter_updates_slice_needed_axis0
+- Converter2 testcases: scatter_clip_2d_window_at_edge, scatter_correct_axis_determination, scatter_depth2_fp64_type_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch, scatter_depth2_mixed_dtypes_fp_mismatch_f64, scatter_from_user_warning_shapes_valid_jax, scatter_set_axis0, scatter_set_middle, scatter_set_single, scatter_set_vector, scatter_simple_2d_window_out_of_bounds, scatter_static_slice_set_f64, scatter_updates_slice_needed_axis0, scatter_user_error_scenario_precise, scatter_window_update_depth3_shapes_ok, scatter_window_update_f64
 
 ### scatter_add
-- Coverage: ⚠️ partial (missing: scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_add_batch_updates_1d_operand, scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_simple_1d, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch
-- Converter2 testcases: scatter_add_batch_updates_1d_operand, scatter_add_scalar, scatter_add_simple_1d, scatter_add_vector
+- Converter2 testcases: scatter_add_batch_updates_1d_operand, scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_scalar, scatter_add_simple_1d, scatter_add_vector, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch
 
 ### scatter_max
 - Coverage: ⚠️ partial (missing: scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_window_2d_operand_1d_indices)
@@ -1161,11 +1161,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: tanh
 
 ### transpose
-- Coverage: ⚠️ partial (missing: transpose_basic)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: transpose_basic
-- Converter2 testcases: transpose_nhwc_to_nchw
+- Converter2 testcases: transpose_3d, transpose_4d, transpose_basic, transpose_nhwc_to_nchw, transpose_no_axes, transpose_reverse, transpose_square_matrix
 
 ### while_loop
 - Coverage: ⚠️ partial (missing: while_loop_4d_and_scalar_state, while_loop_basic, while_loop_captured_tracer, while_loop_closure_topo, while_loop_cnn_scalar_state_bug, while_loop_counter, while_loop_f64, while_loop_mixed_rank, while_loop_multi_state_f32, while_loop_multi_state_f64, while_loop_nnx_repro, while_loop_no_loop_output_reused_as_input, while_loop_renamed_passthrough, while_loop_tracer_passthrough, while_loop_two_state, while_loop_vector, while_loop_with_closure, while_loop_with_scalar_state)

@@ -37,6 +37,34 @@ _PROD_PRIM = make_jnp_primitive("jax.numpy.prod")
     component="prod",
     testcases=[
         {
+            "testcase": "basic_prod",
+            "callable": lambda: jnp.prod(np.arange(12, dtype=np.float32).reshape(3, 4)),
+            "input_values": [],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "prod_with_axis",
+            "callable": lambda: jnp.prod(
+                np.arange(60, dtype=np.float32).reshape(3, 4, 5), axis=1
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3, 5)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "prod_with_keepdims",
+            "callable": lambda: jnp.prod(
+                np.arange(12, dtype=np.float32).reshape(3, 4), axis=0, keepdims=True
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(1, 4)],
+            "expected_output_dtypes": [np.float32],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "jnp_prod_basic",
             "callable": lambda x: jnp.prod(x),
             "input_shapes": [(3, 4)],

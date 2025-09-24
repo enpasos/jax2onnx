@@ -34,6 +34,19 @@ _ORIG_TILE = jnp.tile
 _TILE_PRIM = make_jnp_primitive("jax.numpy.tile")
 
 
+def _tile_param(a):
+    """Legacy helper: tile a learnable parameter by the batch dimension."""
+    b = a.shape[0]
+    param = jnp.zeros((1, 1, 4), dtype=a.dtype)
+    return jnp.tile(param, (b, 1, 1))
+
+
+def _tile_with_symbolic_repeats(a):
+    """Repeat using the leading dimension for both dynamic/static variants."""
+    b = a.shape[0]
+    return jnp.tile(a, (b, 1, 1))
+
+
 @register_primitive(
     jaxpr_primitive=_TILE_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html",
@@ -44,6 +57,72 @@ _TILE_PRIM = make_jnp_primitive("jax.numpy.tile")
     context="primitives2.jnp",
     component="tile",
     testcases=[
+        {
+            "testcase": "tile_repeats",
+            "callable": lambda a: jnp.tile(a, (3, 1, 1)),
+            "input_shapes": [(1, 1, 8)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_a",
+            "callable": lambda a: jnp.tile(a, (1, 2)),
+            "input_shapes": [(2, 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_b",
+            "callable": lambda a: jnp.tile(a, (1, 2, 1)),
+            "input_shapes": [(1, 5, 5)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_c",
+            "callable": lambda a: jnp.tile(a, (1, 4)),
+            "input_shapes": [(3, 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_d",
+            "callable": lambda a: jnp.tile(a, 2),
+            "input_shapes": [(3, 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_dynamic_input_static",
+            "callable": lambda a: jnp.tile(a, (2, 1)),
+            "input_shapes": [(7, 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_dynamic_input",
+            "callable": lambda a: jnp.tile(a, (2, 1)),
+            "input_shapes": [("B", 3)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_pad",
+            "callable": lambda a: jnp.tile(a, (2, 3, 4)),
+            "input_shapes": [(4, 5)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_param_symbolic",
+            "callable": _tile_param,
+            "input_shapes": [("B", 5)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_with_symbolic_repeats_static",
+            "callable": _tile_with_symbolic_repeats,
+            "input_shapes": [(11, 1, 256)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "tile_with_symbolic_repeats",
+            "callable": _tile_with_symbolic_repeats,
+            "input_shapes": [("B", 1, 256)],
+            "use_onnx_ir": True,
+        },
         {
             "testcase": "jnp_tile_basic",
             "callable": lambda a: jnp.tile(a, (2, 1)),
