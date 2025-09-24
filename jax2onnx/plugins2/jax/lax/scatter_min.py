@@ -57,6 +57,55 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
             "use_onnx_ir": True,
         },
+        {
+            "testcase": "scatter_min_window_2d_operand_1d_indices",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_min(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=jnp.float32),
+                jnp.array([[0]], dtype=jnp.int32),
+                jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
+            ],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_min_fp64_dtype_path_check",
+            "callable": lambda: jax.lax.scatter_min(
+                jnp.zeros((4, 3), dtype=jnp.float64),
+                jnp.array([[0, 0], [2, 1]], dtype=jnp.int32),
+                jnp.array([9.0, 8.0], dtype=jnp.float64),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0, 1),
+                    scatter_dims_to_operand_dims=(0, 1),
+                ),
+            ),
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "scatter_min_depth2_helper_regression_fp64",
+            "callable": lambda: jax.lax.scatter_min(
+                jnp.zeros((2, 3, 4, 5), dtype=jnp.float64),
+                jnp.array([[0, 1], [1, 2]], dtype=jnp.int32),
+                jnp.ones((2, 4, 5), dtype=jnp.float64),
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1, 2),
+                    inserted_window_dims=(0, 1),
+                    scatter_dims_to_operand_dims=(0, 1),
+                ),
+            ),
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
     ],
 )
 class ScatterMinPlugin(PrimitiveLeafPlugin):

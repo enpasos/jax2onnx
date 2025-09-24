@@ -71,7 +71,7 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 length=2,
             )[1],
             "input_shapes": [(1, 3, 8, 8)],
-            "expected_output_shapes": [(2, 1, 3, 8, 8)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 1, 3, 8, 8)],
             "run_only_f64_variant": True,
             "use_onnx_ir": True,
         },
@@ -97,7 +97,9 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 length=1,
             )[1],
             "input_shapes": [(1, 3, 8, 8)],
-            "expected_output_shapes": [(1, 2, 1, 3, 8, 8)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2, 1, 3, 8, 8)
+            ],
             "run_only_f64_variant": True,
             "use_onnx_ir": True,
         },

@@ -1021,11 +1021,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: rev_matrix_axes01, rev_vector
 
 ### scan
-- Coverage: ⚠️ partial (missing: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_fn, scan_jit_no_xs, scan_jit_no_xs_f64, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_carry_only, scan_cumsum, scan_fn, scan_jit_no_xs, scan_jit_no_xs_f64, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast
-- Converter2 testcases: scan_carry_only, scan_cumsum, scan_identity_slice_helper, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences
+- Converter2 testcases: scan_captured_scalar, scan_captured_scalar_f64, scan_captured_scalar_with_xs, scan_captured_vector_with_xs_f64, scan_carry_only, scan_cumsum, scan_fn, scan_identity_slice_helper, scan_jit_no_xs, scan_jit_no_xs_f64, scan_matrix_carry_multidim_xs, scan_multiple_carry, scan_multiple_sequences, scan_nested_len_mismatch, scan_nested_len_mismatch_f64, scan_no_xs, scan_rank0_sequence_vectorized, scan_rank0_sequence_vectorized_f64, scan_two_diff_lengths, scan_two_diff_lengths_broadcast, scan_two_diff_lengths_broadcast_f64, scan_two_diff_lengths_f64, scan_two_diff_lengths_with_broadcast
 
 ### scatter
 - Coverage: ✅ complete
@@ -1042,25 +1042,25 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: scatter_add_batch_updates_1d_operand, scatter_add_depth2_depth2_helper_regression, scatter_add_fluids_pattern_updates_5_4_1_1, scatter_add_fp64_dtype_mismatch, scatter_add_in_cond_float64, scatter_add_mismatched_window_dims_from_user_report, scatter_add_mismatched_window_dims_from_user_report2, scatter_add_mismatched_window_dims_from_user_report3, scatter_add_scalar, scatter_add_simple_1d, scatter_add_vector, scatter_add_window_2d_operand_1d_indices, scatter_depth2_fp64_type_mismatch
 
 ### scatter_max
-- Coverage: ⚠️ partial (missing: scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_window_2d_operand_1d_indices)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_max_batch_updates_1d_operand, scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_simple_1d, scatter_max_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_max_batch_updates_1d_operand, scatter_max_simple_1d
+- Converter2 testcases: scatter_max_batch_updates_1d_operand, scatter_max_depth2_helper_regression_fp64, scatter_max_fp64_dtype_path_check, scatter_max_simple_1d, scatter_max_window_2d_operand_1d_indices
 
 ### scatter_min
-- Coverage: ⚠️ partial (missing: scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_window_2d_operand_1d_indices)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_min_batch_updates_1d_operand, scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_simple_1d, scatter_min_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_min_batch_updates_1d_operand, scatter_min_simple_1d
+- Converter2 testcases: scatter_min_batch_updates_1d_operand, scatter_min_depth2_helper_regression_fp64, scatter_min_fp64_dtype_path_check, scatter_min_simple_1d, scatter_min_window_2d_operand_1d_indices
 
 ### scatter_mul
-- Coverage: ⚠️ partial (missing: scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_window_2d_operand_1d_indices)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: scatter_mul_batch_updates_1d_operand, scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_simple_1d, scatter_mul_window_2d_operand_1d_indices
-- Converter2 testcases: scatter_mul_batch_updates_1d_operand, scatter_mul_simple_1d
+- Converter2 testcases: scatter_mul_batch_updates_1d_operand, scatter_mul_fluids_pattern_updates_5_4_1_1, scatter_mul_in_cond_float64, scatter_mul_mismatched_window_dims_from_user_report, scatter_mul_mismatched_window_dims_from_user_report2, scatter_mul_mismatched_window_dims_from_user_report3, scatter_mul_simple_1d, scatter_mul_window_2d_operand_1d_indices
 
 ### select
 - Coverage: ✅ complete
