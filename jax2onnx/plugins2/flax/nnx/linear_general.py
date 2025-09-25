@@ -326,7 +326,7 @@ EXPECT_DYNAMIC_RGR = EG(
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
-            "testcase": "linear_general_dynamic_batch_and_feature_dims",
+            "testcase": "dynamic_batch_and_feature_dims",
             # Bind our primitive directly with explicit dimension_numbers.
             "callable": lambda x, k, b: LinearGeneralPlugin._linear_general(
                 x, k, b, dimension_numbers=(((2,), (0,)), ((), ()))

@@ -30,6 +30,18 @@ _RELU_PRIM.multiple_results = False
     component="relu",
     testcases=[
         {
+            "testcase": "jaxnn_relu",
+            "callable": lambda x: jax.nn.relu(x),
+            "input_shapes": [(1,)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "jaxnn_relu_1",
+            "callable": lambda x: jax.nn.relu(x),
+            "input_shapes": [(2, 5)],
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "jaxnn_relu_basic",
             "callable": lambda x: jax.nn.relu(x),
             "input_shapes": [(3, 4)],

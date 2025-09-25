@@ -540,11 +540,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: cumsum_axis2_i32, cumsum_axis2_reverse_i32, jnp_cumsum_axis1, jnp_cumsum_reverse_dtype
 
 ### einsum
-- Coverage: ⚠️ partial (missing: einsum_attention_logits_batched, einsum_attention_logits_batched_rank_mismatch, einsum_attention_logits_orig, einsum_attention_output_batched, einsum_attention_output_orig, einsum_batch_transpose, einsum_diag, einsum_ellipsis_rank_mismatch, einsum_matrix_matrix, einsum_matrix_vector, einsum_multi_operand, einsum_sum_reduce, einsum_transpose, einsum_vector_dot)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: einsum_attention_logits_batched, einsum_attention_logits_batched_rank_mismatch, einsum_attention_logits_orig, einsum_attention_output_batched, einsum_attention_output_orig, einsum_batch_transpose, einsum_diag, einsum_ellipsis_rank_mismatch, einsum_matrix_matrix, einsum_matrix_vector, einsum_multi_operand, einsum_sum_reduce, einsum_transpose, einsum_vector_dot
-- Converter2 testcases: einsum_matmul, einsum_vecdot
+- Converter2 testcases: einsum_attention_logits_batched, einsum_attention_logits_batched_rank_mismatch, einsum_attention_logits_orig, einsum_attention_output_batched, einsum_attention_output_orig, einsum_batch_transpose, einsum_diag, einsum_ellipsis_rank_mismatch, einsum_matrix_matrix, einsum_matrix_vector, einsum_multi_operand, einsum_sum_reduce, einsum_transpose, einsum_vector_dot
 
 ### linspace
 - Coverage: ✅ complete
@@ -554,11 +554,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: linspace_basic_f32, linspace_endpoint_false_i32, linspace_num_one, linspace_num_zero, linspace_static_basic, linspace_static_endpoint_false, linspace_static_int_inputs_default_dtype, linspace_static_num_0, linspace_static_num_1
 
 ### matmul
-- Coverage: ⚠️ partial (missing: matmul_1d, matmul_1d_2d, matmul_2d, matmul_2d_1d, matmul_3d, matmul_dynamic, matmul_dynamic_a)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: matmul_1d, matmul_1d_2d, matmul_2d, matmul_2d_1d, matmul_3d, matmul_dynamic, matmul_dynamic_a
-- Converter2 testcases: matmul_basic, matmul_batch, matmul_vector_matrix
+- Converter2 testcases: matmul_1d, matmul_1d_2d, matmul_2d, matmul_2d_1d, matmul_3d, matmul_dynamic, matmul_dynamic_a
 
 ### pow
 - Coverage: ✅ complete
@@ -617,11 +617,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: split_by_indices, split_by_indices_symbolic, split_by_sections, split_indices_numpy, split_sections
 
 ### squeeze
-- Coverage: ⚠️ partial (missing: squeeze_all_dims, squeeze_dynamic_and_negative_axis, squeeze_dynamic_batch, squeeze_multiple_dims, squeeze_negative_axis, squeeze_negative_axis_tuple, squeeze_single_dim, squeeze_vit_output)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: squeeze_all_dims, squeeze_dynamic_and_negative_axis, squeeze_dynamic_batch, squeeze_multiple_dims, squeeze_negative_axis, squeeze_negative_axis_tuple, squeeze_single_dim, squeeze_vit_output
-- Converter2 testcases: squeeze_all, squeeze_axis0, squeeze_negative
+- Converter2 testcases: squeeze_all_dims, squeeze_dynamic_and_negative_axis, squeeze_dynamic_batch, squeeze_multiple_dims, squeeze_negative_axis, squeeze_negative_axis_tuple, squeeze_single_dim, squeeze_vit_output
 
 ### stack
 - Coverage: ✅ complete
@@ -652,11 +652,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: transpose_3d, transpose_4d, transpose_basic, transpose_high_dim, transpose_no_axes, transpose_reverse, transpose_reverse_default, transpose_square_matrix
 
 ### unstack
-- Coverage: ⚠️ partial (missing: unstack_axis_0, unstack_axis_1, unstack_negative_axis)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: unstack_axis_0, unstack_axis_1, unstack_negative_axis
-- Converter2 testcases: unstack_axis0, unstack_axis1
+- Converter2 testcases: unstack_axis_0, unstack_axis_0_f64, unstack_axis_1, unstack_axis_1_f64, unstack_negative_axis
 
 ### where
 - Coverage: ✅ complete
@@ -1183,95 +1183,95 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## primitives.nn
 
 ### celu
-- Coverage: ⚠️ partial (missing: jaxnn_celu, jaxnn_celu_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_celu, jaxnn_celu_1
-- Converter2 testcases: jaxnn_celu_alpha_custom, jaxnn_celu_alpha_default
+- Converter2 testcases: jaxnn_celu, jaxnn_celu_1, jaxnn_celu_alpha_custom, jaxnn_celu_alpha_default
 
 ### dot_product_attention
-- Coverage: ⚠️ partial (missing: dpa_axis1, dpa_basic, dpa_batch1_seq2, dpa_batch4_seq16, dpa_batch8_seq4, dpa_diff_heads_embed, dpa_float64, dpa_heads1_embed4, dpa_heads8_embed8, dpa_mask_none, dpa_mostly_false, dpa_one_false, dpa_positional_bias_mask, dpa_tiny_mask_all_valid, dpa_tiny_mask_mixed, dpa_with_causal_mask, dpa_with_local_window_mask, dpa_with_padding_mask, dpa_with_tensor_mask)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: dpa_axis1, dpa_basic, dpa_batch1_seq2, dpa_batch4_seq16, dpa_batch8_seq4, dpa_diff_heads_embed, dpa_float64, dpa_heads1_embed4, dpa_heads8_embed8, dpa_mask_none, dpa_mostly_false, dpa_one_false, dpa_positional_bias_mask, dpa_tiny_mask_all_valid, dpa_tiny_mask_mixed, dpa_with_causal_mask, dpa_with_local_window_mask, dpa_with_padding_mask, dpa_with_tensor_mask
-- Converter2 testcases: jaxnn_dpa_basic, jaxnn_dpa_causal, jaxnn_dpa_mask
+- Converter2 testcases: dpa_axis1, dpa_basic, dpa_batch1_seq2, dpa_batch4_seq16, dpa_batch8_seq4, dpa_diff_heads_embed, dpa_float64, dpa_heads1_embed4, dpa_heads8_embed8, dpa_mask_none, dpa_mostly_false, dpa_one_false, dpa_positional_bias_mask, dpa_tiny_mask_all_valid, dpa_tiny_mask_mixed, dpa_with_causal_mask, dpa_with_local_window_mask, dpa_with_padding_mask, dpa_with_tensor_mask
 
 ### elu
-- Coverage: ⚠️ partial (missing: jaxnn_elu, jaxnn_elu_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_elu, jaxnn_elu_1
-- Converter2 testcases: jaxnn_elu_custom_alpha, jaxnn_elu_default
+- Converter2 testcases: jaxnn_elu, jaxnn_elu_1, jaxnn_elu_custom_alpha, jaxnn_elu_default
 
 ### gelu
-- Coverage: ⚠️ partial (missing: jaxnn_gelu, jaxnn_gelu_1, jaxnn_gelu_approx)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_gelu, jaxnn_gelu_1, jaxnn_gelu_approx
-- Converter2 testcases: jaxnn_gelu_exact, jaxnn_gelu_tanh
+- Converter2 testcases: jaxnn_gelu, jaxnn_gelu_1, jaxnn_gelu_approx, jaxnn_gelu_exact, jaxnn_gelu_tanh
 
 ### identity
-- Coverage: ⚠️ partial (missing: jaxnn_identity, jaxnn_identity_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_identity, jaxnn_identity_1
-- Converter2 testcases: jaxnn_identity_basic, jaxnn_identity_dynamic
+- Converter2 testcases: jaxnn_identity, jaxnn_identity_1, jaxnn_identity_basic, jaxnn_identity_dynamic
 
 ### leaky_relu
-- Coverage: ⚠️ partial (missing: jaxnn_leaky_relu, jaxnn_leaky_relu_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_leaky_relu, jaxnn_leaky_relu_1
-- Converter2 testcases: jaxnn_leaky_relu_custom, jaxnn_leaky_relu_default
+- Converter2 testcases: jaxnn_leaky_relu, jaxnn_leaky_relu_1, jaxnn_leaky_relu_custom, jaxnn_leaky_relu_default
 
 ### mish
-- Coverage: ⚠️ partial (missing: jaxnn_mish, jaxnn_mish_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_mish, jaxnn_mish_1
-- Converter2 testcases: jaxnn_mish_basic
+- Converter2 testcases: jaxnn_mish, jaxnn_mish_1, jaxnn_mish_basic
 
 ### relu
-- Coverage: ⚠️ partial (missing: jaxnn_relu, jaxnn_relu_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_relu, jaxnn_relu_1
-- Converter2 testcases: jaxnn_relu_basic, jaxnn_relu_dynamic
+- Converter2 testcases: jaxnn_relu, jaxnn_relu_1, jaxnn_relu_basic, jaxnn_relu_dynamic
 
 ### selu
-- Coverage: ⚠️ partial (missing: jaxnn_selu, jaxnn_selu_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_selu, jaxnn_selu_1
-- Converter2 testcases: jaxnn_selu_basic
+- Converter2 testcases: jaxnn_selu, jaxnn_selu_1, jaxnn_selu_basic
 
 ### sigmoid
-- Coverage: ⚠️ partial (missing: jaxnn_sigmoid, jaxnn_sigmoid_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_sigmoid, jaxnn_sigmoid_1
-- Converter2 testcases: jaxnn_sigmoid_basic, jaxnn_sigmoid_dynamic
+- Converter2 testcases: jaxnn_sigmoid, jaxnn_sigmoid_1
 
 ### soft_sign
-- Coverage: ⚠️ partial (missing: jaxnn_soft_sign, jaxnn_soft_sign_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_soft_sign, jaxnn_soft_sign_1
-- Converter2 testcases: jaxnn_softsign_basic
+- Converter2 testcases: jaxnn_soft_sign, jaxnn_soft_sign_1, jaxnn_softsign_basic
 
 ### softmax
-- Coverage: ⚠️ partial (missing: softmax, softmax_2d, softmax_3d)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: softmax, softmax_2d, softmax_3d
-- Converter2 testcases: jaxnn_softmax_axis, jaxnn_softmax_default
+- Converter2 testcases: softmax, softmax_2d, softmax_3d
 
 ### softplus
-- Coverage: ⚠️ partial (missing: jaxnn_softplus, jaxnn_softplus_1)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
 - Converter2 contexts: primitives2.nn
 - Legacy testcases: jaxnn_softplus, jaxnn_softplus_1
-- Converter2 testcases: jaxnn_softplus_basic
+- Converter2 testcases: jaxnn_softplus, jaxnn_softplus_1, jaxnn_softplus_basic
 
 ### truncated_normal
 - Coverage: ❌ missing
@@ -1295,11 +1295,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: batch_norm_3d, batch_norm_4d, batch_norm_4d_no_bias_no_scale, batch_norm_bias_no_scale, batch_norm_bias_scale, batch_norm_no_bias_no_scale, batch_norm_no_bias_scale
 
 ### conv
-- Coverage: ⚠️ partial (missing: conv_1d_large_kernel_on_4d, conv_2d_asymmetric_on_5d, conv_2d_large_dilation, conv_2d_large_stride, conv_2d_mixed_params, conv_2d_same_padding_mixed_dilation, conv_3d_stride)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: conv_1d, conv_1d_complex_on_4d, conv_1d_dilation, conv_1d_group_conv_more_dims, conv_1d_group_on_higher_dim, conv_1d_high_dilation_on_3d, conv_1d_kernel_1, conv_1d_large_kernel, conv_1d_large_kernel_on_4d, conv_1d_more_1d_inputs, conv_1d_more_2d_inputs, conv_1d_same_padding_on_3d, conv_1d_stride_dilation, conv_1d_unit_group_on_multi_dim, conv_1d_wide_input, conv_2d_asymmetric_dilation, conv_2d_asymmetric_kernel, conv_2d_asymmetric_on_5d, conv_2d_asymmetric_stride, conv_2d_complex_on_5d, conv_2d_depthwise, conv_2d_group_conv, conv_2d_group_stride_dilation, conv_2d_kernel_1x1, conv_2d_large_dilation, conv_2d_large_stride, conv_2d_many_channels, conv_2d_mixed_params, conv_2d_same_padding_mixed_dilation, conv_2d_small_input, conv_3d_asymmetric, conv_3d_basic, conv_3d_dilation, conv_3d_group_complex, conv_3d_stride, conv_basic_bias, conv_basic_bias_2, conv_basic_bias_3, conv_different_kernel, conv_float64, conv_large_batch, conv_no_bias, conv_single_batch, conv_stride1, conv_stride2, conv_stride2_bias, conv_valid_padding
-- Converter2 testcases: conv_1d, conv_1d_complex_on_4d, conv_1d_dilation, conv_1d_group_conv_more_dims, conv_1d_group_on_higher_dim, conv_1d_high_dilation_on_3d, conv_1d_kernel_1, conv_1d_large_kernel, conv_1d_more_1d_inputs, conv_1d_more_2d_inputs, conv_1d_same_padding_on_3d, conv_1d_stride_dilation, conv_1d_unit_group_on_multi_dim, conv_1d_wide_input, conv_2d_asymmetric_dilation, conv_2d_asymmetric_kernel, conv_2d_asymmetric_stride, conv_2d_complex_on_5d, conv_2d_depthwise, conv_2d_group_conv, conv_2d_group_stride_dilation, conv_2d_kernel_1x1, conv_2d_many_channels, conv_2d_small_input, conv_3d_asymmetric, conv_3d_basic, conv_3d_dilation, conv_3d_group_complex, conv_basic_bias, conv_basic_bias_2, conv_basic_bias_3, conv_different_kernel, conv_float64, conv_large_batch, conv_no_bias, conv_single_batch, conv_stride1, conv_stride2, conv_stride2_bias, conv_valid_padding
+- Converter2 testcases: conv_1d, conv_1d_complex_on_4d, conv_1d_dilation, conv_1d_group_conv_more_dims, conv_1d_group_on_higher_dim, conv_1d_high_dilation_on_3d, conv_1d_kernel_1, conv_1d_large_kernel, conv_1d_large_kernel_on_4d, conv_1d_more_1d_inputs, conv_1d_more_2d_inputs, conv_1d_same_padding_on_3d, conv_1d_stride_dilation, conv_1d_unit_group_on_multi_dim, conv_1d_wide_input, conv_2d_asymmetric_dilation, conv_2d_asymmetric_kernel, conv_2d_asymmetric_on_5d, conv_2d_asymmetric_stride, conv_2d_complex_on_5d, conv_2d_depthwise, conv_2d_group_conv, conv_2d_group_stride_dilation, conv_2d_kernel_1x1, conv_2d_large_dilation, conv_2d_large_stride, conv_2d_many_channels, conv_2d_mixed_params, conv_2d_same_padding_mixed_dilation, conv_2d_small_input, conv_3d_asymmetric, conv_3d_basic, conv_3d_dilation, conv_3d_group_complex, conv_3d_stride, conv_basic_bias, conv_basic_bias_2, conv_basic_bias_3, conv_different_kernel, conv_float64, conv_large_batch, conv_no_bias, conv_single_batch, conv_stride1, conv_stride2, conv_stride2_bias, conv_valid_padding
 
 ### dot_product_attention
 - Coverage: ✅ complete
@@ -1323,11 +1323,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: einsum_module_no_bias, einsum_module_with_bias
 
 ### elu
-- Coverage: ⚠️ partial (missing: elu)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: elu
-- Converter2 testcases: elu_alpha, elu_default
+- Converter2 testcases: elu, elu_alpha, elu_default
 
 ### embed
 - Coverage: ✅ complete
@@ -1344,11 +1344,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: gelu, gelu_1, gelu_2, gelu_3, gelu_4, gelu_5
 
 ### group_norm
-- Coverage: ⚠️ partial (missing: group_norm, group_norm_bias_no_scale, group_norm_bias_scale, group_norm_no_bias_no_scale, group_norm_no_bias_scale)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: group_norm, group_norm_bias_no_scale, group_norm_bias_scale, group_norm_no_bias_no_scale, group_norm_no_bias_scale
-- Converter2 testcases: group_norm_no_bias, group_norm_no_scale, group_norm_rank2, group_norm_rank4
+- Converter2 testcases: group_norm, group_norm_bias_no_scale, group_norm_bias_scale, group_norm_no_bias, group_norm_no_bias_no_scale, group_norm_no_bias_scale, group_norm_no_scale, group_norm_rank2, group_norm_rank4
 
 ### layer_norm
 - Coverage: ✅ complete
@@ -1358,11 +1358,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: layer_norm, layer_norm_bias_no_scale, layer_norm_bias_scale, layer_norm_multiaxis, layer_norm_negative_axis_no_div, layer_norm_no_bias_no_scale, layer_norm_no_bias_scale, layer_norm_symbolic_batch, layer_norm_symbolic_batch_seq10_feat3, layer_norm_symbolic_batch_seq10_feat3_2
 
 ### leaky_relu
-- Coverage: ⚠️ partial (missing: leaky_relu)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: leaky_relu
-- Converter2 testcases: leaky_relu_custom, leaky_relu_default
+- Converter2 testcases: leaky_relu, leaky_relu_custom, leaky_relu_default
 
 ### linear
 - Coverage: ✅ complete
@@ -1372,25 +1372,25 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: linear_high_rank, linear_high_rank_no_bias, linear_high_rank_static, linear_merge_symbolic_dim, linear_no_bias, linear_symbolic_batch
 
 ### linear_general
-- Coverage: ⚠️ partial (missing: dynamic_batch_and_feature_dims)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: dynamic_batch_and_feature_dims, linear_general, linear_general_2, linear_general_3, linear_general_4, linear_general_abstract_eval_axes, linear_general_abstract_eval_axes_pair, linear_general_merge_symbolic_dim
-- Converter2 testcases: linear_general, linear_general_2, linear_general_3, linear_general_4, linear_general_abstract_eval_axes, linear_general_abstract_eval_axes_pair, linear_general_dynamic_batch_and_feature_dims, linear_general_merge_symbolic_dim
+- Converter2 testcases: dynamic_batch_and_feature_dims, linear_general, linear_general_2, linear_general_3, linear_general_4, linear_general_abstract_eval_axes, linear_general_abstract_eval_axes_pair, linear_general_merge_symbolic_dim
 
 ### log_softmax
-- Coverage: ⚠️ partial (missing: log_softmax)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: log_softmax
-- Converter2 testcases: log_softmax_axis0, log_softmax_default_axis
+- Converter2 testcases: log_softmax, log_softmax_axis0, log_softmax_default_axis
 
 ### max_pool
-- Coverage: ⚠️ partial (missing: max_pool, max_pool_same_padding)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: max_pool, max_pool_same_padding
-- Converter2 testcases: max_pool_basic, max_pool_same
+- Converter2 testcases: max_pool, max_pool_basic, max_pool_same, max_pool_same_padding
 
 ### relu
 - Coverage: ✅ complete
@@ -1400,11 +1400,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: relu_1d, relu_4d
 
 ### rms_norm
-- Coverage: ⚠️ partial (missing: rms_norm_4d_dynamic, rms_norm_4d_dynamic_no_scale, rms_norm_use_scale_false)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nnx
 - Converter2 contexts: primitives2.nnx
 - Legacy testcases: rms_norm_4d_dynamic, rms_norm_4d_dynamic_no_scale, rms_norm_basic, rms_norm_use_scale_false
-- Converter2 testcases: rms_norm_basic, rms_norm_no_scale, rms_norm_rank4
+- Converter2 testcases: rms_norm_4d_dynamic, rms_norm_4d_dynamic_no_scale, rms_norm_basic, rms_norm_use_scale_false
 
 ### sigmoid
 - Coverage: ✅ complete

@@ -844,12 +844,78 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "post_check_onnx_graph": EXPECT_TCT,
         },
         {
+            "testcase": "conv_2d_large_dilation",
+            "callable": nnx.Conv(
+                8, 16, kernel_size=(3, 3), kernel_dilation=(3, 3), rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 32, 32, 8)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 32, 32, 16)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_2d_large_stride",
+            "callable": nnx.Conv(
+                4, 8, kernel_size=(5, 5), strides=(4, 4), rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 32, 32, 4)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 8, 8, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_2d_mixed_params",
+            "callable": nnx.Conv(
+                5,
+                10,
+                kernel_size=(4, 6),
+                strides=(2, 3),
+                kernel_dilation=(2, 1),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(3, 24, 30, 5)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(3, 12, 10, 10)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_2d_same_padding_mixed_dilation",
+            "callable": nnx.Conv(
+                10,
+                20,
+                kernel_size=(3, 7),
+                strides=(1, 2),
+                kernel_dilation=(4, 1),
+                padding="SAME",
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 18, 28, 10)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 18, 14, 20)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
             "testcase": "conv_3d_basic",
             "callable": nnx.Conv(2, 4, kernel_size=(3, 3, 3), rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 8, 8, 8, 2)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
             "expected_output_shapes": [(2, 8, 8, 8, 4)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_3d_stride",
+            "callable": nnx.Conv(
+                4, 8, kernel_size=(3, 3, 3), strides=(2, 2, 2), rngs=nnx.Rngs(0)
+            ),
+            "input_shapes": [(2, 16, 16, 16, 4)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 8, 8, 8, 8)],
             "post_check_onnx_graph": EXPECT_TCT,
         },
         {
@@ -987,6 +1053,22 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
+            "testcase": "conv_2d_asymmetric_on_5d",
+            "callable": nnx.Conv(
+                14,
+                28,
+                kernel_size=(2, 8),
+                strides=(3, 1),
+                kernel_dilation=(1, 2),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 6, 9, 15, 14)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 6, 3, 15, 28)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
+        },
+        {
             "testcase": "conv_1d_high_dilation_on_3d",
             "callable": nnx.Conv(
                 24,
@@ -1001,6 +1083,21 @@ def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
             "use_onnx_ir": True,
             "expected_output_shapes": [(2, 6, 12)],
             "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_1d_large_kernel_on_4d",
+            "callable": nnx.Conv(
+                25,
+                50,
+                kernel_size=(11,),
+                strides=(4,),
+                rngs=nnx.Rngs(0),
+            ),
+            "input_shapes": [(2, 8, 12, 25)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "expected_output_shapes": [(2, 8, 3, 50)],
+            "post_check_onnx_graph": EXPECT_FLATTEN_TCT,
         },
         {
             "testcase": "conv_2d_group_stride_dilation",

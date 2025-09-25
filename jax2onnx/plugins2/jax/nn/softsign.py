@@ -31,12 +31,26 @@ _SOFTSIGN_PRIM.multiple_results = False
     component="soft_sign",
     testcases=[
         {
+            "testcase": "jaxnn_soft_sign",
+            "callable": lambda x: jax.nn.soft_sign(x),
+            "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "jaxnn_soft_sign_1",
+            "callable": lambda x: jax.nn.soft_sign(x),
+            "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "jaxnn_softsign_basic",
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-        }
+        },
     ],
 )
 class SoftsignPlugin(PrimitiveLeafPlugin):

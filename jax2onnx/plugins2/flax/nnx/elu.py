@@ -67,6 +67,14 @@ def _alpha_attr_equals(model, expected: float) -> bool:
     component="elu",
     testcases=[
         {
+            "testcase": "elu",
+            "callable": lambda x: nnx.elu(x),
+            "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 1.0),
+        },
+        {
             "testcase": "elu_default",
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [("B", 3)],

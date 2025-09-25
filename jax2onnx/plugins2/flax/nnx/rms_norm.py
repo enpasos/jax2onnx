@@ -82,7 +82,7 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
-            "testcase": "rms_norm_no_scale",
+            "testcase": "rms_norm_use_scale_false",
             "callable": nnx.RMSNorm(num_features=6, use_scale=False, rngs=nnx.Rngs(0)),
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
@@ -90,8 +90,16 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
-            "testcase": "rms_norm_rank4",
+            "testcase": "rms_norm_4d_dynamic",
             "callable": nnx.RMSNorm(num_features=3, rngs=nnx.Rngs(0)),
+            "input_shapes": [("B", 4, 4, 3)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
+        },
+        {
+            "testcase": "rms_norm_4d_dynamic_no_scale",
+            "callable": nnx.RMSNorm(num_features=3, use_scale=False, rngs=nnx.Rngs(0)),
             "input_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,

@@ -73,6 +73,13 @@ def _axis_attr_equals(model, expected: int) -> bool:
     component="log_softmax",
     testcases=[
         {
+            "testcase": "log_softmax",
+            "callable": lambda x: nnx.log_softmax(x),
+            "input_shapes": [(1, 4)],
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: _axis_attr_equals(m, 1),
+        },
+        {
             "testcase": "log_softmax_default_axis",
             "callable": lambda x: nnx.log_softmax(x),
             "input_shapes": [("B", 4)],

@@ -31,6 +31,20 @@ _CELU_PRIM.multiple_results = False
     component="celu",
     testcases=[
         {
+            "testcase": "jaxnn_celu",
+            "callable": lambda x: jax.nn.celu(x, alpha=0.1),
+            "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "jaxnn_celu_1",
+            "callable": lambda x: jax.nn.celu(x, alpha=0.2),
+            "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "jaxnn_celu_alpha_default",
             "callable": lambda x: jax.nn.celu(x),
             "input_shapes": [(3, 4)],

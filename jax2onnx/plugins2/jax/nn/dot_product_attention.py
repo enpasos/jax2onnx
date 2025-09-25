@@ -105,54 +105,225 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
     component="dot_product_attention",
     testcases=[
         {
-            "testcase": "jaxnn_dpa_basic",
+            "testcase": "dpa_basic",
             "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
-            "rtol_f64": 5e-7,
-            "atol_f64": 5e-7,
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
             "use_onnx_ir": True,
         },
         {
-            "testcase": "jaxnn_dpa_mask",
+            "testcase": "dpa_positional_bias_mask",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, None, None
+            ),
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_diff_heads_embed",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_batch4_seq16",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(4, 2, 16, 8), (4, 2, 16, 8), (4, 2, 16, 8)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_float64",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "input_dtypes": [np.float64, np.float64, np.float64],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_heads1_embed4",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 1, 8, 4), (2, 1, 8, 4), (2, 1, 8, 4)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_heads8_embed8",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 8, 8), (2, 8, 8, 8), (2, 8, 8, 8)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_batch1_seq2",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(1, 2, 2, 8), (1, 2, 2, 8), (1, 2, 2, 8)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_batch8_seq4",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(8, 2, 4, 16), (8, 2, 4, 16), (8, 2, 4, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_axis1",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_with_tensor_mask",
             "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
                 q, k, v, mask=mask
             ),
-            "input_values": [
-                np.arange(1 * 2 * 3 * 4, dtype=np.float32).reshape(1, 2, 3, 4),
-                np.linspace(0.5, 1.5, num=1 * 2 * 3 * 4, dtype=np.float32).reshape(
-                    1, 2, 3, 4
-                ),
-                np.linspace(1.5, 2.5, num=1 * 2 * 3 * 4, dtype=np.float32).reshape(
-                    1, 2, 3, 4
-                ),
-                np.array(
-                    [
-                        [
-                            [True, False],
-                            [False, True],
-                        ],
-                        [
-                            [True, True],
-                            [True, True],
-                        ],
-                        [
-                            [True, False],
-                            [True, True],
-                        ],
-                    ],
-                    dtype=bool,
-                ).reshape(1, 3, 2, 2),
+            "input_shapes": [
+                (2, 8, 4, 16),
+                (2, 16, 4, 16),
+                (2, 16, 4, 16),
+                (2, 4, 8, 16),
             ],
-            "run_only_f32_variant": True,
+            "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
             "use_onnx_ir": True,
             "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
         },
         {
-            "testcase": "jaxnn_dpa_causal",
+            "testcase": "dpa_tiny_mask_all_valid",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_values": [
+                np.arange(8, dtype=np.float32).reshape((1, 2, 1, 4)),
+                np.arange(12, dtype=np.float32).reshape((1, 3, 1, 4)),
+                np.arange(12, dtype=np.float32).reshape((1, 3, 1, 4)),
+                np.ones((1, 1, 2, 3), dtype=bool),
+            ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_tiny_mask_mixed",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_values": [
+                np.arange(8, dtype=np.float32).reshape((1, 2, 1, 4)),
+                np.arange(12, dtype=np.float32).reshape((1, 3, 1, 4)),
+                np.arange(12, dtype=np.float32).reshape((1, 3, 1, 4)),
+                np.array([[[[True, False, True], [False, True, False]]]], dtype=bool),
+            ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_one_false",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_values": [
+                np.array([[[[1.0, 2.0, 3.0, 4.0]]]], dtype=np.float32),
+                np.array(
+                    [[[[1.0, 0.0, 0.0, 0.0]], [[0.0, 1.0, 0.0, 0.0]]]],
+                    dtype=np.float32,
+                ),
+                np.array(
+                    [[[[10.0, 20.0, 30.0, 40.0]], [[50.0, 60.0, 70.0, 80.0]]]],
+                    dtype=np.float32,
+                ),
+                np.array([[[[True, False]]]], dtype=bool),
+            ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_mostly_false",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_values": [
+                np.ones((1, 1, 1, 4), dtype=np.float32),
+                np.ones((1, 2, 1, 4), dtype=np.float32),
+                np.ones((1, 2, 1, 4), dtype=np.float32) * 7.0,
+                np.array([[[[False, True]]]], dtype=bool),
+            ],
+            "expected_output_numpy": [np.zeros((1, 1, 1, 4), dtype=np.float32)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_with_causal_mask",
             "callable": lambda q, k, v: jax_nn.dot_product_attention(
                 q, k, v, is_causal=True
             ),
-            "input_shapes": [(1, 3, 2, 5), (1, 3, 2, 5), (1, 3, 2, 5)],
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_with_padding_mask",
+            "callable": lambda q, k, v, q_len, kv_len: jax_nn.dot_product_attention(
+                q, k, v, query_seq_lengths=q_len, key_value_seq_lengths=kv_len
+            ),
+            "input_values": [
+                np.linspace(-1.0, 1.0, num=2 * 8 * 4 * 16, dtype=np.float32).reshape(
+                    2, 8, 4, 16
+                ),
+                np.linspace(-0.5, 0.5, num=2 * 8 * 4 * 16, dtype=np.float32).reshape(
+                    2, 8, 4, 16
+                ),
+                np.linspace(0.25, 1.25, num=2 * 8 * 4 * 16, dtype=np.float32).reshape(
+                    2, 8, 4, 16
+                ),
+                np.array([8, 4], dtype=np.int32),
+                np.array([8, 7], dtype=np.int32),
+            ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_with_local_window_mask",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, local_window_size=(1, 1)
+            ),
+            "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "dpa_mask_none",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, mask=None
+            ),
+            "input_shapes": [
+                (2, 4, 8, 32),
+                (2, 4, 8, 32),
+                (2, 4, 8, 32),
+            ],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
         },

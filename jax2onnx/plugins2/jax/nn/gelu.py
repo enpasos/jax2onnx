@@ -32,6 +32,27 @@ _GELU_PRIM.multiple_results = False
     component="gelu",
     testcases=[
         {
+            "testcase": "jaxnn_gelu",
+            "callable": lambda x: jax.nn.gelu(x, approximate=False),
+            "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "jaxnn_gelu_1",
+            "callable": lambda x: jax.nn.gelu(x, approximate=False),
+            "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "jaxnn_gelu_approx",
+            "callable": lambda x: jax.nn.gelu(x, approximate=True),
+            "input_shapes": [(3, 3)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
             "testcase": "jaxnn_gelu_exact",
             "callable": lambda x: jax.nn.gelu(x, approximate=False),
             "input_shapes": [(4, 4)],

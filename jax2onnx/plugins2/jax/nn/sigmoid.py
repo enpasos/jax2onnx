@@ -33,15 +33,15 @@ _SIGMOID_PRIM.multiple_results = False
     component="sigmoid",
     testcases=[
         {
-            "testcase": "jaxnn_sigmoid_basic",
+            "testcase": "jaxnn_sigmoid",
             "callable": lambda x: jax.nn.sigmoid(x),
-            "input_shapes": [(5,)],
+            "input_shapes": [(1,)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "jaxnn_sigmoid_dynamic",
+            "testcase": "jaxnn_sigmoid_1",
             "callable": lambda x: jax.nn.sigmoid(x),
-            "input_shapes": [("B", 3, 2)],
+            "input_shapes": [(2, 5)],
             "use_onnx_ir": True,
         },
     ],

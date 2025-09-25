@@ -64,6 +64,28 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
     component="max_pool",
     testcases=[
         {
+            "testcase": "max_pool",
+            "callable": lambda x: nnx.max_pool(
+                x, window_shape=(2, 2), strides=(2, 2), padding="VALID"
+            ),
+            "input_shapes": [(1, 32, 32, 3)],
+            "expected_output_shapes": [(1, 16, 16, 3)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_T_MP_T,
+        },
+        {
+            "testcase": "max_pool_same_padding",
+            "callable": lambda x: nnx.max_pool(
+                x, window_shape=(2, 2), strides=(2, 2), padding="SAME"
+            ),
+            "input_shapes": [(1, 32, 32, 3)],
+            "expected_output_shapes": [(1, 16, 16, 3)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": EXPECT_T_MP_T,
+        },
+        {
             "testcase": "max_pool_basic",
             "callable": lambda x: nnx.max_pool(
                 x, window_shape=(2, 2), strides=(2, 2), padding="VALID"

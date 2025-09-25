@@ -71,6 +71,14 @@ def _alpha_attr_equals(model, expected: float) -> bool:
     component="leaky_relu",
     testcases=[
         {
+            "testcase": "leaky_relu",
+            "callable": lambda x: nnx.leaky_relu(x),
+            "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
+            "use_onnx_ir": True,
+            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.01),
+        },
+        {
             "testcase": "leaky_relu_default",
             "callable": lambda x: nnx.leaky_relu(x),
             "input_shapes": [("B", 5)],

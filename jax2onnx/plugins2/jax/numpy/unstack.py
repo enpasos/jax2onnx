@@ -49,15 +49,37 @@ def _normalize_axis(axis: int, rank: int) -> int:
     component="unstack",
     testcases=[
         {
-            "testcase": "unstack_axis0",
+            "testcase": "unstack_axis_0",
             "callable": lambda x: jnp.unstack(x, axis=0),
             "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float32)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "unstack_axis1",
+            "testcase": "unstack_axis_0_f64",
+            "callable": lambda x: jnp.unstack(x, axis=0),
+            "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float64)],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "unstack_axis_1",
             "callable": lambda x: jnp.unstack(x, axis=1),
             "input_values": [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int32)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "unstack_axis_1_f64",
+            "callable": lambda x: jnp.unstack(x, axis=1),
+            "input_values": [
+                np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
+            ],
+            "run_only_f64_variant": True,
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "unstack_negative_axis",
+            "callable": lambda x: jnp.unstack(x, axis=-1),
+            "input_values": [np.array([[[1, 2], [3, 4]]], dtype=np.float32)],
             "use_onnx_ir": True,
         },
     ],

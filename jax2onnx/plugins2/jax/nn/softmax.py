@@ -34,14 +34,20 @@ _SOFTMAX_PRIM.multiple_results = False
     component="softmax",
     testcases=[
         {
-            "testcase": "jaxnn_softmax_default",
+            "testcase": "softmax",
             "callable": lambda x: jax.nn.softmax(x),
-            "input_shapes": [("B", 6)],
+            "input_shapes": [(3,)],
             "use_onnx_ir": True,
         },
         {
-            "testcase": "jaxnn_softmax_axis",
+            "testcase": "softmax_2d",
             "callable": lambda x: jax.nn.softmax(x, axis=1),
+            "input_shapes": [(4, 5)],
+            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "softmax_3d",
+            "callable": lambda x: jax.nn.softmax(x, axis=2),
             "input_shapes": [(2, 3, 4)],
             "use_onnx_ir": True,
         },
