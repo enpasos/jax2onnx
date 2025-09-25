@@ -238,29 +238,39 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: simple_mlp, simple_mlp_static, simple_mlp_with_call_params
 
 ### MultiHeadAttention
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: multihead_attention_2_nnx, multihead_attention_nn, multihead_attention_nnx
+- Converter2 testcases: multihead_attention_2_nnx, multihead_attention_nn, multihead_attention_nnx
 
 ### SequentialReLU
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: sequential_double_relu
+- Converter2 testcases: sequential_double_relu
 
 ### SequentialWithResidual
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: sequential_nested_with_residual
+- Converter2 testcases: sequential_nested_with_residual
 
 ### TransformerDecoderWithSequential
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: tiny_decoder_with_sequential, tiny_decoder_with_sequential_and_full_dynamic_shapes
+- Converter2 testcases: tiny_decoder_with_sequential, tiny_decoder_with_sequential_and_full_dynamic_shapes
 
 ### TransformerDecoderWithoutSequential
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: tiny_decoder_without_sequential
+- Converter2 testcases: tiny_decoder_without_sequential
 
 ## examples.onnx_functions
 

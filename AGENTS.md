@@ -54,6 +54,10 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 * After landing new coverage, rerun the generator to refresh `MigrationStatus.md` so future contributors see the updated status.
 * Keep migrations incremental: one plugin/test family per PR keeps diffs small and makes review easier.
 
+### Numeric validation parity
+
+* `skip_numeric_validation` is reserved for stochastic cases. A `plugins2` testcase may only set it when the matching legacy testcase does as well—see `tests/extra_tests2/framework/test_do_not_skip_numeric_validation.py`.
+
 ### Structure
 
 * `converter2/ir_optimizations.py` contains IR-level graph passes (reshape/transpose pair folding, Dropout cleanup, dead code elimination, etc.).
