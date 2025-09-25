@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-import numpy as np
 
 from jax2onnx.plugins2.plugin_system import register_example
 

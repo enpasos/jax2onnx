@@ -140,6 +140,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((1, 5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_window_update_depth3_shapes_ok",
@@ -162,6 +163,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((1, 5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_static_slice_set_f64",
@@ -174,6 +176,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_depth2_fp64_type_mismatch",
@@ -189,6 +192,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f64_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_clip_2d_window_at_edge",
@@ -205,6 +209,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f32_variant": True,
+            "legacy_only": True,
         },
         {
             "testcase": "scatter_simple_2d_window_out_of_bounds",
@@ -220,6 +225,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f32_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch_f64",
@@ -235,6 +241,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f64_variant": True,
+            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch",
@@ -250,6 +257,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f32_variant": True,
+            "legacy_only": True,
         },
     ],
 )

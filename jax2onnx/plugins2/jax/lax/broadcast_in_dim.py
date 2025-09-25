@@ -245,6 +245,20 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
         # Final expanded tensor should match the outvar's jax aval; let ctx create it.
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
+        # onnx_ir refuses to assign a new producer to a Value that already
+        # belongs to another node. When the same JAX var is materialised via
+        # multiple broadcast ops (common inside nnx.Sequential), rebinding the
+        # cached Value avoids "producer already set" errors.
+        if (
+            callable(getattr(out_val, "producer", None))
+            and out_val.producer() is not None
+        ):
+            out_val = ir.Value(
+                name=ctx.fresh_name("bcast_out"),
+                type=out_val.type,
+                shape=out_val.shape,
+            )
+            ctx.builder._var2val[out_var] = out_val
 
         # --- DTYPE UNIFICATION --------------------------------------------------
         # If the operand (possibly a Python float literal → fp64) doesn't match the

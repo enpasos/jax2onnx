@@ -27,7 +27,9 @@ def _is_plugins2_context(context: object) -> bool:
     return head.endswith("2")
 
 
-def _collect_skip_flags(metas: Iterable[_Metadata]) -> Dict[_ComponentTestcase, Dict[str, object]]:
+def _collect_skip_flags(
+    metas: Iterable[_Metadata],
+) -> Dict[_ComponentTestcase, Dict[str, object]]:
     result: Dict[_ComponentTestcase, Dict[str, object]] = {}
     for meta in metas:
         component = meta.get("component")
@@ -35,15 +37,17 @@ def _collect_skip_flags(metas: Iterable[_Metadata]) -> Dict[_ComponentTestcase, 
         context = meta.get("context") if isinstance(meta.get("context"), str) else ""
         if not isinstance(component, str) or not component:
             continue
-        if not isinstance(testcases, list):
-            continue
-        for case in testcases:
-            if not isinstance(case, dict):
+            if not isinstance(testcases, list):
                 continue
-            testcase = case.get("testcase")
-            if not isinstance(testcase, str) or not testcase:
-                continue
-            skip_flag = bool(case.get("skip_numeric_validation"))
+            for case in testcases:
+                if not isinstance(case, dict):
+                    continue
+                testcase = case.get("testcase")
+                if not isinstance(testcase, str) or not testcase:
+                    continue
+                skip_flag = bool(case.get("skip_numeric_validation"))
+                if case.get("legacy_only", False):
+                    skip_flag = False
             key: _ComponentTestcase = (component, testcase)
             stored = result.get(key)
             if stored is None:

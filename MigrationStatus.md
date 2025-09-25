@@ -21,59 +21,81 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## examples.gpt
 
 ### GPT
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt
+- Converter2 testcases: gpt
 
 ### GPT_Attention
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_attention
+- Converter2 testcases: gpt_attention
 
 ### GPT_CausalSelfAttention
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: causal_self_attention
+- Converter2 testcases: causal_self_attention
 
 ### GPT_Embeddings
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_embeddings
+- Converter2 testcases: gpt_embeddings
 
 ### GPT_Head
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_head
+- Converter2 testcases: gpt_head
 
 ### GPT_MLP
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_mlp
+- Converter2 testcases: gpt_mlp
 
 ### GPT_PositionEmbedding
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: position_embedding
+- Converter2 testcases: position_embedding
 
 ### GPT_TokenEmbedding
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: token_embedding
+- Converter2 testcases: token_embedding
 
 ### GPT_TransformerBlock
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_block
+- Converter2 testcases: gpt_block
 
 ### GPT_TransformerStack
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: transformer_stack
+- Converter2 testcases: transformer_stack
 
 ### broadcast_add
-- Coverage: ❌ missing
-- Legacy contexts: examples.gpt
+- Coverage: ✅ complete
+- Legacy contexts: examples2.gpt
+- Converter2 contexts: examples2.gpt
 - Legacy testcases: broadcast_add_dynamic
+- Converter2 testcases: broadcast_add_dynamic
 
 ## examples.jaxfluids
 

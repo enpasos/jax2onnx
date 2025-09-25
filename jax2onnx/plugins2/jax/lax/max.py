@@ -44,6 +44,16 @@ class MaxPlugin(PrimitiveLeafPlugin):
             prefer_np_dtype=prefer_dtype,
         )
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("max_out"))
+        if (
+            callable(getattr(out_val, "producer", None))
+            and out_val.producer() is not None
+        ):
+            out_val = ir.Value(
+                name=ctx.fresh_name("max_out"),
+                type=out_val.type,
+                shape=out_val.shape,
+            )
+            ctx.builder._var2val[out_var] = out_val
 
         node = ir.Node(
             op_type="Max",

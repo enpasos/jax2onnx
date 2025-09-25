@@ -152,8 +152,8 @@ register_example(
                 attention_dropout=0.5,
                 encoder_attention_dropout=0.5,
             ),
-            "input_shapes": [("B", 8, 16), ("B", 4, 16)],
-            "expected_output_shapes": [("B", 8, 16)],
+            "input_shapes": [(2, 8, 16), (2, 4, 16)],
+            "expected_output_shapes": [(2, 8, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
         }
