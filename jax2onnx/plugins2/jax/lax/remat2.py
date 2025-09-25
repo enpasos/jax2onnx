@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterable, Tuple
 
-import jax
 from jax import lax
 import numpy as np
 
@@ -41,7 +40,7 @@ else:
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.remat2_p.name,
+    jaxpr_primitive="remat2",
     jax_doc="https://docs.jax.dev/en/latest/jep/11830-new-remat-checkpoint.html",
     onnx=[],
     since="v0.6.5",

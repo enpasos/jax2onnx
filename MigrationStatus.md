@@ -154,19 +154,25 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: cond_scatter_add_mul_f64_a, cond_scatter_add_mul_f64_b
 
 ### cond_scatter_repro
-- Coverage: ❌ missing
-- Legacy contexts: examples.lax
+- Coverage: ✅ complete
+- Legacy contexts: examples2.lax
+- Converter2 contexts: examples2.lax
 - Legacy testcases: cond_scatter_repro_f64
+- Converter2 testcases: cond_scatter_repro_f64
 
 ### remat2
-- Coverage: ❌ missing
-- Legacy contexts: examples.lax
+- Coverage: ✅ complete
+- Legacy contexts: examples2.lax
+- Converter2 contexts: examples2.lax
 - Legacy testcases: checkpoint_scalar_f32
+- Converter2 testcases: checkpoint_scalar_f32
 
 ### scatter_window
-- Coverage: ❌ missing
-- Legacy contexts: examples.lax
+- Coverage: ✅ complete
+- Legacy contexts: examples2.lax
+- Converter2 contexts: examples2.lax
 - Legacy testcases: scatter_window_update_f64_example
+- Converter2 testcases: scatter_window_update_f64_example
 
 ## examples.nnx
 
@@ -639,11 +645,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: jnp_tile_basic, jnp_tile_pad_rank, jnp_tile_scalar_repeats, jnp_tile_symbolic, tile_a, tile_b, tile_c, tile_d, tile_dynamic_input, tile_dynamic_input_static, tile_pad, tile_param_symbolic, tile_repeats, tile_with_symbolic_repeats, tile_with_symbolic_repeats_static
 
 ### transpose
-- Coverage: ⚠️ partial (missing: transpose_3d, transpose_4d, transpose_no_axes, transpose_reverse, transpose_square_matrix)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.jnp
 - Converter2 contexts: primitives2.jnp
 - Legacy testcases: transpose_3d, transpose_4d, transpose_basic, transpose_high_dim, transpose_no_axes, transpose_reverse, transpose_square_matrix
-- Converter2 testcases: transpose_basic, transpose_high_dim, transpose_reverse_default
+- Converter2 testcases: transpose_3d, transpose_4d, transpose_basic, transpose_high_dim, transpose_no_axes, transpose_reverse, transpose_reverse_default, transpose_square_matrix
 
 ### unstack
 - Coverage: ⚠️ partial (missing: unstack_axis_0, unstack_axis_1, unstack_negative_axis)
@@ -1168,11 +1174,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: transpose_3d, transpose_4d, transpose_basic, transpose_nhwc_to_nchw, transpose_no_axes, transpose_reverse, transpose_square_matrix
 
 ### while_loop
-- Coverage: ⚠️ partial (missing: while_loop_4d_and_scalar_state, while_loop_basic, while_loop_captured_tracer, while_loop_closure_topo, while_loop_cnn_scalar_state_bug, while_loop_counter, while_loop_f64, while_loop_mixed_rank, while_loop_multi_state_f32, while_loop_multi_state_f64, while_loop_nnx_repro, while_loop_no_loop_output_reused_as_input, while_loop_renamed_passthrough, while_loop_tracer_passthrough, while_loop_two_state, while_loop_vector, while_loop_with_closure, while_loop_with_scalar_state)
+- Coverage: ✅ complete
 - Legacy contexts: primitives.lax
 - Converter2 contexts: primitives2.lax
 - Legacy testcases: while_loop_4d_and_scalar_state, while_loop_basic, while_loop_captured_tracer, while_loop_closure_topo, while_loop_cnn_scalar_state_bug, while_loop_counter, while_loop_f64, while_loop_mixed_rank, while_loop_multi_state_f32, while_loop_multi_state_f64, while_loop_nnx_repro, while_loop_no_loop_output_reused_as_input, while_loop_renamed_passthrough, while_loop_tracer_passthrough, while_loop_two_state, while_loop_vector, while_loop_with_closure, while_loop_with_scalar_state
-- Converter2 testcases: while_scalar_counter, while_tuple_state
+- Converter2 testcases: while_loop_4d_and_scalar_state, while_loop_basic, while_loop_captured_tracer, while_loop_closure_topo, while_loop_cnn_scalar_state_bug, while_loop_counter, while_loop_f64, while_loop_mixed_rank, while_loop_multi_state_f32, while_loop_multi_state_f64, while_loop_nnx_repro, while_loop_no_loop_output_reused_as_input, while_loop_renamed_passthrough, while_loop_tracer_passthrough, while_loop_two_state, while_loop_vector, while_loop_with_closure, while_loop_with_scalar_state, while_scalar_counter, while_tuple_state
 
 ## primitives.nn
 
