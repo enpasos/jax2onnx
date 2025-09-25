@@ -100,14 +100,18 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## examples.jaxfluids
 
 ### cfl_timestep
-- Coverage: ❌ missing
-- Legacy contexts: examples.jaxfluids
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jaxfluids
+- Converter2 contexts: examples2.jaxfluids
 - Legacy testcases: cfl_timestep_f64
+- Converter2 testcases: cfl_timestep_f64
 
 ### weno_reconstruction
-- Coverage: ❌ missing
-- Legacy contexts: examples.jaxfluids
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jaxfluids
+- Converter2 contexts: examples2.jaxfluids
 - Legacy testcases: weno_reconstruction_f64
+- Converter2 testcases: weno_reconstruction_f64
 
 ## examples.jnp
 
@@ -411,104 +415,144 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## examples.vit
 
 ### ClassificationHead
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: classification_head
+- Converter2 testcases: classification_head
 
 ### ClassificationHeadFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: classification_head_flat
+- Converter2 testcases: classification_head_flat
 
 ### ConcatClsToken
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: concat_cls_token
+- Converter2 testcases: concat_cls_token
 
 ### ConcatClsTokenFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: concat_cls_token_flat
+- Converter2 testcases: concat_cls_token_flat
 
 ### ConvEmbedding
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: mnist_conv_embedding
+- Converter2 testcases: mnist_conv_embedding
 
 ### ConvEmbeddingFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: mnist_conv_embedding_flat
+- Converter2 testcases: mnist_conv_embedding_flat
 
 ### FeedForward
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: feed_forward
+- Converter2 testcases: feed_forward
 
 ### FeedForwardFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: feed_forward_flat
+- Converter2 testcases: feed_forward_flat
 
 ### GetToken
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: get_token
+- Converter2 testcases: get_token
 
 ### GetTokenFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: get_token_flat
+- Converter2 testcases: get_token_flat
 
 ### PatchEmbedding
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: patch_embedding
+- Converter2 testcases: patch_embedding
 
 ### PatchEmbeddingFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: patch_embedding_flat
+- Converter2 testcases: patch_embedding_flat
 
 ### PositionalEmbedding
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: positional_embedding
+- Converter2 testcases: positional_embedding
 
 ### PositionalEmbeddingFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: positional_embedding_flat
+- Converter2 testcases: positional_embedding_flat
 
 ### TransformerBlock
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_block
+- Converter2 testcases: transformer_block
 
 ### TransformerBlockFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_block_flat
+- Converter2 testcases: transformer_block_flat
 
 ### TransformerStack
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_stack
+- Converter2 testcases: transformer_stack
 
 ### TransformerStackFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_stack_flat
+- Converter2 testcases: transformer_stack_flat
 
 ### VisionTransformer
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: vit_conv_embedding, vit_patch_embedding
+- Converter2 testcases: vit_conv_embedding, vit_patch_embedding
 
 ### VisionTransformerFlatten
-- Coverage: ❌ missing
-- Legacy contexts: examples.vit
+- Coverage: ✅ complete
+- Legacy contexts: examples2.vit
+- Converter2 contexts: examples2.vit
 - Legacy testcases: vit_conv_embedding_flat, vit_patch_embedding_flat
+- Converter2 testcases: vit_conv_embedding_flat, vit_patch_embedding_flat
 
 ## primitives.core
 
@@ -1334,9 +1378,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: jaxnn_softplus, jaxnn_softplus_1, jaxnn_softplus_basic
 
 ### truncated_normal
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: primitives.nn
+- Converter2 contexts: primitives2.nn
 - Legacy testcases: flax_dense_like_init, initializer, random_truncated_normal_positional
+- Converter2 testcases: flax_dense_like_init, initializer, random_truncated_normal_positional
 
 ## primitives.nnx
 

@@ -417,7 +417,7 @@ If conversion doesn't work out of the box, it could be due to:
 | `Equinox`     | 0.13.1   | 
 | `onnx-ir`     | 0.1.9    | 
 | `onnx`        | 1.18.0   |  
-| `onnxruntime` | 1.22.1   |  
+| `onnxruntime` | 1.23.0   |  
 
 *Note: For more details, check `pyproject.toml`.*
 
@@ -437,7 +437,7 @@ We warmly welcome contributions!
 
 **How you can help:**
 
-- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins). 
+- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins): 
 a custom primitive or an example.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
@@ -462,23 +462,25 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ## 🌟 Special Thanks
 
-Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
+✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 
-Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret) and [@Clouder0](https://github.com/Clouder0)
+✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
-Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
+✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret) and [@Clouder0](https://github.com/Clouder0)
 
-Special thanks to [@lutzroeder](https://github.com/lutzroeder) for making shapes internal to ONNX function visible in his great Netron viewer.
+✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
+
+✨ Special thanks to [@lutzroeder](https://github.com/lutzroeder) for making shapes internal to ONNX function visible in his great Netron viewer.
 
 - [ONNX: Function value_info support #1447](https://github.com/lutzroeder/netron/issues/1447)
 
 
-Special thanks to the community members involved in:
+✨ Special thanks to the community members involved in:
 
 - [Flax Feature Request #4430](https://github.com/google/flax/issues/4430)
 - [JAX Feature Request #26430](https://github.com/jax-ml/jax/issues/26430)
 
-A huge thanks especially to [@limarta](https://github.com/limarta), whose elegant [jaxpr-to-ONNX demonstration](https://gist.github.com/limarta/855a88cc1c0163487a9dc369891147ab) significantly inspired this project.
+✨ Special thanks to [@limarta](https://github.com/limarta), whose elegant [jaxpr-to-ONNX demonstration](https://gist.github.com/limarta/855a88cc1c0163487a9dc369891147ab) significantly inspired this project.
 
 ---
 
