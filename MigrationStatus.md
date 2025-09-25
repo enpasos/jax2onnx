@@ -90,59 +90,81 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## examples.jnp
 
 ### fori_loop_test
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: fori_loop_test, fori_loop_test_f64
+- Converter2 testcases: fori_loop_test, fori_loop_test_f64
 
 ### issue18_abs
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: abs_fn
+- Converter2 testcases: abs_fn
 
 ### issue18_arange
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: arange_fn
+- Converter2 testcases: arange_fn
 
 ### issue18_fori_loop
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: fori_loop_fn
+- Converter2 testcases: fori_loop_fn
 
 ### issue18_linspace
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: linspace_fn
+- Converter2 testcases: linspace_fn
 
 ### issue18_scan
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: scan_fn
+- Converter2 testcases: scan_fn
 
 ### issue18_sign
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: sign_fn
+- Converter2 testcases: sign_fn
 
 ### issue18_where
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: where_fn
+- Converter2 testcases: where_fn
 
 ### issue18_while_loop
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: while_loop_fn
+- Converter2 testcases: while_loop_fn
 
 ### select_test
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: select_test_all_options, select_test_default_case, select_test_scalar_select_option_0, select_test_scalar_select_option_1, select_test_scalar_select_option_2
+- Converter2 testcases: select_test_all_options, select_test_default_case, select_test_scalar_select_option_0, select_test_scalar_select_option_1, select_test_scalar_select_option_2
 
 ### sort_test
-- Coverage: ❌ missing
-- Legacy contexts: examples.jnp
+- Coverage: ✅ complete
+- Legacy contexts: examples2.jnp
+- Converter2 contexts: examples2.jnp
 - Legacy testcases: sort_test_basic
+- Converter2 testcases: sort_test_basic
 
 ## examples.lax
 
@@ -177,9 +199,11 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## examples.nnx
 
 ### AutoEncoder
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: simple_autoencoder
+- Converter2 testcases: simple_autoencoder
 
 ### CNN
 - Coverage: ✅ complete
@@ -193,14 +217,18 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Legacy contexts: examples.nnx
 
 ### ForiLoop
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: fori_loop_counter
+- Converter2 testcases: fori_loop_counter
 
 ### GRUCell
-- Coverage: ❌ missing
-- Legacy contexts: examples.nnx
+- Coverage: ✅ complete
+- Legacy contexts: examples2.nnx
+- Converter2 contexts: examples2.nnx
 - Legacy testcases: gru_cell_basic
+- Converter2 testcases: gru_cell_basic
 
 ### MLP
 - Coverage: ✅ complete
