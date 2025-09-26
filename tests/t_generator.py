@@ -22,6 +22,7 @@ from jax2onnx.plugins.plugin_system import (
     import_all_plugins,
 )
 from jax2onnx.plugins2.plugin_system import (
+    EXAMPLE_REGISTRY2,
     PLUGIN_REGISTRY2,
     import_all_plugins as import_all_plugins2,
 )
@@ -133,7 +134,8 @@ def load_metadata_from_plugins() -> list[dict[str, Any]]:
         for name, plugin in PLUGIN_REGISTRY2.items()
         if hasattr(plugin, "metadata")
     ]
-    return items1 + items2
+    example_items2 = [dict(md) for md in EXAMPLE_REGISTRY2.values()]
+    return items1 + items2 + example_items2
 
 
 def load_plugin_metadata() -> list[dict[str, Any]]:

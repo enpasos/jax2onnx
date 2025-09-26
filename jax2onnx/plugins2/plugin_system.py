@@ -633,18 +633,25 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     # Mirror into legacy registry immediately
     # -- Set up a single, typed alias once, then assign from import to avoid mypy no-redef --
     _legacy_register_example_func: Optional[Callable[..., Any]] = None
+    _legacy_registry: Optional[dict[str, Any]] = None
     try:  # import under a different name, then assign
         from jax2onnx.plugins.plugin_system import (  # type: ignore[attr-defined]
+            PLUGIN_REGISTRY as _legacy_registry_ref,
             register_example as _legacy_register_example_ref,
         )
 
         _legacy_register_example_func = _legacy_register_example_ref
+        _legacy_registry = _legacy_registry_ref
     except Exception:
         pass
 
     if _legacy_register_example_func is not None:
         try:
-            _legacy_register_example_func(**metadata)
+            already_present = (
+                isinstance(_legacy_registry, dict) and comp in _legacy_registry
+            )
+            if not already_present:
+                _legacy_register_example_func(**metadata)
         except Exception:
             logger.debug(
                 "Mirroring examples2 entry %r into legacy registry failed",
