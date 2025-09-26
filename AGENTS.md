@@ -51,6 +51,7 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 * We are in the **full test coverage phase**: every legacy converter/plugin test needs an equivalent in `plugins2`.
 * Use `MigrationStatus.md` as the source of truth for coverage gaps. It is auto-generated via `poetry run python scripts/generate_migration_status.py` and marks items as ✅ complete, ⚠️ partial, or ❌ missing.
 * When picking work, choose a ❌/⚠️ entry, port the missing legacy testcase(s) into the IR-only pipeline, and add/extend tests under `tests/` (typically `tests/extra_tests2/...`).
+  * For legacy `tests/extra_tests/**` suites, keep the original subdirectory layout when creating `tests/extra_tests2/**` mirrors. Port in batches when possible; if converter2 is still missing functionality, land the new IR test marked with a clear `pytest.xfail` explaining the gap so the coverage tracker reflects the migrated case.
 * After landing new coverage, rerun the generator to refresh `MigrationStatus.md` so future contributors see the updated status.
 * Keep migrations incremental: one plugin/test family per PR keeps diffs small and makes review easier.
 

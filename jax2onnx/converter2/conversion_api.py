@@ -161,11 +161,18 @@ class _IRBuildContext:
         if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
             arr = np.asarray(var.val)
             if np.issubdtype(arr.dtype, np.floating):
-                target = (
-                    np.dtype(prefer_np_dtype)
-                    if prefer_np_dtype is not None
-                    else self._default_float_dtype
-                )
+                if prefer_np_dtype is not None:
+                    prefer_dt = np.dtype(prefer_np_dtype)
+                    if np.issubdtype(prefer_dt, np.floating):
+                        target = (
+                            self._default_float_dtype
+                            if self._default_float_dtype == np.float64
+                            else prefer_dt
+                        )
+                    else:
+                        target = prefer_dt
+                else:
+                    target = self._default_float_dtype
                 arr = np.asarray(var.val, dtype=target)
             c_ir = ir.Value(
                 name=name_hint or self.fresh_name("const"),

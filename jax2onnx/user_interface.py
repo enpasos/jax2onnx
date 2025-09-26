@@ -10,6 +10,7 @@ from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl_v1
 from jax2onnx.converter.validation import allclose as allclose_impl
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl_v2
+from jax2onnx.converter2.ir_postprocess import postprocess_ir_model
 from jax2onnx.serde_onnx import ir_to_onnx
 import importlib
 
@@ -153,17 +154,26 @@ def to_onnx(
     # --- Bridge old vs new worlds gracefully ---
     # New world (converter2): returns an onnx_ir.Model → convert to ONNX ModelProto.
     # Old world (converter v1): already returns an onnx.ModelProto → pass through.
+    ir_model_type = None
     try:
-        ir = importlib.import_module("onnx_ir")
-        if isinstance(result, getattr(ir, "Model")):
-            return ir_to_onnx(result)
+        ir_model_type = getattr(importlib.import_module("onnx_ir"), "Model", None)
     except Exception:
-        # If onnx_ir is not available or type check fails, fall through and try ONNX type
-        pass
+        ir_model_type = None
+
+    result_module = getattr(type(result), "__module__", "")
+    if (
+        ir_model_type is not None and isinstance(result, ir_model_type)
+    ) or result_module.startswith("onnx_ir"):
+        postprocess_ir_model(
+            result,
+            loosen_internal_shapes=loosen_internal_shapes,
+            promote_to_double=enable_double_precision,
+        )
+        return ir_to_onnx(result)
 
     try:
-        onnx = importlib.import_module("onnx")
-        if isinstance(result, getattr(onnx, "ModelProto")):
+        onnx_mod = importlib.import_module("onnx")
+        if isinstance(result, getattr(onnx_mod, "ModelProto")):
             return result
     except Exception:
         pass

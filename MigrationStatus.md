@@ -564,123 +564,169 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 - Converter2 testcases: test_concat_mixed_int_float_and_take
 
 ### test_cumsum_autodiff
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_cumsum_autodiff
+- Converter2 testcases: test_cumsum_autodiff
 
 ### test_feed_forward_like_nested_loops_dtype_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_feed_forward_like_nested_loops_dtype_regression
+- Converter2 testcases: test_feed_forward_like_nested_loops_dtype_regression
 
 ### test_issue_89
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_issue_89
+- Converter2 testcases: test_issue_89
 
 ### test_lax_cond_repro
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_lax_cond_repro
+- Converter2 testcases: test_lax_cond_repro
 
 ### test_masked_gather_trig
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_masked_gather_trig
+- Converter2 testcases: test_masked_gather_trig
 
 ### test_quickstart
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_quickstart
+- Converter2 testcases: test_quickstart
 
 ### test_subgraph_output_leaking
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
 - Legacy testcases: test_subgraph_output_leaking
+- Converter2 testcases: test_subgraph_output_leaking
 
 ## extra_tests.broadcast_in_dim
 
 ### test_broadcast_and_reshape_shared_shape_ssa_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_and_reshape_shared_shape_ssa_regression
+- Converter2 testcases: test_broadcast_and_reshape_shared_shape_ssa_regression
 
 ### test_broadcast_in_dim_in_loop_ssa
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_in_dim_in_loop_ssa
+- Converter2 testcases: test_broadcast_in_dim_in_loop_ssa
 
 ### test_broadcast_in_dim_loop_ssa_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_in_dim_loop_ssa_regression
+- Converter2 testcases: test_broadcast_in_dim_loop_ssa_regression
 
 ### test_broadcast_in_dim_shapeof_ssa_regression_strict
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_in_dim_shapeof_ssa_regression_strict
+- Converter2 testcases: test_broadcast_in_dim_shapeof_ssa_regression_strict
 
 ### test_broadcast_in_dim_ssa_unique
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_in_dim_ssa_unique
+- Converter2 testcases: test_broadcast_in_dim_ssa_unique
 
 ### test_broadcast_in_dim_two_adds_shapeof_ssa_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.broadcast_in_dim
+- Converter2 contexts: extra_tests2.broadcast_in_dim
 - Legacy testcases: test_broadcast_in_dim_two_adds_shapeof_ssa_regression
+- Converter2 testcases: test_broadcast_in_dim_two_adds_shapeof_ssa_regression
 
 ## extra_tests.converter
 
 ### test_duplicate_params
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_duplicate_params
+- Converter2 testcases: test_duplicate_params
 
 ### test_dynamic_batch
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_dynamic_batch
+- Converter2 testcases: test_dynamic_batch
 
 ### test_f64_constant_promotion
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_f64_constant_promotion
+- Converter2 testcases: test_f64_constant_promotion
 
 ### test_jaxpr_converter_interaction_with_builder
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_jaxpr_converter_interaction_with_builder
+- Converter2 testcases: test_jaxpr_converter_interaction_with_builder
 
 ### test_nested_params
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_nested_params
+- Converter2 testcases: test_nested_params
 
 ### test_no_null_node
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_no_null_node
+- Converter2 testcases: test_no_null_node
 
 ### test_onnx_function_deterministic_param
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_onnx_function_deterministic_param
+- Converter2 testcases: test_onnx_function_deterministic_param
 
 ### test_remove_redundant_reshapes
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_remove_redundant_reshapes
+- Converter2 testcases: test_remove_redundant_reshapes
 
 ### test_subgraph_inputs
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_subgraph_inputs
+- Converter2 testcases: test_subgraph_inputs
 
 ### test_symbolic_dim_name
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.converter
+- Converter2 contexts: extra_tests2.converter
 - Legacy testcases: test_symbolic_dim_name
+- Converter2 testcases: test_symbolic_dim_name
 
 ## extra_tests.framework
 
@@ -717,179 +763,245 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 ## extra_tests.loop
 
 ### test_loop_add_shapeof_displayname_collision
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_add_shapeof_displayname_collision
+- Converter2 testcases: test_loop_add_shapeof_displayname_collision
 
 ### test_loop_add_shapeof_displayname_collision_dev
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_add_shapeof_displayname_collision_dev
+- Converter2 testcases: test_loop_add_shapeof_displayname_collision_dev
 
 ### test_loop_body_io_relaxation
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_body_io_relaxation
+- Converter2 testcases: test_loop_body_io_relaxation
 
 ### test_loop_body_loosen_shapes_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_body_loosen_shapes_regression
+- Converter2 testcases: test_loop_body_loosen_shapes_regression
 
 ### test_loop_body_shapeof_ssa_regression_strict
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_body_shapeof_ssa_regression_strict
+- Converter2 testcases: test_loop_body_shapeof_ssa_regression_strict
 
 ### test_loop_body_ssa_dedup
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_body_ssa_dedup
+- Converter2 testcases: test_loop_body_ssa_dedup
 
 ### test_loop_consts_and_subset
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_consts_and_subset
+- Converter2 testcases: test_loop_consts_and_subset
 
 ### test_loop_ff_like_broadcast_mul_inference_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_ff_like_broadcast_mul_inference_regression
+- Converter2 testcases: test_loop_ff_like_broadcast_mul_inference_regression
 
 ### test_loop_ff_like_broadcast_mul_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_ff_like_broadcast_mul_regression
+- Converter2 testcases: test_loop_ff_like_broadcast_mul_regression
 
 ### test_loop_gather_dtype_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_gather_dtype_regression
+- Converter2 testcases: test_loop_gather_dtype_regression
 
 ### test_loop_gathernd_nested_dtype_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_gathernd_nested_dtype_regression
+- Converter2 testcases: test_loop_gathernd_nested_dtype_regression
 
 ### test_loop_mul_shape_inference_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_mul_shape_inference_regression
+- Converter2 testcases: test_loop_mul_shape_inference_regression
 
 ### test_loop_output_arity
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_output_arity
+- Converter2 testcases: test_loop_output_arity
 
 ### test_loop_same_rank_broadcast_mul_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_same_rank_broadcast_mul_regression
+- Converter2 testcases: test_loop_same_rank_broadcast_mul_regression
 
 ### test_loop_shape_helper_uniqueness_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_shape_helper_uniqueness_regression
+- Converter2 testcases: test_loop_shape_helper_uniqueness_regression
 
 ### test_loop_shape_inference_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_shape_inference_regression
+- Converter2 testcases: test_loop_shape_inference_regression
 
 ### test_loop_shapeof_ssa_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_shapeof_ssa_regression
+- Converter2 testcases: test_loop_shapeof_ssa_regression
 
 ### test_loop_shapeof_ssa_regression_stricter
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_loop_shapeof_ssa_regression_stricter
+- Converter2 testcases: test_loop_shapeof_ssa_regression_stricter
 
 ### test_nested_loop_loosen_shapes_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_nested_loop_loosen_shapes_regression
+- Converter2 testcases: test_nested_loop_loosen_shapes_regression
 
 ### test_nested_loop_mul_pad_slice
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.loop
+- Converter2 contexts: extra_tests2.loop
 - Legacy testcases: test_nested_loop_mul_pad_slice
+- Converter2 testcases: test_nested_loop_mul_pad_slice
 
 ## extra_tests.pad
 
 ### test_pad_initializer_in_loop
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.pad
+- Converter2 contexts: extra_tests2.pad
 - Legacy testcases: test_pad_initializer_in_loop
+- Converter2 testcases: test_pad_initializer_in_loop
 
 ## extra_tests.scan
 
 ### test_scan_body_loosen_shapes_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_body_loosen_shapes_regression
+- Converter2 testcases: test_scan_body_loosen_shapes_regression
 
 ### test_scan_dynamic_len
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_dynamic_len
+- Converter2 testcases: test_scan_dynamic_len
 
 ### test_scan_loop_no_xs_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_loop_no_xs_regression
+- Converter2 testcases: test_scan_loop_no_xs_regression
 
 ### test_scan_loop_output_arity_pruned
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_loop_output_arity_pruned
+- Converter2 testcases: test_scan_loop_output_arity_pruned
 
 ### test_scan_shapeof_ssa_regression
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_shapeof_ssa_regression
+- Converter2 testcases: test_scan_shapeof_ssa_regression
 
 ### test_scan_shared_scalar_two_lengths
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_shared_scalar_two_lengths
+- Converter2 testcases: test_scan_shared_scalar_two_lengths
 
 ### test_scan_tripaxis_dynamic
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_tripaxis_dynamic
+- Converter2 testcases: test_scan_tripaxis_dynamic
 
 ### test_scan_two_tripcounts_dynamic
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scan
+- Converter2 contexts: extra_tests2.scan
 - Legacy testcases: test_scan_two_tripcounts_dynamic
+- Converter2 testcases: test_scan_two_tripcounts_dynamic
 
 ## extra_tests.scatter_utils
 
 ### test_padding_and_expected_shape
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scatter_utils
+- Converter2 contexts: extra_tests2.scatter_utils
 - Legacy testcases: test_padding_and_expected_shape
+- Converter2 testcases: test_padding_and_expected_shape
 
 ### test_where_guardrails
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.scatter_utils
+- Converter2 contexts: extra_tests2.scatter_utils
 - Legacy testcases: test_where_guardrails
+- Converter2 testcases: test_where_guardrails
 
 ## extra_tests.slice
 
 ### test_dynamic_update_slice_nd
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.slice
+- Converter2 contexts: extra_tests2.slice
 - Legacy testcases: test_dynamic_update_slice_nd
+- Converter2 testcases: test_dynamic_update_slice_nd
 
 ## extra_tests.ssa
 
 ### test_no_duplicate_shape_helpers_anywhere
-- Coverage: ❌ missing
+- Coverage: ✅ complete
 - Legacy contexts: extra_tests.ssa
+- Converter2 contexts: extra_tests2.ssa
 - Legacy testcases: test_no_duplicate_shape_helpers_anywhere
+- Converter2 testcases: test_no_duplicate_shape_helpers_anywhere
 
 ## primitives.core
 

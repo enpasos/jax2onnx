@@ -45,6 +45,14 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
     child_ctx._function_mode = True
     child_ctx._inside_function_scope = True
 
+    # Inherit known symbolic dimension origins so nested graphs can resolve them.
+    if hasattr(parent_ctx, "_sym_origin"):
+        child_ctx._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
+    if hasattr(parent_ctx, "_sym_origin_str"):
+        child_ctx._sym_origin_str = dict(
+            getattr(parent_ctx, "_sym_origin_str", {})
+        )
+
     # Propagate optional knobs the parent may expose.
     for attr_name in ("loosen_internal_shapes", "_function_registry"):
         if hasattr(parent_ctx, attr_name):
