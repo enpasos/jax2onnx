@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, Set
+from typing import Dict, Iterable, Iterator, Set
 
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY as LEGACY_REGISTRY
 from jax2onnx.plugins.plugin_system import import_all_plugins as import_legacy_plugins
@@ -16,10 +16,20 @@ from jax2onnx.plugins2.plugin_system import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def canonical_context(context: str) -> str:
-    for prefix in ("examples2.", "primitives2."):
+    remaps = {
+        "examples2": "examples",
+        "primitives2": "primitives",
+        "extra_tests2": "extra_tests",
+    }
+    if context in remaps:
+        return remaps[context]
+    for prefix in ("examples2.", "primitives2.", "extra_tests2."):
         if context.startswith(prefix):
-            base = prefix[:-2]
+            base = remaps[prefix[:-1]]
             suffix = context[len(prefix) :]
             return f"{base}.{suffix}" if suffix else base
     return context
@@ -56,6 +66,32 @@ def add_entry(
     entry["tests"].update(tests)
 
 
+def _iter_test_files(base: Path) -> Iterator[Path]:
+    if not base.exists():
+        return iter(())
+    def _iter() -> Iterator[Path]:
+        for path in base.rglob("test_*.py"):
+            if "__pycache__" in path.parts or path.name == "__init__.py":
+                continue
+            yield path
+    return _iter()
+
+
+def _add_extra_tests(
+    store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]],
+    *,
+    base_dir: Path,
+    context_prefix: str,
+    bucket: str,
+) -> None:
+    for path in _iter_test_files(base_dir):
+        rel = path.relative_to(base_dir)
+        sub_parts = [part for part in rel.parts[:-1] if part != "__pycache__"]
+        context = ".".join([context_prefix] + sub_parts) if sub_parts else context_prefix
+        component = rel.stem
+        add_entry(store, context, component, bucket, [component])
+
+
 def gather() -> Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]:
     import_legacy_plugins()
     import_new_plugins()
@@ -88,6 +124,20 @@ def gather() -> Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]:
         if isinstance(context, str) and isinstance(component, str) and component:
             tests = _coerce_tests(metadata.get("testcases"))
             add_entry(store, context, component, "new", tests)
+
+    tests_root = ROOT / "tests"
+    _add_extra_tests(
+        store,
+        base_dir=tests_root / "extra_tests",
+        context_prefix="extra_tests",
+        bucket="legacy",
+    )
+    _add_extra_tests(
+        store,
+        base_dir=tests_root / "extra_tests2",
+        context_prefix="extra_tests2",
+        bucket="new",
+    )
 
     return store
 

@@ -6,14 +6,14 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### MlpExample
 - Coverage: ✅ complete
-- Legacy contexts: examples2.eqx
+- Legacy contexts: examples.eqx
 - Converter2 contexts: examples2.eqx
 - Legacy testcases: mlp_batched_training_mode, mlp_inference_mode, mlp_training_mode
 - Converter2 testcases: mlp_batched_training_mode, mlp_inference_mode, mlp_training_mode
 
 ### SimpleLinearExample
 - Coverage: ✅ complete
-- Legacy contexts: examples2.eqx
+- Legacy contexts: examples.eqx
 - Converter2 contexts: examples2.eqx
 - Legacy testcases: nn_linear, simple_linear
 - Converter2 testcases: nn_linear, simple_linear
@@ -22,77 +22,77 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### GPT
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt
 - Converter2 testcases: gpt
 
 ### GPT_Attention
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_attention
 - Converter2 testcases: gpt_attention
 
 ### GPT_CausalSelfAttention
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: causal_self_attention
 - Converter2 testcases: causal_self_attention
 
 ### GPT_Embeddings
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_embeddings
 - Converter2 testcases: gpt_embeddings
 
 ### GPT_Head
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_head
 - Converter2 testcases: gpt_head
 
 ### GPT_MLP
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_mlp
 - Converter2 testcases: gpt_mlp
 
 ### GPT_PositionEmbedding
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: position_embedding
 - Converter2 testcases: position_embedding
 
 ### GPT_TokenEmbedding
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: token_embedding
 - Converter2 testcases: token_embedding
 
 ### GPT_TransformerBlock
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: gpt_block
 - Converter2 testcases: gpt_block
 
 ### GPT_TransformerStack
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: transformer_stack
 - Converter2 testcases: transformer_stack
 
 ### broadcast_add
 - Coverage: ✅ complete
-- Legacy contexts: examples2.gpt
+- Legacy contexts: examples.gpt
 - Converter2 contexts: examples2.gpt
 - Legacy testcases: broadcast_add_dynamic
 - Converter2 testcases: broadcast_add_dynamic
@@ -101,14 +101,14 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### cfl_timestep
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jaxfluids
+- Legacy contexts: examples.jaxfluids
 - Converter2 contexts: examples2.jaxfluids
 - Legacy testcases: cfl_timestep_f64
 - Converter2 testcases: cfl_timestep_f64
 
 ### weno_reconstruction
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jaxfluids
+- Legacy contexts: examples.jaxfluids
 - Converter2 contexts: examples2.jaxfluids
 - Legacy testcases: weno_reconstruction_f64
 - Converter2 testcases: weno_reconstruction_f64
@@ -117,77 +117,77 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### fori_loop_test
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: fori_loop_test, fori_loop_test_f64
 - Converter2 testcases: fori_loop_test, fori_loop_test_f64
 
 ### issue18_abs
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: abs_fn
 - Converter2 testcases: abs_fn
 
 ### issue18_arange
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: arange_fn
 - Converter2 testcases: arange_fn
 
 ### issue18_fori_loop
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: fori_loop_fn
 - Converter2 testcases: fori_loop_fn
 
 ### issue18_linspace
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: linspace_fn
 - Converter2 testcases: linspace_fn
 
 ### issue18_scan
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: scan_fn
 - Converter2 testcases: scan_fn
 
 ### issue18_sign
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: sign_fn
 - Converter2 testcases: sign_fn
 
 ### issue18_where
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: where_fn
 - Converter2 testcases: where_fn
 
 ### issue18_while_loop
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: while_loop_fn
 - Converter2 testcases: while_loop_fn
 
 ### select_test
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: select_test_all_options, select_test_default_case, select_test_scalar_select_option_0, select_test_scalar_select_option_1, select_test_scalar_select_option_2
 - Converter2 testcases: select_test_all_options, select_test_default_case, select_test_scalar_select_option_0, select_test_scalar_select_option_1, select_test_scalar_select_option_2
 
 ### sort_test
 - Coverage: ✅ complete
-- Legacy contexts: examples2.jnp
+- Legacy contexts: examples.jnp
 - Converter2 contexts: examples2.jnp
 - Legacy testcases: sort_test_basic
 - Converter2 testcases: sort_test_basic
@@ -196,28 +196,28 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### cond_scatter_add_mul
 - Coverage: ✅ complete
-- Legacy contexts: examples2.lax
+- Legacy contexts: examples.lax
 - Converter2 contexts: examples2.lax
 - Legacy testcases: cond_scatter_add_mul_f64_a, cond_scatter_add_mul_f64_b
 - Converter2 testcases: cond_scatter_add_mul_f64_a, cond_scatter_add_mul_f64_b
 
 ### cond_scatter_repro
 - Coverage: ✅ complete
-- Legacy contexts: examples2.lax
+- Legacy contexts: examples.lax
 - Converter2 contexts: examples2.lax
 - Legacy testcases: cond_scatter_repro_f64
 - Converter2 testcases: cond_scatter_repro_f64
 
 ### remat2
 - Coverage: ✅ complete
-- Legacy contexts: examples2.lax
+- Legacy contexts: examples.lax
 - Converter2 contexts: examples2.lax
 - Legacy testcases: checkpoint_scalar_f32
 - Converter2 testcases: checkpoint_scalar_f32
 
 ### scatter_window
 - Coverage: ✅ complete
-- Legacy contexts: examples2.lax
+- Legacy contexts: examples.lax
 - Converter2 contexts: examples2.lax
 - Legacy testcases: scatter_window_update_f64_example
 - Converter2 testcases: scatter_window_update_f64_example
@@ -226,16 +226,16 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### AutoEncoder
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: simple_autoencoder
 - Converter2 testcases: simple_autoencoder
 
 ### CNN
-- Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Coverage: ⚠️ partial (missing: simple_cnn_explicit_dimensions)
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
-- Legacy testcases: simple_cnn, simple_cnn_static
+- Legacy testcases: simple_cnn, simple_cnn_explicit_dimensions
 - Converter2 testcases: simple_cnn, simple_cnn_static
 
 ### CNN2
@@ -244,56 +244,56 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### ForiLoop
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: fori_loop_counter
 - Converter2 testcases: fori_loop_counter
 
 ### GRUCell
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: gru_cell_basic
 - Converter2 testcases: gru_cell_basic
 
 ### MLP
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
-- Legacy testcases: simple_mlp, simple_mlp_static, simple_mlp_with_call_params
+- Legacy testcases: simple_mlp, simple_mlp_with_call_params
 - Converter2 testcases: simple_mlp, simple_mlp_static, simple_mlp_with_call_params
 
 ### MultiHeadAttention
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: multihead_attention_2_nnx, multihead_attention_nn, multihead_attention_nnx
 - Converter2 testcases: multihead_attention_2_nnx, multihead_attention_nn, multihead_attention_nnx
 
 ### SequentialReLU
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: sequential_double_relu
 - Converter2 testcases: sequential_double_relu
 
 ### SequentialWithResidual
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: sequential_nested_with_residual
 - Converter2 testcases: sequential_nested_with_residual
 
 ### TransformerDecoderWithSequential
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: tiny_decoder_with_sequential, tiny_decoder_with_sequential_and_full_dynamic_shapes
 - Converter2 testcases: tiny_decoder_with_sequential, tiny_decoder_with_sequential_and_full_dynamic_shapes
 
 ### TransformerDecoderWithoutSequential
 - Coverage: ✅ complete
-- Legacy contexts: examples2.nnx
+- Legacy contexts: examples.nnx
 - Converter2 contexts: examples2.nnx
 - Legacy testcases: tiny_decoder_without_sequential
 - Converter2 testcases: tiny_decoder_without_sequential
@@ -302,112 +302,112 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### onnx_functions_000
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 000_one_function_on_outer_layer
 - Converter2 testcases: 000_one_function_on_outer_layer
 
 ### onnx_functions_001
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 001_one_function_inner
 - Converter2 testcases: 001_one_function_inner
 
 ### onnx_functions_002
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 002_two_nested_functions
 - Converter2 testcases: 002_two_nested_functions
 
 ### onnx_functions_003
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 003_two_simple_nested_functions
 - Converter2 testcases: 003_two_simple_nested_functions
 
 ### onnx_functions_004
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 004_nested_function_plus_component
 - Converter2 testcases: 004_nested_function_plus_component
 
 ### onnx_functions_005
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 005_nested_function_plus_component
 - Converter2 testcases: 005_nested_function_plus_component
 
 ### onnx_functions_006
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 006_one_function_outer
 - Converter2 testcases: 006_one_function_outer
 
 ### onnx_functions_007
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 007_transformer_block
 - Converter2 testcases: 007_transformer_block
 
 ### onnx_functions_008
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 008_transformer_block
 - Converter2 testcases: 008_transformer_block
 
 ### onnx_functions_009
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 009_transformer_block
 - Converter2 testcases: 009_transformer_block
 
 ### onnx_functions_010
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 010_transformer_stack
 - Converter2 testcases: 010_transformer_stack
 
 ### onnx_functions_012
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 012_vit_conv_embedding
 - Converter2 testcases: 012_vit_conv_embedding
 
 ### onnx_functions_013
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 013_vit_conv_embedding_with_call_params, 013_vit_conv_embedding_with_internal_call_params
 - Converter2 testcases: 013_vit_conv_embedding_with_call_params, 013_vit_conv_embedding_with_internal_call_params
 
 ### onnx_functions_014
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 014_one_function_with_input_param_with_default_value, 014_one_function_without_input_param_with_default_value
 - Converter2 testcases: 014_one_function_with_input_param_with_default_value, 014_one_function_without_input_param_with_default_value
 
 ### onnx_functions_015
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 015_one_function_with_input_param_without_default_value
 - Converter2 testcases: 015_one_function_with_input_param_without_default_value
 
 ### onnx_functions_016
 - Coverage: ✅ complete
-- Legacy contexts: examples2.onnx_functions
+- Legacy contexts: examples.onnx_functions
 - Converter2 contexts: examples2.onnx_functions
 - Legacy testcases: 016_internal_function_with_input_param_with_default_value
 - Converter2 testcases: 016_internal_function_with_input_param_with_default_value
@@ -416,143 +416,480 @@ This file is auto-generated. Run `poetry run python scripts/generate_migration_s
 
 ### ClassificationHead
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: classification_head
 - Converter2 testcases: classification_head
 
 ### ClassificationHeadFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: classification_head_flat
 - Converter2 testcases: classification_head_flat
 
 ### ConcatClsToken
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: concat_cls_token
 - Converter2 testcases: concat_cls_token
 
 ### ConcatClsTokenFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: concat_cls_token_flat
 - Converter2 testcases: concat_cls_token_flat
 
 ### ConvEmbedding
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: mnist_conv_embedding
 - Converter2 testcases: mnist_conv_embedding
 
 ### ConvEmbeddingFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: mnist_conv_embedding_flat
 - Converter2 testcases: mnist_conv_embedding_flat
 
 ### FeedForward
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: feed_forward
 - Converter2 testcases: feed_forward
 
 ### FeedForwardFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: feed_forward_flat
 - Converter2 testcases: feed_forward_flat
 
 ### GetToken
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: get_token
 - Converter2 testcases: get_token
 
 ### GetTokenFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: get_token_flat
 - Converter2 testcases: get_token_flat
 
 ### PatchEmbedding
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: patch_embedding
 - Converter2 testcases: patch_embedding
 
 ### PatchEmbeddingFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: patch_embedding_flat
 - Converter2 testcases: patch_embedding_flat
 
 ### PositionalEmbedding
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: positional_embedding
 - Converter2 testcases: positional_embedding
 
 ### PositionalEmbeddingFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: positional_embedding_flat
 - Converter2 testcases: positional_embedding_flat
 
 ### TransformerBlock
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_block
 - Converter2 testcases: transformer_block
 
 ### TransformerBlockFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_block_flat
 - Converter2 testcases: transformer_block_flat
 
 ### TransformerStack
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_stack
 - Converter2 testcases: transformer_stack
 
 ### TransformerStackFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: transformer_stack_flat
 - Converter2 testcases: transformer_stack_flat
 
 ### VisionTransformer
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: vit_conv_embedding, vit_patch_embedding
 - Converter2 testcases: vit_conv_embedding, vit_patch_embedding
 
 ### VisionTransformerFlatten
 - Coverage: ✅ complete
-- Legacy contexts: examples2.vit
+- Legacy contexts: examples.vit
 - Converter2 contexts: examples2.vit
 - Legacy testcases: vit_conv_embedding_flat, vit_patch_embedding_flat
 - Converter2 testcases: vit_conv_embedding_flat, vit_patch_embedding_flat
+
+## extra_tests
+
+### test_concat_mixed_int_float_and_take
+- Coverage: ✅ complete
+- Legacy contexts: extra_tests
+- Converter2 contexts: extra_tests2
+- Legacy testcases: test_concat_mixed_int_float_and_take
+- Converter2 testcases: test_concat_mixed_int_float_and_take
+
+### test_cumsum_autodiff
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_cumsum_autodiff
+
+### test_feed_forward_like_nested_loops_dtype_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_feed_forward_like_nested_loops_dtype_regression
+
+### test_issue_89
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_issue_89
+
+### test_lax_cond_repro
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_lax_cond_repro
+
+### test_masked_gather_trig
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_masked_gather_trig
+
+### test_quickstart
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_quickstart
+
+### test_subgraph_output_leaking
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests
+- Legacy testcases: test_subgraph_output_leaking
+
+## extra_tests.broadcast_in_dim
+
+### test_broadcast_and_reshape_shared_shape_ssa_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_and_reshape_shared_shape_ssa_regression
+
+### test_broadcast_in_dim_in_loop_ssa
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_in_dim_in_loop_ssa
+
+### test_broadcast_in_dim_loop_ssa_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_in_dim_loop_ssa_regression
+
+### test_broadcast_in_dim_shapeof_ssa_regression_strict
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_in_dim_shapeof_ssa_regression_strict
+
+### test_broadcast_in_dim_ssa_unique
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_in_dim_ssa_unique
+
+### test_broadcast_in_dim_two_adds_shapeof_ssa_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.broadcast_in_dim
+- Legacy testcases: test_broadcast_in_dim_two_adds_shapeof_ssa_regression
+
+## extra_tests.converter
+
+### test_duplicate_params
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_duplicate_params
+
+### test_dynamic_batch
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_dynamic_batch
+
+### test_f64_constant_promotion
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_f64_constant_promotion
+
+### test_jaxpr_converter_interaction_with_builder
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_jaxpr_converter_interaction_with_builder
+
+### test_nested_params
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_nested_params
+
+### test_no_null_node
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_no_null_node
+
+### test_onnx_function_deterministic_param
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_onnx_function_deterministic_param
+
+### test_remove_redundant_reshapes
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_remove_redundant_reshapes
+
+### test_subgraph_inputs
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_subgraph_inputs
+
+### test_symbolic_dim_name
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.converter
+- Legacy testcases: test_symbolic_dim_name
+
+## extra_tests.framework
+
+### test_do_not_skip_numeric_validation
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_do_not_skip_numeric_validation
+
+### test_ir_optimizations
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_ir_optimizations
+
+### test_no_onnx_in_converter2_plugins2
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_no_onnx_in_converter2_plugins2
+
+### test_post_check_onnx_graph
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_post_check_onnx_graph
+
+### test_since_equal_in_convert
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_since_equal_in_convert
+
+### test_use_onnx_ir
+- Coverage: -
+- Converter2 contexts: extra_tests2.framework
+- Converter2 testcases: test_use_onnx_ir
+
+## extra_tests.loop
+
+### test_loop_add_shapeof_displayname_collision
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_add_shapeof_displayname_collision
+
+### test_loop_add_shapeof_displayname_collision_dev
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_add_shapeof_displayname_collision_dev
+
+### test_loop_body_io_relaxation
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_body_io_relaxation
+
+### test_loop_body_loosen_shapes_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_body_loosen_shapes_regression
+
+### test_loop_body_shapeof_ssa_regression_strict
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_body_shapeof_ssa_regression_strict
+
+### test_loop_body_ssa_dedup
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_body_ssa_dedup
+
+### test_loop_consts_and_subset
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_consts_and_subset
+
+### test_loop_ff_like_broadcast_mul_inference_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_ff_like_broadcast_mul_inference_regression
+
+### test_loop_ff_like_broadcast_mul_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_ff_like_broadcast_mul_regression
+
+### test_loop_gather_dtype_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_gather_dtype_regression
+
+### test_loop_gathernd_nested_dtype_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_gathernd_nested_dtype_regression
+
+### test_loop_mul_shape_inference_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_mul_shape_inference_regression
+
+### test_loop_output_arity
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_output_arity
+
+### test_loop_same_rank_broadcast_mul_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_same_rank_broadcast_mul_regression
+
+### test_loop_shape_helper_uniqueness_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_shape_helper_uniqueness_regression
+
+### test_loop_shape_inference_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_shape_inference_regression
+
+### test_loop_shapeof_ssa_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_shapeof_ssa_regression
+
+### test_loop_shapeof_ssa_regression_stricter
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_loop_shapeof_ssa_regression_stricter
+
+### test_nested_loop_loosen_shapes_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_nested_loop_loosen_shapes_regression
+
+### test_nested_loop_mul_pad_slice
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.loop
+- Legacy testcases: test_nested_loop_mul_pad_slice
+
+## extra_tests.pad
+
+### test_pad_initializer_in_loop
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.pad
+- Legacy testcases: test_pad_initializer_in_loop
+
+## extra_tests.scan
+
+### test_scan_body_loosen_shapes_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_body_loosen_shapes_regression
+
+### test_scan_dynamic_len
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_dynamic_len
+
+### test_scan_loop_no_xs_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_loop_no_xs_regression
+
+### test_scan_loop_output_arity_pruned
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_loop_output_arity_pruned
+
+### test_scan_shapeof_ssa_regression
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_shapeof_ssa_regression
+
+### test_scan_shared_scalar_two_lengths
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_shared_scalar_two_lengths
+
+### test_scan_tripaxis_dynamic
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_tripaxis_dynamic
+
+### test_scan_two_tripcounts_dynamic
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scan
+- Legacy testcases: test_scan_two_tripcounts_dynamic
+
+## extra_tests.scatter_utils
+
+### test_padding_and_expected_shape
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scatter_utils
+- Legacy testcases: test_padding_and_expected_shape
+
+### test_where_guardrails
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.scatter_utils
+- Legacy testcases: test_where_guardrails
+
+## extra_tests.slice
+
+### test_dynamic_update_slice_nd
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.slice
+- Legacy testcases: test_dynamic_update_slice_nd
+
+## extra_tests.ssa
+
+### test_no_duplicate_shape_helpers_anywhere
+- Coverage: ❌ missing
+- Legacy contexts: extra_tests.ssa
+- Legacy testcases: test_no_duplicate_shape_helpers_anywhere
 
 ## primitives.core
 
