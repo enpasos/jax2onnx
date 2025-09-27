@@ -201,13 +201,5 @@ def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
 
 
 def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:
-    _process_graph(model.graph, loosen=True, promote=promote_to_double)
-    _process_functions(model, loosen=True, promote=promote_to_double)
-
-    if promote_to_double:
-        for val in getattr(model.graph, "inputs", []) or []:
-            if isinstance(val, ir.Value):
-                _maybe_promote_value_to_double(val)
-        for val in getattr(model.graph, "outputs", []) or []:
-            if isinstance(val, ir.Value):
-                _maybe_promote_value_to_double(val)
+    _process_graph(model.graph, loosen=True, promote=False)
+    _process_functions(model, loosen=True, promote=False)

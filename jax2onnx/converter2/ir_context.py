@@ -382,6 +382,44 @@ class IRContext:
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):
             v = self.get_value_for_var(var, name_hint=f"out_{i}")
+            target_enum = None
+            aval = getattr(var, "aval", None)
+            if aval is not None:
+                aval_dtype = getattr(aval, "dtype", None)
+                if aval_dtype is not None:
+                    try:
+                        np_dtype = np.dtype(aval_dtype)
+                    except TypeError:
+                        np_dtype = None
+                    else:
+                        target_enum = _dtype_to_ir(
+                            np_dtype, self.builder.enable_double_precision
+                        )
+            current_type = getattr(v, "type", None)
+            current_enum = getattr(current_type, "dtype", None)
+            if (
+                target_enum is not None
+                and current_enum is not None
+                and target_enum != current_enum
+            ):
+                cast_val = ir.Value(
+                    name=self.fresh_name("output_cast"),
+                    type=ir.TensorType(target_enum),
+                    shape=v.shape,
+                )
+                self.add_node(
+                    ir.Node(
+                        op_type="Cast",
+                        domain="",
+                        inputs=[v],
+                        outputs=[cast_val],
+                        name=self.fresh_name("Cast"),
+                        attributes=[
+                            ir.Attr("to", ir.AttributeType.INT, int(target_enum.value))
+                        ],
+                    )
+                )
+                v = cast_val
             self.builder.outputs.append(v)
 
     # Convenience: make sure the model declares an opset import for a domain
