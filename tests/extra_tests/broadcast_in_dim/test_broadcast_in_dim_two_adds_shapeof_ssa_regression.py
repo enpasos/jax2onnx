@@ -105,7 +105,6 @@ def test_two_adds_shape_helpers_are_ssa_unique(tmp_path, dtype):
         _body_two_adds_each_needs_shape,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="two_adds_shape_helpers_ssa",
     )
@@ -132,7 +131,6 @@ def test_numeric_executes(dtype=jnp.float64):
         _body_two_adds_each_needs_shape,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="two_adds_shape_helpers_numeric",
     )

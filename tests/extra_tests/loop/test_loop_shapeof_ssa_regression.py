@@ -41,7 +41,6 @@ class TestLoopShapeOfSSARegression:
         model = to_onnx(
             loop_body_ssa_bug,
             inputs=[input_spec],
-            loosen_internal_shapes=True,
             model_name="loop_shapeof_ssa_regression",
             opset=21,
         )

@@ -36,7 +36,6 @@ class TestLoopBodySSADedup:
         model = to_onnx(
             _loop_model,
             inputs=[spec],
-            loosen_internal_shapes=True,  # maximize runtime shape paths
             opset=21,
             model_name="loop_body_ssa_dedup",
         )

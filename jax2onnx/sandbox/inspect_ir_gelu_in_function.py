@@ -64,7 +64,6 @@ def main():
         model_name="probe_superblock_ir",
         opset=21,
         enable_double_precision=False,
-        loosen_internal_shapes=False,
         record_primitive_calls_file=None,
     )
     dump_gelu_attrs_in_ir(ir_model)

@@ -20,6 +20,7 @@ from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
+    relax_value_to_rank_only,
 )
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -41,42 +42,6 @@ def _canon_int(value: int | np.integer) -> np.integer:
     return np.int64(value) if _USE_INT64 else np.int32(value)
 
 
-def _relax_value_to_rank_only(val: ir.Value) -> None:
-    shape_obj = getattr(val, "shape", None)
-    dims = getattr(shape_obj, "dims", None)
-    if dims is None:
-        try:
-            dims = list(shape_obj)
-        except Exception:
-            dims = None
-    if dims is None:
-        tensor_type = getattr(val, "type", None)
-        if isinstance(tensor_type, ir.TensorType):
-            shape_obj = getattr(tensor_type, "shape", None)
-            dims = getattr(shape_obj, "dims", None)
-            if dims is None:
-                try:
-                    dims = list(shape_obj) if shape_obj is not None else None
-                except Exception:
-                    dims = None
-    if not dims or len(dims) == 0:
-        return
-    if all(dim is None for dim in dims):
-        return
-    rank_only = ir.Shape(tuple(None for _ in dims))
-    try:
-        val.shape = rank_only
-    except Exception:
-        pass
-    tensor_type = getattr(val, "type", None)
-    if isinstance(tensor_type, ir.TensorType):
-        dtype = getattr(tensor_type, "dtype", getattr(tensor_type, "elem_type", None))
-        try:
-            val.type = ir.TensorType(dtype, rank_only)
-        except Exception:
-            val.type = ir.TensorType(dtype)
-
-
 def model_fn(x):
     steps = 5
 
@@ -95,7 +60,6 @@ def _build_body_graph(
     state_prototypes: "Sequence[ir.Value]",
 ) -> ir.Graph:
     body_ctx = make_subgraph_context(parent_ctx, prefix="fori_body")
-    loosen_shapes = bool(getattr(parent_ctx, "loosen_internal_shapes", False))
 
     iter_input = ir.Value(
         name=body_ctx.fresh_name("loop_iter"),
@@ -169,8 +133,7 @@ def _build_body_graph(
             body_ctx._sym_origin_str[str(dim)] = (state_input, axis)
         _stamp_type_and_shape(state_input, shape_tuple)
         _ensure_value_info(body_ctx, state_input)
-        if loosen_shapes:
-            _relax_value_to_rank_only(state_input)
+        relax_value_to_rank_only(state_input)
 
     # Lower body equations inside the nested context.
     lower_jaxpr_eqns(body_ctx, jaxpr)
@@ -191,8 +154,7 @@ def _build_body_graph(
             out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, out_shape)
         _ensure_value_info(body_ctx, out_val)
-        if loosen_shapes:
-            _relax_value_to_rank_only(out_val)
+        relax_value_to_rank_only(out_val)
         loop_outputs.append(out_val)
 
     # Propagate the loop condition unchanged (fixed-trip Loop).

@@ -99,7 +99,6 @@ def test_loop_body_shape_helpers_are_ssa_unique(tmp_path, dtype):
         _two_broadcasts_to_add_shapes,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_in_dim_shapeof_ssa_regression_strict",
     )
@@ -130,7 +129,6 @@ def test_numeric_executes(dtype=jnp.float64):
         _two_broadcasts_to_add_shapes,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_in_dim_shapeof_numeric",
     )

@@ -54,7 +54,6 @@ def test_model_has_no_duplicate_shape_helpers(dtype):
         _loopy_two_adds,
         inputs=[spec],
         enable_double_precision=(dtype == jnp.float64),
-        loosen_internal_shapes=True,
         opset=21,
         model_name="ssa_no_dupe_shape_helpers",
     )

@@ -38,7 +38,7 @@ def test_loop_same_rank_broadcast_mul_regression(dtype):
         ff_like,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,  # critical to match integration behavior
+        # critical to match integration behavior
         opset=21,
         model_name="same_rank_broadcast_mul_regression", use_onnx_ir=True
     )

@@ -34,7 +34,6 @@ class TestLoopBodyShapeOfSSARegressionStrict:
         model = to_onnx(
             _model_with_dup_shape_of,
             inputs=[spec],
-            loosen_internal_shapes=True,  # maximize runtime Shape paths
             opset=21,
             model_name="loop_body_shapeof_ssa_strict",
         )

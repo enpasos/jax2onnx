@@ -68,7 +68,6 @@ def test_loop_body_forced_Add__shape_collision_rejected_by_ort():
         _body,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_add_shapeof_displayname_collision_dev", use_onnx_ir=True
     )

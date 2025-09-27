@@ -32,7 +32,6 @@ class TestLoopShapeOfSSARegressionStricter:
         model = to_onnx(
             _model,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="loop_shapeof_ssa_stricter",
         )

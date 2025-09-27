@@ -143,7 +143,6 @@ def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path, monkeypatch):
         _scan_body_broadcast_mul_with_scatter_repro,
         inputs=[],  # nullary function
         enable_double_precision=True,  # exercise dtype propagation into subgraphs
-        loosen_internal_shapes=True,  # the feature under test
         opset=21,
         model_name="scan_body_loosen_shapes_repro",
     )
@@ -175,7 +174,6 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
         _scan_body_broadcast_mul_with_scatter_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,  # ensure sanitizer runs
         opset=21,
         model_name="scan_body_loosen_shapes_vi_check",
     )
@@ -191,7 +189,7 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
     for vi in body.value_info:
         assert _all_dims_dynamic(
             vi
-        ), f"Scan/Loop body VI '{vi.name}' must be rank-only when loosening is enabled."
+        ), f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening."
 
 
 SENSITIVE = {
@@ -234,126 +232,3 @@ def _loop_bodies(g: onnx.GraphProto):
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
 
-
-@pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
-    """
-    Without loosen, either ORT load fails, or at least one nested Loop body still
-    contains a 'risky' internal value_info (produced by arithmetic/shape ops) with
-    a concrete dim. This is robust across ORT versions and unrelated fixes.
-    """
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        loosen_internal_shapes=False,  # intentionally off
-        opset=21,
-        model_name="nested_loop_no_loosen",
-    )
-    p = tmp_path / "nested_loop_no_loosen.onnx"
-    p.write_bytes(model.SerializeToString())
-
-    try:
-        # If it loads, assert the structural hazard is present.
-        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-        m = onnx.load(str(p))
-        bodies = list(_loop_bodies(m.graph))
-        assert bodies, "Expected at least one Loop body."
-        found_risky = False
-        for b in bodies:
-            prod = _producer_map(b)
-            for vi in b.value_info:
-                if _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE):
-                    found_risky = True
-                    break
-            if found_risky:
-                break
-        assert found_risky, (
-            "When loosen_internal_shapes=False, expected at least one nested Loop body "
-            "to retain a risky internal value_info (arithmetic/shape producer with a "
-            "concrete dim)."
-        )
-    except Exception:
-        # ORT failed to load → also acceptable for this test
-        pass
-
-
-@pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_without_loosen_fails_in_ort(tmp_path):
-    """
-    Robust version: without loosening we either fail to load in ORT,
-    or (if it loads) at least one nested Loop body still retains a risky
-    internal value_info (produced by arithmetic/shape ops) with a concrete dim.
-    """
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        loosen_internal_shapes=False,  # intentionally off
-        opset=21,
-        model_name="nested_loop_no_loosen",
-    )
-    p = tmp_path / "nested_loop_no_loosen.onnx"
-    p.write_bytes(model.SerializeToString())
-
-    # Helper predicates for the structural hazard
-    SENSITIVE = {
-        "Add",
-        "Sub",
-        "Mul",
-        "Div",
-        "Reshape",
-        "Squeeze",
-        "Unsqueeze",
-        "Expand",
-        "Concat",
-        "Range",
-        "Shape",
-        "NonZero",
-        "Gather",
-        "GatherND",
-        "Slice",
-        "Constant",
-        "ConstantOfShape",
-        "Pow",
-    }
-
-    def _producer_map(g: onnx.GraphProto):
-        return {o: n.op_type for n in g.node for o in n.output}
-
-    def _has_concrete_dim(vi: onnx.ValueInfoProto) -> bool:
-        tt = vi.type.tensor_type
-        if not tt.HasField("shape"):
-            return False
-        return any(d.HasField("dim_value") for d in tt.shape.dim)
-
-    def _loop_bodies(g: onnx.GraphProto):
-        for n in g.node:
-            if n.op_type == "Loop":
-                for a in n.attribute:
-                    if a.name == "body":
-                        yield onnx.helper.get_attribute_value(a)
-
-    try:
-        # If it loads, assert the structural hazard is present in some nested body.
-        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-        m = onnx.load(str(p))
-        bodies = list(_loop_bodies(m.graph))
-        assert bodies, "Expected at least one Loop body."
-        found_risky = False
-        for b in bodies:
-            prod = _producer_map(b)
-            for vi in b.value_info:
-                if _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE):
-                    found_risky = True
-                    break
-            if found_risky:
-                break
-        assert found_risky, (
-            "When loosen_internal_shapes=False, expected at least one nested Loop body "
-            "to retain a risky internal value_info (arithmetic/shape producer with a "
-            "concrete dim)."
-        )
-    except Exception:
-        # ORT failed to load → also acceptable (legacy behavior)
-        pass

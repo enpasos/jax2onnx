@@ -144,7 +144,6 @@ def test_loop_body_shapeof_helpers_are_ssa_unique(tmp_path, fn, dtype):
         fn,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name=f"{fn.__name__}",
     )
@@ -180,7 +179,6 @@ def test_numeric_sanity_executes(dtype=jnp.float64):
         _body_same_symbol_two_reshapes,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_shapeof_numeric",
     )

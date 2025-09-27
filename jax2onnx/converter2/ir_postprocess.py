@@ -200,18 +200,9 @@ def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
         _process_graph(fn, loosen=loosen, promote=promote)
 
 
-def postprocess_ir_model(
-    model: ir.Model, *, loosen_internal_shapes: bool, promote_to_double: bool
-) -> None:
-    if not (loosen_internal_shapes or promote_to_double):
-        return
-
-    _process_graph(
-        model.graph, loosen=loosen_internal_shapes, promote=promote_to_double
-    )
-    _process_functions(
-        model, loosen=loosen_internal_shapes, promote=promote_to_double
-    )
+def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:
+    _process_graph(model.graph, loosen=True, promote=promote_to_double)
+    _process_functions(model, loosen=True, promote=promote_to_double)
 
     if promote_to_double:
         for val in getattr(model.graph, "inputs", []) or []:

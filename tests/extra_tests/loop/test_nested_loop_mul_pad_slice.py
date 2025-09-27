@@ -42,7 +42,6 @@ def test_nested_loop_mul_pad_slice_loads(tmp_path: pathlib.Path):
         fn,
         inputs=[x],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         model_name="nested_pad_slice_mul",
     )
     onnx.checker.check_model(model)

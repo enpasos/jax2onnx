@@ -26,9 +26,17 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> "ir.DataType
     Map numpy dtype to onnx_ir.DataType.
     Floats are normalized by enable_double flag.
     """
-    if dtype is None or np.issubdtype(dtype, np.floating):
+    if dtype is None:
         return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
     key = np.dtype(dtype)
+    if np.issubdtype(key, np.floating):
+        if key == np.float16:
+            return ir.DataType.FLOAT16
+        if key == np.float32:
+            return ir.DataType.FLOAT
+        if key == np.float64:
+            return ir.DataType.DOUBLE
+        return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
     name = _NP_TO_IR_BASE.get(key)
     if name:
         return getattr(ir.DataType, name)

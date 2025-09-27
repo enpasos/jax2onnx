@@ -133,7 +133,6 @@ def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path: pathlib.Path):
         _scan_body_broadcast_mul_with_scatter_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="scan_body_loosen_shapes_repro",
         use_onnx_ir=True,
@@ -161,7 +160,6 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
         _scan_body_broadcast_mul_with_scatter_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="scan_body_loosen_shapes_vi_check",
         use_onnx_ir=True,
@@ -176,7 +174,7 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
 
     for vi in body.value_info:
         assert _all_dims_dynamic(vi), (
-            f"Scan/Loop body VI '{vi.name}' must be rank-only when loosening is enabled"
+            f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening"
         )
 
 
@@ -220,82 +218,3 @@ def _loop_bodies(g: onnx.GraphProto):
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
 
-
-@pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
-    ort = pytest.importorskip("onnxruntime")
-
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        loosen_internal_shapes=False,
-        opset=21,
-        model_name="nested_loop_no_loosen",
-        use_onnx_ir=True,
-    )
-
-    path = tmp_path / "nested_loop_no_loosen.onnx"
-    path.write_bytes(model.SerializeToString())
-
-    try:
-        ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        m = onnx.load(str(path))
-        bodies = list(_loop_bodies(m.graph))
-        assert bodies, "Expected at least one Loop body."
-        found_risky = False
-        for b in bodies:
-            prod = _producer_map(b)
-            for vi in b.value_info:
-                if _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE):
-                    found_risky = True
-                    break
-            if found_risky:
-                break
-        assert found_risky, (
-            "When loosen_internal_shapes=False, expected at least one nested Loop body "
-            "to retain a risky internal value_info (arithmetic/shape producer with a "
-            "concrete dim)."
-        )
-    except Exception:
-        pass
-
-
-@pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_without_loosen_fails_in_ort(tmp_path):
-    ort = pytest.importorskip("onnxruntime")
-
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        loosen_internal_shapes=False,
-        opset=21,
-        model_name="nested_loop_no_loosen",
-        use_onnx_ir=True,
-    )
-
-    path = tmp_path / "nested_loop_no_loosen.onnx"
-    path.write_bytes(model.SerializeToString())
-
-    try:
-        ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        m = onnx.load(str(path))
-        bodies = list(_loop_bodies(m.graph))
-        assert bodies, "Expected at least one Loop body."
-        found_risky = False
-        for b in bodies:
-            prod = _producer_map(b)
-            for vi in b.value_info:
-                if _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE):
-                    found_risky = True
-                    break
-            if found_risky:
-                break
-        assert found_risky, (
-            "When loosen_internal_shapes=False, expected at least one nested Loop body "
-            "to retain a risky internal value_info (arithmetic/shape producer with a "
-            "concrete dim)."
-        )
-    except Exception:
-        pass

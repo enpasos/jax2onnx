@@ -49,11 +49,9 @@ def test_broadcast_in_dim_helpers_unique_ssa(tmp_path):
     model = to_onnx(
         _fn_scan_two_broadcasts,
         inputs=[spec],
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_in_dim_ssa_unique",
-        use_onnx_ir=True,
-    )
+        use_onnx_ir=True)
 
     all_outs = _collect_node_output_names(model.graph)
     dupes = [name for name, count in collections.Counter(all_outs).items() if count > 1]

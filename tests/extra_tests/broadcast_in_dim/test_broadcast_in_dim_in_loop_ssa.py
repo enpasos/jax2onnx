@@ -1,7 +1,6 @@
 """
 Regression guard for SSA naming when broadcast_in_dim is used inside a Loop body.
 We build a scan with xs=None (→ lowered to ONNX Loop) whose body uses multiple
-broadcast_in_dim sites over a symbolic shape (B, 4). With loosen_internal_shapes=True,
 the lowering emits Shape/Gather/Unsqueeze helpers at runtime. Historically, helper
 names could collide (e.g. 'Add__shape'), violating SSA inside the Loop body.
 This test verifies all node outputs in the (sub)graph are unique and that ORT
@@ -101,7 +100,6 @@ def test_broadcast_in_dim_inside_loop_ssa_unique(tmp_path):
     model = to_onnx(
         _fn_loop_body_has_two_broadcasts,
         inputs=[spec],
-        loosen_internal_shapes=True,  # promotes runtime Shape helpers
         opset=21,
         model_name="broadcast_in_dim_loop_ssa_unique",
     )
@@ -144,7 +142,6 @@ def test_broadcast_in_dim_loop_emits_shape_nodes_against_body_inputs():
     model = to_onnx(
         _fn_loop_body_has_two_broadcasts,
         inputs=[spec],
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_in_dim_loop_shape_inputs",
     )

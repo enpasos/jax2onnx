@@ -113,7 +113,6 @@ def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(
         enable_double_precision=True,
         opset=21,
         model_name="loop_body_loosen_shapes_vi_check",
-        loosen_internal_shapes=True,  # Ensure shapes are loosened for internal value_info
     )
 
     p = tmp_path / "loop_body_loosen_shapes_vi_check.onnx"
@@ -130,4 +129,4 @@ def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(
     for vi in body.value_info:
         assert _all_dims_dynamic(
             vi
-        ), f"Loop body VI '{vi.name}' must be rank-only when loosening is enabled."
+        ), f"Loop body VI '{vi.name}' must be rank-only after converter loosening."

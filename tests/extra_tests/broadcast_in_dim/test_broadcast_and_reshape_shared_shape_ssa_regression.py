@@ -95,7 +95,6 @@ def test_loop_body_shared_shape_helpers_are_ssa_unique(tmp_path, dtype):
         _body_broadcast_and_reshape_on_same_h,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_ssa",
     )
@@ -125,7 +124,6 @@ def test_numeric_executes(dtype=jnp.float64):
         _body_broadcast_and_reshape_on_same_h,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_numeric",
     )

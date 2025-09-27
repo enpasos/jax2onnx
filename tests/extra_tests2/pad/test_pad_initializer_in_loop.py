@@ -33,7 +33,6 @@ def test_pad_inside_loop_ir_pipeline(dtype):
         _pad_in_loop_fn,
         inputs=[spec],
         enable_double_precision=(dtype == jnp.float64),
-        loosen_internal_shapes=True,
         opset=21,
         model_name=f"pad_in_loop_{np.dtype(dtype).name}",
         use_onnx_ir=True,

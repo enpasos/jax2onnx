@@ -52,7 +52,6 @@ class TestScanShapeOfSSARegression:
         model = to_onnx(
             _scan_wrapper,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="scan_shapeof_ssa_regression",
             use_onnx_ir=True,
@@ -84,7 +83,6 @@ class TestScanShapeOfSSARegression:
         model = to_onnx(
             _nested_fori_scan_wrapper,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="nested_fori_scan_shapeof_ssa_regression",
             use_onnx_ir=True,

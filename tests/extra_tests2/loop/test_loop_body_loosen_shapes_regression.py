@@ -111,7 +111,6 @@ def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_pa
         enable_double_precision=True,
         opset=21,
         model_name="loop_body_loosen_shapes_vi_check_ir",
-        loosen_internal_shapes=True,
         use_onnx_ir=True,
     )
 

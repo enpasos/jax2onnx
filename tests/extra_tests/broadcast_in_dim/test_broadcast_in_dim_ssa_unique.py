@@ -54,7 +54,6 @@ def test_broadcast_in_dim_helpers_unique_ssa(tmp_path):
     model = to_onnx(
         _fn_scan_two_broadcasts,
         inputs=[spec],
-        loosen_internal_shapes=True,  # encourage runtime Shape() usage
         opset=21,
         model_name="broadcast_in_dim_ssa_unique",
     )

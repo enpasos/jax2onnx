@@ -1,7 +1,7 @@
 
 # Loosen Internal Shapes (Loop/Scan/If Bodies)
 
-**Status:** Advanced / opt-in. **Default: off** (backwards compatible)
+**Status:** Always enabled (since Sept 2025).
 
 ## Why
 
@@ -15,66 +15,32 @@ subgraphs, which can trigger failures in complex models (often nested loops):
 
 ## What it does
 
-When enabled, we:
-- **Drop** internal `value_info` for outputs of shape/dtype-sensitive ops:
+The converter automatically:
+
+* **Drops** internal `value_info` for outputs of shape/dtype-sensitive ops:
   `Reshape`, `Squeeze`, `Unsqueeze`, `Expand`, `Concat`, `Range`, `Shape`,
   `NonZero`, `Gather`, `GatherND`, `Slice`, `Cast`, `Constant`, `ConstantOfShape`,
-  and a light heuristic for index `Add`.
-- For **remaining** internal `value_info`, keep **dtype + rank** but clear all dims
-  → **rank-only** (no `dim_value`/`dim_param`).
+  plus a light heuristic for index `Add`.
+* For the **remaining** internal `value_info`, keeps **dtype + rank** but clears
+  all concrete dimensions → “rank-only” (no `dim_value`/`dim_param`).
 
-This prevents subgraph shapes from being over-constrained and lets ORT infer safely.
-
-## How to enable
-
-**Python API**
-```python
-from jax2onnx import to_onnx
-
-model = to_onnx(
-    fn, inputs=[...],
-    enable_double_precision=True,      # optional if you use x64
-    loosen_internal_shapes=True        # ← enable
-)
-````
-
-**Environment variable**
-
-```bash
-export JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1
-```
-
-(Useful if you can’t change call sites. The function argument takes precedence when set to True.)
-
-**CLI**
-
-```bash
-jax2onnx my.module fn --out model.onnx --opset 21 --float64 --loosen-internal-shapes
-```
+This prevents subgraph metadata from re-tightening shapes and lets ONNX Runtime
+infer safely even in deeply nested control-flow graphs.
 
 ## Netron impact
 
-Netron displays shapes from `value_info`. With loosening on, internal tensors in loop bodies
-will mostly show as **dtype + rank** with unknown dims (e.g., `double[?, ?, ?]`), or sometimes
-no explicit shape if their `value_info` was dropped. Top-level inputs/outputs remain unchanged.
-
-## When to use
-
-* ORT fails with shape/type inference errors in models using Loop/Scan/If (especially **nested loops**).
-* You don’t rely on concrete internal dims for inspection/optimization.
-
-Keep it off if you want maximum shape detail in Netron and your model already loads/runs fine.
+Netron shows whatever `value_info` reports. With loosening baked in, internal
+Loop/Scan/If tensors typically appear as dtype + rank with unknown dims (for
+example `double[?, ?, ?]`). Top-level inputs/outputs retain their original
+shapes.
 
 ## Interop with `enable_double_precision`
 
-* `enable_double_precision=True` keeps graph tensors as `tensor(double)` (helpful for JAX x64).
-* `loosen_internal_shapes=True` avoids re-tightening inside control-flow bodies.
-
-They solve different problems and can be used together.
+`enable_double_precision=True` still controls tensor element types (`float`
+vs. `double`). Shape loosening operates independently and is always active.
 
 ## FAQ
 
-* **Numerical changes?** None — we modify metadata, not computation.
-* **Could this hide bugs?** ORT will still error at execution time if shapes are truly incompatible.
-* **Why not default on?** Backward compatibility and richer Netron visuals by default.
-
+* **Numerical changes?** None — we only adjust metadata.
+* **Could this hide bugs?** ORT will still fail at execution time if shapes are
+  genuinely incompatible; loosening merely avoids over-constrained metadata.

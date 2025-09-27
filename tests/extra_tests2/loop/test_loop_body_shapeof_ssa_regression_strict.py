@@ -49,7 +49,6 @@ def test_loop_body_shapeof_ssa_and_ort_load(tmp_path, shape):
         model = to_onnx(
             _model_with_dup_shape_of,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="loop_body_shapeof_ssa_strict_ir",
             use_onnx_ir=True,

@@ -31,7 +31,6 @@ def test_pad_inside_loop_builds_and_infers(dtype):
         inputs=[x],
         enable_double_precision=(dtype == jnp.float64),
         opset=21,
-        loosen_internal_shapes=True,
         model_name=f"pad_in_loop_{np.dtype(dtype).name}",
     )
     onnx.checker.check_model(m)

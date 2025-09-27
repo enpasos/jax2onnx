@@ -263,7 +263,6 @@ def to_onnx(
     model_name: str,
     opset: int,
     enable_double_precision: bool,
-    loosen_internal_shapes: bool,
     record_primitive_calls_file: Optional[str],
 ) -> ir.Model:
     """
@@ -301,7 +300,7 @@ def to_onnx(
         set(input_params.keys()) if input_params else set(),
     )
     # Expose knobs for downstream (optional)
-    setattr(ctx, "loosen_internal_shapes", bool(loosen_internal_shapes))
+    setattr(ctx, "loosen_internal_shapes", True)
     if record_primitive_calls_file:
         setattr(ctx, "record_primitive_calls_file", str(record_primitive_calls_file))
 
@@ -311,7 +310,16 @@ def to_onnx(
     # Map constvars
     for cv, cval in zip(jpr.constvars, closed.consts):
         np_c = np.asarray(cval)
-        if np.issubdtype(np_c.dtype, np.floating):
+        aval_dtype = getattr(getattr(cv, "aval", None), "dtype", None)
+        target_dtype = None
+        if aval_dtype is not None:
+            try:
+                target_dtype = np.dtype(aval_dtype)
+            except TypeError:
+                target_dtype = None
+        if target_dtype is not None and target_dtype != np_c.dtype:
+            np_c = np_c.astype(target_dtype, copy=False)
+        elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
             np_c = np_c.astype(default_float, copy=False)
         ctx.bind_const_for_var(cv, np_c)
 

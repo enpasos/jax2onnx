@@ -22,19 +22,6 @@ _FLOAT64_HELP = (
     "If omitted, tensors are exported in single precision (tensor(float))."
 )
 
-_LOOSEN_HELP = (
-    "Relax internal shapes inside control-flow subgraphs (Loop/Scan/If). "
-    "This keeps internal value_info entries at rank-only (dtype + rank, dims are dynamic) "
-    "and drops value_info for outputs of shape/dtype-sensitive ops (Reshape, (Un)Squeeze, "
-    "Expand, Concat, Gather/GatherND, Slice, Cast, Constant/ConstantOfShape, Range, Shape, "
-    "NonZero, and a light heuristic for index Add). "
-    "Effect: ONNX Runtime is far less likely to fail with shape/type inference errors in "
-    "nested loops. Trade-off: Netron will show fewer concrete dims inside loop bodies. "
-    "Default is off for backward compatibility. You can also enable via "
-    "JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1."
-)
-
-
 def to_onnx(
     fn: Callable,
     inputs: List[Any],
@@ -44,7 +31,6 @@ def to_onnx(
     *,  # All arguments after this must be keyword-only
     use_onnx_ir: bool = False,
     enable_double_precision: bool = False,
-    loosen_internal_shapes: bool = False,
     record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
     """
@@ -63,10 +49,6 @@ def to_onnx(
         opset: ONNX opset version to target. Defaults to 21.
         use_onnx_ir: If True, route to the new ONNX IR pipeline (converter2). Default: False (legacy).
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
-        loosen_internal_shapes: If True, relax internal value_info in Loop/Scan/If bodies to rank-only and drop "
-            "shape/dtype-sensitive producer VIs so ORT can infer safely (helps nested control-flow). "
-            "Default False. You can also enable globally via env var JAX2ONNX_LOOSEN_INTERNAL_SHAPES=1. "
-            "Trade-off: Netron shows fewer concrete dims inside loop bodies.
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be
             recorded to this file. This log can be used by developers to manually
@@ -91,7 +73,7 @@ def to_onnx(
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
         f"use_onnx_ir={use_onnx_ir}, "
-        f"enable_double_precision={enable_double_precision}, loosen_internal_shapes={loosen_internal_shapes}, "
+        f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
 
@@ -147,7 +129,6 @@ def to_onnx(
         model_name=model_name,
         opset=opset,
         enable_double_precision=enable_double_precision,
-        loosen_internal_shapes=loosen_internal_shapes,
         record_primitive_calls_file=record_primitive_calls_file,
     )
 
@@ -166,7 +147,6 @@ def to_onnx(
     ) or result_module.startswith("onnx_ir"):
         postprocess_ir_model(
             result,
-            loosen_internal_shapes=loosen_internal_shapes,
             promote_to_double=enable_double_precision,
         )
         return ir_to_onnx(result)
@@ -204,16 +184,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help=_FLOAT64_HELP,
     )
-    # ──────────────── NEW FLAG ────────────────
-    p.add_argument(
-        "--loosen-internal-shapes",
-        dest="loosen_internal_shapes",
-        action="store_true",
-        default=False,
-        help=_LOOSEN_HELP,
-    )
-    # ──────────────────────────────────────────
-
     # Add new argument for primitive call recording
     p.add_argument(
         "--record-primitives",
@@ -257,7 +227,6 @@ def run_command_line():
         model_name=args.fn,
         opset=args.opset,
         enable_double_precision=args.enable_double_precision,
-        loosen_internal_shapes=getattr(args, "loosen_internal_shapes", False),
         record_primitive_calls_file=args.record_primitive_calls_file,
     )
 

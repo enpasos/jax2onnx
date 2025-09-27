@@ -44,7 +44,6 @@ def test_loop_body_io_are_relaxed_when_requested():
         _simple_loop_fn,
         inputs=[y0],
         enable_double_precision=True,
-        loosen_internal_shapes=True,  # <— this is the knob under test
         opset=21,
         model_name="loop_body_io_relaxation",
     )

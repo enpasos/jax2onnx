@@ -24,6 +24,7 @@ from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primit
 from jax2onnx.plugins2.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
+    relax_value_to_rank_only,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
@@ -623,7 +624,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars):
-            state_inputs.append(loop_ctx.add_input_for_invar(var, idx + 2))
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
 
         lower_jaxpr_eqns(loop_ctx, jaxpr)
 
@@ -661,13 +664,18 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     name=loop_ctx.fresh_name("Identity"),
                 )
             )
+            relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         for out_var in jaxpr.outvars[:num_carry]:
-            body_outputs.append(loop_ctx.get_value_for_var(out_var))
+            out_val = loop_ctx.get_value_for_var(out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
 
         for out_var in jaxpr.outvars[num_carry:]:
-            body_outputs.append(loop_ctx.get_value_for_var(out_var))
+            out_val = loop_ctx.get_value_for_var(out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
 
         loop_ctx.builder.outputs = body_outputs
 
@@ -810,7 +818,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
-            state_inputs.append(loop_ctx.add_input_for_invar(var, idx + 2))
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
 
         sequence_states: list[ir.Value] = []
         for i, seq_eqn_var in enumerate(seq_invars):
@@ -877,10 +887,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     name=loop_ctx.fresh_name("Identity"),
                 )
             )
+            relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         for out_var in jaxpr.outvars[:num_carry]:
-            body_outputs.append(loop_ctx.get_value_for_var(out_var))
+            out_val = loop_ctx.get_value_for_var(out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
 
         for seq_state in sequence_states:
             seq_passthrough = ir.Value(
@@ -900,7 +913,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_outputs.append(seq_passthrough)
 
         for out_var in jaxpr.outvars[num_carry:]:
-            body_outputs.append(loop_ctx.get_value_for_var(out_var))
+            out_val = loop_ctx.get_value_for_var(out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
 
         loop_ctx.builder.outputs = body_outputs
 

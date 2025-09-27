@@ -107,7 +107,6 @@ def test_loop_body_shape_helpers_are_ssa_unique(dtype):
         _loop_body_with_two_add_shapeof_sites,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_shapeof_guard_unique",
     )
@@ -132,7 +131,6 @@ def test_onnxruntime_behaviour_matches_ssa_status(dtype):
         _loop_body_with_two_add_shapeof_sites,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_shapeof_guard_ort",
     )

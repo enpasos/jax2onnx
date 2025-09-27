@@ -4,6 +4,8 @@ import inspect
 import types
 from typing import Any
 
+import onnx_ir as ir
+
 from jax2onnx.plugins2.plugin_system import PLUGIN_REGISTRY2
 
 
@@ -83,3 +85,41 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
         ),
     )
     return child_ctx
+
+
+def relax_value_to_rank_only(val: ir.Value | None) -> None:
+    if val is None or not isinstance(val, ir.Value):
+        return
+    shape_obj = getattr(val, "shape", None)
+    dims = getattr(shape_obj, "dims", None)
+    if dims is None:
+        try:
+            dims = list(shape_obj)
+        except Exception:
+            dims = None
+    if dims is None:
+        tensor_type = getattr(val, "type", None)
+        if isinstance(tensor_type, ir.TensorType):
+            shape_obj = getattr(tensor_type, "shape", None)
+            dims = getattr(shape_obj, "dims", None)
+            if dims is None:
+                try:
+                    dims = list(shape_obj) if shape_obj is not None else None
+                except Exception:
+                    dims = None
+    if not dims or len(dims) == 0:
+        return
+    if all(dim is None for dim in dims):
+        return
+    rank_only = ir.Shape(tuple(None for _ in dims))
+    try:
+        val.shape = rank_only
+    except Exception:
+        pass
+    tensor_type = getattr(val, "type", None)
+    if isinstance(tensor_type, ir.TensorType):
+        dtype = getattr(tensor_type, "dtype", getattr(tensor_type, "elem_type", None))
+        try:
+            val.type = ir.TensorType(dtype, rank_only)
+        except Exception:
+            val.type = ir.TensorType(dtype)

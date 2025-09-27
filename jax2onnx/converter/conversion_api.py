@@ -93,7 +93,6 @@ def to_onnx(
     opset: int = 21,
     *,
     enable_double_precision: bool = False,
-    loosen_internal_shapes: bool = False,
     default_dtype: Any | None = None,
     record_primitive_calls_file: Optional[str] = None,
     # ... other parameters ...
@@ -118,10 +117,6 @@ def to_onnx(
         If **True**, the converter keeps every tensor in double
         precision (`tensor(double)`).  If **False** (default) the
         graph is down-cast to single precision.
-    loosen_internal_shapes : bool, optional
-        If True, allow plugins to relax internal subgraph
-        value_info to rank-only (clear concrete dim_value/param) to keep ORT
-        from re-tightening Loop/Scan body shapes, by default False
     default_dtype : Any | None, optional
         Default data type for inputs if not specified, by default None
 
@@ -212,9 +207,7 @@ def to_onnx(
 
     # Propagate the knob so subgraph builders can read it (optional today; no-ops if unused).
     if hasattr(converter, "builder"):
-        setattr(
-            converter.builder, "loosen_internal_shapes", bool(loosen_internal_shapes)
-        )
+        setattr(converter.builder, "loosen_internal_shapes", True)
 
     converter.call_params = input_params or {}
 
@@ -271,10 +264,8 @@ def to_onnx(
             record_primitive_calls_file,
         )
 
-    # Post-optimization sanitizer: shape inference may have re-added concrete dims
-    # inside Loop/Scan bodies. If requested, walk subgraphs and relax VIs again.
-    if bool(loosen_internal_shapes):
-        _relax_internal_value_infos_in_subgraphs(model)
+    # Post-optimization sanitizer: walk subgraphs and relax VIs where needed.
+    _relax_internal_value_infos_in_subgraphs(model)
 
     return model
 

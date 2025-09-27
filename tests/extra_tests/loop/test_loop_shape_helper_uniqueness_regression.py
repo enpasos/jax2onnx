@@ -64,7 +64,6 @@ def test_loop_body_has_no_duplicate_shape_helpers(dtype):
         _loop_two_adds_two_reshapes,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="shape_helper_uniqueness",
     )

@@ -87,7 +87,6 @@ def test_ff_like_mul_in_loop_inference_currently_fails(dtype):
             ff_like,
             inputs=[spec],
             enable_double_precision=True,
-            loosen_internal_shapes=True,
             opset=21,
             model_name="ff_like_broadcast_mul_inference_regression",
             use_onnx_ir=True,
