@@ -55,10 +55,6 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
             getattr(parent_ctx, "_sym_origin_str", {})
         )
 
-    # Propagate optional knobs the parent may expose.
-    for attr_name in ("loosen_internal_shapes", "_function_registry"):
-        if hasattr(parent_ctx, attr_name):
-            setattr(child_ctx, attr_name, getattr(parent_ctx, attr_name))
 
     # Prefix all fresh names so nested graphs remain unique.
     prefix_base = parent_ctx.fresh_name(prefix)

@@ -300,7 +300,7 @@ def to_onnx(
         set(input_params.keys()) if input_params else set(),
     )
     # Expose knobs for downstream (optional)
-    setattr(ctx, "loosen_internal_shapes", True)
+
     if record_primitive_calls_file:
         setattr(ctx, "record_primitive_calls_file", str(record_primitive_calls_file))
 

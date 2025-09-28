@@ -22,7 +22,8 @@ import numpy as np
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
-from onnx import helper
+import onnx
+from onnx import helper, numpy_helper
 
 from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -59,6 +60,40 @@ def _shape_prefix_of(coll, prefix: str):
                 for d in vi.type.tensor_type.shape.dim
             )
     raise KeyError(f"No tensor name starting with '{prefix}'")
+
+
+def _tensor_as_array(model, name):
+    for init in model.graph.initializer:
+        if init.name == name:
+            return numpy_helper.to_array(init)
+    for node in model.graph.node:
+        if node.op_type == "Constant" and node.output and node.output[0] == name:
+            for attr in node.attribute:
+                if (
+                    attr.name == "value"
+                    and attr.type == onnx.AttributeProto.TENSOR
+                    and attr.t is not None
+                ):
+                    return numpy_helper.to_array(attr.t)
+    return None
+
+
+def _first_flatten_shape(model):
+    for node in model.graph.node:
+        if node.op_type == "Reshape" and len(node.input) >= 2:
+            arr = _tensor_as_array(model, node.input[1])
+            if arr is not None and arr.ndim == 1 and arr.size == 2 and arr[0] == -1:
+                return arr
+    return None
+
+
+def _gemm_weight_shape(model):
+    for node in model.graph.node:
+        if node.op_type == "Gemm" and len(node.input) >= 2:
+            arr = _tensor_as_array(model, node.input[1])
+            if arr is not None:
+                return arr.shape
+    return None
 
 
 # Define the primitive for linear_general operations.
@@ -101,14 +136,14 @@ _ORIGINAL_LG_CALL: Callable | None = None
             "post_check_onnx_graph": lambda m: (
                 # var_0  (graph input)  should be B×8×4×16
                 _shape_of(m.graph.input, "var_0") == ("B", 8, 4, 16)
-                # input_reshape  flatten → ?×64
-                and (lambda s: s[0] is None and s[1] == 64)(
-                    _shape_prefix_of(m.graph.value_info, "input_reshape")
-                )
-                # gemm_output     → ?×32
-                and (lambda s: s[0] is None and s[1] == 32)(
-                    _shape_prefix_of(m.graph.value_info, "gemm_output")
-                )
+                # input_reshape  flatten → ?×64 (reshape constant [-1, 64])
+                and (
+                    lambda vec: vec is not None and vec.size == 2 and vec[1] == 64
+                )(_first_flatten_shape(m))
+                # gemm weights shape 64×32 (second dim = 32)
+                and (
+                    lambda shp: shp is not None and len(shp) == 2 and shp[1] == 32
+                )(_gemm_weight_shape(m))
                 # var_3  (graph output)  B×8×32
                 and _shape_of(m.graph.output, "var_3") == ("B", 8, 32)
             ),

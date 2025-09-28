@@ -14,18 +14,76 @@ Fix for missing graph‑input error
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Any
 import logging
 import numpy as np
+import onnx
 import jax
 import jax.numpy as jnp
 from jax import core, lax
 from flax import nnx
 from jax.extend.core import Primitive
-from onnx import helper
+from onnx import helper, numpy_helper
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
+
+
+def _static_dim(dim):
+    """Return an int when the dimension is statically known."""
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    try:
+        return int(dim)  # handles numpy scalars that advertise __int__
+    except Exception:
+        return None
+
+
+def _update_symbolic_shape(converter, name: str, shape: tuple[Any, ...]) -> None:
+    if not hasattr(converter, "symbolic_shapes"):
+        return
+    if hasattr(converter, "_dim_to_symbol_safe"):
+        sanitized = tuple(
+            converter._dim_to_symbol_safe(d) if d is not None else None
+            for d in shape
+        )
+    else:
+        sanitized = shape
+    converter.symbolic_shapes[name] = sanitized
+
+
+def _tensor_as_array(model, name):
+    for init in model.graph.initializer:
+        if init.name == name:
+            return numpy_helper.to_array(init)
+    for node in model.graph.node:
+        if node.op_type == "Constant" and node.output and node.output[0] == name:
+            for attr in node.attribute:
+                if (
+                    attr.name == "value"
+                    and attr.type == onnx.AttributeProto.TENSOR
+                    and attr.t is not None
+                ):
+                    return numpy_helper.to_array(attr.t)
+    return None
+
+
+def _first_flatten_shape(model):
+    for node in model.graph.node:
+        if node.op_type == "Reshape" and len(node.input) >= 2:
+            arr = _tensor_as_array(model, node.input[1])
+            if arr is not None and arr.ndim == 1 and arr.size == 2 and arr[0] == -1:
+                return arr
+    return None
+
+
+def _gemm_weight_shape(model):
+    for node in model.graph.node:
+        if node.op_type == "Gemm" and len(node.input) >= 2:
+            arr = _tensor_as_array(model, node.input[1])
+            if arr is not None:
+                return arr.shape
+    return None
 
 if TYPE_CHECKING:  # only for static analysis / IDEs
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -85,14 +143,14 @@ nnx.linear_p.multiple_results = False
             "post_check_onnx_graph": lambda m: (
                 # input  B×10×128
                 _shape_of(m.graph.input, "var_0") == ("B", 10, 128)
-                # after flatten   ?×128
-                and (lambda s: s[0] is None and s[1] == 128)(
-                    _shape_prefix_of(m.graph.value_info, "x2d")
-                )
-                # gemm out       ?×64
-                and (lambda s: s[0] is None and s[1] == 64)(
-                    _shape_prefix_of(m.graph.value_info, "gemm_out")
-                )
+                # after flatten via reshape constant [-1, 128]
+                and (
+                    lambda vec: vec is not None and vec.size == 2 and vec[1] == 128
+                )(_first_flatten_shape(m))
+                # gemm weight   128×64 → ensures output width 64
+                and (
+                    lambda shp: shp is not None and len(shp) == 2 and shp[1] == 64
+                )(_gemm_weight_shape(m))
                 # final output   B×10×64
                 and _shape_of(m.graph.output, "var_3") == ("B", 10, 64)
             ),
@@ -185,8 +243,44 @@ class LinearPlugin(PrimitiveLeafPlugin):
         x_shape = x_var.aval.shape
         out_shape = y_var.aval.shape
         dtype = x_var.aval.dtype
-        in_features = kernel_var.aval.shape[0]
-        out_features = kernel_var.aval.shape[1]
+
+        kernel_shape = getattr(kernel_var.aval, "shape", ())
+        kernel_static = tuple(_static_dim(d) for d in kernel_shape)
+        kernel_const = s.name_to_const.get(kernel_name)
+        const_shape: tuple[int, ...] | tuple[Any, ...] = ()
+        if kernel_const is not None:
+            if hasattr(kernel_const, "shape"):
+                const_shape = tuple(int(v) for v in kernel_const.shape)
+            elif hasattr(kernel_const, "dims"):
+                const_shape = tuple(int(v) for v in kernel_const.dims)
+        if const_shape:
+            padded = list(kernel_static)
+            if len(padded) < len(const_shape):
+                padded.extend([None] * (len(const_shape) - len(padded)))
+            kernel_static = tuple(
+                padded[i] if padded[i] is not None else const_shape[i]
+                for i in range(len(const_shape))
+            )
+        logger = logging.getLogger("jax2onnx.plugins.flax.nnx.linear")
+        logger.debug(
+            "linear.merge: kernel_shape=%s kernel_static=%s const_shape=%s",
+            kernel_shape,
+            kernel_static,
+            const_shape,
+        )
+
+        in_features_static = kernel_static[0] if len(kernel_static) > 0 else None
+        out_features_static = kernel_static[1] if len(kernel_static) > 1 else None
+        in_features = (
+            in_features_static
+            if in_features_static is not None
+            else (kernel_shape[0] if kernel_shape else None)
+        )
+        out_features = (
+            out_features_static
+            if out_features_static is not None
+            else (kernel_shape[1] if len(kernel_shape) > 1 else None)
+        )
 
         need_flatten = len(x_shape) > 2
         if need_flatten:
@@ -197,8 +291,12 @@ class LinearPlugin(PrimitiveLeafPlugin):
             s.add_node(
                 helper.make_node("Reshape", [x_name, reshape_shape], [flat_name])
             )
-            # ---------- key line: anonymous batch dim = None ----------
-            s.add_shape_info(flat_name, (None, in_features), dtype)
+            flat_shape = (
+                None,
+                in_features_static if in_features_static is not None else None,
+            )
+            _update_symbolic_shape(s, flat_name, flat_shape)
+            s.add_shape_info(flat_name, flat_shape, dtype)
             x_name = flat_name
 
         gemm_out = s.get_unique_name("gemm_out")
@@ -210,7 +308,12 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         # After flattening an (unknown) batch we want “?” not "unk__0"
         batch_dim_gemm = None if need_flatten else (x_shape[0] if x_shape else None)
-        s.add_shape_info(gemm_out, (batch_dim_gemm, out_features), dtype)
+        gemm_shape = (
+            batch_dim_gemm,
+            out_features_static if out_features_static is not None else None,
+        )
+        _update_symbolic_shape(s, gemm_out, gemm_shape)
+        s.add_shape_info(gemm_out, gemm_shape, dtype)
 
         if need_flatten:
             original_x_shape = s.get_unique_name("original_x_shape")
@@ -230,8 +333,13 @@ class LinearPlugin(PrimitiveLeafPlugin):
             )
             s.add_shape_info(batch_dims_shape, (rank - 1,), np.int64)
 
+            out_feat_int = (
+                out_features_static
+                if out_features_static is not None
+                else out_features
+            )
             out_features_const = s.get_constant_name(
-                np.array([out_features], dtype=np.int64)
+                np.array([out_feat_int], dtype=np.int64)
             )
 
             final_shape = s.get_unique_name("final_shape")
@@ -249,6 +357,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             s.add_node(
                 helper.make_node("Reshape", [gemm_out, final_shape], [output_name])
             )
+            _update_symbolic_shape(s, output_name, out_shape)
             s.add_shape_info(output_name, out_shape, dtype)
         else:
             s.var_to_name[y_var] = gemm_out

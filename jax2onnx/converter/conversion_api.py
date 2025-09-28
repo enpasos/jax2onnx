@@ -205,9 +205,6 @@ def to_onnx(
     )
     builder.converter = converter
 
-    # Propagate the knob so subgraph builders can read it (optional today; no-ops if unused).
-    if hasattr(converter, "builder"):
-        setattr(converter.builder, "loosen_internal_shapes", True)
 
     converter.call_params = input_params or {}
 
