@@ -26,9 +26,7 @@ _DPA_PRIM = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
 
 _EXPECT_DPA_MASK_WHERE = EG2(
-    [
-        "MatMul:BxNxTxS -> Mul:BxNxTxS -> Where:BxNxTxS -> Softmax:BxNxTxS -> MatMul:BxNxTxH"
-    ],
+    ["MatMul -> Mul -> Where -> Softmax -> MatMul"],
     symbols={"B": None, "N": None, "T": None, "S": None, "H": None},
 )
 
@@ -75,6 +73,14 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
         type=ir.TensorType(ir.DataType.BOOL),
         shape=ir.Shape(dims),
     )
+
+
+def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
+    if isinstance(dim, (int, np.integer)):
+        return symbol
+    if isinstance(dim, str) and dim:
+        return dim
+    return symbol
 
 
 @register_primitive(
@@ -374,10 +380,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         k_len_v, _ = _coerce_dim(k_len, "key length")
 
         head_dim_i = cast(int, head_dim_v)
-        batch_dim_i: DimLike = batch_dim_v
-        num_heads_i: DimLike = num_heads_v
-        q_len_i: DimLike = q_len_v
-        k_len_i: DimLike = k_len_v
+        batch_dim_i: DimLike = _symbolic_or_dim("B", batch_dim_v)
+        num_heads_i: DimLike = _symbolic_or_dim("N", num_heads_v)
+        q_len_i: DimLike = _symbolic_or_dim("T", q_len_v)
+        k_len_i: DimLike = _symbolic_or_dim("S", k_len_v)
+        head_dim_sym: DimLike = _symbolic_or_dim("H", head_dim_i)
 
         q_t = _make_tensor_value(
             ctx,
@@ -395,7 +402,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
             )
         )
-        _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym))
         _add_value_info(ctx, q_t)
 
         k_t = _make_tensor_value(
@@ -411,7 +418,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 3, 1])],
             )
         )
-        _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_i, k_len_i))
+        _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_sym, k_len_i))
         _add_value_info(ctx, k_t)
 
         logits = _make_tensor_value(
@@ -505,7 +512,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 mask_dims.append(dim_val)
             mask_dims_tuple = tuple(mask_dims)
             if mask_shape:
-                _stamp_type_and_shape(mask_val, mask_dims_tuple)
+                mask_dims_sym = tuple(
+                    _symbolic_or_dim(sym, dim)
+                    for sym, dim in zip(("B", "N", "T", "S"), mask_dims_tuple)
+                )
+                _stamp_type_and_shape(mask_val, mask_dims_sym)
                 _add_value_info(ctx, mask_val)
             mask_dtype = np.dtype(getattr(mask_var.aval, "dtype", np.bool_))
             if mask_dtype != np.bool_:
@@ -526,7 +537,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                         ],
                     )
                 )
-                _stamp_type_and_shape(mask_bool, mask_dims_tuple)
+                _stamp_type_and_shape(mask_bool, mask_dims_sym)
                 _add_value_info(ctx, mask_bool)
             else:
                 mask_bool = mask_val
@@ -588,7 +599,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
             )
         )
-        _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_i))
+        _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_sym))
         _add_value_info(ctx, v_t)
 
         out_t = _make_tensor_value(
@@ -603,7 +614,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("MatMul"),
             )
         )
-        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym))
         _add_value_info(ctx, out_t)
 
         ctx.add_node(
@@ -616,7 +627,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
             )
         )
-        _stamp_type_and_shape(out_val, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
+        _stamp_type_and_shape(out_val, (batch_dim_i, q_len_i, num_heads_i, head_dim_sym))
         _add_value_info(ctx, out_val)
 
     @classmethod

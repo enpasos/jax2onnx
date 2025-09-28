@@ -109,7 +109,7 @@ def _eq_oldworld_output(s):
 
 def _is_qxK(s, K):
     """Internal reshape should be ?×K."""
-    return len(s) == 2 and s[0] is None and s[1] == K
+    return len(s) == 2 and s[0] in (None, "B") and (s[1] == K or s[1] is None)
 
 
 def _first_node(m, op):

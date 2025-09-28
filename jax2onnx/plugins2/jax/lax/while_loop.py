@@ -179,6 +179,10 @@ def _clone_value_for_subgraph(v: ir.Value) -> ir.Value:
     return ir.Value(name=v.name, type=tensor_type, shape=shape)
 
 
+def _is_literal(var) -> bool:
+    return hasattr(var, "val")
+
+
 def _ensure_bool_value(
     ctx: "IRContext", value: ir.Value, *, name_hint: str
 ) -> ir.Value:
@@ -661,3 +665,37 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             val.type = ir.TensorType(dtype)
             _stamp_type_and_shape(val, shape)
             _ensure_value_info(ctx, val)
+
+        if eqn.invars and all(_is_literal(v) for v in eqn.invars):
+            for var in eqn.outvars:
+                aval = getattr(var, "aval", None)
+                if aval is None:
+                    continue
+                aval_dtype = getattr(aval, "dtype", None)
+                if aval_dtype is None or not np.issubdtype(aval_dtype, np.integer):
+                    continue
+                if np.dtype(aval_dtype) != np.int32:
+                    continue
+                current_val = ctx.get_value_for_var(var)
+                if getattr(getattr(current_val, "type", None), "dtype", None) == ir.DataType.INT64:
+                    continue
+                promoted = ir.Value(
+                    name=ctx.fresh_name("while_int64"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=current_val.shape,
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Cast",
+                        domain="",
+                        inputs=[current_val],
+                        outputs=[promoted],
+                        name=ctx.fresh_name("Cast"),
+                        attributes=[
+                            IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))
+                        ],
+                    )
+                )
+                _stamp_type_and_shape(promoted, tuple(getattr(aval, "shape", ())))
+                _ensure_value_info(ctx, promoted)
+                ctx.bind_value_for_var(var, promoted)

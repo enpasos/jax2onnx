@@ -236,7 +236,10 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     # Part 2: For each base parameter set from Part 1, create float32 and float64 variants
     final_params_list: List[Dict[str, Any]] = []
     for base_param_set in intermediate_params_list:
-        run_only_f64_variant = base_param_set.get("run_only_f64_variant", False)
+        force_enable_double = bool(base_param_set.get("enable_double_precision", False))
+        run_only_f64_variant = (
+            base_param_set.get("run_only_f64_variant", False) or force_enable_double
+        )
         run_only_f32_variant = base_param_set.get("run_only_f32_variant", False)
         disable_float64_test_from_meta = base_param_set.get(
             "disable_float64_test", False
@@ -264,6 +267,7 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
             # Only generate the float64 enabled variant, using the original testcase name
             p_f64_only = base_param_set.copy()
             p_f64_only["_enable_double_precision_test_setting"] = True
+            p_f64_only.pop("enable_double_precision", None)
             # testcase name remains p_f64_only["testcase"] (no suffix)
 
             # Apply float64 casting to values/dtypes for this variant if it's a float test
@@ -302,7 +306,8 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             # Default behavior: generate f32 variant (base name)
             p_f32 = base_param_set.copy()
-            p_f32["_enable_double_precision_test_setting"] = False
+            p_f32["_enable_double_precision_test_setting"] = force_enable_double
+            p_f32.pop("enable_double_precision", None)
             # testcase name remains base_param_set["testcase"]
 
             if not run_only_f64_variant:

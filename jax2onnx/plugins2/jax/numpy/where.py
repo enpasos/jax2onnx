@@ -212,6 +212,19 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             np.dtype(getattr(x_var.aval, "dtype", np.float32)),
             np.dtype(getattr(y_var.aval, "dtype", np.float32)),
         )
+        if (
+            not ctx.builder.enable_double_precision
+            and np.issubdtype(target_dtype, np.floating)
+            and target_dtype == np.float64
+        ):
+            double_enum = getattr(ir.DataType, "DOUBLE", None)
+
+            def _is_value_double(val: ir.Value) -> bool:
+                enum = getattr(getattr(val, "type", None), "dtype", None)
+                return enum == double_enum
+
+            if not _is_value_double(x_val) and not _is_value_double(y_val):
+                target_dtype = np.float32
         dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
 
         x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
@@ -237,7 +250,23 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
     ) -> ir.Value:
         current_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
         if current_dtype == target_dtype:
-            return value
+            dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+            value_enum = getattr(getattr(value, "type", None), "dtype", None)
+            if value_enum == dtype_enum:
+                return value
+
+        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        const_payload = getattr(value, "const_value", None)
+        if const_payload is not None:
+            try:
+                arr = const_payload.numpy()
+            except Exception:
+                arr = None
+            if arr is not None and arr.dtype != target_dtype:
+                arr = arr.astype(target_dtype, copy=False)
+                value.const_value = ir.tensor(arr)
+                value.type = ir.TensorType(dtype_enum)
+                return value
 
         dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         cast_val = ir.Value(

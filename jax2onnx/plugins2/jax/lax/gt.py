@@ -45,6 +45,15 @@ class GtPlugin(PrimitiveLeafPlugin):
         )
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gt_out"))
 
+        lhs_dtype_enum = getattr(getattr(lhs_val, "type", None), "dtype", None)
+        rhs_dtype_enum = getattr(getattr(rhs_val, "type", None), "dtype", None)
+        if (
+            lhs_dtype_enum is not None
+            and rhs_dtype_enum is not None
+            and lhs_dtype_enum != rhs_dtype_enum
+        ):
+            rhs_val = ctx.cast_like(rhs_val, lhs_val, name_hint="gt_rhs")
+
         node = ir.Node(
             op_type="Greater",
             domain="",

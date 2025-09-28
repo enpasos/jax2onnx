@@ -33,7 +33,7 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> "ir.DataType
         if key == np.float16:
             return ir.DataType.FLOAT16
         if key == np.float32:
-            return ir.DataType.FLOAT
+            return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
         if key == np.float64:
             return ir.DataType.DOUBLE
         return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
