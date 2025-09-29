@@ -49,11 +49,15 @@ def _dim_is_known(dim: object) -> bool:
     return False
 
 
-def _make_unknown_shape_like(shape_obj: object) -> ir.Shape | None:
+def _make_unknown_shape_like(
+    shape_obj: object, *, force_rank_only: bool = False
+) -> ir.Shape | None:
     dims = _shape_dims(shape_obj)
     if dims is None:
         return None
-    if all(_dim_is_known(d) for d in dims):
+    if not dims:
+        return None
+    if not force_rank_only and all(_dim_is_known(d) for d in dims):
         return None
     unknown_dims = tuple(None for _ in dims)
     return ir.Shape(unknown_dims)
@@ -97,7 +101,9 @@ def _attribute_iter(node: ir.Node) -> Iterable[object]:
     return []
 
 
-def _loosen_graph_value_infos(graph: ir.Graph) -> None:
+def _loosen_graph_value_infos(
+    graph: ir.Graph, *, force_rank_only: bool = False
+) -> None:
     io_values = list(getattr(graph, "inputs", []) or []) + list(
         getattr(graph, "outputs", []) or []
     )
@@ -115,7 +121,9 @@ def _loosen_graph_value_infos(graph: ir.Graph) -> None:
             name = _value_name(out)
             if name and name in io_names:
                 continue
-            new_shape = _make_unknown_shape_like(getattr(out, "shape", None))
+            new_shape = _make_unknown_shape_like(
+                getattr(out, "shape", None), force_rank_only=force_rank_only
+            )
             if new_shape is not None:
                 out.shape = new_shape
                 tensor_type = getattr(out, "type", None)
@@ -134,7 +142,9 @@ def _loosen_graph_value_infos(graph: ir.Graph) -> None:
                 if name and name in io_names:
                     filtered.append(vi)
                     continue
-                new_shape = _make_unknown_shape_like(getattr(vi, "shape", None))
+                new_shape = _make_unknown_shape_like(
+                    getattr(vi, "shape", None), force_rank_only=force_rank_only
+                )
                 if new_shape is not None:
                     vi.shape = new_shape
                     tt = getattr(vi, "type", None)
@@ -189,9 +199,15 @@ def _promote_constant_attributes(node: ir.Node) -> None:
             setattr(attr, "value", promoted_tensor)
 
 
-def _process_graph(graph: ir.Graph, *, loosen: bool, promote: bool) -> None:
+def _process_graph(
+    graph: ir.Graph,
+    *,
+    loosen: bool,
+    promote: bool,
+    force_rank_only: bool = False,
+) -> None:
     if loosen:
-        _loosen_graph_value_infos(graph)
+        _loosen_graph_value_infos(graph, force_rank_only=force_rank_only)
 
     if promote:
         for init_val in getattr(graph, "initializers", []) or []:
@@ -207,26 +223,40 @@ def _process_graph(graph: ir.Graph, *, loosen: bool, promote: bool) -> None:
                 if isinstance(output, ir.Value):
                     _maybe_promote_value_to_double(output)
 
+        child_force_rank_only = force_rank_only or getattr(node, "op_type", "") in {
+            "Loop",
+            "Scan",
+        }
         for attr in _attribute_iter(node):
             attr_type = getattr(attr, "type", None)
             if attr_type == IRAttrType.GRAPH:
                 sub_graph = getattr(attr, "value", None)
                 if sub_graph is not None:
-                    _process_graph(sub_graph, loosen=loosen, promote=promote)
+                    _process_graph(
+                        sub_graph,
+                        loosen=loosen,
+                        promote=promote,
+                        force_rank_only=child_force_rank_only,
+                    )
             elif attr_type == IRAttrType.GRAPHS:
                 sub_graphs = getattr(attr, "value", None)
                 if sub_graphs is not None:
                     for sub in sub_graphs:
-                        _process_graph(sub, loosen=loosen, promote=promote)
+                        _process_graph(
+                            sub,
+                            loosen=loosen,
+                            promote=promote,
+                            force_rank_only=child_force_rank_only,
+                        )
 
 
 def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
     for fn in getattr(model, "functions", []) or []:
         if loosen:
-            _loosen_graph_value_infos(fn)
-        _process_graph(fn, loosen=loosen, promote=promote)
+            _loosen_graph_value_infos(fn, force_rank_only=False)
+        _process_graph(fn, loosen=loosen, promote=promote, force_rank_only=False)
 
 
 def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:
-    _process_graph(model.graph, loosen=True, promote=False)
+    _process_graph(model.graph, loosen=True, promote=False, force_rank_only=False)
     _process_functions(model, loosen=True, promote=False)

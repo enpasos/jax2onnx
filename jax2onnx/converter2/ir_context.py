@@ -307,7 +307,29 @@ class IRContext:
     def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
         if not isinstance(np_array, np.ndarray):
             np_array = np.asarray(np_array)
-        np_array = self._promote_float_array(np_array)
+        promote_flag = self.builder.enable_double_precision
+        keep_float32 = bool(getattr(self, "_keep_function_float32", False))
+        if getattr(self, "_function_mode", False):
+            aval = getattr(var, "aval", None)
+            aval_np_dtype: np.dtype | None = None
+            if aval is not None and hasattr(aval, "dtype"):
+                try:
+                    aval_np_dtype = np.dtype(aval.dtype)  # type: ignore[arg-type]
+                except TypeError:
+                    aval_np_dtype = None
+            if (
+                keep_float32
+                and aval_np_dtype is not None
+                and np.issubdtype(aval_np_dtype, np.floating)
+                and aval_np_dtype != np.float64
+            ):
+                if np_array.dtype != aval_np_dtype:
+                    np_array = np.asarray(np_array, dtype=aval_np_dtype)
+                promote_flag = False
+            else:
+                np_array = self._promote_float_array(np_array)
+        else:
+            np_array = self._promote_float_array(np_array)
         if getattr(self, "_function_mode", False):
             # In functions, use a Constant node (no model-level initializer)
             # Ensure array is properly handled
@@ -315,7 +337,7 @@ class IRContext:
             v = ir.Value(
                 name=self.fresh_name("const_val"),
                 type=ir.TensorType(
-                    _dtype_to_ir(np_array.dtype, self.builder.enable_double_precision)
+                    _dtype_to_ir(np_array.dtype, promote_flag)
                 ),
                 shape=_to_ir_shape(np_array.shape),
                 const_value=ir.tensor(
@@ -345,7 +367,7 @@ class IRContext:
             v = ir.Value(
                 name=self.fresh_name("const"),
                 type=ir.TensorType(
-                    _dtype_to_ir(np_array.dtype, self.builder.enable_double_precision)
+                    _dtype_to_ir(np_array.dtype, promote_flag)
                 ),
                 shape=_to_ir_shape(np_array.shape),
                 const_value=ir.tensor(np_array),
@@ -365,10 +387,19 @@ class IRContext:
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = var.aval
         shp = tuple(aval.shape)
+        aval_dtype = np.dtype(aval.dtype)
+        promote_flag = self.builder.enable_double_precision
+        if (
+            getattr(self, "_function_mode", False)
+            and getattr(self, "_keep_function_float32", False)
+            and np.issubdtype(aval_dtype, np.floating)
+            and aval_dtype != np.float64
+        ):
+            promote_flag = False
         val = ir.Value(
             name=f"in_{index}",
             type=ir.TensorType(
-                _dtype_to_ir(np.dtype(aval.dtype), self.builder.enable_double_precision)
+                _dtype_to_ir(aval_dtype, promote_flag)
             ),
             shape=_to_ir_shape(shp),
         )
@@ -432,10 +463,19 @@ class IRContext:
             and aval_dtype != np.dtype(self._default_float_dtype)
         ):
             aval_dtype = np.dtype(self._default_float_dtype)
+        promote_flag = self.builder.enable_double_precision
+        if (
+            getattr(self, "_function_mode", False)
+            and getattr(self, "_keep_function_float32", False)
+            and promote_flag
+            and np.issubdtype(aval_dtype, np.floating)
+            and aval_dtype != np.float64
+        ):
+            promote_flag = False
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
             type=ir.TensorType(
-                _dtype_to_ir(aval_dtype, self.builder.enable_double_precision)
+                _dtype_to_ir(aval_dtype, promote_flag)
             ),
             shape=_to_ir_shape(tuple(aval.shape)),
         )

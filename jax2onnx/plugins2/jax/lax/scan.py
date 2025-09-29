@@ -19,7 +19,9 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
-from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape
+from jax2onnx.converter2.ir_builder import _dtype_to_ir
+
+from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape, _ensure_value_info
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins2.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
@@ -29,6 +31,22 @@ from jax2onnx.plugins2.jax.lax._control_flow_utils import (
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter2.ir_context import IRContext
+
+
+def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
+    aval = getattr(var, "aval", None)
+    if aval is None:
+        return None
+    aval_dtype = getattr(aval, "dtype", None)
+    if aval_dtype is None:
+        return None
+    try:
+        np_dtype = np.dtype(aval_dtype)
+    except TypeError:
+        return None
+    if np.issubdtype(np_dtype, np.floating):
+        return _dtype_to_ir(np_dtype, False)
+    return _dtype_to_ir(np_dtype, enable_double)
 
 
 def _maybe_var_type(mod):
@@ -600,6 +618,16 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         jaxpr = closed_jaxpr.jaxpr
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if dtypes and any(dt == np.float32 for dt in dtypes) and not any(
+            dt == np.float64 for dt in dtypes
+        ):
+            setattr(loop_ctx, "_keep_function_float32", True)
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
             np_c = np.asarray(cval)
@@ -705,7 +733,65 @@ class ScanPlugin(PrimitiveLeafPlugin):
         ctx.builder.initializers.append(cond_init)
 
         node_inputs = [trip_count, cond_init]
-        node_inputs.extend(ctx.get_value_for_var(v) for v in eqn.invars)
+        inbound_vals: list[ir.Value] = []
+        for idx, v in enumerate(eqn.invars):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(
+                    v, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and ctx.builder.enable_double_precision
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    cast_val = ir.Value(
+                        name=ctx.fresh_name("scan_state_cast"),
+                        type=ir.TensorType(expected_enum),
+                        shape=top_val.shape,
+                    )
+                    ctx.add_node(
+                        ir.Node(
+                            op_type="Cast",
+                            domain="",
+                            inputs=[top_val],
+                            outputs=[cast_val],
+                            name=ctx.fresh_name("Cast"),
+                            attributes=[
+                                IRAttr(
+                                    "to",
+                                    IRAttrType.INT,
+                                    int(expected_enum.value),
+                                )
+                            ],
+                        )
+                    )
+                    _ensure_value_info(ctx, cast_val)
+                    top_val = cast_val
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
 
         node_outputs: list[ir.Value] = []
 
@@ -723,7 +809,27 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for idx, body_out in enumerate(carry_body_outs):
             out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
             if out_var is not None and not _is_dropvar(out_var):
-                node_outputs.append(ctx.get_value_for_var(out_var))
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(
+                    out_var, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
             else:
                 node_outputs.append(
                     ir.Value(
@@ -733,10 +839,36 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 )
 
-        for out_var in eqn.outvars[num_carry:]:
-            node_outputs.append(
-                ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("loop_out"))
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("loop_out"))
+            expected_enum = _dtype_enum_for_var(
+                out_var, ctx.builder.enable_double_precision
             )
+            if expected_enum is None:
+                expected_enum = getattr(
+                    getattr(
+                        body_outputs[1 + num_consts + num_carry + rel_idx],
+                        "type",
+                        None,
+                    ),
+                    "dtype",
+                    None,
+                )
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=top_val.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
 
         loop_node = ir.Node(
             op_type="Loop",
@@ -794,6 +926,16 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
 
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if dtypes and any(dt == np.float32 for dt in dtypes) and not any(
+            dt == np.float64 for dt in dtypes
+        ):
+            setattr(loop_ctx, "_keep_function_float32", True)
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
             np_c = np.asarray(cval)
@@ -836,6 +978,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]
+        keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
         for seq_state, per_step_var in zip(sequence_states, scan_input_vars):
             per_step_val = loop_ctx.get_value_for_var(
                 per_step_var, name_hint=loop_ctx.fresh_name("scan_elem")
@@ -850,6 +993,19 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     attributes=[IRAttr("axis", IRAttrType.INT, 0)],
                 )
             )
+            aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
+            if aval_dtype is not None:
+                try:
+                    np_dtype = np.dtype(aval_dtype)
+                except TypeError:
+                    np_dtype = None
+                if np_dtype is not None and np.issubdtype(np_dtype, np.floating):
+                    target_enum = ir.DataType.DOUBLE
+                    if keep_float32:
+                        target_enum = ir.DataType.FLOAT
+                    per_step_val.type = ir.TensorType(target_enum)
+                    _ensure_value_info(loop_ctx, per_step_val)
+                    loop_ctx.bind_value_for_var(per_step_var, per_step_val)
 
         lower_jaxpr_eqns(loop_ctx, jaxpr)
 
@@ -984,10 +1140,65 @@ class ScanPlugin(PrimitiveLeafPlugin):
         ctx.builder.initializers.append(cond_init)
 
         node_inputs = [trip_count_val, cond_init]
-        node_inputs.extend(
-            ctx.get_value_for_var(v)
-            for v in eqn.invars[: num_consts + num_carry + num_scan]
-        )
+        inbound_vals = []
+        limit = num_consts + num_carry + num_scan
+        for idx, v in enumerate(eqn.invars[:limit]):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(
+                    v, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and ctx.builder.enable_double_precision
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    cast_val = ir.Value(
+                        name=ctx.fresh_name("scan_state_cast"),
+                        type=ir.TensorType(expected_enum),
+                        shape=top_val.shape,
+                    )
+                    ctx.add_node(
+                        ir.Node(
+                            op_type="Cast",
+                            domain="",
+                            inputs=[top_val],
+                            outputs=[cast_val],
+                            name=ctx.fresh_name("Cast"),
+                            attributes=[
+                                IRAttr(
+                                    "to",
+                                    IRAttrType.INT,
+                                    int(expected_enum.value),
+                                )
+                            ],
+                        )
+                    )
+                    top_val = cast_val
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
 
         node_outputs: list[ir.Value] = []
 
@@ -1006,7 +1217,27 @@ class ScanPlugin(PrimitiveLeafPlugin):
             body_out = body_outputs[carry_body_start + idx]
             out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
             if out_var is not None and not _is_dropvar(out_var):
-                node_outputs.append(ctx.get_value_for_var(out_var))
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(
+                    out_var, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
             else:
                 node_outputs.append(
                     ir.Value(
@@ -1027,10 +1258,29 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 )
             )
 
-        for out_var in eqn.outvars[num_carry:]:
-            node_outputs.append(
-                ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("loop_out"))
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("loop_out"))
+            body_out = body_outputs[seq_body_start + num_scan + rel_idx]
+            expected_enum = _dtype_enum_for_var(
+                out_var, ctx.builder.enable_double_precision
             )
+            if expected_enum is None:
+                expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=body_out.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
 
         loop_node = ir.Node(
             op_type="Loop",

@@ -46,6 +46,10 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
     )
     child_ctx._function_mode = True
     child_ctx._inside_function_scope = True
+    if hasattr(parent_ctx, "_keep_function_float32"):
+        child_ctx._keep_function_float32 = getattr(
+            parent_ctx, "_keep_function_float32", False
+        )
 
     # Inherit known symbolic dimension origins so nested graphs can resolve them.
     if hasattr(parent_ctx, "_sym_origin"):
