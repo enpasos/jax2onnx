@@ -29,6 +29,15 @@ DimLike = Union[int, str]
 def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
         return int(dim), True
+    # JAX symbolic dims may still encode a constant value; prefer the concrete int when available.
+    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+        try:
+            if dim._is_constant():  # type: ignore[attr-defined]
+                const = dim._to_constant()  # type: ignore[attr-defined]
+                if isinstance(const, (int, np.integer)):
+                    return int(const), True
+        except Exception:
+            pass
     return str(dim), False
 
 

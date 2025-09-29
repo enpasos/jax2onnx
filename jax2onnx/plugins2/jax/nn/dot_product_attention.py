@@ -51,6 +51,14 @@ DimLike = Union[int, str]
 def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
         return int(dim), True
+    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+        try:
+            if dim._is_constant():  # type: ignore[attr-defined]
+                const = dim._to_constant()  # type: ignore[attr-defined]
+                if isinstance(const, (int, np.integer)):
+                    return int(const), True
+        except Exception:
+            pass
     return str(dim), False
 
 
@@ -77,9 +85,20 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
 
 def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
     if isinstance(dim, (int, np.integer)):
-        return symbol
+        return int(dim)
+    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+        try:
+            if dim._is_constant():  # type: ignore[attr-defined]
+                const = dim._to_constant()  # type: ignore[attr-defined]
+                if isinstance(const, (int, np.integer)):
+                    return int(const)
+        except Exception:
+            pass
     if isinstance(dim, str) and dim:
         return dim
+    text = str(dim)
+    if text:
+        return text
     return symbol
 
 
