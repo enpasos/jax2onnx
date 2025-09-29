@@ -24,9 +24,36 @@ def _shape_dims(shape_obj: object) -> Sequence[object] | None:
     return None
 
 
+def _dim_is_known(dim: object) -> bool:
+    if dim is None:
+        return False
+    if isinstance(dim, (int, np.integer)):
+        return True
+    if isinstance(dim, str):
+        return bool(dim)
+    for attr in ("param", "name", "symbol", "label"):
+        val = getattr(dim, attr, None)
+        if val:
+            return True
+    value_attr = getattr(dim, "value", None)
+    if isinstance(value_attr, (int, np.integer)):
+        return True
+    try:
+        text = str(dim)
+        if text and text.isidentifier():
+            return True
+        if "SymbolicDim" in text:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _make_unknown_shape_like(shape_obj: object) -> ir.Shape | None:
     dims = _shape_dims(shape_obj)
     if dims is None:
+        return None
+    if all(_dim_is_known(d) for d in dims):
         return None
     unknown_dims = tuple(None for _ in dims)
     return ir.Shape(unknown_dims)

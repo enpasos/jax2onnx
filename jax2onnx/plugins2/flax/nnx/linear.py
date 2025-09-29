@@ -22,6 +22,7 @@ from jax2onnx.plugins2._ir_shapes import (
     _is_static_int,
     _dim_label_from_value_or_aval,
     _ensure_value_info,
+    _as_ir_dim_label,
     is_shape_all_unknown,
 )
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
@@ -119,6 +120,44 @@ def _const_i64(ctx, data, *, name: str):
             except Exception:
                 pass
     return v
+
+
+def _linear_output_dims(
+    x_val: ir.Value,
+    x_shape: tuple,
+    out_val: ir.Value,
+    out_shape: tuple,
+    fallback_last: int,
+):
+    """Return dims tuple for linear outputs preserving batch labels when known."""
+    out_rank = len(out_shape)
+    batch_rank = max(len(x_shape) - 1, 0)
+    if out_rank:
+        batch_rank = min(batch_rank, max(out_rank - 1, 0))
+
+    dims: list[Any] = []
+    for idx in range(batch_rank):
+        label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        if label is None and idx < len(x_shape):
+            maybe_dim = x_shape[idx]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                label = fallback_label
+        dims.append(label)
+
+    last_dim = None
+    if out_rank:
+        last_dim = _dim_label_from_value_or_aval(out_val, out_shape, out_rank - 1)
+        if last_dim is None and (out_rank - 1) < len(out_shape):
+            maybe_dim = out_shape[out_rank - 1]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                last_dim = fallback_label
+    if last_dim is None:
+        last_dim = fallback_last
+
+    dims.append(last_dim)
+    return tuple(dims)
 
 
 # ------------------------------------------------------------------
@@ -420,13 +459,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
             )
         else:
             gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-            # Preserve symbolic batch labels on the direct Gemm output
-            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
-            y_meta = tuple(
-                [_dim_label_from_value_or_aval(x_val, x_shape, i) for i in x_batch_idx]
-                + [int(out_features)]
+            out_aval_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+            y_meta = _linear_output_dims(
+                x_val,
+                x_shape,
+                gemm_out,
+                out_aval_shape,
+                int(out_features),
             )
             _stamp_type_and_shape(gemm_out, y_meta)
+            _ensure_value_info(ctx, gemm_out)
 
         inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
         gemm_node = ir.Node(
@@ -460,12 +502,15 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 final_shape_c = _const_i64(ctx, final_vals, name="final_shape_c")
 
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-                y_meta = tuple(
-                    [
-                        _dim_label_from_value_or_aval(x_val, x_shape, i)
-                        for i in x_batch_idx
-                    ]
-                    + [int(out_features)]
+                out_aval_shape = tuple(
+                    getattr(getattr(out_var, "aval", None), "shape", ())
+                )
+                y_meta = _linear_output_dims(
+                    x_val,
+                    x_shape,
+                    y_val,
+                    out_aval_shape,
+                    int(out_features),
                 )
                 _stamp_type_and_shape(y_val, y_meta)
                 ctx.add_node(
@@ -537,12 +582,15 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 ctx.set_node_attrs(concat_node, {"axis": 0})
 
                 y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-                y_meta = tuple(
-                    [
-                        _dim_label_from_value_or_aval(x_val, x_shape, i)
-                        for i in x_batch_idx
-                    ]
-                    + [int(out_features)]
+                out_aval_shape = tuple(
+                    getattr(getattr(out_var, "aval", None), "shape", ())
+                )
+                y_meta = _linear_output_dims(
+                    x_val,
+                    x_shape,
+                    y_val,
+                    out_aval_shape,
+                    int(out_features),
                 )
                 _stamp_type_and_shape(y_val, y_meta)
                 ctx.add_node(

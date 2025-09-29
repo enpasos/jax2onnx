@@ -18,7 +18,18 @@ from jax2onnx.plugins2._ir_shapes import (
     _dim_label_from_value_or_aval,
     _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
+    _as_ir_dim_label,
 )
+
+
+def _label_from_meta(val: ir.Value, aval_shape: tuple, idx: int):
+    label = _dim_label_from_value_or_aval(val, aval_shape, idx)
+    if label is None and idx < len(aval_shape):
+        maybe_dim = aval_shape[idx]
+        fallback_label = _as_ir_dim_label(maybe_dim)
+        if fallback_label is not None:
+            label = fallback_label
+    return label
 
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -264,10 +275,10 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             perm = [0, rank - 1] + list(range(1, rank - 1))
             # Compute labeled shape for NCHW
             nchw_dims = (
-                _dim_label_from_value_or_aval(x_val, x_shape, 0),  # N
-                _dim_label_from_value_or_aval(x_val, x_shape, rank - 1),  # C
+                _label_from_meta(x_val, x_shape, 0),  # N
+                _label_from_meta(x_val, x_shape, rank - 1),  # C
                 *[
-                    _dim_label_from_value_or_aval(x_val, x_shape, i)
+                    _label_from_meta(x_val, x_shape, i)
                     for i in range(1, rank - 1)
                 ],
             )
@@ -316,9 +327,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         if need_layout_convert:
             inv_perm = [0] + list(range(2, rank)) + [1]
             y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-            nhwc_dims = tuple(
-                _dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(rank)
-            )
+            nhwc_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
             # Stamp BOTH meta and TensorType so graph.output keeps symbols like 'B'
             _stamp_type_and_shape(y_val, nhwc_dims)
             ctx.add_node(
@@ -338,9 +347,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         else:
             # Direct BN output already targets y_var; (re)stamp shape/labels
             y_val = bn_out
-            y_dims = tuple(
-                _dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(rank)
-            )
+            y_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
             _stamp_type_and_shape(y_val, y_dims)
             _add_value_info(ctx, y_val)
 

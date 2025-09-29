@@ -58,6 +58,12 @@ def _as_ir_dim_label(d):
         return int(d)
     if isinstance(d, str):
         return d
+    try:
+        text = str(d)
+        if text and text.isidentifier():
+            return text
+    except Exception:
+        pass
     if d is None:
         return None
     return None
@@ -87,6 +93,8 @@ def _is_static_int(d) -> bool:
 
 
 def _dim_label_from_value_or_aval(val: ir.Value, aval_shape: tuple, i: int):
+    """Return a readable dim label, falling back to aval metadata when needed."""
+
     shp = getattr(val, "shape", None)
     if shp is not None:
         dims = getattr(shp, "dims", None)
@@ -96,9 +104,13 @@ def _dim_label_from_value_or_aval(val: ir.Value, aval_shape: tuple, i: int):
             except Exception:
                 dims = None
         if dims is not None and i < len(dims):
-            return _as_ir_dim_label(dims[i])
+            label = _as_ir_dim_label(dims[i])
+            if label is not None:
+                return label
     if i < len(aval_shape):
-        return _as_ir_dim_label(aval_shape[i])
+        label = _as_ir_dim_label(aval_shape[i])
+        if label is not None:
+            return label
     return None
 
 
