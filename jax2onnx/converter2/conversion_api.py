@@ -13,6 +13,10 @@ from jax import export as jax_export
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter._optional_shape_inference import (
+    run_optional_shape_inference,
+)
+
 from jax2onnx.plugins2 import plugin_system as ps2
 from jax2onnx.plugins2.plugin_system import (
     PLUGIN_REGISTRY2,
@@ -739,13 +743,8 @@ def to_onnx(
         except Exception:
             pass
     
-        try:
-            import onnx
-    
-            ir_model = onnx.shape_inference.infer_shapes(ir_model, strict_mode=False)
-        except Exception:
-            pass
-    
+        ir_model = run_optional_shape_inference(ir_model)
+
         try:
             _finalize_model_value_info_shapes(ir_model, ctx)
         except Exception:
