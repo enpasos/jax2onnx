@@ -659,7 +659,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
                 # Meta shape for graph.output (keep symbols if present on input)
                 y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-                out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+                out_aval_shape = tuple(
+                    getattr(getattr(y_var, "aval", None), "shape", ())
+                )
                 y_meta = _linear_general_output_dims(
                     x_val,
                     x_shape,
@@ -754,7 +756,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     )
                 )
                 y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-                out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+                out_aval_shape = tuple(
+                    getattr(getattr(y_var, "aval", None), "shape", ())
+                )
                 y_meta = _linear_general_output_dims(
                     x_val,
                     x_shape,

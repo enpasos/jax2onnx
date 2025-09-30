@@ -63,7 +63,9 @@ def test_model_has_no_duplicate_shape_helpers(dtype):
     ]
     assert not dupes, f"Duplicate '*__shape' helpers detected: {dupes}"
 
-    sess = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
     B = 3
     x = np.random.randn(B, 4).astype(np.float32 if dtype == jnp.float32 else np.float64)
     sess.run(None, {sess.get_inputs()[0].name: x})

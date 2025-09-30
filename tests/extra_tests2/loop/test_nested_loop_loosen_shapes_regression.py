@@ -102,7 +102,8 @@ def test_nested_loop_with_loosen_loads_and_drops_arith_vis(tmp_path):
         inputs=[],
         enable_double_precision=True,
         opset=21,
-        model_name="nested_loop_loosen", use_onnx_ir=True
+        model_name="nested_loop_loosen",
+        use_onnx_ir=True,
     )
     p = tmp_path / "nested_loop_loosen.onnx"
     p.write_bytes(model.SerializeToString())

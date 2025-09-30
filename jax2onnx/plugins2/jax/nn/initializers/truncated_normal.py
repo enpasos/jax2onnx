@@ -176,7 +176,11 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         patched_random = cls._make_random_patch(None)
 
         def _patched(*args, **kwargs):
-            if args and hasattr(args[0], "shape") and getattr(args[0], "shape", None) == (2,):
+            if (
+                args
+                and hasattr(args[0], "shape")
+                and getattr(args[0], "shape", None) == (2,)
+            ):
                 return patched_random(*args, **kwargs)
 
             def _wrapped(key, shape, dtype=None):

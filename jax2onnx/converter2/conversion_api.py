@@ -311,11 +311,11 @@ def to_onnx(
         # 1) Abstract inputs
         default_float = _np_float_dtype(enable_double_precision)
         sds_list = _as_sds_list(inputs, enable_double_precision)
-    
+
         # 2) JAXPR (optionally print for debugging)
         def _wrapped(*xs):
             return fn(*xs, **(input_params or {}))
-    
+
         with _activate_plugin_worlds():
             closed = jax.make_jaxpr(_wrapped)(*sds_list)
         if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
@@ -324,7 +324,7 @@ def to_onnx(
             except Exception:
                 pass
         jpr = closed.jaxpr
-    
+
         # 3) IR context & inputs/consts
         ctx = IRContext(
             opset=opset,
@@ -337,13 +337,15 @@ def to_onnx(
             set(input_params.keys()) if input_params else set(),
         )
         # Expose knobs for downstream (optional)
-    
+
         if record_primitive_calls_file:
-            setattr(ctx, "record_primitive_calls_file", str(record_primitive_calls_file))
-    
+            setattr(
+                ctx, "record_primitive_calls_file", str(record_primitive_calls_file)
+            )
+
         if getattr(ctx, "_function_registry", None) is None:
             setattr(ctx, "_function_registry", FunctionRegistry())
-    
+
         # Map constvars
         for cv, cval in zip(jpr.constvars, closed.consts):
             np_c = np.asarray(cval)
@@ -359,7 +361,7 @@ def to_onnx(
                 desired_dtype = target_dtype
             elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
                 desired_dtype = default_float
-    
+
             if (
                 not enable_double_precision
                 and desired_dtype is not None
@@ -368,26 +370,26 @@ def to_onnx(
                 and np_c.dtype != np.float64
             ):
                 desired_dtype = np.float32
-    
+
             if desired_dtype is not None and np_c.dtype != desired_dtype:
                 np_c = np_c.astype(desired_dtype, copy=False)
-    
+
             np_c = _maybe_promote_float_array(np_c, enable_double_precision)
             ctx.bind_const_for_var(cv, np_c)
-    
+
         # Inputs
         for i, v in enumerate(jpr.invars):
             ctx.add_input_for_invar(v, i)
-    
+
         # Lower equations
         class _ConverterFacade:
             builder: IRBuilder
             ctx: IRContext
-    
+
         converter = _ConverterFacade()
         converter.builder = ctx.builder
         converter.ctx = ctx
-    
+
         for eqn in jpr.eqns:
             prim_name = eqn.primitive.name
             plugin_ref = PLUGIN_REGISTRY2.get(prim_name)
@@ -412,13 +414,15 @@ def to_onnx(
                 raise NotImplementedError(
                     f"[converter2] Unsupported plugin type for '{prim_name}'"
                 )
-    
+
         # Outputs
         ctx.add_outputs_from_vars(jpr.outvars)
-    
+
         # Build IR model
-        ir_model = ctx.builder.to_ir_model(name=model_name, ir_version=_ORT_SAFE_IR_VERSION)
-    
+        ir_model = ctx.builder.to_ir_model(
+            name=model_name, ir_version=_ORT_SAFE_IR_VERSION
+        )
+
         # Attach any native ir.Functions collected on ctx
         ir_funcs = list(getattr(ctx, "_ir_functions", []) or [])
         if ir_funcs:
@@ -430,7 +434,7 @@ def to_onnx(
                 except Exception:
                     ir_model.functions = []
                     fstore = ir_model.functions
-    
+
             if isinstance(fstore, dict):
                 for fn_ir in ir_funcs:
                     key = (
@@ -444,28 +448,30 @@ def to_onnx(
                     )
                     fstore[key] = fn_ir
             elif isinstance(fstore, list):
-    
+
                 def _fid(f):
                     return (
                         getattr(f, "domain", "") or "",
                         getattr(f, "name", "") or "",
                         getattr(f, "overload", "") or "",
                     )
-    
+
                 existing = {_fid(f) for f in fstore}
                 for fn_ir in ir_funcs:
                     if _fid(fn_ir) not in existing:
                         fstore.append(fn_ir)
             else:
                 ir_model.functions = list(ir_funcs)
-    
+
             # Ensure model-level opset imports cover default "" and each function domain
             model_imports: Dict[str, int] = dict(
                 getattr(ir_model, "opset_imports", {}) or {}
             )
             if "" not in model_imports:
                 try:
-                    default_opset = int(getattr(getattr(ctx, "builder", None), "opset", 21))
+                    default_opset = int(
+                        getattr(getattr(ctx, "builder", None), "opset", 21)
+                    )
                 except Exception:
                     default_opset = 21
                 model_imports[""] = default_opset or 21
@@ -480,19 +486,19 @@ def to_onnx(
                     getattr(ir_model, "opset_imports", {}).update(model_imports)
                 except Exception:
                     pass
-    
+
         # ---- Single IR-wide optimization pass (centralized cleanups) ----
         try:
             optimize_graph(ir_model)
         except Exception as _e:
             import logging as _logging
-    
+
             _logging.getLogger("jax2onnx.converter2.ir_optimizations").debug(
                 "optimize_graph skipped: %s", _e
             )
-    
+
         # ---- Late attribute overrides (polish; not structural rewrites) ----
-    
+
         def _ir_attr_int(name: str, val: int):
             Attr = getattr(ir, "Attr", None)
             AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
@@ -504,7 +510,7 @@ def to_onnx(
             if AttrType is not None:
                 return Attr(name, AttrType.INT, ival)
             return Attr(name, ival)
-    
+
         def _finalize_model_value_info_shapes(model_proto, ctx: IRContext) -> None:  # type: ignore[name-defined]
             try:
                 graph = getattr(model_proto, "graph", None)
@@ -512,7 +518,7 @@ def to_onnx(
                     return
             except Exception:
                 return
-    
+
             def _collect_dims(values):
                 mapping: Dict[str, Tuple] = {}
                 for val in values or []:
@@ -530,20 +536,22 @@ def to_onnx(
                         continue
                     mapping[name] = tuple(dims)
                 return mapping
-    
+
             value_info_dims = {}
             value_info_dims.update(_collect_dims(getattr(ctx, "_value_info", [])))
             value_info_dims.update(_collect_dims(getattr(ctx, "_value_infos", [])))
-            value_info_dims.update(_collect_dims(getattr(ctx.builder, "value_info", [])))
+            value_info_dims.update(
+                _collect_dims(getattr(ctx.builder, "value_info", []))
+            )
             value_info_dims.update(_collect_dims(getattr(ctx.builder, "outputs", [])))
             value_info_dims.update(_collect_dims(getattr(ctx.builder, "inputs", [])))
-    
+
             targets = itertools.chain(
                 getattr(graph, "value_info", []) or [],
                 getattr(graph, "output", []) or [],
                 getattr(graph, "input", []) or [],
             )
-    
+
             for vi in targets:
                 name = getattr(vi, "name", "")
                 if not name:
@@ -575,7 +583,7 @@ def to_onnx(
                     proto.dim_param = str(label)
                     if proto.HasField("dim_value"):
                         proto.ClearField("dim_value")
-    
+
         def _apply_ir_attr_overrides_to_graph(
             gr: "ir.Graph", overrides: dict[str, dict[str, object]]
         ):
@@ -587,7 +595,7 @@ def to_onnx(
                 nm = getattr(n, "name", "")
                 if nm:
                     name2node[nm] = n
-    
+
             def _mutate_attr_list(attr_list: list, k: str, v: object) -> None:
                 for i in range(len(attr_list) - 1, -1, -1):
                     a = attr_list[i]
@@ -597,12 +605,12 @@ def to_onnx(
                 attr_obj = _make_attr(k, v)
                 if attr_obj is not None:
                     attr_list.append(attr_obj)
-    
+
             def _make_attr(name: str, value: object) -> Optional["ir.Attr"]:
                 Attr = getattr(ir, "Attr", None)
                 if Attr is None:
                     return None
-    
+
                 # Direct two-arg construction (older onnx_ir builds)
                 try:
                     return Attr(name, value)  # type: ignore[misc]
@@ -610,13 +618,13 @@ def to_onnx(
                     pass
                 except Exception:
                     pass
-    
+
                 AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
                 if AttrType is None:
                     return None
-    
+
                 import numpy as _np
-    
+
                 v = value
                 # Scalars -------------------------------------------------
                 if isinstance(v, (bool, _np.bool_, int, _np.integer)):
@@ -625,16 +633,18 @@ def to_onnx(
                     return Attr(name, AttrType.FLOAT, float(v))
                 if isinstance(v, str):
                     return Attr(name, AttrType.STRING, v)
-    
+
                 # Sequences ----------------------------------------------
                 if isinstance(v, (list, tuple)):
-                    if all(isinstance(x, (bool, _np.bool_, int, _np.integer)) for x in v):
+                    if all(
+                        isinstance(x, (bool, _np.bool_, int, _np.integer)) for x in v
+                    ):
                         return Attr(name, AttrType.INTS, [int(x) for x in v])
                     if all(isinstance(x, (float, _np.floating)) for x in v):
                         return Attr(name, AttrType.FLOATS, [float(x) for x in v])
                     if all(isinstance(x, str) for x in v):
                         return Attr(name, AttrType.STRINGS, list(v))
-    
+
                 # Tensor fallback ---------------------------------------
                 tensor_ctor = getattr(ir, "tensor", None)
                 if tensor_ctor is not None:
@@ -647,9 +657,9 @@ def to_onnx(
                         return Attr(name, AttrType.TENSOR, tensor_val)
                     except Exception:
                         return None
-    
+
                 return None
-    
+
             for nm, kv in (overrides or {}).items():
                 n = name2node.get(nm)
                 if not n:
@@ -697,7 +707,7 @@ def to_onnx(
                 ):
                     for k_attr, v_attr in (kv or {}).items():
                         _mutate_attr_list(attr_list, k_attr, v_attr)
-    
+
         def _fix_concat_axis_in_graph(gr: "ir.Graph") -> None:
             nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
             for n in nodes_ref:
@@ -708,13 +718,15 @@ def to_onnx(
                     attrs = getattr(n, "_attributes", None)
                 if not isinstance(attrs, list):
                     continue
-                if any(getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs):
+                if any(
+                    getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs
+                ):
                     continue
                 try:
                     attrs.append(_ir_attr_int("axis", 0))
                 except Exception:
                     pass
-    
+
         # Apply overrides/fixes to top graph
         _apply_ir_attr_overrides_to_graph(
             ir_model.graph, getattr(ctx, "_attr_overrides", {})
@@ -736,18 +748,18 @@ def to_onnx(
                 _fix_concat_axis_in_graph(fn.graph)
             except Exception:
                 pass
-    
+
         # Avoid emitting placeholders for onnx_function hits across runs
         try:
             _ = getattr(ps2, "_consume_onnx_function_hits")()
         except Exception:
             pass
-    
+
         ir_model = run_optional_shape_inference(ir_model)
 
         try:
             _finalize_model_value_info_shapes(ir_model, ctx)
         except Exception:
             pass
-    
+
         return ir_model

@@ -110,7 +110,9 @@ def test_numeric_executes(tmp_path, dtype):
         model_name="broadcast_and_reshape_shared_shape_numeric",
         use_onnx_ir=True,
     )
-    sess = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
     x = np.zeros((7, 4), np.float64)
     feeds = {sess.get_inputs()[0].name: x}
     (y,) = sess.run(None, feeds)

@@ -31,6 +31,7 @@ def _label_from_meta(val: ir.Value, aval_shape: tuple, idx: int):
             label = fallback_label
     return label
 
+
 if TYPE_CHECKING:
     from jax2onnx.converter2.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
@@ -277,10 +278,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             nchw_dims = (
                 _label_from_meta(x_val, x_shape, 0),  # N
                 _label_from_meta(x_val, x_shape, rank - 1),  # C
-                *[
-                    _label_from_meta(x_val, x_shape, i)
-                    for i in range(1, rank - 1)
-                ],
+                *[_label_from_meta(x_val, x_shape, i) for i in range(1, rank - 1)],
             )
             x_nchw = ir.Value(
                 name=ctx.fresh_name("bn_pre_transpose"),

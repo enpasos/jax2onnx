@@ -27,7 +27,9 @@ def _model_with_cond_and_scatter():
         op, *_ = ops
         return op + 1.0
 
-    scattered_result = jax.lax.cond(predicate, true_branch, false_branch, branch_operands)
+    scattered_result = jax.lax.cond(
+        predicate, true_branch, false_branch, branch_operands
+    )
     some_int_value = jnp.array(42, dtype=jnp.int64)
     reshaped_int_value = jnp.reshape(some_int_value, ())
     return scattered_result, reshaped_int_value

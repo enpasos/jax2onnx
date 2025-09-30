@@ -14,7 +14,7 @@ Fix for missing graph‑input error
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Any
+from typing import TYPE_CHECKING, Callable, Any, Sequence
 import logging
 import numpy as np
 import onnx
@@ -26,7 +26,7 @@ from jax.extend.core import Primitive
 from onnx import helper, numpy_helper
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
+from jax2onnx.plugins.flax.nnx.linear_general import _shape_of
 
 
 def _static_dim(dim):
@@ -44,8 +44,7 @@ def _update_symbolic_shape(converter, name: str, shape: tuple[Any, ...]) -> None
         return
     if hasattr(converter, "_dim_to_symbol_safe"):
         sanitized = tuple(
-            converter._dim_to_symbol_safe(d) if d is not None else None
-            for d in shape
+            converter._dim_to_symbol_safe(d) if d is not None else None for d in shape
         )
     else:
         sanitized = shape
@@ -84,6 +83,7 @@ def _gemm_weight_shape(model):
             if arr is not None:
                 return arr.shape
     return None
+
 
 if TYPE_CHECKING:  # only for static analysis / IDEs
     from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
@@ -144,13 +144,13 @@ nnx.linear_p.multiple_results = False
                 # input  B×10×128
                 _shape_of(m.graph.input, "var_0") == ("B", 10, 128)
                 # after flatten via reshape constant [-1, 128]
-                and (
-                    lambda vec: vec is not None and vec.size == 2 and vec[1] == 128
-                )(_first_flatten_shape(m))
+                and (lambda vec: vec is not None and vec.size == 2 and vec[1] == 128)(
+                    _first_flatten_shape(m)
+                )
                 # gemm weight   128×64 → ensures output width 64
-                and (
-                    lambda shp: shp is not None and len(shp) == 2 and shp[1] == 64
-                )(_gemm_weight_shape(m))
+                and (lambda shp: shp is not None and len(shp) == 2 and shp[1] == 64)(
+                    _gemm_weight_shape(m)
+                )
                 # final output   B×10×64
                 and _shape_of(m.graph.output, "var_3") == ("B", 10, 64)
             ),
@@ -244,10 +244,14 @@ class LinearPlugin(PrimitiveLeafPlugin):
         out_shape = y_var.aval.shape
         dtype = x_var.aval.dtype
 
-        kernel_shape = getattr(kernel_var.aval, "shape", ())
+        kernel_shape_attr = getattr(kernel_var.aval, "shape", ())
+        if isinstance(kernel_shape_attr, Sequence):
+            kernel_shape: tuple[Any, ...] = tuple(kernel_shape_attr)
+        else:
+            kernel_shape = ()
         kernel_static = tuple(_static_dim(d) for d in kernel_shape)
         kernel_const = s.name_to_const.get(kernel_name)
-        const_shape: tuple[int, ...] | tuple[Any, ...] = ()
+        const_shape: tuple[int, ...] = ()
         if kernel_const is not None:
             if hasattr(kernel_const, "shape"):
                 const_shape = tuple(int(v) for v in kernel_const.shape)
@@ -334,9 +338,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             s.add_shape_info(batch_dims_shape, (rank - 1,), np.int64)
 
             out_feat_int = (
-                out_features_static
-                if out_features_static is not None
-                else out_features
+                out_features_static if out_features_static is not None else out_features
             )
             out_features_const = s.get_constant_name(
                 np.array([out_feat_int], dtype=np.int64)

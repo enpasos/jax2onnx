@@ -1,10 +1,24 @@
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable as IterableABC
+from typing import Iterable, Sequence, Any
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
+
+
+def _list_from_maybe_iterable(obj: object) -> list[Any]:
+    if obj is None:
+        return []
+    if isinstance(obj, (str, bytes)):
+        return []
+    if isinstance(obj, IterableABC):
+        try:
+            return list(obj)
+        except Exception:
+            return []
+    return []
 
 
 def _value_name(value: object) -> str | None:
@@ -76,12 +90,13 @@ def _node_iter(graph: ir.Graph) -> Iterable[ir.Node]:
     nodes_attr = getattr(graph, "node", None)
     if isinstance(nodes_attr, list):
         return list(nodes_attr)
-    if hasattr(nodes_attr, "__iter__") and not callable(nodes_attr):
-        return list(nodes_attr)
+    nodes_from_attr = _list_from_maybe_iterable(nodes_attr)
+    if nodes_from_attr:
+        return nodes_from_attr
 
-    nodes_private = getattr(graph, "_nodes", None)
-    if nodes_private is not None:
-        return list(nodes_private)
+    nodes_private = _list_from_maybe_iterable(getattr(graph, "_nodes", None))
+    if nodes_private:
+        return nodes_private
     return []
 
 
@@ -104,14 +119,10 @@ def _attribute_iter(node: ir.Node) -> Iterable[object]:
 def _loosen_graph_value_infos(
     graph: ir.Graph, *, force_rank_only: bool = False
 ) -> None:
-    io_values = list(getattr(graph, "inputs", []) or []) + list(
-        getattr(graph, "outputs", []) or []
-    )
-    io_names = {
-        name
-        for name in (_value_name(v) for v in io_values)
-        if name
-    }
+    io_values = _list_from_maybe_iterable(
+        getattr(graph, "inputs", None)
+    ) + _list_from_maybe_iterable(getattr(graph, "outputs", None))
+    io_names = {name for name in (_value_name(v) for v in io_values) if name}
 
     seen: set[str] = set()
     for node in _node_iter(graph):

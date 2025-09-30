@@ -271,7 +271,6 @@ class OnnxBuilder:
         # maps {DimVar-object-or-id → canonical user symbol, e.g. "B"}
         self.var_to_symbol_map: dict[Any, str] = {}
 
-
         self.nodes: list[NodeProto] = []
         self.inputs: list[ValueInfoProto] = []
         self.outputs: list[ValueInfoProto] = []

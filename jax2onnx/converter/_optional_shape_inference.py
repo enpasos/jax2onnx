@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - optional dependency hints only
-    import onnx  # type: ignore[import-not-found]
+    pass  # type: ignore[import-not-found]
 
 
 def run_optional_shape_inference(model: Any) -> Any:
@@ -20,4 +20,3 @@ def run_optional_shape_inference(model: Any) -> Any:
         return onnx.shape_inference.infer_shapes(model, strict_mode=False)
     except Exception:
         return model
-

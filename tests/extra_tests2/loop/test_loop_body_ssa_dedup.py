@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import pytest
 
 from jax import lax
+from jax._src.export.shape_poly import InconclusiveDimensionOperation
 from jax2onnx.user_interface import to_onnx
 
 

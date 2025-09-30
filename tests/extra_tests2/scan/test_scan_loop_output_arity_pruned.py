@@ -23,9 +23,9 @@ def _assert_all_loops_well_formed(model: onnx.ModelProto):
                 break
         assert body is not None, "Loop node missing body graph"
         expected_num_node_outputs = len(body.output) - 1
-        assert len(n.output) == expected_num_node_outputs, (
-            "Loop outputs must match body outputs minus cond"
-        )
+        assert (
+            len(n.output) == expected_num_node_outputs
+        ), "Loop outputs must match body outputs minus cond"
 
 
 @pytest.mark.timeout(60)

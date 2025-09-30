@@ -32,4 +32,6 @@ def test_generated_graphs_have_names():
     )
 
     for graph in _walk_graphs(model.graph):
-        assert graph.name, "Encountered unnamed GraphProto, would render as 'null' in tools"
+        assert (
+            graph.name
+        ), "Encountered unnamed GraphProto, would render as 'null' in tools"

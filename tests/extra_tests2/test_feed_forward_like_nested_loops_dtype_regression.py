@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import jax
 import jax.numpy as jnp
 from jax import lax
 
@@ -82,16 +81,24 @@ def test_feed_forward_like_nested_loops_mixed_dtypes_ir(tmp_path):
             if node is None:
                 return False
             if node.op_type == "Cast":
-                to_double = any(attr.name == "to" and attr.i == _TP.DOUBLE for attr in node.attribute)
+                to_double = any(
+                    attr.name == "to" and attr.i == _TP.DOUBLE
+                    for attr in node.attribute
+                )
                 return any(
-                    walk_back(inp, seen_cast or to_double, depth + 1, limit) for inp in node.input
+                    walk_back(inp, seen_cast or to_double, depth + 1, limit)
+                    for inp in node.input
                 )
             if node.op_type in index_ops:
                 if seen_cast:
                     return True
-                return any(walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input)
+                return any(
+                    walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input
+                )
             if node.op_type in passthrough:
-                return any(walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input)
+                return any(
+                    walk_back(inp, seen_cast, depth + 1, limit) for inp in node.input
+                )
             return False
 
         for node in loop_graph.node:
@@ -101,6 +108,6 @@ def test_feed_forward_like_nested_loops_mixed_dtypes_ir(tmp_path):
                 return True
         return False
 
-    assert any(has_index_cast_add(g) for g in iter_loop_bodies(loaded.graph)), (
-        "Expected indexing → Cast(to=DOUBLE) → Add inside a Loop body to ensure mixed-dtype harmonization."
-    )
+    assert any(
+        has_index_cast_add(g) for g in iter_loop_bodies(loaded.graph)
+    ), "Expected indexing → Cast(to=DOUBLE) → Add inside a Loop body to ensure mixed-dtype harmonization."

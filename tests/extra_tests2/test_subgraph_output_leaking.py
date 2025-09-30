@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 import jax
-import jax.numpy as jnp
 
 from jax2onnx.user_interface import to_onnx
 

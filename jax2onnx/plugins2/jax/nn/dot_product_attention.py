@@ -646,7 +646,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
             )
         )
-        _stamp_type_and_shape(out_val, (batch_dim_i, q_len_i, num_heads_i, head_dim_sym))
+        _stamp_type_and_shape(
+            out_val, (batch_dim_i, q_len_i, num_heads_i, head_dim_sym)
+        )
         _add_value_info(ctx, out_val)
 
     @classmethod

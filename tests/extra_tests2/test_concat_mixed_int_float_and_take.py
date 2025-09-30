@@ -50,9 +50,9 @@ def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
         assert len(onnx_results) == len(jax_outputs)
 
         for idx, (expected, got) in enumerate(zip(jax_outputs, onnx_results)):
-            assert expected.shape == got.shape, (
-                f"[out {idx}] shape mismatch: JAX={expected.shape} ORT={got.shape}"
-            )
+            assert (
+                expected.shape == got.shape
+            ), f"[out {idx}] shape mismatch: JAX={expected.shape} ORT={got.shape}"
             if np.issubdtype(expected.dtype, np.floating) or np.issubdtype(
                 got.dtype, np.floating
             ):

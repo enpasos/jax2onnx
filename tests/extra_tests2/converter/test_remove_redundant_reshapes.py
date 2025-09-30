@@ -31,11 +31,13 @@ def _create_test_model() -> onnx.ModelProto:
         initializer=[shape1_init, shape2_init],
     )
 
-    graph.value_info.extend([
-        oh.make_tensor_value_info("r1_out", onnx.TensorProto.FLOAT, [2, 3]),
-        oh.make_tensor_value_info("gelu_out", onnx.TensorProto.FLOAT, [2, 3]),
-        oh.make_tensor_value_info("dropout_out", onnx.TensorProto.FLOAT, [2, 3]),
-    ])
+    graph.value_info.extend(
+        [
+            oh.make_tensor_value_info("r1_out", onnx.TensorProto.FLOAT, [2, 3]),
+            oh.make_tensor_value_info("gelu_out", onnx.TensorProto.FLOAT, [2, 3]),
+            oh.make_tensor_value_info("dropout_out", onnx.TensorProto.FLOAT, [2, 3]),
+        ]
+    )
 
     return oh.make_model(graph)
 
@@ -52,10 +54,14 @@ def test_remove_redundant_reshapes_ir():
     assert "Gelu" in op_types_after
     assert "Dropout" in op_types_after
 
-    gelu_node = next(node for node in optimized_model.graph.node if node.op_type == "Gelu")
+    gelu_node = next(
+        node for node in optimized_model.graph.node if node.op_type == "Gelu"
+    )
     assert gelu_node.input[0] == "input"
 
-    dropout_node = next(node for node in optimized_model.graph.node if node.op_type == "Dropout")
+    dropout_node = next(
+        node for node in optimized_model.graph.node if node.op_type == "Dropout"
+    )
     assert dropout_node.output[0] == "r2_out"
 
     output_names = [out.name for out in optimized_model.graph.output]

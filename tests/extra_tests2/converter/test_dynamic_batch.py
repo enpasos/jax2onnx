@@ -28,7 +28,9 @@ def test_dynamic_batch_ir(batch_sizes):
     except ImportError:  # pragma: no cover
         pytest.skip("onnxruntime not available")
 
-    sess = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
     input_name = sess.get_inputs()[0].name
     for b in batch_sizes:
         x = np.random.randn(b, 50, 256).astype(np.float32)

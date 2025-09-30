@@ -205,7 +205,6 @@ def to_onnx(
     )
     builder.converter = converter
 
-
     converter.call_params = input_params or {}
 
     # --- Step 2: Trace the function using Symbolic Avals ---

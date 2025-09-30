@@ -231,4 +231,3 @@ def _loop_bodies(g: onnx.GraphProto):
             for a in n.attribute:
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
-

@@ -116,7 +116,9 @@ def test_numeric_executes(dtype):
         model_name="two_adds_shape_helpers_numeric",
         use_onnx_ir=True,
     )
-    sess = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
     x = np.zeros((7, 4), np.float64)
     feeds = {sess.get_inputs()[0].name: x}
     (y,) = sess.run(None, feeds)

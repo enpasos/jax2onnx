@@ -51,7 +51,9 @@ def test_onnx_function_deterministic_param_is_input_ir():
     )
 
     for init in model.graph.initializer:
-        assert init.name != "deterministic", "deterministic should not be serialized as initializer"
+        assert (
+            init.name != "deterministic"
+        ), "deterministic should not be serialized as initializer"
 
     found_graph_input = False
     for inp in model.graph.input:

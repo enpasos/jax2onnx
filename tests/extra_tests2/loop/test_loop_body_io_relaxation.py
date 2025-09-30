@@ -1,4 +1,3 @@
-import pytest
 import jax
 import jax.numpy as jnp
 import onnx
@@ -46,7 +45,8 @@ def test_loop_body_io_are_relaxed_when_requested():
         inputs=[y0],
         enable_double_precision=True,
         opset=21,
-        model_name="loop_body_io_relaxation", use_onnx_ir=True
+        model_name="loop_body_io_relaxation",
+        use_onnx_ir=True,
     )
 
     body = _collect_loop_body_graph(model)

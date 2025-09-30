@@ -69,11 +69,13 @@ def add_entry(
 def _iter_test_files(base: Path) -> Iterator[Path]:
     if not base.exists():
         return iter(())
+
     def _iter() -> Iterator[Path]:
         for path in base.rglob("test_*.py"):
             if "__pycache__" in path.parts or path.name == "__init__.py":
                 continue
             yield path
+
     return _iter()
 
 
@@ -87,7 +89,9 @@ def _add_extra_tests(
     for path in _iter_test_files(base_dir):
         rel = path.relative_to(base_dir)
         sub_parts = [part for part in rel.parts[:-1] if part != "__pycache__"]
-        context = ".".join([context_prefix] + sub_parts) if sub_parts else context_prefix
+        context = (
+            ".".join([context_prefix] + sub_parts) if sub_parts else context_prefix
+        )
         component = rel.stem
         add_entry(store, context, component, bucket, [component])
 

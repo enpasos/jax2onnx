@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import types
+from collections.abc import Iterable as IterableABC
 from typing import Any
 
 import onnx_ir as ir
@@ -55,10 +56,7 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
     if hasattr(parent_ctx, "_sym_origin"):
         child_ctx._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
     if hasattr(parent_ctx, "_sym_origin_str"):
-        child_ctx._sym_origin_str = dict(
-            getattr(parent_ctx, "_sym_origin_str", {})
-        )
-
+        child_ctx._sym_origin_str = dict(getattr(parent_ctx, "_sym_origin_str", {}))
 
     # Prefix all fresh names so nested graphs remain unique.
     prefix_base = parent_ctx.fresh_name(prefix)
@@ -92,9 +90,9 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
         return
     shape_obj = getattr(val, "shape", None)
     dims = getattr(shape_obj, "dims", None)
-    if dims is None:
+    if dims is None and shape_obj is not None:
         try:
-            dims = list(shape_obj)
+            dims = list(shape_obj) if isinstance(shape_obj, IterableABC) else None
         except Exception:
             dims = None
     if dims is None:
@@ -102,9 +100,11 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
         if isinstance(tensor_type, ir.TensorType):
             shape_obj = getattr(tensor_type, "shape", None)
             dims = getattr(shape_obj, "dims", None)
-            if dims is None:
+            if dims is None and shape_obj is not None:
                 try:
-                    dims = list(shape_obj) if shape_obj is not None else None
+                    dims = (
+                        list(shape_obj) if isinstance(shape_obj, IterableABC) else None
+                    )
                 except Exception:
                     dims = None
     if not dims or len(dims) == 0:

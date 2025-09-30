@@ -141,11 +141,15 @@ def test_loop_body_shapeof_helpers_are_ssa_unique(tmp_path, fn, dtype):
     body = _find_first_loop_body(model.graph)
     assert body is not None, "Expected Loop body subgraph"
     body_outs = _collect_node_outputs_recursive(body)
-    body_dupes = [name for name, cnt in collections.Counter(body_outs).items() if cnt > 1]
+    body_dupes = [
+        name for name, cnt in collections.Counter(body_outs).items() if cnt > 1
+    ]
     assert not body_dupes, f"Duplicate outputs in Loop body: {body_dupes}"
 
     shape_helpers = [name for name in body_outs if name.endswith("__shape")]
-    shape_dupes = [name for name, cnt in collections.Counter(shape_helpers).items() if cnt > 1]
+    shape_dupes = [
+        name for name, cnt in collections.Counter(shape_helpers).items() if cnt > 1
+    ]
     assert not shape_dupes, f"Duplicate '__shape' helpers in Loop body: {shape_dupes}"
 
     if HAS_ORT:
@@ -175,7 +179,9 @@ def test_numeric_sanity_executes(dtype):
         model_name="loop_shapeof_numeric",
         use_onnx_ir=True,
     )
-    sess = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
     x = np.zeros((7, 4), np.float64)
     feeds = {sess.get_inputs()[0].name: x}
     (y,) = sess.run(None, feeds)

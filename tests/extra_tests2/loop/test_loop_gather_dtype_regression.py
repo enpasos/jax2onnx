@@ -38,7 +38,8 @@ def test_loop_gather_const_f32_loads_and_runs(tmp_path):
         inputs=[],
         enable_double_precision=True,
         opset=21,
-        model_name="loop_gather_dtype", use_onnx_ir=True
+        model_name="loop_gather_dtype",
+        use_onnx_ir=True,
     )
     p = tmp_path / "loop_gather_dtype.onnx"
     p.write_bytes(model.SerializeToString())
@@ -97,7 +98,8 @@ def test_loop_gather_const_f32_nested_shared_table(tmp_path):
         inputs=[],
         enable_double_precision=True,
         opset=21,
-        model_name="loop_gather_dtype_nested_shared", use_onnx_ir=True
+        model_name="loop_gather_dtype_nested_shared",
+        use_onnx_ir=True,
     )
     p = tmp_path / "loop_gather_dtype_nested_shared.onnx"
     p.write_bytes(model.SerializeToString())

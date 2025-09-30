@@ -24,7 +24,8 @@ def _two_scans_len_mismatch():
     xs_small = jnp.arange(5, dtype=jnp.float32)
     xs_big = jnp.arange(100, dtype=jnp.float32)
 
-    body = lambda c, x: (c + x, c)
+    def body(c, x):
+        return (c + x, c)
 
     carry, _ = lax.scan(body, 0.0, xs_small)
     carry, _ = lax.scan(body, carry, xs_big)
@@ -52,6 +53,6 @@ def test_tripaxis_is_dynamic(tmp_path, enable_double_precision):
     for vi in model.graph.value_info:
         if vi.name.startswith("scan_unused_output"):
             first_dim = vi.type.tensor_type.shape.dim[0]
-            assert not first_dim.HasField("dim_value"), (
-                f"{vi.name} trip-axis is unexpectedly static"
-            )
+            assert not first_dim.HasField(
+                "dim_value"
+            ), f"{vi.name} trip-axis is unexpectedly static"

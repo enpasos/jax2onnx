@@ -677,7 +677,10 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 if np.dtype(aval_dtype) != np.int32:
                     continue
                 current_val = ctx.get_value_for_var(var)
-                if getattr(getattr(current_val, "type", None), "dtype", None) == ir.DataType.INT64:
+                if (
+                    getattr(getattr(current_val, "type", None), "dtype", None)
+                    == ir.DataType.INT64
+                ):
                     continue
                 promoted = ir.Value(
                     name=ctx.fresh_name("while_int64"),

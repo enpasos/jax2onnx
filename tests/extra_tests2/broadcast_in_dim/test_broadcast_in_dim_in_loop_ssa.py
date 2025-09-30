@@ -74,7 +74,8 @@ def test_broadcast_in_dim_inside_loop_ssa_unique(tmp_path):
         inputs=[spec],
         opset=21,
         model_name="broadcast_in_dim_loop_ssa_unique",
-        use_onnx_ir=True)
+        use_onnx_ir=True,
+    )
 
     all_outs = _collect_node_outputs_recursive(model.graph)
     dupes = [name for name, count in collections.Counter(all_outs).items() if count > 1]
@@ -83,11 +84,15 @@ def test_broadcast_in_dim_inside_loop_ssa_unique(tmp_path):
     loop_body = _find_first_loop_body(model.graph)
     assert loop_body is not None, "Expected Loop subgraph"
     body_outs = _collect_node_outputs_recursive(loop_body)
-    body_dupes = [name for name, count in collections.Counter(body_outs).items() if count > 1]
+    body_dupes = [
+        name for name, count in collections.Counter(body_outs).items() if count > 1
+    ]
     assert not body_dupes, f"Duplicate outputs in Loop body: {body_dupes}"
 
     shape_helpers = [name for name in body_outs if name.endswith("__shape")]
-    shape_dupes = [name for name, count in collections.Counter(shape_helpers).items() if count > 1]
+    shape_dupes = [
+        name for name, count in collections.Counter(shape_helpers).items() if count > 1
+    ]
     assert not shape_dupes, f"Duplicate '__shape' helpers in Loop body: {shape_dupes}"
 
     if HAS_ORT:
@@ -106,7 +111,8 @@ def test_broadcast_in_dim_loop_emits_shape_nodes_against_body_inputs():
         inputs=[spec],
         opset=21,
         model_name="broadcast_in_dim_loop_shape_inputs",
-        use_onnx_ir=True)
+        use_onnx_ir=True,
+    )
     loop_body = _find_first_loop_body(model.graph)
     assert loop_body is not None
     body_inputs = {vi.name for vi in loop_body.input}

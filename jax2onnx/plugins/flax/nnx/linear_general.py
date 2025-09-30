@@ -137,13 +137,13 @@ _ORIGINAL_LG_CALL: Callable | None = None
                 # var_0  (graph input)  should be B×8×4×16
                 _shape_of(m.graph.input, "var_0") == ("B", 8, 4, 16)
                 # input_reshape  flatten → ?×64 (reshape constant [-1, 64])
-                and (
-                    lambda vec: vec is not None and vec.size == 2 and vec[1] == 64
-                )(_first_flatten_shape(m))
+                and (lambda vec: vec is not None and vec.size == 2 and vec[1] == 64)(
+                    _first_flatten_shape(m)
+                )
                 # gemm weights shape 64×32 (second dim = 32)
-                and (
-                    lambda shp: shp is not None and len(shp) == 2 and shp[1] == 32
-                )(_gemm_weight_shape(m))
+                and (lambda shp: shp is not None and len(shp) == 2 and shp[1] == 32)(
+                    _gemm_weight_shape(m)
+                )
                 # var_3  (graph output)  B×8×32
                 and _shape_of(m.graph.output, "var_3") == ("B", 8, 32)
             ),

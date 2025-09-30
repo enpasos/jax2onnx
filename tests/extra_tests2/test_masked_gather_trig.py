@@ -57,9 +57,7 @@ class TestMaskedGatherTrig:
                     sess.get_inputs()[1].name: indices,
                 }
                 (onnx_out,) = sess.run(None, feed)
-                np.testing.assert_allclose(
-                    jax_result, onnx_out, rtol=5e-8, atol=1e-12
-                )
+                np.testing.assert_allclose(jax_result, onnx_out, rtol=5e-8, atol=1e-12)
             except ImportError:
                 pytest.skip("onnxruntime not available")
         finally:

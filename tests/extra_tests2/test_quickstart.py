@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import onnx
-import pytest
 
 from flax import nnx
 

@@ -336,9 +336,7 @@ class IRContext:
             # Create a Value with the tensor stored in const_value for later reference
             v = ir.Value(
                 name=self.fresh_name("const_val"),
-                type=ir.TensorType(
-                    _dtype_to_ir(np_array.dtype, promote_flag)
-                ),
+                type=ir.TensorType(_dtype_to_ir(np_array.dtype, promote_flag)),
                 shape=_to_ir_shape(np_array.shape),
                 const_value=ir.tensor(
                     np_array
@@ -366,9 +364,7 @@ class IRContext:
             # normal path: initializer
             v = ir.Value(
                 name=self.fresh_name("const"),
-                type=ir.TensorType(
-                    _dtype_to_ir(np_array.dtype, promote_flag)
-                ),
+                type=ir.TensorType(_dtype_to_ir(np_array.dtype, promote_flag)),
                 shape=_to_ir_shape(np_array.shape),
                 const_value=ir.tensor(np_array),
             )
@@ -402,9 +398,7 @@ class IRContext:
             promote_flag = False
         val = ir.Value(
             name=f"in_{index}",
-            type=ir.TensorType(
-                _dtype_to_ir(aval_dtype, promote_flag)
-            ),
+            type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
             shape=_to_ir_shape(shp),
         )
         self.builder._var2val[var] = val
@@ -478,9 +472,7 @@ class IRContext:
             promote_flag = False
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(
-                _dtype_to_ir(aval_dtype, promote_flag)
-            ),
+            type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
             shape=_to_ir_shape(tuple(aval.shape)),
         )
         self.builder._var2val[var] = v

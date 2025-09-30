@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import pathlib
 
-import jax
 import jax.numpy as jnp
-import numpy as np
 import onnx
 import pytest
 from jax import lax
@@ -173,9 +171,9 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
     assert body is not None, "Expected a Scan/Loop body."
 
     for vi in body.value_info:
-        assert _all_dims_dynamic(vi), (
-            f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening"
-        )
+        assert _all_dims_dynamic(
+            vi
+        ), f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening"
 
 
 SENSITIVE = {
@@ -217,4 +215,3 @@ def _loop_bodies(g: onnx.GraphProto):
             for a in n.attribute:
                 if a.name == "body":
                     yield onnx.helper.get_attribute_value(a)
-

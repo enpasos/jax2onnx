@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-import jax
 import jax.numpy as jnp
 from jax import lax
 
@@ -103,7 +101,9 @@ def test_loop_body_loosen_env_allows_ort_load_and_run(tmp_path):
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-@pytest.mark.xfail(reason="converter2 does not yet relax Loop internal value_info ranks", strict=False)
+@pytest.mark.xfail(
+    reason="converter2 does not yet relax Loop internal value_info ranks", strict=False
+)
 def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_path):
     model = to_onnx(
         _loop_body_broadcast_mul_with_scatter_repro,
@@ -123,4 +123,6 @@ def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_pa
 
     assert body.value_info, "Expected value_info entries in Loop body"
     for value_info in body.value_info:
-        assert _all_dims_dynamic(value_info), f"Loop body VI '{value_info.name}' must be rank-only"
+        assert _all_dims_dynamic(
+            value_info
+        ), f"Loop body VI '{value_info.name}' must be rank-only"
