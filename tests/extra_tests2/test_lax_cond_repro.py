@@ -44,7 +44,6 @@ def test_cond_scatter_reproducer_ir():
             inputs=[],
             model_name="cond_scatter_repro_ir",
             enable_double_precision=True,
-            use_onnx_ir=True,
         )
         try:
             import onnxruntime as ort

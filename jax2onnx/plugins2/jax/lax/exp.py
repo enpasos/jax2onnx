@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "exp",
             "callable": lambda x: jax.lax.exp(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -54,7 +54,6 @@ def _is_integer_dtype(dtype) -> bool:
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "gather_trig_where_pipeline_f64_indices_i32",
@@ -74,7 +73,6 @@ def _is_integer_dtype(dtype) -> bool:
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "gather_f64_data_i64_indices_output_is_f64",
@@ -94,7 +92,6 @@ def _is_integer_dtype(dtype) -> bool:
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "gather_f64_data_i32_indices_cast_and_output_is_f64",
@@ -114,7 +111,6 @@ def _is_integer_dtype(dtype) -> bool:
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "gather_static",
@@ -130,14 +126,12 @@ def _is_integer_dtype(dtype) -> bool:
             ),
             "input_shapes": [(3, 3)],
             "expected_output_shapes": [(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "gather_dynamic_batch_simple_index",
             "callable": lambda x: x[:, 0, :],
             "input_shapes": [("B", 50, 256)],
             "expected_output_shapes": [("B", 256)],
-            "use_onnx_ir": True,
         },
     ],
 )

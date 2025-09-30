@@ -91,7 +91,6 @@ _CLIP_PRIM = make_jnp_primitive("jax.numpy.clip")
             "callable": lambda x: jnp.clip(x, 0, 4),
             "input_values": [np.array([-3, 1, 9, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clip_f32_scalar_bounds_no_upcast_f64_mode",
@@ -99,21 +98,18 @@ _CLIP_PRIM = make_jnp_primitive("jax.numpy.clip")
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clip_only_upper",
             "callable": lambda x: jnp.clip(x, None, 1.0),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clip_only_lower",
             "callable": lambda x: jnp.clip(x, -1, None),
             "input_values": [np.array([-5, -1, 0, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clip_broadcast_bounds",
@@ -126,7 +122,6 @@ _CLIP_PRIM = make_jnp_primitive("jax.numpy.clip")
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

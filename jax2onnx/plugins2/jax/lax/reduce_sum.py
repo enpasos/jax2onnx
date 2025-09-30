@@ -30,31 +30,26 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "reduce_sum",
             "callable": lambda x: jnp.sum(x, axis=None),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_sum_allaxes",
             "callable": lambda x: jnp.sum(x, axis=None),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_sum_dtype",
             "callable": lambda x: jnp.sum(x, axis=None, dtype=jnp.float32),
             "input_values": [np.arange(6, dtype=np.float32).reshape(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_sum_dtype_f64",
             "callable": lambda x: jnp.sum(x, axis=None, dtype=jnp.float64),
             "input_values": [np.arange(6, dtype=np.float64).reshape(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_sum_keepdims",
             "callable": lambda x: jnp.sum(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

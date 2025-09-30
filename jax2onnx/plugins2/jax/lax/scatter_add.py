@@ -31,13 +31,11 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([1.5, -2.0], dtype=x.dtype)
             ),
             "input_shapes": [(4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_scalar",
             "callable": lambda x: x.at[3].add(jnp.array(5.0, dtype=x.dtype)),
             "input_shapes": [(6,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_simple_1d",
@@ -53,7 +51,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 1), (2,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_batch_updates_1d_operand",
@@ -69,7 +66,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 2, 1), (2, 2)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_window_2d_operand_1d_indices",
@@ -88,7 +84,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([[0]], dtype=jnp.int32),
                 jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_mismatched_window_dims_from_user_report",
@@ -108,7 +103,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.ones((5, 200, 1, 1), dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [(5, 208, 1, 1)],
             "expected_output_dtypes": [jnp.float64],
         },
@@ -130,7 +124,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.ones((3, 140, 1, 1), dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [(3, 150, 1, 1)],
             "expected_output_dtypes": [jnp.float64],
         },
@@ -152,7 +145,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [(8, 50, 1, 1)],
             "expected_output_dtypes": [jnp.float64],
         },
@@ -174,7 +166,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.ones((5, 4, 1, 1), dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [(5, 208, 1, 1)],
             "expected_output_dtypes": [jnp.float64],
         },
@@ -204,7 +195,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_add_fp64_dtype_mismatch",
@@ -219,7 +209,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 __import__("onnx").checker.check_model(m) or True
             ),
@@ -237,7 +226,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_depth2_fp64_type_mismatch",
@@ -252,7 +240,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

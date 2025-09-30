@@ -13,7 +13,13 @@ from jax import core
 from jax2onnx.plugins2._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter2.ir_context import IRContext
@@ -23,9 +29,16 @@ _TAKE_PRIM = make_jnp_primitive("jax.numpy.take")
 
 
 class _ArangeTakeModule(nnx.Module):
-    def __init__(self, num_embeddings: int, features: int, *, rngs: nnx.Rngs):
+    def __init__(
+        self,
+        num_embeddings: int,
+        features: int,
+        *,
+        dtype: jnp.dtype | type = jnp.float32,
+        rngs: nnx.Rngs,
+    ):
         self.embedding = nnx.Param(
-            jax.random.normal(rngs.params(), (num_embeddings, features))
+            jax.random.normal(rngs.params(), (num_embeddings, features), dtype=dtype)
         )
 
     def __call__(self, x: jax.Array):
@@ -86,15 +99,16 @@ def _as_int64(
     testcases=[
         {
             "testcase": "take_data_dependent_indices",
-            "callable": _ArangeTakeModule(
+            "callable": construct_and_call(
+                _ArangeTakeModule,
                 num_embeddings=10,
                 features=16,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(3, 10)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "take_basic_axis1",
@@ -105,7 +119,6 @@ def _as_int64(
             ],
             "expected_output_shapes": [(3, 2)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

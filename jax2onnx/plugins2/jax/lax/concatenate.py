@@ -73,25 +73,21 @@ def _cast_value(
             "testcase": "concatenate",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=0),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_axis1",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=1),
             "input_shapes": [("B", 3), ("B", 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_axis0",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=0),
             "input_shapes": [(7, 3), (4, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_3d",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=1),
             "input_shapes": [(2, 3, 4), (2, 5, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_internal_int32_then_cast_to_f32_zeroarg",
@@ -106,7 +102,6 @@ def _cast_value(
             ),
             "expected_output_shapes": [(2,)],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

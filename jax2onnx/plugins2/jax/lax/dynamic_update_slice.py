@@ -85,7 +85,6 @@ def _add_elementwise(
             "input_shapes": [(10,), (1,), ()],
             "input_dtypes": [np.float32, np.float32, np.int32],
             "expected_output_shapes": [(10,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dus_1d_block_update",
@@ -95,7 +94,6 @@ def _add_elementwise(
             "input_shapes": [(10,), (3,), ()],
             "input_dtypes": [np.float32, np.float32, np.int32],
             "expected_output_shapes": [(10,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dus_2d_block_update",
@@ -105,7 +103,6 @@ def _add_elementwise(
             "input_shapes": [(4, 4), (2, 2), (), ()],
             "input_dtypes": [np.float32, np.float32, np.int32, np.int32],
             "expected_output_shapes": [(4, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dus_3d_block_update",
@@ -115,7 +112,6 @@ def _add_elementwise(
             "input_shapes": [(3, 4, 4), (1, 2, 2), (), (), ()],
             "input_dtypes": [np.float32, np.float32, np.int32, np.int32, np.int32],
             "expected_output_shapes": [(3, 4, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dus_4d_block_update",
@@ -132,7 +128,6 @@ def _add_elementwise(
                 np.int32,
             ],
             "expected_output_shapes": [(5, 10, 10, 1)],
-            "use_onnx_ir": True,
         },
     ],
 )

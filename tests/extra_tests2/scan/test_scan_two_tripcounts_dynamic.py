@@ -16,6 +16,5 @@ def test_two_scans_with_different_lengths_can_load_in_ort():
         _two_scans_diff_len_f32,
         [],
         model_name="two_scans_diff",
-        use_onnx_ir=True,
     )
     _assert_ort_loads(model)

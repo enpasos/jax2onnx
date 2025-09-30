@@ -71,7 +71,6 @@ def _alpha_attr_equals(model, expected: float) -> bool:
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 1.0),
         },
         {
@@ -79,7 +78,6 @@ def _alpha_attr_equals(model, expected: float) -> bool:
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [("B", 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 1.0),
         },
         {
@@ -87,7 +85,6 @@ def _alpha_attr_equals(model, expected: float) -> bool:
             "callable": lambda x: nnx.elu(x, alpha=0.5),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.5),
         },
     ],

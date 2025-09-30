@@ -47,7 +47,6 @@ def test_loop_ff_like_broadcast_mul_loads_and_runs(tmp_path: Path):
         enable_double_precision=True,
         opset=21,
         model_name="loop_ff_like_broadcast_mul",
-        use_onnx_ir=True,
     )
     p = tmp_path / "loop_ff_like_broadcast_mul.onnx"
     p.write_bytes(model.SerializeToString())

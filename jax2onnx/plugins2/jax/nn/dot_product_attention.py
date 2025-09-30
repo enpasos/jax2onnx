@@ -1,9 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Optional, Tuple, Union, cast
+from collections import defaultdict
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    DefaultDict,
+    Dict,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 import numpy as np
 import jax
+import jax.numpy as jnp
 from jax import nn as jax_nn
 from jax.extend.core import Primitive
 import onnx_ir as ir
@@ -14,9 +25,14 @@ from jax2onnx.plugins2._ir_shapes import (
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG2
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.jax.lax.scatter_utils import (
+    _ensure_value_info as _ensure_ir_value_info,
+    _gather_int_scalar,
+    _scalar_i64,
+    _shape_of,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter2.ir_context import IRContext
@@ -24,11 +40,42 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _DPA_PRIM = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
+_ORIG_DOT_PRODUCT_ATTENTION = jax_nn.dot_product_attention
 
-_EXPECT_DPA_MASK_WHERE = EG2(
-    ["MatMul -> Mul -> Where -> Softmax -> MatMul"],
-    symbols={"B": None, "N": None, "T": None, "S": None, "H": None},
-)
+
+def _expect_dpa_mask_where_impl(model) -> bool:
+    graph = model.graph
+    consumers: DefaultDict[str, list[ir.Node]] = defaultdict(list)
+    producers: Dict[str, ir.Node] = {}
+    for node in graph.node:
+        for out in node.output:
+            producers[out] = node
+        for inp in node.input:
+            consumers[inp].append(node)
+
+    for node in graph.node:
+        if node.op_type != "Softmax" or not node.output:
+            continue
+        softmax_out = node.output[0]
+        for consumer in consumers.get(softmax_out, []):
+            if consumer.op_type != "Mul":
+                continue
+            if len(consumer.input) < 2:
+                continue
+            other_inputs = [inp for inp in consumer.input if inp != softmax_out]
+            if not other_inputs:
+                continue
+            producer = producers.get(other_inputs[0])
+            if producer and producer.op_type in {"Cast", "Mul", "Constant"}:
+                return True
+    return False
+
+
+def _expect_dpa_mask_where(model) -> bool:
+    return _expect_dpa_mask_where_impl(model)
+
+
+_EXPECT_DPA_MASK_WHERE = _expect_dpa_mask_where
 
 
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
@@ -83,6 +130,68 @@ def _make_bool_tensor_value(ctx: "IRContext", shape, *, base: str) -> ir.Value:
     )
 
 
+def _cast_to_int64(ctx: "IRContext", value: ir.Value, *, base: str) -> ir.Value:
+    casted = ir.Value(
+        name=ctx.fresh_name(base),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=value.shape,
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Cast",
+            domain="",
+            inputs=[value],
+            outputs=[casted],
+            name=ctx.fresh_name("Cast"),
+            attributes=[IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))],
+        )
+    )
+    _ensure_ir_value_info(ctx, casted)
+    return casted
+
+
+def _make_range_value(ctx: "IRContext", limit: ir.Value, *, base: str) -> ir.Value:
+    start = _scalar_i64(ctx, 0, f"{base}_start")
+    step = _scalar_i64(ctx, 1, f"{base}_step")
+    rng = ir.Value(
+        name=ctx.fresh_name(base),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((None,)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Range",
+            domain="",
+            inputs=[start, limit, step],
+            outputs=[rng],
+            name=ctx.fresh_name("Range"),
+        )
+    )
+    _ensure_ir_value_info(ctx, rng)
+    return rng
+
+
+def _logical_and(
+    ctx: "IRContext", lhs: ir.Value, rhs: ir.Value, *, base: str, shape_hint
+) -> ir.Value:
+    out = ir.Value(
+        name=ctx.fresh_name(base),
+        type=ir.TensorType(ir.DataType.BOOL),
+        shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in shape_hint)),
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="And",
+            domain="",
+            inputs=[lhs, rhs],
+            outputs=[out],
+            name=ctx.fresh_name("And"),
+        )
+    )
+    _ensure_ir_value_info(ctx, out)
+    return out
+
+
 def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
@@ -135,7 +244,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_positional_bias_mask",
@@ -145,7 +253,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_diff_heads_embed",
@@ -153,7 +260,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_batch4_seq16",
@@ -161,7 +267,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(4, 2, 16, 8), (4, 2, 16, 8), (4, 2, 16, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_float64",
@@ -171,7 +276,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_heads1_embed4",
@@ -179,7 +283,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 1, 8, 4), (2, 1, 8, 4), (2, 1, 8, 4)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_heads8_embed8",
@@ -187,7 +290,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 8, 8, 8), (2, 8, 8, 8), (2, 8, 8, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_batch1_seq2",
@@ -195,7 +297,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 2, 2, 8), (1, 2, 2, 8), (1, 2, 2, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_batch8_seq4",
@@ -203,7 +304,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(8, 2, 4, 16), (8, 2, 4, 16), (8, 2, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_axis1",
@@ -211,7 +311,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_with_tensor_mask",
@@ -227,7 +326,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
         },
         {
@@ -243,7 +341,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_tiny_mask_mixed",
@@ -258,7 +355,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_one_false",
@@ -279,7 +375,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_mostly_false",
@@ -295,7 +390,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "expected_output_numpy": [np.zeros((1, 1, 1, 4), dtype=np.float32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_with_causal_mask",
@@ -305,7 +399,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_with_padding_mask",
@@ -327,7 +420,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_with_local_window_mask",
@@ -337,7 +429,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dpa_mask_none",
@@ -350,7 +441,6 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 (2, 4, 8, 32),
             ],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -369,12 +459,24 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         has_mask = bool(eqn.params.get("has_mask", False))
+        has_query_lengths = bool(eqn.params.get("has_query_lengths", False))
+        has_key_value_lengths = bool(eqn.params.get("has_key_value_lengths", False))
         is_causal = bool(eqn.params.get("is_causal", False))
 
-        q_var = invars[0]
-        k_var = invars[1]
-        v_var = invars[2]
-        mask_var = invars[3] if has_mask else None
+        idx = 0
+        q_var = invars[idx]
+        idx += 1
+        k_var = invars[idx]
+        idx += 1
+        v_var = invars[idx]
+        idx += 1
+        mask_var = invars[idx] if has_mask else None
+        if has_mask:
+            idx += 1
+        query_len_var = invars[idx] if has_query_lengths else None
+        if has_query_lengths:
+            idx += 1
+        key_value_len_var = invars[idx] if has_key_value_lengths else None
 
         q_val = ctx.get_value_for_var(q_var, name_hint=ctx.fresh_name("dpa_q"))
         k_val = ctx.get_value_for_var(k_var, name_hint=ctx.fresh_name("dpa_k"))
@@ -408,7 +510,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         q_t = _make_tensor_value(
             ctx,
             q_val,
-            (batch_dim, num_heads, q_len, head_dim),
+            (batch_dim, q_len, num_heads, head_dim),
             base="dpa_qT",
         )
         ctx.add_node(
@@ -425,7 +527,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _add_value_info(ctx, q_t)
 
         k_t = _make_tensor_value(
-            ctx, k_val, (batch_dim, num_heads, head_dim, k_len), base="dpa_kT"
+            ctx, k_val, (batch_dim, k_len, num_heads, head_dim), base="dpa_kT"
         )
         ctx.add_node(
             ir.Node(
@@ -520,6 +622,156 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _add_value_info(ctx, masked)
             current_logits = masked
 
+        length_mask_bool: ir.Value | None = None
+        if has_query_lengths or has_key_value_lengths:
+            q_shape_val = _shape_of(ctx, q_val, "dpa_q_shape")
+            q_len_scalar = _gather_int_scalar(
+                ctx, q_shape_val, axis=1, name_hint="dpa_q_len"
+            )
+            k_shape_val = _shape_of(ctx, k_val, "dpa_k_shape")
+            k_len_scalar = _gather_int_scalar(
+                ctx, k_shape_val, axis=1, name_hint="dpa_k_len"
+            )
+
+            q_idx_vec = _make_range_value(ctx, q_len_scalar, base="dpa_q_idx_vec")
+            q_idx_shape = ctx.builder.add_initializer_from_array(
+                ctx.fresh_name("dpa_q_idx_shape"),
+                np.asarray([1, 1, -1, 1], dtype=np.int64),
+            )
+            q_idx_broadcast = ir.Value(
+                name=ctx.fresh_name("dpa_q_idx"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape((None,)),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Reshape",
+                    domain="",
+                    inputs=[q_idx_vec, q_idx_shape],
+                    outputs=[q_idx_broadcast],
+                    name=ctx.fresh_name("Reshape"),
+                )
+            )
+            _ensure_ir_value_info(ctx, q_idx_broadcast)
+            _stamp_type_and_shape(q_idx_broadcast, (1, 1, q_len_i, 1))
+
+            k_idx_vec = _make_range_value(ctx, k_len_scalar, base="dpa_k_idx_vec")
+            k_idx_shape = ctx.builder.add_initializer_from_array(
+                ctx.fresh_name("dpa_k_idx_shape"),
+                np.asarray([1, 1, 1, -1], dtype=np.int64),
+            )
+            k_idx_broadcast = ir.Value(
+                name=ctx.fresh_name("dpa_k_idx"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape((None,)),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Reshape",
+                    domain="",
+                    inputs=[k_idx_vec, k_idx_shape],
+                    outputs=[k_idx_broadcast],
+                    name=ctx.fresh_name("Reshape"),
+                )
+            )
+            _ensure_ir_value_info(ctx, k_idx_broadcast)
+            _stamp_type_and_shape(k_idx_broadcast, (1, 1, 1, k_len_i))
+
+            q_mask: ir.Value | None = None
+            if query_len_var is not None:
+                query_len_val = ctx.get_value_for_var(
+                    query_len_var, name_hint=ctx.fresh_name("dpa_query_len")
+                )
+                query_len_val = _cast_to_int64(
+                    ctx, query_len_val, base="dpa_query_len_i64"
+                )
+                query_len_shape = ctx.builder.add_initializer_from_array(
+                    ctx.fresh_name("dpa_query_len_shape"),
+                    np.asarray([-1, 1, 1, 1], dtype=np.int64),
+                )
+                query_len_broadcast = ir.Value(
+                    name=ctx.fresh_name("dpa_query_len_bc"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((None,)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[query_len_val, query_len_shape],
+                        outputs=[query_len_broadcast],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+                _ensure_ir_value_info(ctx, query_len_broadcast)
+                q_mask = _make_bool_tensor_value(
+                    ctx, (batch_dim, 1, q_len, 1), base="dpa_query_mask"
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Less",
+                        domain="",
+                        inputs=[q_idx_broadcast, query_len_broadcast],
+                        outputs=[q_mask],
+                        name=ctx.fresh_name("Less"),
+                    )
+                )
+                _stamp_type_and_shape(q_mask, (batch_dim_i, 1, q_len_i, 1))
+                _add_value_info(ctx, q_mask)
+
+            k_mask: ir.Value | None = None
+            if key_value_len_var is not None:
+                key_len_val = ctx.get_value_for_var(
+                    key_value_len_var, name_hint=ctx.fresh_name("dpa_key_len")
+                )
+                key_len_val = _cast_to_int64(ctx, key_len_val, base="dpa_key_len_i64")
+                key_len_shape = ctx.builder.add_initializer_from_array(
+                    ctx.fresh_name("dpa_key_len_shape"),
+                    np.asarray([-1, 1, 1, 1], dtype=np.int64),
+                )
+                key_len_broadcast = ir.Value(
+                    name=ctx.fresh_name("dpa_key_len_bc"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((None,)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[key_len_val, key_len_shape],
+                        outputs=[key_len_broadcast],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+                _ensure_ir_value_info(ctx, key_len_broadcast)
+                k_mask = _make_bool_tensor_value(
+                    ctx, (batch_dim, 1, 1, k_len), base="dpa_key_mask"
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Less",
+                        domain="",
+                        inputs=[k_idx_broadcast, key_len_broadcast],
+                        outputs=[k_mask],
+                        name=ctx.fresh_name("Less"),
+                    )
+                )
+                _stamp_type_and_shape(k_mask, (batch_dim_i, 1, 1, k_len_i))
+                _add_value_info(ctx, k_mask)
+
+            if q_mask is not None and k_mask is not None:
+                length_mask_bool = _logical_and(
+                    ctx,
+                    q_mask,
+                    k_mask,
+                    base="dpa_length_mask",
+                    shape_hint=(batch_dim_i, 1, q_len_i, k_len_i),
+                )
+            elif q_mask is not None:
+                length_mask_bool = q_mask
+            elif k_mask is not None:
+                length_mask_bool = k_mask
+
         if has_mask and mask_var is not None:
             mask_val = ctx.get_value_for_var(
                 mask_var, name_hint=ctx.fresh_name("dpa_mask")
@@ -560,31 +812,21 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 _add_value_info(ctx, mask_bool)
             else:
                 mask_bool = mask_val
+        else:
+            mask_bool = None
 
-            fill_value = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_mask_fill"),
-                np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
-            )
-            masked_logits = _make_tensor_value(
-                ctx,
-                current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_masked",
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Where",
-                    domain="",
-                    inputs=[mask_bool, current_logits, fill_value],
-                    outputs=[masked_logits],
-                    name=ctx.fresh_name("Where"),
+        if length_mask_bool is not None:
+            if mask_bool is None:
+                mask_bool = length_mask_bool
+            else:
+                mask_bool = _logical_and(
+                    ctx,
+                    mask_bool,
+                    length_mask_bool,
+                    base="dpa_combined_mask",
+                    shape_hint=(batch_dim_i, num_heads_i, q_len_i, k_len_i),
                 )
-            )
-            _stamp_type_and_shape(
-                masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-            _add_value_info(ctx, masked_logits)
-            current_logits = masked_logits
+                _add_value_info(ctx, mask_bool)
 
         weights = _make_tensor_value(
             ctx,
@@ -604,6 +846,172 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _add_value_info(ctx, weights)
+
+        if mask_bool is not None:
+            mask_float = _make_tensor_value(
+                ctx,
+                weights,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_mask_float",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Cast",
+                    domain="",
+                    inputs=[mask_bool],
+                    outputs=[mask_float],
+                    name=ctx.fresh_name("Cast"),
+                    attributes=[
+                        IRAttr(
+                            "to",
+                            IRAttrType.INT,
+                            int(_dtype_enum_from_value(weights).value),
+                        )
+                    ],
+                )
+            )
+            _stamp_type_and_shape(
+                mask_float, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, mask_float)
+
+            masked_weights = _make_tensor_value(
+                ctx,
+                weights,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_weights_masked",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Mul",
+                    domain="",
+                    inputs=[weights, mask_float],
+                    outputs=[masked_weights],
+                    name=ctx.fresh_name("Mul"),
+                )
+            )
+            _stamp_type_and_shape(
+                masked_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, masked_weights)
+
+            sum_weights = _make_tensor_value(
+                ctx,
+                weights,
+                (batch_dim, num_heads, q_len, 1),
+                base="dpa_weights_sum",
+            )
+            axes_tensor = ctx.builder.add_initializer_from_array(
+                ctx.fresh_name("dpa_weights_axes"),
+                np.asarray([3], dtype=np.int64),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="ReduceSum",
+                    domain="",
+                    inputs=[masked_weights, axes_tensor],
+                    outputs=[sum_weights],
+                    name=ctx.fresh_name("ReduceSum"),
+                    attributes=[
+                        IRAttr("keepdims", IRAttrType.INT, 1),
+                    ],
+                )
+            )
+            _stamp_type_and_shape(sum_weights, (batch_dim_i, num_heads_i, q_len_i, 1))
+            _add_value_info(ctx, sum_weights)
+
+            zero_scalar = ctx.builder.add_initializer_from_scalar(
+                ctx.fresh_name("dpa_zero"),
+                np.asarray(0.0, dtype=np_dtype),
+            )
+            denom_nonzero = ir.Value(
+                name=ctx.fresh_name("dpa_weights_sum_nz"),
+                type=ir.TensorType(ir.DataType.BOOL),
+                shape=ir.Shape(
+                    (
+                        _to_ir_dim_for_shape(batch_dim),
+                        _to_ir_dim_for_shape(num_heads),
+                        _to_ir_dim_for_shape(q_len),
+                        _to_ir_dim_for_shape(1),
+                    )
+                ),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Greater",
+                    domain="",
+                    inputs=[sum_weights, zero_scalar],
+                    outputs=[denom_nonzero],
+                    name=ctx.fresh_name("Greater"),
+                )
+            )
+            _add_value_info(ctx, denom_nonzero)
+
+            one_scalar = ctx.builder.add_initializer_from_scalar(
+                ctx.fresh_name("dpa_one"),
+                np.asarray(1.0, dtype=np_dtype),
+            )
+            safe_denom = _make_tensor_value(
+                ctx,
+                sum_weights,
+                (batch_dim, num_heads, q_len, 1),
+                base="dpa_weights_denom",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Where",
+                    domain="",
+                    inputs=[denom_nonzero, sum_weights, one_scalar],
+                    outputs=[safe_denom],
+                    name=ctx.fresh_name("Where"),
+                )
+            )
+            _stamp_type_and_shape(safe_denom, (batch_dim_i, num_heads_i, q_len_i, 1))
+            _add_value_info(ctx, safe_denom)
+
+            normalized_weights = _make_tensor_value(
+                ctx,
+                weights,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_weights_norm",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Div",
+                    domain="",
+                    inputs=[masked_weights, safe_denom],
+                    outputs=[normalized_weights],
+                    name=ctx.fresh_name("Div"),
+                )
+            )
+            _stamp_type_and_shape(
+                normalized_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, normalized_weights)
+
+            nan_value = np.nan if np_dtype == np.float64 else 0.0
+            nan_scalar = ctx.builder.add_initializer_from_scalar(
+                ctx.fresh_name("dpa_nan"),
+                np.asarray(nan_value, dtype=np_dtype),
+            )
+            weights = _make_tensor_value(
+                ctx,
+                normalized_weights,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_weights_norm_nan",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Where",
+                    domain="",
+                    inputs=[denom_nonzero, normalized_weights, nan_scalar],
+                    outputs=[weights],
+                    name=ctx.fresh_name("Where"),
+                )
+            )
+            _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _add_value_info(ctx, weights)
+        # if no additional mask, retain softmax weights as-is
 
         v_t = _make_tensor_value(
             ctx, v_val, (batch_dim, num_heads, k_len, head_dim), base="dpa_vT"
@@ -678,6 +1086,37 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     mask_arg = mask_kw if mask_kw is not None else mask_arg
 
                 is_causal = bool(kwargs.pop("is_causal", False))
+                query_seq_lengths = kwargs.pop("query_seq_lengths", None)
+                key_value_seq_lengths = kwargs.pop("key_value_seq_lengths", None)
+
+                if isinstance(mask_arg, tuple) and len(mask_arg) == 2:
+                    query_lengths, key_lengths = mask_arg
+                    query_lengths = jnp.asarray(query_lengths, dtype=jnp.int32)
+                    key_lengths = jnp.asarray(key_lengths, dtype=jnp.int32)
+                    query_seq_lengths = query_lengths
+                    key_value_seq_lengths = key_lengths
+                    mask_arg = None
+
+                if query_seq_lengths is not None or key_value_seq_lengths is not None:
+                    batch_size = q.shape[0]
+                    q_len = q.shape[2]
+                    k_len = k.shape[2]
+                    if query_seq_lengths is None:
+                        query_seq_lengths = jnp.full(
+                            (batch_size,), q_len, dtype=jnp.int32
+                        )
+                    else:
+                        query_seq_lengths = jnp.asarray(
+                            query_seq_lengths, dtype=jnp.int32
+                        )
+                    if key_value_seq_lengths is None:
+                        key_value_seq_lengths = jnp.full(
+                            (batch_size,), k_len, dtype=jnp.int32
+                        )
+                    else:
+                        key_value_seq_lengths = jnp.asarray(
+                            key_value_seq_lengths, dtype=jnp.int32
+                        )
 
                 unsupported = {
                     key: kwargs.get(key)
@@ -702,11 +1141,19 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                         "jax.nn.dot_product_attention bias argument is not yet supported"
                     )
 
-                params = {"is_causal": is_causal}
+                params = {
+                    "is_causal": is_causal,
+                    "has_mask": mask_arg is not None,
+                    "has_query_lengths": query_seq_lengths is not None,
+                    "has_key_value_lengths": key_value_seq_lengths is not None,
+                }
                 operands = [q, k, v]
                 if mask_arg is not None:
                     operands.append(mask_arg)
-                    params["has_mask"] = True
+                if query_seq_lengths is not None:
+                    operands.append(query_seq_lengths)
+                if key_value_seq_lengths is not None:
+                    operands.append(key_value_seq_lengths)
 
                 return cls._PRIM.bind(*operands, **params)
 
@@ -727,4 +1174,4 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
 @DotProductAttentionPlugin._PRIM.def_impl
 def _impl(*args, **kwargs):
-    return jax_nn.dot_product_attention(*args, **kwargs)
+    return _ORIG_DOT_PRODUCT_ATTENTION(*args, **kwargs)

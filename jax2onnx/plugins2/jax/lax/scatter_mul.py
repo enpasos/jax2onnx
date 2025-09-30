@@ -39,7 +39,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 1), (2,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_batch_updates_1d_operand",
@@ -55,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 2, 1), (2, 2)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_window_2d_operand_1d_indices",
@@ -74,7 +72,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([[0]], dtype=jnp.int32),
                 jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report",
@@ -94,7 +91,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((5, 200, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report2",
@@ -114,7 +110,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((3, 140, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report3",
@@ -134,7 +129,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_fluids_pattern_updates_5_4_1_1",
@@ -154,7 +148,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((5, 4, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_mul_in_cond_float64",
@@ -182,7 +175,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

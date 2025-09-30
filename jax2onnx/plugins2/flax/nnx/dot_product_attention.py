@@ -119,7 +119,6 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_DPA_BASE,
         },
         {
@@ -130,7 +129,6 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_MASK(m),
         },
@@ -141,7 +139,6 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             ),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_BIAS(m),
         },
@@ -158,7 +155,6 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_MASK(m),
         },
@@ -189,7 +185,6 @@ EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_MASK(m)
             and EXPECT_DPA_WITH_BIAS(m),

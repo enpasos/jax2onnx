@@ -5,24 +5,35 @@ import jax
 from flax import nnx
 from flax.nnx.nn.activations import tanh
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
-def _gru(*, in_feat: int = 3, hid_feat: int = 4) -> nnx.GRUCell:
-    return nnx.GRUCell(
-        in_features=in_feat,
-        hidden_features=hid_feat,
-        activation_fn=tanh,
-        rngs=nnx.Rngs(0),
-    )
+class GRUCellWrapper(nnx.Module):
+    def __init__(
+        self,
+        *,
+        in_feat: int = 3,
+        hid_feat: int = 4,
+        rngs: nnx.Rngs,
+    ):
+        self.cell = nnx.GRUCell(
+            in_features=in_feat,
+            hidden_features=hid_feat,
+            activation_fn=tanh,
+            rngs=rngs,
+        )
 
-
-_gru_instance = _gru()
-
-
-def _gru_wrapper(carry: jax.Array, inputs: jax.Array) -> tuple[jax.Array, jax.Array]:
-    new_h, y = _gru_instance(carry, inputs)
-    return new_h, y + 0.0
+    def __call__(
+        self,
+        carry: jax.Array,
+        inputs: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        new_hidden, output = self.cell(carry, inputs)
+        return new_hidden, output + 0.0
 
 
 register_example(
@@ -40,14 +51,18 @@ register_example(
     testcases=[
         {
             "testcase": "gru_cell_basic",
-            "callable": _gru_wrapper,
+            "callable": construct_and_call(
+                GRUCellWrapper,
+                in_feat=3,
+                hid_feat=4,
+                rngs=with_rng_seed(0),
+            ),
             "input_values": [
                 np.zeros((2, 4), np.float32),
                 np.ones((2, 3), np.float32),
             ],
             "expected_output_shapes": [(2, 4), (2, 4)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

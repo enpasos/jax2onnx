@@ -3,7 +3,11 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_prng_key,
+)
 
 
 class Linear(eqx.Module):
@@ -19,13 +23,6 @@ class Linear(eqx.Module):
         return self.weight @ x + self.bias
 
 
-# Create the modules once so weight init is outside the traced callable.
-_batched_linear = jax.vmap(Linear(30, 3, key=jax.random.PRNGKey(0)))
-_batched_nn_linear = jax.vmap(
-    eqx.nn.Linear(in_features=30, out_features=3, key=jax.random.PRNGKey(1))
-)
-
-
 register_example(
     component="SimpleLinearExample",
     description="A simple linear layer example using Equinox (converter2).",
@@ -36,15 +33,21 @@ register_example(
     testcases=[
         {
             "testcase": "simple_linear",
-            "callable": _batched_linear,
+            "callable": construct_and_call(
+                lambda key: jax.vmap(Linear(30, 3, key=key)),
+                key=with_prng_key(0),
+            ),
             "input_shapes": [(12, 30)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "nn_linear",
-            "callable": _batched_nn_linear,
+            "callable": construct_and_call(
+                lambda key: jax.vmap(
+                    eqx.nn.Linear(in_features=30, out_features=3, key=key)
+                ),
+                key=with_prng_key(1),
+            ),
             "input_shapes": [(12, 30)],
-            "use_onnx_ir": True,
         },
     ],
 )

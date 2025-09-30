@@ -36,7 +36,6 @@ def test_f64_promotion_for_captured_constants_ir(tmp_path, enable_x64):
             [jax.ShapeDtypeStruct(input_f64.shape, input_f64.dtype)],
             model_name="f64_constant_promotion_test_ir",
             enable_double_precision=True,
-            use_onnx_ir=True,
         )
 
         found_initializer = False
@@ -77,7 +76,6 @@ def test_f64_promotion_for_function_with_no_inputs_ir(tmp_path, enable_x64):
             [],
             model_name="f64_no_inputs_test_ir",
             enable_double_precision=True,
-            use_onnx_ir=True,
         )
         assert onnx_model.graph.initializer
         initializer = onnx_model.graph.initializer[0]

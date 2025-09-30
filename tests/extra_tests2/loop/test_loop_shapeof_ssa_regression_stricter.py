@@ -34,7 +34,6 @@ class TestLoopShapeOfSSARegressionStricter:
             inputs=[spec],
             opset=21,
             model_name="loop_shapeof_ssa_stricter",
-            use_onnx_ir=True,
         )
         onnx_path = tmp_path / "m.onnx"
         onnx_path.write_bytes(model.SerializeToString())

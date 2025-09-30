@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 import jax.numpy as jnp
 from jax import lax
 
@@ -8,10 +10,8 @@ from jax2onnx.plugins2.plugin_system import register_example
 
 def model_with_cond_and_scatter():
     """Reproducer where lax.cond branches capture local scatter operands."""
-    limit_val = float(2 * 4 * 1 * 1)
-    original_operand_val = jnp.arange(0.0, limit_val, 1.0, dtype=jnp.float64).reshape(
-        (2, 4, 1, 1)
-    )
+    base_vals = np.arange(0.0, 2 * 4 * 1 * 1, 1.0, dtype=np.float64).reshape(2, 4, 1, 1)
+    original_operand_val = jnp.asarray(base_vals, dtype=jnp.float64)
 
     raw_updates_data_val = jnp.ones((1, 4, 1, 1), dtype=jnp.float64) * 100.0
     reshaped_updates_for_slices_val = jnp.reshape(raw_updates_data_val, (1, 4, 1, 1))
@@ -59,7 +59,6 @@ register_example(
             "expected_output_shapes": [(2, 4, 1, 1), ()],
             "expected_output_dtypes": [jnp.float64, jnp.int64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

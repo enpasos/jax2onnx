@@ -45,7 +45,6 @@ def _square_jvp(primals, tangents):
             "testcase": "custom_jvp_square",
             "callable": lambda x: _square(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

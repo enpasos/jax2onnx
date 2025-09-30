@@ -9,7 +9,13 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._ir_shapes import (
@@ -88,99 +94,117 @@ EXPECT_T_BN_T = EG(
     testcases=[
         {
             "testcase": "batch_norm_no_bias_no_scale",
-            "callable": nnx.BatchNorm(
+            "callable": construct_and_call(
+                nnx.BatchNorm,
                 num_features=8,
                 use_running_average=True,
                 use_bias=False,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_BN_ONLY,
         },
         {
             "testcase": "batch_norm_bias_no_scale",
-            "callable": nnx.BatchNorm(
+            "callable": construct_and_call(
+                nnx.BatchNorm,
                 num_features=8,
                 use_running_average=True,
                 use_bias=True,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_BN_ONLY,
         },
         {
             "testcase": "batch_norm_no_bias_scale",
-            "callable": nnx.BatchNorm(
+            "callable": construct_and_call(
+                nnx.BatchNorm,
                 num_features=8,
                 use_running_average=True,
                 use_bias=False,
                 use_scale=True,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_BN_ONLY,
         },
         {
             "testcase": "batch_norm_bias_scale",
-            "callable": nnx.BatchNorm(
+            "callable": construct_and_call(
+                nnx.BatchNorm,
                 num_features=8,
                 use_running_average=True,
                 use_bias=True,
                 use_scale=True,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_BN_ONLY,
         },
         {
             "testcase": "batch_norm_3d",
-            "callable": nnx.BatchNorm(
-                num_features=3, use_running_average=True, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.BatchNorm,
+                num_features=3,
+                use_running_average=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 3)],
             "expected_output_shapes": [("B", 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # "post_check_onnx_graph": EXPECT_T_BN_T,
         },
         {
             "testcase": "batch_norm_4d",
-            "callable": nnx.BatchNorm(
-                num_features=3, use_running_average=True, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.BatchNorm,
+                num_features=3,
+                use_running_average=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 4, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_BN_T,
         },
         {
             "testcase": "batch_norm_4d_no_bias_no_scale",
-            "callable": nnx.BatchNorm(
+            "callable": construct_and_call(
+                nnx.BatchNorm,
                 num_features=3,
                 use_running_average=True,
                 use_bias=False,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 4, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_BN_T,
         },
     ],

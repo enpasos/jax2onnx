@@ -32,7 +32,6 @@ register_example(
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [(2,), ()],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_test_f64",
@@ -41,7 +40,6 @@ register_example(
             "input_dtypes": [jnp.float64],
             "expected_output_shapes": [(3,), ()],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

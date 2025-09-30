@@ -28,13 +28,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "testcase": "rev_vector",
             "callable": lambda x: jax.lax.rev(x, (0,)),
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "rev_matrix_axes01",
             "callable": lambda x: jax.lax.rev(x, (0, 1)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

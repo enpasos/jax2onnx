@@ -28,7 +28,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "convert_element_type",
             "callable": lambda x: x.astype(np.int16),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -6,7 +6,12 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 # === Renamed ===
@@ -15,21 +20,17 @@ class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
+        self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                x = layer(x, deterministic=deterministic)
-            else:
-                x = layer(x)
-        return x
+        x = self.linear1(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.dropout1(x, deterministic=deterministic)
+        x = self.linear2(x)
+        return self.dropout2(x, deterministic=deterministic)
 
 
 # === Renamed ===
@@ -106,17 +107,17 @@ register_example(
         {
             "testcase": "007_transformer_block",
             # === Updated callable name ===
-            "callable": TransformerBlock(
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

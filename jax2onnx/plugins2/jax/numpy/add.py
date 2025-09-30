@@ -33,19 +33,16 @@ _ADD_PRIM = make_jnp_primitive("jax.numpy.add")
             "testcase": "add",
             "callable": lambda x, y: jnp.add(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_add_vector",
             "callable": lambda x, y: jnp.add(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_add_broadcast",
             "callable": lambda x: jnp.add(x, 1.0),
             "input_shapes": [(2, 3)],
-            "use_onnx_ir": True,
         },
     ],
 )

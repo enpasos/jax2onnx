@@ -66,7 +66,6 @@ def test_loop_body_has_no_duplicate_shape_helpers(dtype):
         enable_double_precision=True,
         opset=21,
         model_name="shape_helper_uniqueness",
-        use_onnx_ir=True,
     )
     body = _find_first_loop_body(model.graph)
     assert body is not None, "Expected a Loop body."

@@ -40,7 +40,6 @@ def test_scan_loop_no_xs_subset_outputs_loads_and_matches(tmp_path: pathlib.Path
         opset=21,
         enable_double_precision=True,
         model_name="scan_loop_no_xs_subset",
-        use_onnx_ir=True,
     )
 
     path = tmp_path / "scan_loop_no_xs_subset.onnx"

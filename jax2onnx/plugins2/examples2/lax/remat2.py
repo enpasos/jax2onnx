@@ -31,7 +31,6 @@ register_example(
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [jnp.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -9,19 +9,21 @@ from flax import nnx
 
 from jax2onnx import onnx_function
 from jax2onnx.user_interface import to_onnx
-from jax2onnx.converter.parameter_validation import validate_onnx_model_parameters
+from jax2onnx.utils.parameter_validation import validate_onnx_model_parameters
 
 
 @onnx_function
 class _NestedBlock(nnx.Module):
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=dropout_rate, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
@@ -50,7 +52,6 @@ def test_parameter_passing_ir(tmp_path, shape):
         _SuperBlock(),
         inputs=[shape],
         model_name="nested_param_test_ir",
-        use_onnx_ir=True,
     )
 
     errors = validate_onnx_model_parameters(model)

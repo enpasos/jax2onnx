@@ -1,38 +1,38 @@
 # jax2onnx/plugins2/examples2/onnx_functions/onnx_functions_000.py
 
 from __future__ import annotations
+
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 class MLPBlock(nnx.Module):
     """Tiny MLP block used by SuperBlock."""
 
     def __init__(self, num_hiddens: int, mlp_dim: int, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=0.1, rngs=rngs)
+        self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
+        self.dropout2 = nnx.Dropout(rate=0.1, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, *, deterministic: bool = False) -> jnp.ndarray:
-        y = x
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                y = layer(y, deterministic=deterministic)
-            else:
-                y = layer(y)
-        return y
+        y = self.linear1(x)
+        y = nnx.gelu(y, approximate=False)
+        y = self.dropout1(y, deterministic=deterministic)
+        y = self.linear2(y)
+        return self.dropout2(y, deterministic=deterministic)
 
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
-        rngs = nnx.Rngs(0)
+    def __init__(self, *, rngs: nnx.Rngs):
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
@@ -53,7 +53,7 @@ register_example(
     testcases=[
         {
             "testcase": "000_one_function_on_outer_layer",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock, rngs=with_rng_seed(0)),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
@@ -61,7 +61,6 @@ register_example(
             # Match the tolerances used by LN unit tests.
             "rtol": 1e-3,
             "atol": 1e-5,
-            "use_onnx_ir": True,
         }
     ],
 )

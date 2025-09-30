@@ -79,7 +79,6 @@ def test_loop_body_shared_shape_helpers_are_ssa_unique(tmp_path, dtype):
         enable_double_precision=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_ssa",
-        use_onnx_ir=True,
     )
 
     body = _find_first_loop_body(model.graph)
@@ -108,7 +107,6 @@ def test_numeric_executes(tmp_path, dtype):
         enable_double_precision=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_numeric",
-        use_onnx_ir=True,
     )
     sess = ort.InferenceSession(
         model.SerializeToString(), providers=["CPUExecutionProvider"]

@@ -195,14 +195,12 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_shapes": [(3, 10)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_stop_only_concrete_input_val",
             "callable": lambda stop: jnp.arange(stop, dtype=jnp.float32),
             "input_values": [np.array(5.0, dtype=np.float32)],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_start_stop_concrete_input_val",
@@ -212,7 +210,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(7.0, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_start_stop_step_concrete_input_val",
@@ -225,7 +222,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(2.0, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_float_concrete_input_val",
@@ -238,7 +234,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(0.5, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_stop_only_int",
@@ -246,14 +241,12 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_stop_only_float",
             "callable": lambda: jnp.arange(5.0),
             "input_values": [],
             "expected_output_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_start_stop_int",
@@ -261,7 +254,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_start_stop_step_int",
@@ -269,7 +261,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_empty_result_pos_step",
@@ -277,7 +268,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_empty_result_neg_step",
@@ -285,7 +275,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_negative_step",
@@ -293,21 +282,18 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_float_step_explicit_dtype",
             "callable": lambda: jnp.arange(1.0, 2.0, 0.25, dtype=jnp.float32),
             "input_values": [],
             "expected_output_shapes": [(4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_float_step_inferred_dtype",
             "callable": lambda: jnp.arange(0.0, 1.0, 0.3),
             "input_values": [],
             "expected_output_shapes": [(4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_stop_zero",
@@ -315,7 +301,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_start_equals_stop",
@@ -323,7 +308,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "arange_static_large_numbers_int",
@@ -331,7 +315,6 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "use_onnx_ir": True,
         },
     ],
 )

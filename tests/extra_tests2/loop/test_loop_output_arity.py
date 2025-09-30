@@ -48,7 +48,10 @@ def _make_fn_only_uses_subset_of_loop_outputs():
 def test_loop_output_arity_ok(tmp_path: pathlib.Path):
     fn = _make_fn_only_uses_subset_of_loop_outputs()
     model = to_onnx(
-        fn, inputs=[], model_name="loop_out_arity", opset=21, use_onnx_ir=True
+        fn,
+        inputs=[],
+        model_name="loop_out_arity",
+        opset=21,
     )
 
     # Structural check

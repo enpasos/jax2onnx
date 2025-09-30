@@ -70,7 +70,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -81,7 +80,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -90,7 +88,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -101,7 +98,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 7, 7, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -112,7 +108,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 10, 10, 1)],
             "expected_output_shapes": [("B", 4, 4, 1)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -123,7 +118,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 7, 7, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
         {
@@ -138,7 +132,6 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_POOL_T,
         },
     ],

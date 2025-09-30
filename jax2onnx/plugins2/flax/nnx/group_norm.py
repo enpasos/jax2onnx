@@ -9,7 +9,13 @@ from flax import nnx
 from jax.extend.core import Primitive
 
 import onnx_ir as ir
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
 from jax2onnx.plugins2._ir_shapes import (
@@ -78,108 +84,137 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
     testcases=[
         {
             "testcase": "group_norm",
-            "callable": nnx.GroupNorm(num_features=64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.GroupNorm,
+                num_features=64,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(11, 2, 2, 64)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_rank2",
-            "callable": nnx.GroupNorm(num_features=8, num_groups=4, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.GroupNorm,
+                num_features=8,
+                num_groups=4,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_PLAIN,
         },
         {
             "testcase": "group_norm_rank4",
-            "callable": nnx.GroupNorm(num_features=64, num_groups=8, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.GroupNorm,
+                num_features=64,
+                num_groups=8,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(3, 7, 7, 64)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_bias",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_bias=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 5, 5, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_bias_no_scale",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_bias=False,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 16, 16, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_bias_no_scale",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_bias=True,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 16, 16, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_scale",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_scale=False,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 5, 5, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_no_bias_scale",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_bias=False,
                 use_scale=True,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 16, 16, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
         {
             "testcase": "group_norm_bias_scale",
-            "callable": nnx.GroupNorm(
+            "callable": construct_and_call(
+                nnx.GroupNorm,
                 num_features=32,
                 num_groups=8,
                 use_bias=True,
                 use_scale=True,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 16, 16, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_TRANSPOSED,
         },
     ],

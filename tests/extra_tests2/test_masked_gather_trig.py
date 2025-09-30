@@ -43,7 +43,6 @@ class TestMaskedGatherTrig:
                 ],
                 model_name="masked_gather_trig_f64_ir",
                 enable_double_precision=True,
-                use_onnx_ir=True,
             )
 
             assert len(onnx_model.graph.output) == 1

@@ -92,13 +92,11 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
             "testcase": "pow_basic",
             "callable": lambda x, y: jax.lax.pow(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pow_lax",
             "callable": lambda x, y: jax.lax.pow(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
     ],
 )

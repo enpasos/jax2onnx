@@ -24,7 +24,6 @@ register_example(
             "input_shapes": [(10,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

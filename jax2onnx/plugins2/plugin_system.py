@@ -78,6 +78,168 @@ def _sanitize_op_type_name(name: str) -> str:
 # Discovery guard (missing before → NameError during test generation)
 _already_imported_plugins2: bool = False
 
+
+# ------------------------------------------------------------------------------
+# Callable factory helpers
+# ------------------------------------------------------------------------------
+
+
+class _FactoryValue:
+    """Sentinel wrapping a callable that produces a value given the requested dtype."""
+
+    __slots__ = ("_fn",)
+
+    def __init__(self, fn: Callable[[Any], Any]):
+        self._fn = fn
+
+    def resolve(self, dtype: Any) -> Any:  # noqa: D401 - tiny helper
+        return self._fn(dtype)
+
+
+def _materialize(value: Any, dtype: Any) -> Any:
+    """Resolve dtype-dependent values inside nested containers."""
+
+    if isinstance(value, _FactoryValue):
+        return value.resolve(dtype)
+    if isinstance(value, dict):
+        return {k: _materialize(v, dtype) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        seq_type = type(value)
+        return seq_type(_materialize(v, dtype) for v in value)
+    return value
+
+
+def make_callable_factory(
+    ctor: Callable[..., Any],
+    /,
+    *ctor_args: Any,
+    **ctor_kwargs: Any,
+) -> Callable[[Any], Any]:
+    """Build a `callable_factory` compatible with tests.t_generator.
+
+    Each invocation materializes fresh constructor arguments, resolving any
+    `_FactoryValue` placeholders with the requested dtype.
+    """
+
+    def _factory(dtype: Any) -> Any:
+        resolved_args = [_materialize(arg, dtype) for arg in ctor_args]
+        resolved_kwargs = {k: _materialize(v, dtype) for k, v in ctor_kwargs.items()}
+        return ctor(*resolved_args, **resolved_kwargs)
+
+    return _factory
+
+
+def with_requested_dtype() -> _FactoryValue:
+    """Placeholder that resolves to the dtype requested by the test harness."""
+
+    return _FactoryValue(lambda dtype: dtype)
+
+
+def with_rng_seed(seed: int | Callable[[Any], int]) -> _FactoryValue:
+    """Placeholder that builds an `nnx.Rngs` seeded per request."""
+
+    def _build(dtype: Any) -> Any:
+        from flax import nnx  # Local import to avoid mandatory dependency during import
+
+        seed_value = seed(dtype) if callable(seed) else seed
+        return nnx.Rngs(seed_value)
+
+    return _FactoryValue(_build)
+
+
+def with_prng_key(seed: int | Callable[[Any], int]) -> _FactoryValue:
+    """Placeholder that returns a JAX `PRNGKey` seeded per request."""
+
+    def _build(dtype: Any) -> Any:
+        import jax  # Local import to avoid unconditional dependency at module import time
+
+        seed_value = seed(dtype) if callable(seed) else seed
+        return jax.random.PRNGKey(seed_value)
+
+    return _FactoryValue(_build)
+
+
+class _DynamicParamWrapper:
+    """Hashable wrapper for traced kwargs passed to ONNX function primitives."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+    def __hash__(self) -> int:  # pragma: no cover - trivial
+        return hash(id(self.value))
+
+    def __eq__(self, other: object) -> bool:  # pragma: no cover - trivial
+        return isinstance(other, _DynamicParamWrapper) and other.value is self.value
+
+
+class _ConstructAndCall:
+    __slots__ = ("_ctor", "_args", "_kwargs", "_dtype", "_instance")
+    __jax2onnx_factory__ = True
+
+    def __init__(
+        self,
+        ctor: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        dtype: Any | None,
+        instance: Any | None = None,
+    ) -> None:
+        self._ctor = ctor
+        self._args = args
+        self._kwargs = kwargs
+        self._dtype = dtype
+        self._instance = instance
+
+    def with_dtype(self, dtype: Any) -> "_ConstructAndCall":
+        resolved_args = [_materialize(arg, dtype) for arg in self._args]
+        resolved_kwargs = {k: _materialize(v, dtype) for k, v in self._kwargs.items()}
+        instance = self._ctor(*resolved_args, **resolved_kwargs)
+        if not callable(instance):
+            raise TypeError(
+                "construct_and_call expected constructor to return a callable object"
+            )
+        return _ConstructAndCall(
+            self._ctor,
+            self._args,
+            self._kwargs,
+            dtype,
+            instance=instance,
+        )
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        instance = self._instance
+        if instance is None:
+            dtype = self._dtype
+            if dtype is None:
+                import jax.numpy as jnp  # Local import to avoid mandatory dependency on module import
+
+                dtype = jnp.float32
+
+            resolved_args = [_materialize(arg, dtype) for arg in self._args]
+            resolved_kwargs = {
+                k: _materialize(v, dtype) for k, v in self._kwargs.items()
+            }
+            instance = self._ctor(*resolved_args, **resolved_kwargs)
+            if not callable(instance):
+                raise TypeError(
+                    "construct_and_call expected constructor to return a callable object"
+                )
+        return instance(*args, **kwargs)
+
+
+def construct_and_call(
+    ctor: Callable[..., Any],
+    /,
+    *ctor_args: Any,
+    **ctor_kwargs: Any,
+) -> _ConstructAndCall:
+    """Construct a fresh callable on each invocation, then immediately call it."""
+
+    return _ConstructAndCall(ctor, tuple(ctor_args), dict(ctor_kwargs), dtype=None)
+
+
 # ------------------------------------------------------------------------------
 # Primitive plugin base
 # ------------------------------------------------------------------------------
@@ -254,7 +416,19 @@ class FunctionPlugin(PrimitivePlugin):
     def _abstract_eval_with_kwargs(self, *args, **kwargs):
         if self._orig_fn is None:
             raise ValueError(f"Original function not set for '{self.name}'")
-        kwargs = {k: v for k, v in kwargs.items() if k != "instance_key"}
+
+        def _coerce_kwarg(value: Any) -> Any:
+            if isinstance(value, _DynamicParamWrapper):
+                tracer = value.value
+                aval = getattr(tracer, "aval", None)
+                if aval is not None:
+                    return jax.ShapeDtypeStruct(
+                        tuple(getattr(aval, "shape", ())), getattr(aval, "dtype", None)
+                    )
+                return tracer
+            return value
+
+        kwargs = {k: _coerce_kwarg(v) for k, v in kwargs.items() if k != "instance_key"}
         specs = [
             (
                 jax.ShapeDtypeStruct(arg.shape, arg.dtype)
@@ -299,8 +473,17 @@ class FunctionPlugin(PrimitivePlugin):
                     hits = set(_ONNX_FN_HITS.get())
                     hits.add(self.name.split("::", 1)[1])
                     _ONNX_FN_HITS.set(hits)
+                    bound_kwargs = {}
+                    for key, value in kwargs.items():
+                        if key == "instance_key":
+                            continue
+                        if hasattr(value, "aval"):
+                            bound_kwargs[key] = _DynamicParamWrapper(value)
+                        else:
+                            bound_kwargs[key] = value
                     return primitive.bind(
-                        *args[1:], **{**kwargs, "instance_key": instance_key}
+                        *args[1:],
+                        **{**bound_kwargs, "instance_key": instance_key},
                     )
                 else:
                     self._orig_fn = original_call
@@ -309,7 +492,13 @@ class FunctionPlugin(PrimitivePlugin):
                     hits = set(_ONNX_FN_HITS.get())
                     hits.add(self.name.split("::", 1)[1])
                     _ONNX_FN_HITS.set(hits)
-                    return primitive.bind(*args, **kwargs)
+                    bound_kwargs = {}
+                    for key, value in kwargs.items():
+                        if hasattr(value, "aval"):
+                            bound_kwargs[key] = _DynamicParamWrapper(value)
+                        else:
+                            bound_kwargs[key] = value
+                    return primitive.bind(*args, **bound_kwargs)
 
             return wrapped
 
@@ -429,7 +618,14 @@ class FunctionPlugin(PrimitivePlugin):
         capture_items: list[tuple[str, tuple[Any, ...]]] = []
 
         for pname, pval in params.items():
-            resolved = _resolve_tracer_var(pval) if hasattr(pval, "aval") else None
+            original_val = (
+                pval.value if isinstance(pval, _DynamicParamWrapper) else pval
+            )
+            resolved = (
+                _resolve_tracer_var(original_val)
+                if hasattr(original_val, "aval")
+                else None
+            )
 
             if isinstance(resolved, jcore_ext.Var):
                 dynamic_entries.append(
@@ -441,14 +637,14 @@ class FunctionPlugin(PrimitivePlugin):
                 )
                 capture_items.append((pname, _capture_dynamic_from_var(resolved)))
             else:
-                value_for_capture = resolved if resolved is not None else pval
+                value_for_capture = resolved if resolved is not None else original_val
                 try:
                     capture_items.append((pname, _capture_const(value_for_capture)))
                 except Exception:
                     capture_items.append(
                         (pname, ("static", type(value_for_capture).__name__))
                     )
-                static_params[pname] = pval
+                static_params[pname] = original_val
 
         for entry in dynamic_entries:
             entry["ir_value"] = ctx.get_value_for_var(
@@ -474,6 +670,9 @@ class FunctionPlugin(PrimitivePlugin):
             counters = getattr(ctx, "_func_name_counters", None)
             if counters is not None:
                 setattr(fscope.ctx, "_func_name_counters", counters)
+            call_param_names = getattr(ctx, "_call_input_param_names", None)
+            if call_param_names is not None:
+                setattr(fscope.ctx, "_call_input_param_names", call_param_names)
 
             # parent → child inputs for this call-site
             base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]

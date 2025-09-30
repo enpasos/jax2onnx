@@ -20,7 +20,6 @@ def test_dynamic_batch_ir(batch_sizes):
         get_token,
         [batch_axes],
         model_name="dynamic_batch_ir",
-        use_onnx_ir=True,
     )
 
     try:

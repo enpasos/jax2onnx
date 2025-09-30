@@ -3,7 +3,11 @@ from __future__ import annotations
 import jax
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
 def Encoder(rngs: nnx.Rngs) -> nnx.Linear:
@@ -26,9 +30,6 @@ class AutoEncoder(nnx.Module):
         return self.encoder(x)
 
 
-_model = AutoEncoder(rngs=nnx.Rngs(0))
-
-
 register_example(
     component="AutoEncoder",
     description="A simple autoencoder example (converter2 pipeline).",
@@ -39,10 +40,9 @@ register_example(
     testcases=[
         {
             "testcase": "simple_autoencoder",
-            "callable": _model,
+            "callable": construct_and_call(AutoEncoder, rngs=with_rng_seed(0)),
             "input_shapes": [(1, 2)],
             "expected_output_shapes": [(1, 2)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -76,7 +76,6 @@ _POWER_PRIM = make_jnp_primitive("jax.numpy.power")
             "testcase": "jnp_power_vector",
             "callable": lambda x, y: jnp.power(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pow_jnp_power",
@@ -86,7 +85,6 @@ _POWER_PRIM = make_jnp_primitive("jax.numpy.power")
             "input_values": [],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -116,7 +114,6 @@ _POW_PRIM = make_jnp_primitive("jax.numpy.pow")
             "testcase": "jnp_pow_vector",
             "callable": lambda x, y: jnp.pow(x, y),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pow_jnp_pow",
@@ -126,7 +123,6 @@ _POW_PRIM = make_jnp_primitive("jax.numpy.pow")
             "input_values": [],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

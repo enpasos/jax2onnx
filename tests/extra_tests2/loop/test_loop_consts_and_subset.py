@@ -30,7 +30,6 @@ def test_loop_consts_and_subset_loads(tmp_path):
         inputs=[],
         enable_double_precision=True,
         model_name="loop_subset_ir",
-        use_onnx_ir=True,
     )
     out_path = tmp_path / "loop_subset_ir.onnx"
     onnx.save_model(model, out_path)

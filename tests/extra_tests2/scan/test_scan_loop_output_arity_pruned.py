@@ -57,7 +57,6 @@ def test_scan_no_xs_subset_outputs_and_pruned_carry(tmp_path: pathlib.Path):
         opset=21,
         enable_double_precision=True,
         model_name="scan_loop_pruned",
-        use_onnx_ir=True,
     )
 
     _assert_all_loops_well_formed(model)

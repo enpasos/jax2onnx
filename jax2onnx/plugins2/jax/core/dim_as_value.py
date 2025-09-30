@@ -86,7 +86,6 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
             "testcase": "dim_as_value",
             "callable": lambda x: x.shape[0],
             "input_shapes": [("B", 8)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -30,31 +30,26 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "reduce_prod",
             "callable": lambda x: jnp.prod(x, axis=None),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_prod_allaxes",
             "callable": lambda x: jnp.prod(x, axis=None),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_prod_dtype",
             "callable": lambda x: jnp.prod(x, axis=None, dtype=jnp.float32),
             "input_values": [np.ones((2, 3), dtype=np.float32)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_prod_dtype_f64",
             "callable": lambda x: jnp.prod(x, axis=None, dtype=jnp.float64),
             "input_values": [np.ones((2, 3), dtype=np.float64)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_prod_keepdims",
             "callable": lambda x: jnp.prod(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

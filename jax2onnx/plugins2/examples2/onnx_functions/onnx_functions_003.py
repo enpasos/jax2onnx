@@ -5,12 +5,16 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 @onnx_function
 class NestedBlock(nnx.Module):
-
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
         self.linear = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
 
@@ -20,8 +24,7 @@ class NestedBlock(nnx.Module):
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
-        rngs = nnx.Rngs(0)
+    def __init__(self, *, rngs: nnx.Rngs):
         self.mlp = NestedBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
     def __call__(self, x):
@@ -37,11 +40,10 @@ register_example(
     testcases=[
         {
             "testcase": "003_two_simple_nested_functions",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock, rngs=with_rng_seed(0)),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

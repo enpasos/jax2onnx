@@ -1,40 +1,80 @@
-# file: tests/t_generator.py
-
+import inspect
+import logging
 import os
 import shutil
-from typing import Any, Dict, List, Sequence  # Ensure Dict is imported
-import inspect
+from contextlib import contextmanager
+from typing import Any, Dict, List, Sequence
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
 from onnx import TensorProto
-import logging
-from logging_config import (
-    configure_logging,
-)  # Assuming this is handled elsewhere or not strictly needed for this fix
 
+from logging_config import configure_logging
 from jax2onnx import allclose
-from jax2onnx.user_interface import to_onnx
-from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY,
-    import_all_plugins,
-)
 from jax2onnx.plugins2.plugin_system import (
     EXAMPLE_REGISTRY2,
     PLUGIN_REGISTRY2,
     import_all_plugins as import_all_plugins2,
 )
+from jax2onnx.user_interface import to_onnx
+
+try:
+    from onnx import mapping as _onnx_mapping
+except ImportError:  # pragma: no cover - defensive fallback for older/newer onnx
+    _onnx_mapping = None
+
+
+_FALLBACK_NP_TYPE_TO_TENSOR_TYPE = {
+    np.dtype(np.bool_): TensorProto.BOOL,
+    np.dtype(np.uint8): TensorProto.UINT8,
+    np.dtype(np.uint16): TensorProto.UINT16,
+    np.dtype(np.uint32): TensorProto.UINT32 if hasattr(TensorProto, "UINT32") else None,
+    np.dtype(np.uint64): TensorProto.UINT64 if hasattr(TensorProto, "UINT64") else None,
+    np.dtype(np.int8): TensorProto.INT8,
+    np.dtype(np.int16): TensorProto.INT16,
+    np.dtype(np.int32): TensorProto.INT32,
+    np.dtype(np.int64): TensorProto.INT64,
+    np.dtype(np.float16): TensorProto.FLOAT16,
+    np.dtype(np.float32): TensorProto.FLOAT,
+    np.dtype(np.float64): TensorProto.DOUBLE,
+    np.dtype(np.complex64): TensorProto.COMPLEX64,
+    np.dtype(np.complex128): TensorProto.COMPLEX128,
+}
+
+
+@contextmanager
+def _temporary_x64(enabled: bool):
+    prev = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", enabled)
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", prev)
+
+
+def _np_dtype_to_onnx_enum(dtype: np.dtype | type) -> int | None:
+    """Map numpy dtype to ONNX TensorProto enum without relying on onnx.mapping."""
+
+    np_dtype = np.dtype(dtype)
+    if _onnx_mapping is not None and hasattr(_onnx_mapping, "NP_TYPE_TO_TENSOR_TYPE"):
+        mapped = _onnx_mapping.NP_TYPE_TO_TENSOR_TYPE.get(np_dtype)
+        if mapped is not None:
+            return mapped
+
+    mapped = _FALLBACK_NP_TYPE_TO_TENSOR_TYPE.get(np_dtype)
+    if mapped is None and np_dtype.kind == "U":  # unicode strings map to string tensor
+        return TensorProto.STRING
+    if mapped is None and np_dtype.kind == "S":
+        return TensorProto.STRING
+    if mapped is None and np_dtype.kind == "O":
+        return None
+    return mapped
+
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
-PLUGINS_DIR = os.path.join(
-    TESTS_DIR, "../jax2onnx/plugins"
-)  # Corrected path assuming plugins are one level up from jax2onnx/tests
-PLUGINS_DIR2 = os.path.join(
-    TESTS_DIR, "../jax2onnx/plugins2"
-)  # Corrected path assuming plugins are one level up from jax2onnx/tests
 
 # Configure logger for this module
 logger = logging.getLogger("jax2onnx.tests.t_generator")
@@ -121,21 +161,15 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
 
 
 def load_metadata_from_plugins() -> list[dict[str, Any]]:
-    import_all_plugins()
     import_all_plugins2()
 
-    items1 = [
-        {**plugin.metadata, "jaxpr_primitive": name}
-        for name, plugin in PLUGIN_REGISTRY.items()
-        if hasattr(plugin, "metadata")
-    ]
     items2 = [
         {**plugin.metadata, "jaxpr_primitive": name}
         for name, plugin in PLUGIN_REGISTRY2.items()
         if hasattr(plugin, "metadata")
     ]
     example_items2 = [dict(md) for md in EXAMPLE_REGISTRY2.values()]
-    return items1 + items2 + example_items2
+    return items2 + example_items2
 
 
 def load_plugin_metadata() -> list[dict[str, Any]]:
@@ -157,6 +191,20 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
             f"Skipping entry, no callable/callable_factory: {entry.get('testcase', 'Unknown')}"
         )
         return []
+
+    entry = dict(entry)
+
+    factory_callable = None
+    if "callable_factory" in entry and entry["callable_factory"] is not None:
+        factory_callable = entry.pop("callable_factory")
+    elif "callable" in entry and getattr(
+        entry["callable"], "__jax2onnx_factory__", False
+    ):
+        factory_callable = entry["callable"]
+
+    if factory_callable is not None:
+        entry["_callable_factory_ref"] = factory_callable
+        entry["callable"] = factory_callable.with_dtype(jnp.float32)
 
     # ---- Sanity check for the new optional field ---------------------------------
     entry_input_dtypes = entry.get("input_dtypes")
@@ -263,12 +311,18 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 ):
                     is_float_test = True
 
+        factory_ref = base_param_set.get("_callable_factory_ref")
+
         if run_only_f64_variant:
             # Only generate the float64 enabled variant, using the original testcase name
             p_f64_only = base_param_set.copy()
             p_f64_only["_enable_double_precision_test_setting"] = True
             p_f64_only.pop("enable_double_precision", None)
             # testcase name remains p_f64_only["testcase"] (no suffix)
+
+            if factory_ref is not None:
+                p_f64_only["callable"] = factory_ref.with_dtype(jnp.float64)
+                p_f64_only.pop("_callable_factory_ref", None)
 
             # Apply float64 casting to values/dtypes for this variant if it's a float test
             if (
@@ -310,6 +364,11 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
             p_f32.pop("enable_double_precision", None)
             # testcase name remains base_param_set["testcase"]
 
+            if factory_ref is not None:
+                dtype_for_f32 = jnp.float64 if force_enable_double else jnp.float32
+                p_f32["callable"] = factory_ref.with_dtype(dtype_for_f32)
+                p_f32.pop("_callable_factory_ref", None)
+
             if not run_only_f64_variant:
                 final_params_list.append(p_f32)
 
@@ -321,6 +380,10 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 p_f64 = base_param_set.copy()
                 p_f64["testcase"] += "_f64"  # Add suffix
                 p_f64["_enable_double_precision_test_setting"] = True
+
+                if factory_ref is not None:
+                    p_f64["callable"] = factory_ref.with_dtype(jnp.float64)
+                    p_f64.pop("_callable_factory_ref", None)
 
                 if "input_values" in p_f64 and p_f64["input_values"] is not None:
                     p_f64["input_values"] = [
@@ -523,8 +586,6 @@ def make_test_function(tp: dict[str, Any]):
         opset_version = tp.get("opset_version", 21)
         # Optional: allow a testcase to force legacy/IR pipeline selection.
         # Only pass it through if explicitly present to avoid overriding env/module defaults.
-        use_onnx_ir_from_testcase = tp.get("use_onnx_ir")
-
         model_folder_path = os.path.join("docs", "onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
         model_path = os.path.join(model_folder_path, f"{test_case_name_safe}.onnx")
@@ -532,11 +593,6 @@ def make_test_function(tp: dict[str, Any]):
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
             f"enable_double_precision: {current_enable_double_precision}"
-            + (
-                f", use_onnx_ir={use_onnx_ir_from_testcase}"
-                if "use_onnx_ir" in tp
-                else ""
-            )
         )
         try:
             to_onnx_kwargs = dict(
@@ -547,11 +603,19 @@ def make_test_function(tp: dict[str, Any]):
                 opset=opset_version,
                 enable_double_precision=current_enable_double_precision,
             )
-            # Only thread this through if the testcase explicitly provided it.
-            if "use_onnx_ir" in tp:
-                to_onnx_kwargs["use_onnx_ir"] = use_onnx_ir_from_testcase
-
             onnx_model = to_onnx(**to_onnx_kwargs)
+            if input_params_from_testcase:
+                existing_inputs = {vi.name for vi in onnx_model.graph.input}
+                for pname, pval in input_params_from_testcase.items():
+                    if pname in existing_inputs:
+                        continue
+                    arr = np.asarray(pval)
+                    elem_type = _np_dtype_to_onnx_enum(arr.dtype)
+                    if elem_type is None:
+                        continue
+                    shape = list(arr.shape)
+                    vi = onnx.helper.make_tensor_value_info(pname, elem_type, shape)
+                    onnx_model.graph.input.extend([vi])
         except Exception as e:
             logger.error(
                 f"Failed during to_onnx conversion for '{testcase_name}' with enable_double_precision={current_enable_double_precision}: {e}",
@@ -611,14 +675,15 @@ def make_test_function(tp: dict[str, Any]):
                         dt = np.float64
                     xs_for_num_check.append(np.asarray(val_from_tc, dtype=dt))
 
-                passed, msg = allclose(
-                    callable_obj,
-                    model_path,
-                    xs_for_num_check,
-                    input_params_from_testcase,
-                    rtol=rtol,
-                    atol=atol,
-                )
+                with _temporary_x64(current_enable_double_precision):
+                    passed, msg = allclose(
+                        callable_obj,
+                        model_path,
+                        xs_for_num_check,
+                        input_params_from_testcase,
+                        rtol=rtol,
+                        atol=atol,
+                    )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
 
@@ -675,14 +740,15 @@ def make_test_function(tp: dict[str, Any]):
                     f"(callable takes no arguments)."
                 )
 
-            passed_numerical, validation_message = allclose(
-                callable_obj,
-                model_path,
-                xs_for_num_check,
-                input_params_from_testcase,
-                rtol=rtol,
-                atol=atol,
-            )
+            with _temporary_x64(current_enable_double_precision):
+                passed_numerical, validation_message = allclose(
+                    callable_obj,
+                    model_path,
+                    xs_for_num_check,
+                    input_params_from_testcase,
+                    rtol=rtol,
+                    atol=atol,
+                )
             assert (
                 passed_numerical
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
@@ -796,9 +862,7 @@ def make_test_function(tp: dict[str, Any]):
                             f"Test '{testcase_name}', output {i}: Expected dtype {expected_dtype_np} is not a valid numpy dtype."
                         )
 
-                expected_onnx_dtype_enum = onnx.mapping.NP_TYPE_TO_TENSOR_TYPE.get(
-                    expected_dtype_np
-                )
+                expected_onnx_dtype_enum = _np_dtype_to_onnx_enum(expected_dtype_np)
 
                 if expected_onnx_dtype_enum is None:
                     raise ValueError(
@@ -912,18 +976,10 @@ def make_test_function(tp: dict[str, Any]):
                     # jax_concrete_inputs_for_exec remains empty, which is correct.
 
                     # Temporarily enable x64 for this JAX execution if current_enable_double_precision is set for the test variant
-                    if current_enable_double_precision:
-                        with jax.config.update("jax_enable_x64", True):
-                            jax_fn_outputs_for_shape = eval_target_jax_func(
-                                *jax_concrete_inputs_for_exec
-                            )
-                    else:
-                        # Ensure x64 is disabled if not set for the test variant
-                        # (assuming default might be True or to avoid interference from previous tests)
-                        with jax.config.update("jax_enable_x64", False):
-                            jax_fn_outputs_for_shape = eval_target_jax_func(
-                                *jax_concrete_inputs_for_exec
-                            )
+                    with _temporary_x64(current_enable_double_precision):
+                        jax_fn_outputs_for_shape = eval_target_jax_func(
+                            *jax_concrete_inputs_for_exec
+                        )
 
                     if not isinstance(jax_fn_outputs_for_shape, (list, tuple)):
                         jax_fn_outputs_for_shape = [jax_fn_outputs_for_shape]

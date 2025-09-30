@@ -36,25 +36,21 @@ _IDENTITY_PRIM.multiple_results = False
             "testcase": "jaxnn_identity",
             "callable": lambda x: jax.nn.identity(x),
             "input_shapes": [(1,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_identity_1",
             "callable": lambda x: jax.nn.identity(x),
             "input_shapes": [(2, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_identity_basic",
             "callable": lambda x: jax.nn.identity(x),
             "input_shapes": [(4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_identity_dynamic",
             "callable": lambda x: jax.nn.identity(x),
             "input_shapes": [("B", 7)],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -29,19 +29,16 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "reduce_min",
             "callable": lambda x: jnp.min(x, axis=None),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_min_allaxes",
             "callable": lambda x: jnp.min(x, axis=None),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_min_keepdims",
             "callable": lambda x: jnp.min(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

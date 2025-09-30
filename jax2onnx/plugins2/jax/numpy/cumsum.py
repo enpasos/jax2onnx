@@ -39,7 +39,6 @@ _CUMSUM_PRIM = make_jnp_primitive("jax.numpy.cumsum")
             "testcase": "jnp_cumsum_axis1",
             "callable": lambda x: jnp.cumsum(x, axis=1),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_cumsum_reverse_dtype",
@@ -47,7 +46,6 @@ _CUMSUM_PRIM = make_jnp_primitive("jax.numpy.cumsum")
                 x, axis=-1, reverse=True, dtype=jnp.float64
             ),
             "input_shapes": [(1, 5)],
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
         {
@@ -55,14 +53,12 @@ _CUMSUM_PRIM = make_jnp_primitive("jax.numpy.cumsum")
             "callable": lambda x: jnp.cumsum(x, axis=2),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cumsum_axis2_reverse_i32",
             "callable": lambda x: jnp.cumsum(x, axis=2, reverse=True),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
     ],
 )

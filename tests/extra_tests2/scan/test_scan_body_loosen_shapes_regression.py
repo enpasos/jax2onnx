@@ -133,7 +133,6 @@ def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path: pathlib.Path):
         enable_double_precision=True,
         opset=21,
         model_name="scan_body_loosen_shapes_repro",
-        use_onnx_ir=True,
     )
 
     path = tmp_path / "scan_body_loosen_shapes_repro.onnx"
@@ -160,7 +159,6 @@ def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
         enable_double_precision=True,
         opset=21,
         model_name="scan_body_loosen_shapes_vi_check",
-        use_onnx_ir=True,
     )
 
     path = tmp_path / "scan_body_loosen_shapes_vi_check.onnx"

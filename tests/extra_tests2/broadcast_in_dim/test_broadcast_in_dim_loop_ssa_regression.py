@@ -131,7 +131,6 @@ def test_loop_body_shapeof_helpers_are_ssa_unique(tmp_path, fn, dtype):
         enable_double_precision=True,
         opset=21,
         model_name=fn.__name__,
-        use_onnx_ir=True,
     )
 
     all_outs = _collect_node_outputs_recursive(model.graph)
@@ -177,7 +176,6 @@ def test_numeric_sanity_executes(dtype):
         enable_double_precision=True,
         opset=21,
         model_name="loop_shapeof_numeric",
-        use_onnx_ir=True,
     )
     sess = ort.InferenceSession(
         model.SerializeToString(), providers=["CPUExecutionProvider"]

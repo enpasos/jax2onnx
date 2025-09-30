@@ -37,13 +37,11 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "argmin_test1",
             "callable": lambda x: jax.lax.argmin(x, axis=0, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "argmin_test2",
             "callable": lambda x: jax.lax.argmin(x, axis=1, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
     ],
 )

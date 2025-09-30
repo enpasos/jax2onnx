@@ -10,7 +10,13 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins2._utils import cast_param_like, inline_reshape_initializer
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._ir_shapes import (
@@ -238,17 +244,19 @@ EXPECT_DYNAMIC_RGR = EG(
     testcases=[
         {
             "testcase": "linear_general_merge_symbolic_dim",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(4, 16),  # ⟨4,16⟩ are contracting dims
                 out_features=32,
                 axis=(-2, -1),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 8, 4, 16)],
             "expected_output_shapes": [("B", 8, 32)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 (_eq_oldworld_input(_shape_of(m.graph.input, "in_0")))
                 and (lambda ok_ir: True if ok_ir is True else _is_qxK(ok_ir, 64))(
@@ -271,16 +279,18 @@ EXPECT_DYNAMIC_RGR = EG(
         },
         {
             "testcase": "linear_general",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 8, 32)],
             "expected_output_shapes": [("B", 4, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 EXPECT_RGR(m)
                 and (
@@ -293,78 +303,88 @@ EXPECT_DYNAMIC_RGR = EG(
         },
         {
             "testcase": "linear_general_2",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(30,),
                 out_features=(20,),
                 axis=(-1,),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(3, 30)],
             "expected_output_shapes": [(3, 20)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # rank-2 input -> no flatten needed, just Gemm
             "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_general_3",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 4, 256)],
             "expected_output_shapes": [(2, 4, 8, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # static 3D -> static flatten: Reshape -> Gemm -> Reshape
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_4",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 4, 8, 32)],
             "expected_output_shapes": [(2, 4, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # Static case: ensure we eliminated Shape/Slice/Concat and inlined
             # the final Reshape's shape as a constant of length 3 (3×4×256).
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_abstract_eval_axes",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(256,),
                 out_features=(8, 32),
                 axis=(-1,),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(3, 10, 256)],
             "expected_output_shape": (3, 10, 8, 32),
             "expected_output_shapes": [(3, 10, 8, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_general_abstract_eval_axes_pair",
-            "callable": nnx.LinearGeneral(
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
                 in_features=(8, 32),
                 out_features=(256,),
                 axis=(-2, -1),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(3, 10, 8, 32)],
             "expected_output_shape": (3, 10, 256),
             "expected_output_shapes": [(3, 10, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
@@ -377,7 +397,6 @@ EXPECT_DYNAMIC_RGR = EG(
             "expected_output_shapes": [("B", "H", 4, 4)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
     ],
@@ -444,6 +463,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 dot_general=dot_general,  # function path
                 dot_general_cls=None,  # NEW: ensure branch is skipped
                 precision=None,
+                preferred_element_type=None,
             )
             return LinearGeneralPlugin._ORIGINAL_CALL(dummy, xv)
 

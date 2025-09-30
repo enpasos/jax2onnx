@@ -90,21 +90,18 @@ _eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNG
             "testcase": "eqx_linear_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_symbolic: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _has_gemm,
         },
         {
             "testcase": "eqx_linear_no_bias_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_no_bias: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _has_gemm,
         },
         {
             "testcase": "eqx_linear_no_bias_vector",
             "callable": _eqx_linear_no_bias,
             "input_shapes": [(128,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _has_gemm,
         },
         {
@@ -113,14 +110,12 @@ _eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNG
                 x
             ),
             "input_shapes": [(32, 10, 128)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _has_gemm,
         },
         {
             "testcase": "eqx_linear_vector",
             "callable": _eqx_linear_symbolic,
             "input_shapes": [(128,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _has_gemm,
         },
     ],

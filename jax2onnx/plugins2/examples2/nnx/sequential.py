@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
 _double_relu = nnx.Sequential(
@@ -23,7 +27,6 @@ register_example(
             "callable": _double_relu,
             "input_shapes": [(5,)],
             "expected_output_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -55,11 +58,13 @@ register_example(
     testcases=[
         {
             "testcase": "sequential_nested_with_residual",
-            "callable": ComplexParentWithResidual(rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                ComplexParentWithResidual,
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(1, 16)],
             "expected_output_shapes": [(1, 16)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

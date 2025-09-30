@@ -14,6 +14,5 @@ def test_scan_with_two_trip_counts_loads_in_ort():
         [],
         model_name="two_scans_diff",
         opset=21,
-        use_onnx_ir=True,
     )
     ort.InferenceSession(model.SerializeToString())

@@ -18,7 +18,13 @@ from jax2onnx.plugins2._ir_shapes import (
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._utils import cast_param_like
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
@@ -74,18 +80,30 @@ EXPECT_EINSUM_WITH_BIAS = EG(
     testcases=[
         {
             "testcase": "einsum_module_with_bias",
-            "callable": nnx.Einsum(
-                "nta,hab->nthb", (8, 2, 4), (8, 4), rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Einsum,
+                "nta,hab->nthb",
+                (8, 2, 4),
+                (8, 4),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(16, 11, 2)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_EINSUM_WITH_BIAS,
         },
         {
             "testcase": "einsum_module_no_bias",
-            "callable": nnx.Einsum("nta,hab->nthb", (8, 2, 4), None, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Einsum,
+                "nta,hab->nthb",
+                (8, 2, 4),
+                None,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(16, 11, 2)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_EINSUM_ONLY,
         },
     ],

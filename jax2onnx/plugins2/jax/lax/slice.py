@@ -28,13 +28,11 @@ if TYPE_CHECKING:
             "testcase": "slice_test1",
             "callable": lambda x: x[1:3],
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "slice_3d_none_strides",
             "callable": lambda a: a[0:2, 0:1, 0:256],
             "input_shapes": [(2, 50, 256)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "slice_scan_axis_drop",
@@ -49,7 +47,6 @@ if TYPE_CHECKING:
                 )[1]
             ),
             "input_shapes": [(2, 3, 4, 5)],
-            "use_onnx_ir": True,
         },
     ],
 )

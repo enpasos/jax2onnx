@@ -178,7 +178,7 @@
       "title": "trace with string dims → JAX symbols",
       "actors": ["tests2"],
       "steps": [
-        { "from": "tests2", "to": "ui", "message": "to_onnx(fn, inputs=[(\"B\", 128)], use_onnx_ir=True)" },
+        { "from": "tests2", "to": "ui", "message": "to_onnx(fn, inputs=[(\"B\", 128)], )" },
         { "from": "ui", "to": "converter2", "message": "call" },
         { "from": "converter2", "to": "frontend2", "message": "_normalize_inputs_for_tracing(default_float) → ShapeDtypeStruct(B,128) using jax.export.symbolic_shape" },
         { "from": "converter2", "to": "jax", "message": "make ClosedJaxpr" }

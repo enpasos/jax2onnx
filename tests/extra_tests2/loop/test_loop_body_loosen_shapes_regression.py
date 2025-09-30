@@ -78,7 +78,6 @@ def test_loop_body_loosen_env_allows_ort_load_and_run(tmp_path):
         enable_double_precision=True,
         opset=21,
         model_name="loop_body_loosen_shapes_repro_ir",
-        use_onnx_ir=True,
     )
 
     out_path = tmp_path / "loop_body_loosen_shapes_repro_ir.onnx"
@@ -111,7 +110,6 @@ def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_pa
         enable_double_precision=True,
         opset=21,
         model_name="loop_body_loosen_shapes_vi_check_ir",
-        use_onnx_ir=True,
     )
 
     out_path = tmp_path / "loop_body_loosen_shapes_vi_check_ir.onnx"

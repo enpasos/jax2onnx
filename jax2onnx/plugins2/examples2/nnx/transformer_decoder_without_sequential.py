@@ -3,7 +3,11 @@ from __future__ import annotations
 import jax
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
 class TransformerDecoderLayer(nnx.Module):
@@ -91,19 +95,21 @@ class TransformerDecoder(nnx.Module):
         encoder_attention_dropout: float = 0.0,
         allow_residue: bool = True,
     ):
-        self.layers = [
-            TransformerDecoderLayer(
-                embed_dim,
-                num_heads,
-                ff_dim,
-                rngs=rngs,
-                rate=rate,
-                attention_dropout=attention_dropout,
-                encoder_attention_dropout=encoder_attention_dropout,
-                allow_residue=allow_residue,
-            )
-            for _ in range(num_layers)
-        ]
+        self.layers = nnx.List(
+            [
+                TransformerDecoderLayer(
+                    embed_dim,
+                    num_heads,
+                    ff_dim,
+                    rngs=rngs,
+                    rate=rate,
+                    attention_dropout=attention_dropout,
+                    encoder_attention_dropout=encoder_attention_dropout,
+                    allow_residue=allow_residue,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     def __call__(
         self,
@@ -143,19 +149,19 @@ register_example(
     testcases=[
         {
             "testcase": "tiny_decoder_without_sequential",
-            "callable": TransformerDecoder(
+            "callable": construct_and_call(
+                TransformerDecoder,
                 num_layers=1,
                 embed_dim=16,
                 num_heads=4,
                 ff_dim=32,
-                rngs=nnx.Rngs(0),
                 attention_dropout=0.5,
                 encoder_attention_dropout=0.5,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 8, 16), (2, 4, 16)],
             "expected_output_shapes": [(2, 8, 16)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )

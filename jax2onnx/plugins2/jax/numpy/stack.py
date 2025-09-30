@@ -43,7 +43,6 @@ _STACK_PRIM = make_jnp_primitive("jax.numpy.stack")
             "callable": lambda: jnp.stack(
                 [np.arange(3, dtype=np.float32), np.arange(3, dtype=np.float32)], axis=0
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "stack_axis_1",
@@ -51,7 +50,6 @@ _STACK_PRIM = make_jnp_primitive("jax.numpy.stack")
                 [np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)],
                 axis=1,
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "stack_negative_axis",
@@ -62,38 +60,32 @@ _STACK_PRIM = make_jnp_primitive("jax.numpy.stack")
                 ],
                 axis=-1,
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "stack_scalars",
             "callable": lambda: jnp.stack(
                 [np.array(1.0, dtype=np.float32), np.array(2.0, dtype=np.float32)]
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_stack_axis0",
             "callable": lambda x, y: jnp.stack((x, y), axis=0),
             "input_shapes": [(2,), (2,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_stack_axis1",
             "callable": lambda x, y: jnp.stack((x, y), axis=1),
             "input_shapes": [(2, 2), (2, 2)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_stack_negative_axis",
             "callable": lambda x, y: jnp.stack((x, y), axis=-1),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_stack_scalars",
             "callable": lambda x, y: jnp.stack((x, y), axis=0),
             "input_shapes": [(), ()],
-            "use_onnx_ir": True,
         },
     ],
 )

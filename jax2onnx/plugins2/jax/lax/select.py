@@ -33,14 +33,12 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
             "input_dtypes": [np.bool_, np.float32, np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_basic",
             "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
             "input_dtypes": [np.bool_, np.float32, np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_mask_scores_tensor_else_dynamic",
@@ -56,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     2, 12, 5, 5
                 ),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_mask_scores_tensor_else_dynamic_f64",
@@ -72,7 +69,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     2, 12, 5, 5
                 ),
             ],
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
         {
@@ -89,7 +85,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     3, 12, 4, 4
                 ),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_mask_scores_tensor_else_f64",
@@ -105,7 +100,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     3, 12, 4, 4
                 ),
             ],
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
     ],

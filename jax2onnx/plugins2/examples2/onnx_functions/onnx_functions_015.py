@@ -6,20 +6,26 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+)
 
 
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
         for layer in self.layers:
@@ -52,14 +58,13 @@ register_example(
     testcases=[
         {
             "testcase": "015_one_function_with_input_param_without_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "input_params": {
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )

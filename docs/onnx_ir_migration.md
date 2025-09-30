@@ -18,7 +18,7 @@
 
   * **Old:** `converter/` + `plugins/` (status quo)
   * **New:** `converter2/` + `plugins2/` using `onnx_ir` builder
-* Introduce a **feature flag** (`use_onnx_ir`) that routes calls to either pipeline.
+* Introduce a **feature flag** (``) that routes calls to either pipeline.
 * Migrate the smallest, low-risk testcases first; keep CI green by isolating failures to the new path (xfail/skip where appropriate).
 * When parity is reached, flip the default to the new pipeline, then remove the old code.
 
@@ -136,11 +136,11 @@ A concise, practical map of the new layers—what each file owns and how they in
 
 ## 6) Feature flag & routing
 
-**Default remains `use_onnx_ir=False`** during migration. We flip later.
+**Default remains ``** during migration. We flip later.
 
-* **In tests (legacy subtrees):** each testcase may set `use_onnx_ir: bool` (default `False`).
+* **In tests (legacy subtrees):** each testcase may set `: bool` (default `False`).
 * **In `tests/*2` subtrees:** the flag is **forced to `True`** via that subtree’s `conftest.py`.
-* **In API:** `to_onnx(*, use_onnx_ir: bool | None = None, ...)`.
+* **In API:** `to_onnx(*, : bool | None = None, ...)`.
 * **Env toggles:** `JAX2ONNX_USE_ONNX_IR` overrides both. Optional `JAX2ONNX_SHADOW_COMPARE` for dev/CI.
 
 Optional “shadow mode” remains the same.
@@ -149,7 +149,7 @@ Optional “shadow mode” remains the same.
 
 * **Single** `tests/` tree with dual subtrees (`*2` forces IR).
 * Markers: `@pytest.mark.ir_only`, `@pytest.mark.legacy_only`, `@pytest.mark.ir_xfail`.
-* The generator threads `use_onnx_ir` from testcase metadata into `user_interface.to_onnx`.
+* The generator threads `` from testcase metadata into `user_interface.to_onnx`.
 
 ### Status update (new)
 
@@ -179,7 +179,7 @@ Stages unchanged. Two **implementation details added**:
 
 ## 11) Public API & docs
 
-* `to_onnx(..., use_onnx_ir: bool | None = None)` is **experimental**.
+* `to_onnx(..., : bool | None = None)` is **experimental**.
 * Add a doc page: “Adopting the ONNX IR pipeline (experimental)” with **symbolic shape guidance** (see §12.2) and examples.
 
 ## 12) Migration phases & milestones
@@ -291,7 +291,7 @@ Expand(x_reshaped, tgt_shape)
 
 ### TL;DR
 
-* Legacy stays default; IR is opt-in (`use_onnx_ir` or `JAX2ONNX_USE_ONNX_IR=1`).
+* Legacy stays default; IR is opt-in (`` or `JAX2ONNX_USE_ONNX_IR=1`).
 * One `tests/` tree; `*2` subtrees force IR.
 * New rules for symbolic shapes are in; `broadcast_in_dim` is green on IR.
 * Keep iterating primitive-by-primitive; flip after parity.

@@ -30,7 +30,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda x: jnp.any(x, axis=None),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.bool_],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_or_one_true",
@@ -38,14 +37,12 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [
                 jnp.array([[False, False], [True, False]], dtype=jnp.bool_)
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_or_keepdims",
             "callable": lambda x: jnp.any(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
-            "use_onnx_ir": True,
         },
     ],
 )

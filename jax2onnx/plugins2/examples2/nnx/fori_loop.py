@@ -30,7 +30,6 @@ register_example(
             "callable": _model,
             "input_shapes": [(1,)],
             "expected_output_shapes": [(1,)],
-            "use_onnx_ir": True,
         },
     ],
 )

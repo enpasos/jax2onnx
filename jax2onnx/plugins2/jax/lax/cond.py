@@ -61,7 +61,6 @@ def _extract_branches(
             ),
             "input_shapes": [],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_multiple_operands_in_tuple",
@@ -73,7 +72,6 @@ def _extract_branches(
             ),
             "input_shapes": [],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_my_new_complex_scenario",
@@ -87,7 +85,6 @@ def _extract_branches(
             "input_dtypes": [np.float32, np.float32],
             "expected_output_shapes": [(11, 3, 4), (11,)],
             "expected_output_dtypes": [np.float32, np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_nested_conditional",
@@ -105,7 +102,6 @@ def _extract_branches(
             "input_shapes": [(), (), ()],
             "input_dtypes": [np.int32, np.float32, np.bool_],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_variables",
@@ -118,7 +114,6 @@ def _extract_branches(
             "input_shapes": [(), ()],
             "input_dtypes": [np.int32, np.float32],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_internal_constant_f64",
@@ -133,7 +128,6 @@ def _extract_branches(
             "expected_output_dtypes": [np.float64],
             "enable_double_precision": True,
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_passthrough_identity",
@@ -149,7 +143,6 @@ def _extract_branches(
                 np.array([1.0, 2.0, 3.0], dtype=np.float32),
                 np.array([4.0, 5.0, 6.0], dtype=np.float32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_with_scatter",
@@ -173,7 +166,6 @@ def _extract_branches(
                 np.ones((5, 3), dtype=np.float32),
                 np.ones((2, 3), dtype=np.float32) * 9,
             ],
-            "use_onnx_ir": True,
         },
     ],
 )

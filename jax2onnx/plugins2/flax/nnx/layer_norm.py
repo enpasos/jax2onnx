@@ -10,7 +10,10 @@ from jax.extend.core import Primitive
 import onnx_ir as ir
 from jax2onnx.plugins2.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
 )
 
 # Cast helper that inserts CastLike only when needed; no-op if dtypes already match
@@ -134,65 +137,99 @@ LAYER_NORM_PRIM.multiple_results = False
     testcases=[
         {
             "testcase": "layer_norm",
-            "callable": nnx.LayerNorm(num_features=32, epsilon=1e-5, rngs=nnx.Rngs(0)),
-            "input_shapes": [("B", 20, 32)],
-            "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-        },
-        {
-            "testcase": "layer_norm_no_bias_no_scale",
-            "callable": nnx.LayerNorm(
-                32, use_bias=False, use_scale=False, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                epsilon=1e-5,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
+        },
+        {
+            "testcase": "layer_norm_no_bias_no_scale",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                use_bias=False,
+                use_scale=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "layer_norm_bias_no_scale",
-            "callable": nnx.LayerNorm(
-                32, use_bias=True, use_scale=False, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                use_bias=True,
+                use_scale=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
             # Small drift depending on epsilon and tensor contents; relax slightly.
             "rtol": 6e-5,
             "atol": 1e-6,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "layer_norm_no_bias_scale",
-            "callable": nnx.LayerNorm(
-                32, use_bias=False, use_scale=True, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                use_bias=False,
+                use_scale=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "layer_norm_bias_scale",
-            "callable": nnx.LayerNorm(
-                32, use_bias=True, use_scale=True, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                use_bias=True,
+                use_scale=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "layer_norm_multiaxis",
-            "callable": nnx.LayerNorm(
-                3 * 3 * 64,
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=3 * 3 * 64,
                 reduction_axes=(1, 2, 3),
                 feature_axes=(1, 2, 3),
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 3, 3, 64)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "layer_norm_symbolic_batch",
-            "callable": nnx.LayerNorm(num_features=16, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=16,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 8, 16)],
             "run_only_f32_variant": True,
             # ORT LayerNormalization kernel vs JAX introduces tiny f32 drift.
@@ -202,7 +239,6 @@ LAYER_NORM_PRIM.multiple_results = False
             "post_check_onnx_graph": lambda m: all(
                 n.op_type not in ("Unsqueeze", "Reshape") for n in m.graph.node
             ),
-            "use_onnx_ir": True,
         },
         # ----------------------------------------------------------------------
         # Mirrors the SuperBlock shape used in examples2: (B, 10, 3) with features on the last dim.
@@ -211,10 +247,16 @@ LAYER_NORM_PRIM.multiple_results = False
         {
             "testcase": "layer_norm_symbolic_batch_seq10_feat3",
             # Use epsilon=1e-5 to match ONNX LayerNormalization default (so we can omit the attr)
-            "callable": nnx.LayerNorm(num_features=3, epsilon=1e-5, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=3,
+                epsilon=1e-5,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 10, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # Small f32 differences; keep single LN node and bump tolerance a hair.
             "rtol": 1e-4,
             "atol": 1e-5,
@@ -227,10 +269,15 @@ LAYER_NORM_PRIM.multiple_results = False
             "testcase": "layer_norm_symbolic_batch_seq10_feat3_2",
             # Exercise the JAX default epsilon (1e-6). Ensure the exported ONNX keeps
             # the explicit epsilon/axis attrs so inference matches JAX numerics.
-            "callable": nnx.LayerNorm(3, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=3,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 10, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             # Dynamic-batch variants + small eps (JAX default 1e-6) can drift up to ~1.5e-3 in f32
             # vs. ORT due to accumulation/rounding. Keep single-LN-node contract and relax rtol a bit.
             # (atol remains tight to catch gross errors.)
@@ -244,12 +291,15 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_negative_axis_no_div",
-            "callable": nnx.LayerNorm(
+            "callable": construct_and_call(
+                nnx.LayerNorm,
                 num_features=32,
                 epsilon=1e-5,
                 reduction_axes=-1,
                 feature_axes=-1,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
@@ -257,7 +307,6 @@ LAYER_NORM_PRIM.multiple_results = False
                 n.op_type == "LayerNormalization" for n in m.graph.node
             )
             and all(n.op_type != "Div" for n in m.graph.node),
-            "use_onnx_ir": True,
         },
     ],
 )

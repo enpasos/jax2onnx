@@ -71,7 +71,6 @@ def test_loop_body_rank_only_and_ort_loads(tmp_path):
         enable_double_precision=True,  # matches failing scenario
         opset=21,
         model_name="loop_rank_only_shapes",
-        use_onnx_ir=True,
     )
     p = tmp_path / "loop_rank_only_shapes.onnx"
     p.write_bytes(model.SerializeToString())

@@ -66,25 +66,21 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "testcase": "reshape_1",
             "callable": lambda a: jnp.reshape(a, (2, 6)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_2",
             "callable": lambda a: jnp.reshape(a, (-1, 2)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_3",
             "callable": lambda a: jnp.reshape(a, (2, -1)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_4",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_to_scalar",
@@ -92,7 +88,6 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "input_values": [],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_from_scalar",
@@ -100,43 +95,36 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "input_values": [],
             "expected_output_shapes": [(1,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_cnn",
             "callable": lambda x: x.reshape(x.shape[0], -1),
             "input_shapes": [("B", 64, 14, 14)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_valid_flatten_trailing",
             "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
             "input_shapes": [(201, 1, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
             "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
             "input_shapes": [("N", 3, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_basic",
             "callable": lambda a: jnp.reshape(a, (2, 6)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_infer",
             "callable": lambda a: jnp.reshape(a, (-1, 2)),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_symbolic_flatten",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 8, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

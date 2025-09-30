@@ -5,7 +5,12 @@ import numpy as np
 import jax
 from jax.extend.core import Primitive
 import logging
-from jax2onnx.plugins2.plugin_system import register_primitive, PrimitiveLeafPlugin
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_rng_seed,
+)
 import onnx_ir as ir
 
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
@@ -334,18 +339,26 @@ def _extract_python_bool(var) -> Optional[bool]:
     testcases=[
         {
             "testcase": "dropout_init_params",
-            "callable": nnx.Dropout(rate=0.5, deterministic=True, rngs=nnx.Rngs(5)),
+            "callable": construct_and_call(
+                nnx.Dropout,
+                rate=0.5,
+                deterministic=True,
+                rngs=with_rng_seed(5),
+            ),
             "input_shapes": [("B", 10)],
-            "use_onnx_ir": True,
             # Modern check: shape/path via expect_graph and strict initializer values
             "post_check_onnx_graph": post_check_onnx_graph_init,
         },
         {
             "testcase": "dropout_call_params",
-            "callable": nnx.Dropout(rate=0.5, deterministic=False, rngs=nnx.Rngs(5)),
+            "callable": construct_and_call(
+                nnx.Dropout,
+                rate=0.5,
+                deterministic=False,
+                rngs=with_rng_seed(5),
+            ),
             "input_shapes": [("B", 10)],
             "input_params": {"deterministic": True},
-            "use_onnx_ir": True,
             # Structural check: Dropout retains shape while inlining training_mode=False
             "post_check_onnx_graph": post_check_onnx_graph,
         },
@@ -372,7 +385,14 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
         # Params
         call_time = bool(eqn.params.get("call_time", False))
+        call_params: Set[str] = getattr(ctx, "_call_input_param_names", set())
         rate = float(eqn.params.get("rate", 0.5))
+
+        if "deterministic" in call_params:
+            try:
+                ctx.ensure_external_flag("deterministic", det_var)
+            except Exception:
+                pass
 
         # Inputs
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
@@ -391,7 +411,6 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         if call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
             det_lit = _extract_python_bool(det_var)
-            call_params: Set[str] = getattr(ctx, "_call_input_param_names", set())
             if "deterministic" not in call_params and det_lit is not None:
                 train_v = _const_tensor(
                     ctx, np.asarray(not det_lit, dtype=np.bool_), name="training"
@@ -424,13 +443,18 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             # JAXPR may place the literal on the var itself (det_var.val)
             # or on its aval (det_var.aval.val). Handle both.
             det_py = _extract_python_bool(det_var)
-            if det_py is not None:
+            if det_py is not None and "deterministic" not in call_params:
                 train_v = _const_tensor(
                     ctx, np.asarray(not det_py, dtype=np.bool_), name="training"
                 )
             else:
                 # Dynamic path via the actual value of det_var (no heuristics)
-                det_in = ctx.get_value_for_var(det_var, name_hint=ctx.fresh_name("det"))
+                if det_var is not None:
+                    det_in = ctx.get_value_for_var(
+                        det_var, name_hint=ctx.fresh_name("det")
+                    )
+                else:
+                    det_in = _ensure_scalar_bool_input(ctx, "deterministic")
                 not_out = ir.Value(
                     name=ctx.fresh_name("not_det"),
                     type=ir.TensorType(ir.DataType.BOOL),

@@ -31,7 +31,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "integer_pow",
             "callable": lambda x: jax.lax.integer_pow(x, 2),
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         }
     ],
 )

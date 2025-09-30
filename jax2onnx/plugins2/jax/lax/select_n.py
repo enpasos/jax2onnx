@@ -45,7 +45,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_n_bool_predicate_two_cases_int",
@@ -59,7 +58,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(2, 2)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_n_bool_predicate_scalar_broadcast",
@@ -73,7 +71,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_n_int_indices_three_cases",
@@ -88,7 +85,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(4,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_n_int_indices_four_cases",
@@ -104,7 +100,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(6,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

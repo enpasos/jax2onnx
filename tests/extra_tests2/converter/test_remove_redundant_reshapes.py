@@ -1,68 +1,118 @@
 from __future__ import annotations
 
 import numpy as np
-import onnx
-import onnx.helper as oh
-import onnx.numpy_helper as np_helper
+import onnx_ir as ir
 
-from jax2onnx.converter.optimize_onnx_graph import remove_redundant_reshapes
+from jax2onnx.converter2.ir_optimizations import remove_redundant_reshape_pairs_ir
 
 
-def _create_test_model() -> onnx.ModelProto:
-    input_tensor = oh.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [2, 3])
-    output_tensor = oh.make_tensor_value_info("r2_out", onnx.TensorProto.FLOAT, [2, 3])
+def _const_vector(name: str, values: list[int]) -> tuple[ir.Value, ir.Node]:
+    array = np.asarray(values, dtype=np.int64)
+    value = ir.Value(
+        name=name,
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape(array.shape),
+    )
+    value.const_value = ir.tensor(array)
+    node = ir.Node("", "Constant", [], (), outputs=[value], name=f"Const_{name}")
+    return value, node
 
-    shape_arr = np.array([2, 3], dtype=np.int64)
-    shape1_init = np_helper.from_array(shape_arr, name="shape1")
-    shape2_init = np_helper.from_array(shape_arr, name="shape2")
 
-    reshape1 = oh.make_node("Reshape", ["input", "shape1"], ["r1_out"], name="reshape1")
-    gelu = oh.make_node("Gelu", ["r1_out"], ["gelu_out"], name="gelu")
-    dropout = oh.make_node("Dropout", ["gelu_out"], ["dropout_out"], name="dropout")
-    reshape2 = oh.make_node(
-        "Reshape", ["dropout_out", "shape2"], ["r2_out"], name="reshape2"
+def _tensor_value(name: str, shape: tuple[int, ...]) -> ir.Value:
+    return ir.Value(
+        name=name,
+        type=ir.TensorType(ir.DataType.FLOAT),
+        shape=ir.Shape(shape),
     )
 
-    graph = oh.make_graph(
-        nodes=[reshape1, gelu, dropout, reshape2],
+
+def _node_list(graph) -> list[ir.Node]:
+    for attr in ("nodes", "_nodes", "node"):
+        container = getattr(graph, attr, None)
+        if container is None:
+            continue
+        try:
+            return list(container)
+        except Exception:
+            pass
+    return []
+
+
+def _graph_outputs(graph) -> list[ir.Value]:
+    outputs = getattr(graph, "outputs", None) or getattr(graph, "output", None)
+    if outputs is None:
+        return []
+    try:
+        return list(outputs)
+    except Exception:
+        return []
+
+
+def _value_name(value) -> str:
+    if isinstance(value, str):
+        return value
+    return getattr(value, "name", "")
+
+
+def _reshape_chain_graph() -> ir.Graph:
+    input_val = _tensor_value("input", (2, 3))
+    reshape1_out = _tensor_value("r1_out", (2, 3))
+    gelu_out = _tensor_value("gelu_out", (2, 3))
+    reshape2_out = _tensor_value("r2_out", (2, 3))
+
+    shape1, const1 = _const_vector("shape1", [2, 3])
+    shape2, const2 = _const_vector("shape2", [2, 3])
+
+    reshape1 = ir.Node(
+        "",
+        "Reshape",
+        [input_val, shape1],
+        (),
+        outputs=[reshape1_out],
+        name="reshape1",
+    )
+    gelu = ir.Node(
+        "",
+        "Gelu",
+        [reshape1_out],
+        (),
+        outputs=[gelu_out],
+        name="gelu",
+    )
+    reshape2 = ir.Node(
+        "",
+        "Reshape",
+        [gelu_out, shape2],
+        (),
+        outputs=[reshape2_out],
+        name="reshape2",
+    )
+
+    return ir.Graph(
+        inputs=[input_val],
+        outputs=[reshape2_out],
+        nodes=[const1, const2, reshape1, gelu, reshape2],
         name="test_graph",
-        inputs=[input_tensor],
-        outputs=[output_tensor],
-        initializer=[shape1_init, shape2_init],
     )
-
-    graph.value_info.extend(
-        [
-            oh.make_tensor_value_info("r1_out", onnx.TensorProto.FLOAT, [2, 3]),
-            oh.make_tensor_value_info("gelu_out", onnx.TensorProto.FLOAT, [2, 3]),
-            oh.make_tensor_value_info("dropout_out", onnx.TensorProto.FLOAT, [2, 3]),
-        ]
-    )
-
-    return oh.make_model(graph)
 
 
 def test_remove_redundant_reshapes_ir():
-    model = _create_test_model()
-    op_types_before = [node.op_type for node in model.graph.node]
-    assert op_types_before == ["Reshape", "Gelu", "Dropout", "Reshape"]
+    graph = _reshape_chain_graph()
+    before = [node.op_type for node in _node_list(graph)]
+    assert before == ["Constant", "Constant", "Reshape", "Gelu", "Reshape"]
 
-    optimized_model = remove_redundant_reshapes(model)
-    op_types_after = [node.op_type for node in optimized_model.graph.node]
+    remove_redundant_reshape_pairs_ir(graph)
 
-    assert "Reshape" not in op_types_after
-    assert "Gelu" in op_types_after
-    assert "Dropout" in op_types_after
+    after_nodes = _node_list(graph)
+    after_types = [node.op_type for node in after_nodes]
+    assert after_types == ["Constant", "Constant", "Gelu"]
 
-    gelu_node = next(
-        node for node in optimized_model.graph.node if node.op_type == "Gelu"
-    )
-    assert gelu_node.input[0] == "input"
+    gelu_node = next(node for node in after_nodes if node.name == "gelu")
+    gelu_inputs = getattr(gelu_node, "inputs", None) or getattr(gelu_node, "input", [])
+    first_input = _value_name(gelu_inputs[0])
+    assert first_input == "input"
 
-    dropout_node = next(
-        node for node in optimized_model.graph.node if node.op_type == "Dropout"
-    )
-    assert dropout_node.output[0] == "r2_out"
+    graph_outputs = [_value_name(value) for value in _graph_outputs(graph)]
+    assert graph_outputs == ["gelu_out"]
 
-    output_names = [out.name for out in optimized_model.graph.output]
-    assert "r2_out" in output_names
+    assert "Reshape" not in after_types

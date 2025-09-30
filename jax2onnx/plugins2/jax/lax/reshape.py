@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Union, Dict, Optional
+from functools import reduce
+import operator
+import os
 
 import numpy as np
 import jax
@@ -74,6 +77,32 @@ EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = EG(
 EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"])
 
 
+def _prod_dims(dims):
+    prod = 1
+    for d in dims:
+        if isinstance(d, (int, np.integer)):
+            prod = prod * int(d)
+        else:
+            prod = prod * d
+    return prod
+
+
+def _reshape_flatten_leading(x):
+    try:
+        flat = reduce(operator.mul, x.shape[1:], 1)
+        return lax.reshape(x, new_sizes=(x.shape[0], flat))
+    except TypeError:
+        return jax.numpy.reshape(x, (x.shape[0], -1))
+
+
+def _reshape_flatten_trailing(x):
+    try:
+        lead = reduce(operator.mul, x.shape[:-1], 1)
+        return lax.reshape(x, new_sizes=(lead, x.shape[-1]))
+    except TypeError:
+        return jax.numpy.reshape(x, (-1, x.shape[-1]))
+
+
 @register_primitive(
     jaxpr_primitive=lax.reshape_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reshape.html",
@@ -93,7 +122,7 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"]
             # constant initializer; a constant-only Concat feeding Reshape is a bug.
             "testcase": "reshape_after_transpose_folds_const_shape",
             "callable": (
-                lambda x: (lambda y: jax.lax.reshape(y, new_sizes=(y.shape[0], -1)))(
+                lambda x: _reshape_flatten_leading(
                     jax.lax.transpose(x, permutation=(0, 3, 1, 2))
                 )
             ),
@@ -105,7 +134,7 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"]
             # Catch regression: when the input’s leading axis is static, the shape fed to
             # Reshape must be folded to a single constant initializer (no Concat/Gather/Shape).
             "testcase": "reshape_flatten_trailing_folds_const_shape",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "callable": _reshape_flatten_leading,
             "input_shapes": [(3, 4, 5)],
             "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
@@ -127,7 +156,7 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"]
         },
         {
             "testcase": "reshape_valid_squeeze_middle_dim_from_problematic_source",
-            "callable": lambda x: jax.lax.reshape(
+            "callable": lambda x: lax.reshape(
                 x, new_sizes=(x.shape[0], x.shape[2]), dimensions=(0, 1, 2)
             ),
             "input_shapes": [(201, 1, 201)],
@@ -135,31 +164,31 @@ EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"]
         },
         {
             "testcase": "reshape_valid_flatten_trailing",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "callable": _reshape_flatten_leading,
             "input_shapes": [(201, 1, 5)],
             "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "callable": _reshape_flatten_leading,
             "input_shapes": [("N", "M", "K")],
             "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_with_inferred_dimension_from_input_dynamic",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "callable": _reshape_flatten_leading,
             "input_shapes": [("B", 10, 10)],
             "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_with_inferred_dimension_from_input",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(x.shape[0], -1)),
+            "callable": _reshape_flatten_leading,
             "input_shapes": [(3, 10, 10)],
             "use_onnx_ir": True,
         },
         {
             "testcase": "reshape_merge_symbolic_with_static_and_check_name",
-            "callable": lambda x: jax.lax.reshape(x, new_sizes=(-1, x.shape[2])),
+            "callable": _reshape_flatten_trailing,
             "input_shapes": [("B", 4, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
@@ -183,6 +212,9 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])
+        debug = bool(int(os.getenv("JAX2ONNX_DEBUG_RESHAPE", "0")))
+        if debug:
+            print("[reshape] new_sizes:", new_sizes)
         # Note: eqn.invars[1:] may carry runtime integer dims supplied as inputs
         runtime_dim_vars = list(eqn.invars[1:])
 
@@ -278,6 +310,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             isinstance(d, (int, np.integer)) and int(d) == -1 for d in new_sizes
         )
         for dim in new_sizes:
+            if debug:
+                print("  dim:", dim, "type:", type(dim))
             if isinstance(dim, (int, np.integer)):
                 # include -1 as a literal: let ONNX infer that dim
                 part = const_i64_vec(np.array([int(dim)], dtype=np.int64))
@@ -288,6 +322,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 axis_idx = next(
                     (i for i, d in enumerate(x_shape) if _same_symbol(dim, d)), None
                 )
+                if debug:
+                    print("    matched axis:", axis_idx)
                 if axis_idx is not None:
                     axis_dim_val = x_shape[axis_idx]
                     # Fold if the matched axis is a Python int ...
@@ -366,6 +402,8 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     )
                 )
                 shape_parts.append(unsqueeze_to_1d0(gathered))
+                if debug:
+                    print("    dynamic gather from input axis", axis_idx)
             elif hasattr(dim, "dtype") and np.issubdtype(
                 getattr(dim, "dtype", None), np.integer
             ):

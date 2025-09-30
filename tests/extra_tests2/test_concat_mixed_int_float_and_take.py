@@ -39,7 +39,6 @@ def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
             inputs=[],
             model_name="concat_mixed_int_float_and_take_zeroarg",
             enable_double_precision=True,
-            use_onnx_ir=True,
         )
 
         assert len(onnx_model.graph.output) == len(jax_outputs)

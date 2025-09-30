@@ -29,13 +29,11 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "sort_1d",
             "callable": lambda x: jax.lax.sort(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "sort_2d",
             "callable": lambda x: jax.lax.sort(x, dimension=0),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

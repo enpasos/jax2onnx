@@ -32,14 +32,12 @@ if TYPE_CHECKING:
             "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(True, dtype=np.bool_)],
             "expected_output_dtypes": [np.bool_],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "bitwise_not_i32",
             "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(7, dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
     ],
 )

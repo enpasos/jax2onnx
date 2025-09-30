@@ -2,7 +2,11 @@ import jax
 from flax import nnx
 
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins2.plugin_system import register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
 class CNN(nnx.Module):
@@ -38,7 +42,7 @@ register_example(
     testcases=[
         {
             "testcase": "simple_cnn_static",
-            "callable": CNN(rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(CNN, rngs=with_rng_seed(0)),
             "input_shapes": [(3, 28, 28, 1)],
             "run_only_f32_variant": True,
             "expected_output_shapes": [(3, 10)],
@@ -59,16 +63,14 @@ register_example(
                     ),
                 ]
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "simple_cnn",
-            "callable": CNN(rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(CNN, rngs=with_rng_seed(0)),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
             "run_only_dynamic": True,
             "expected_output_shapes": [("B", 10)],
-            "use_onnx_ir": True,
         },
     ],
 )

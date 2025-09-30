@@ -54,7 +54,6 @@ class TestScanShapeOfSSARegression:
             inputs=[spec],
             opset=21,
             model_name="scan_shapeof_ssa_regression",
-            use_onnx_ir=True,
         )
 
         outs = _all_node_outputs_recursive(model.graph)
@@ -85,7 +84,6 @@ class TestScanShapeOfSSARegression:
             inputs=[spec],
             opset=21,
             model_name="nested_fori_scan_shapeof_ssa_regression",
-            use_onnx_ir=True,
         )
 
         path = tmp_path / "nested_scan_ssa.onnx"

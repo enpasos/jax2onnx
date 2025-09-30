@@ -29,13 +29,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "testcase": "lax_split_equal_parts",
             "callable": lambda x: jnp.split(x, 2, axis=1),
             "input_shapes": [(4, 6)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "lax_split_unequal_parts",
             "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(4, 9)],
-            "use_onnx_ir": True,
         },
     ],
 )

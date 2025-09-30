@@ -38,7 +38,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                 np.array([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], dtype=np.int32),
                 np.array([4, 4, 3, 3, 2, 2, 1, 1, 5, 5], dtype=np.int32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "rem_float",
@@ -53,7 +52,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                     dtype=np.float32,
                 ),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "rem_int_neg",
@@ -62,7 +60,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                 np.array([-10, -9, -8, -7, 6, 5, 4, 3, -2, -1], dtype=np.int32),
                 np.array([4, -4, 3, -3, 2, -2, 1, -1, 5, -5], dtype=np.int32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "rem_float_neg",
@@ -77,7 +74,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                     dtype=np.float32,
                 ),
             ],
-            "use_onnx_ir": True,
         },
     ],
 )

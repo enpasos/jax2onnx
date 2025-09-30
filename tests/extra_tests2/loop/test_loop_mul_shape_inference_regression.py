@@ -60,7 +60,6 @@ def test_loop_mul_broadcast_in_loop_ort_fails(tmp_path):
         enable_double_precision=True,  # match the failing use case
         opset=21,
         model_name="loop_mul_inference_repro",
-        use_onnx_ir=True,
     )
 
     p = tmp_path / "loop_mul_inference_repro.onnx"

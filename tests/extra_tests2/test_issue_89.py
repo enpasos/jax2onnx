@@ -91,6 +91,5 @@ def test_basic_grad_descent_onnx_ir(num_steps: int, unroll: bool) -> None:
     to_onnx(
         jitted_optax_fn,
         [pred.shape, lr.shape],
-        use_onnx_ir=True,
         model_name=f"optax_issue_89_steps_{num_steps}_unroll_{int(unroll)}",
     )

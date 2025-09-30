@@ -42,7 +42,6 @@ _PROD_PRIM = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "prod_with_axis",
@@ -52,7 +51,6 @@ _PROD_PRIM = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [(3, 5)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "prod_with_keepdims",
@@ -62,25 +60,21 @@ _PROD_PRIM = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [(1, 4)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_prod_basic",
             "callable": lambda x: jnp.prod(x),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_prod_axis",
             "callable": lambda x: jnp.prod(x, axis=1),
             "input_shapes": [(3, 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_prod_keepdims",
             "callable": lambda x: jnp.prod(x, axis=0, keepdims=True),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

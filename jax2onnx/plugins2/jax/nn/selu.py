@@ -35,21 +35,18 @@ _SELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_selu_1",
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_selu_basic",
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

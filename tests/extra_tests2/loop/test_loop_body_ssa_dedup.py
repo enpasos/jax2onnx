@@ -40,7 +40,6 @@ class TestLoopBodySSADedup:
                 inputs=[spec],
                 opset=21,
                 model_name="loop_body_ssa_dedup",
-                use_onnx_ir=True,
             )
         except InconclusiveDimensionOperation as exc:
             pytest.xfail(f"converter2 cannot export loops with symbolic dims: {exc}")

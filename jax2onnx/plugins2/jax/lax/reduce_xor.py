@@ -36,7 +36,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
             "input_values": [np.zeros((3, 4), dtype=np.bool_)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_xor_one_true",
@@ -46,7 +45,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [
                 np.array([[True, False, False], [False, False, False]], dtype=np.bool_)
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_xor_two_true",
@@ -56,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [
                 np.array([[True, False, False], [False, True, False]], dtype=np.bool_)
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_xor_keepdims",
@@ -73,7 +70,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     dtype=np.bool_,
                 )
             ],
-            "use_onnx_ir": True,
         },
     ],
 )

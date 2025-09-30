@@ -17,6 +17,8 @@ _NP_TO_IR_BASE = {
     np.dtype(np.int8): "INT8",
     np.dtype(np.uint16): "UINT16",
     np.dtype(np.int16): "INT16",
+    np.dtype(np.uint32): "UINT32",
+    np.dtype(np.uint64): "UINT64",
     np.dtype(np.bool_): "BOOL",
 }
 

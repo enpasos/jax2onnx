@@ -69,7 +69,6 @@ register_example(
                 (5, 201, 1, 1),
             ],
             "expected_output_dtypes": [jnp.float64] * 4,
-            "use_onnx_ir": True,
             "run_only_f64_variant": True,
         }
     ],
@@ -101,7 +100,6 @@ register_example(
             "input_dtypes": [jnp.float64, jnp.float64],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [jnp.float64],
-            "use_onnx_ir": True,
             "run_only_f64_variant": True,
         }
     ],

@@ -26,13 +26,15 @@ def _collect_duplicate_function_inputs(model) -> list[tuple[str, list[str]]]:
 @onnx_function
 class _NestedBlock(nnx.Module):
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=dropout_rate, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
@@ -62,7 +64,6 @@ def test_duplicate_parameters_ir(shape):
         super_block,
         inputs=[shape],
         model_name="duplicate_param_test_ir",
-        use_onnx_ir=True,
     )
     duplicates = _collect_duplicate_function_inputs(model)
     assert not duplicates, f"Functions contained duplicate inputs: {duplicates}"

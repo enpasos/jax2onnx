@@ -1,11 +1,17 @@
 # file: jax2onnx/plugins2/examples2/nnx/vit.py
 
+from typing import Sequence
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -32,30 +38,41 @@ class PatchEmbedding(nnx.Module):
     def __init__(
         self, height, width, patch_size, num_hiddens, in_features, *, rngs: nnx.Rngs
     ):
-        num_patches_h, num_patches_w = height // patch_size, width // patch_size
-        num_patches = num_patches_h * num_patches_w
-        self.layers = [
-            lambda x: x.reshape(
-                x.shape[0],
-                height // patch_size,
-                patch_size,
-                width // patch_size,
-                patch_size,
-                in_features,
-            ),
-            lambda x: x.transpose((0, 1, 3, 2, 4, 5)),
-            lambda x: x.reshape(-1, num_patches, patch_size * patch_size * x.shape[-1]),
-            nnx.Linear(
-                in_features=patch_size * patch_size * in_features,
-                out_features=num_hiddens,
-                rngs=rngs,
-            ),
-        ]
+        self.height = height
+        self.width = width
+        self.patch_size = patch_size
+        self.in_features = in_features
+        self.num_patches = (height // patch_size) * (width // patch_size)
+        self.proj = nnx.Linear(
+            in_features=patch_size * patch_size * in_features,
+            out_features=num_hiddens,
+            rngs=rngs,
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
-        for layer in self.layers:
-            x = layer(x)
-        return x
+        del deterministic  # no stochastic components
+        patch = self.patch_size
+        reshaped = jnp.reshape(
+            x,
+            (
+                x.shape[0],
+                self.height // patch,
+                patch,
+                self.width // patch,
+                patch,
+                self.in_features,
+            ),
+        )
+        transposed = jnp.transpose(reshaped, (0, 1, 3, 2, 4, 5))
+        flattened = jnp.reshape(
+            transposed,
+            (
+                x.shape[0],
+                self.num_patches,
+                patch * patch * self.in_features,
+            ),
+        )
+        return self.proj(flattened)
 
 
 register_example(
@@ -68,17 +85,17 @@ register_example(
     testcases=[
         {
             "testcase": "patch_embedding",
-            "callable": PatchEmbedding(
+            "callable": construct_and_call(
+                PatchEmbedding,
                 height=28,
                 width=28,
                 patch_size=4,
                 num_hiddens=256,
                 in_features=1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -92,61 +109,60 @@ class ConvEmbedding(nnx.Module):
         self,
         W: int = 28,
         H: int = 28,
-        embed_dims: list[int] = [32, 64, 128],
+        embed_dims: Sequence[int] = (32, 64, 128),
         kernel_size: int = 3,
-        strides: list[int] = [1, 2, 2],
+        strides: Sequence[int] = (1, 2, 2),
         dropout_rate: float = 0.5,
         *,
-        rngs=nnx.Rngs(0),
+        rngs: nnx.Rngs,
     ):
+        embed_dims = tuple(embed_dims)
+        strides = tuple(strides)
         padding = "SAME"
         layernormfeatures = embed_dims[-1] * W // 4 * H // 4
-        self.layers = [
-            nnx.Conv(
-                in_features=1,
-                out_features=embed_dims[0],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[0], strides[0]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Conv(
-                in_features=embed_dims[0],
-                out_features=embed_dims[1],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[1], strides[1]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Conv(
-                in_features=embed_dims[1],
-                out_features=embed_dims[2],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[2], strides[2]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.LayerNorm(
-                num_features=layernormfeatures,
-                reduction_axes=(1, 2, 3),
-                feature_axes=(1, 2, 3),
-                rngs=rngs,
-            ),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-        ]
+        self.conv1 = nnx.Conv(
+            in_features=1,
+            out_features=embed_dims[0],
+            kernel_size=(kernel_size, kernel_size),
+            strides=(strides[0], strides[0]),
+            padding=padding,
+            rngs=rngs,
+        )
+        self.conv2 = nnx.Conv(
+            in_features=embed_dims[0],
+            out_features=embed_dims[1],
+            kernel_size=(kernel_size, kernel_size),
+            strides=(strides[1], strides[1]),
+            padding=padding,
+            rngs=rngs,
+        )
+        self.conv3 = nnx.Conv(
+            in_features=embed_dims[1],
+            out_features=embed_dims[2],
+            kernel_size=(kernel_size, kernel_size),
+            strides=(strides[2], strides[2]),
+            padding=padding,
+            rngs=rngs,
+        )
+        self.layer_norm = nnx.LayerNorm(
+            num_features=layernormfeatures,
+            reduction_axes=(1, 2, 3),
+            feature_axes=(1, 2, 3),
+            rngs=rngs,
+        )
+        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                x = layer(x, deterministic=deterministic)
-            else:
-                x = layer(x)
+        x = self.conv1(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.conv2(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.conv3(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.layer_norm(x)
+        x = self.dropout(x, deterministic=deterministic)
         B, H, W, C = x.shape
-        x = jnp.reshape(x, (B, H * W, C))
-        return x
+        return jnp.reshape(x, (B, H * W, C))
 
 
 register_example(
@@ -164,15 +180,15 @@ register_example(
     testcases=[
         {
             "testcase": "mnist_conv_embedding",
-            "callable": ConvEmbedding(
+            "callable": construct_and_call(
+                ConvEmbedding,
                 embed_dims=[32, 64, 128],
                 kernel_size=3,
                 strides=[1, 2, 2],
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -183,21 +199,17 @@ class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
+        self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                x = layer(x, deterministic=deterministic)
-            else:
-                x = layer(x)
-        return x
+        x = self.linear1(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.dropout1(x, deterministic=deterministic)
+        x = self.linear2(x)
+        return self.dropout2(x, deterministic=deterministic)
 
 
 register_example(
@@ -210,12 +222,15 @@ register_example(
     testcases=[
         {
             "testcase": "feed_forward",
-            "callable": FeedForward(
-                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                FeedForward,
+                num_hiddens=256,
+                mlp_dim=512,
+                dropout_rate=0.1,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -241,7 +256,7 @@ class MultiHeadAttention(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            attention_fn=lambda *args, **kwargs: attention(*args),
+            attention_fn=attention,
             rngs=rngs,
             decode=False,
         )
@@ -300,20 +315,20 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_block",
-            "callable": TransformerBlock(
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "input_params": {
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -332,17 +347,19 @@ class TransformerStack(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.blocks = [
-            TransformerBlock(
-                num_hiddens,
-                num_heads,
-                mlp_dim,
-                attention_dropout_rate,
-                mlp_dropout_rate,
-                rngs=rngs,
-            )
-            for _ in range(num_layers)
-        ]
+        self.blocks = nnx.List(
+            [
+                TransformerBlock(
+                    num_hiddens,
+                    num_heads,
+                    mlp_dim,
+                    attention_dropout_rate,
+                    mlp_dropout_rate,
+                    rngs=rngs,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for block in self.blocks:
@@ -360,21 +377,21 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack",
-            "callable": TransformerStack(
+            "callable": construct_and_call(
+                TransformerStack,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
                 num_layers=6,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "input_params": {
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -394,10 +411,9 @@ register_example(
     testcases=[
         {
             "testcase": "get_token",
-            "callable": lambda x: get_first_token(x),
+            "callable": get_first_token,
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -433,14 +449,14 @@ register_example(
     testcases=[
         {
             "testcase": "classification_head",
-            "callable": ClassificationHead(
+            "callable": construct_and_call(
+                ClassificationHead,
                 num_hiddens=256,
                 num_classes=10,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -476,13 +492,13 @@ register_example(
     testcases=[
         {
             "testcase": "concat_cls_token",
-            "callable": ConcatClsToken(
+            "callable": construct_and_call(
+                ConcatClsToken,
                 num_hiddens=256,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 49, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -492,7 +508,10 @@ register_example(
 class PositionalEmbedding(nnx.Module):
     """Add positional embedding to the input embedding."""
 
-    def __init__(self, num_patches: int, num_hiddens: int):
+    def __init__(
+        self, num_patches: int, num_hiddens: int, *, rngs: nnx.Rngs | None = None
+    ):
+        del rngs  # unused; constructor keeps uniform signature across modules
         self.positional_embedding = nnx.Param(
             create_sinusoidal_embeddings(num_patches, num_hiddens)
         )
@@ -511,13 +530,14 @@ register_example(
     testcases=[
         {
             "testcase": "positional_embedding",
-            "callable": PositionalEmbedding(
+            "callable": construct_and_call(
+                PositionalEmbedding,
                 num_patches=49,
                 num_hiddens=256,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -536,9 +556,9 @@ class VisionTransformer(nnx.Module):
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        embed_dims: list[int] = [32, 128, 256],
+        embed_dims: Sequence[int] = (32, 128, 256),
         kernel_size: int = 3,
-        strides: list[int] = [1, 2, 2],
+        strides: Sequence[int] = (1, 2, 2),
         patch_size: int = 4,
         embedding_type: str = "conv",
         # Add support for legacy code
@@ -557,6 +577,9 @@ class VisionTransformer(nnx.Module):
 
         if embedding_type not in ["conv", "patch"]:
             raise ValueError("embedding_type must be either 'conv' or 'patch'")
+
+        embed_dims = tuple(embed_dims)
+        strides = tuple(strides)
 
         if embedding_type == "conv":
             if len(embed_dims) != 3 or embed_dims[2] != num_hiddens:
@@ -641,7 +664,8 @@ register_example(
     testcases=[
         {
             "testcase": "vit_conv_embedding",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -650,18 +674,18 @@ register_example(
                 mlp_dim=512,
                 num_classes=10,
                 embedding_type="conv",
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "input_params": {
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "vit_patch_embedding",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -671,14 +695,13 @@ register_example(
                 num_classes=10,
                 embedding_type="patch",
                 patch_size=4,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 28, 28, 1)],
             "input_params": {
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -29,13 +29,11 @@ if TYPE_CHECKING:  # pragma: no cover - import for typing only
             "testcase": "device_put_array",
             "callable": lambda x: jax.device_put(x),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "device_put_scalar",
             "callable": lambda: jax.device_put(42),
             "input_shapes": [],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -47,4 +47,8 @@ def jit_compiled_example(original):
     ],
 )
 def test_dynamic_update_slice_exports_with_ir_pipeline(fn, original):
-    to_onnx(fn=fn, inputs=[original], enable_double_precision=True, use_onnx_ir=True)
+    to_onnx(
+        fn=fn,
+        inputs=[original],
+        enable_double_precision=True,
+    )

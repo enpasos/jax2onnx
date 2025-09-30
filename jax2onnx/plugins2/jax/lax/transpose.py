@@ -31,43 +31,36 @@ if TYPE_CHECKING:
             "testcase": "transpose_basic",
             "callable": lambda x: lax.transpose(x, (1, 0)),
             "input_shapes": [(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_square_matrix",
             "callable": lambda x: lax.transpose(x, (1, 0)),
             "input_shapes": [(4, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_3d",
             "callable": lambda x: lax.transpose(x, (1, 2, 0)),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_4d",
             "callable": lambda x: lax.transpose(x, (0, 2, 3, 1)),
             "input_shapes": [(2, 3, 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_reverse",
             "callable": lambda x: lax.transpose(x, (2, 1, 0)),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_no_axes",
             "callable": lambda x: lax.transpose(x, tuple(range(x.ndim - 1, -1, -1))),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "transpose_nhwc_to_nchw",
             "callable": lambda x: lax.transpose(x, (0, 3, 1, 2)),
             "input_shapes": [(2, 28, 28, 3)],
-            "use_onnx_ir": True,
         },
     ],
 )

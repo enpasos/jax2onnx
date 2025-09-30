@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "lax_logistic_basic",
             "callable": jax.lax.logistic,
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

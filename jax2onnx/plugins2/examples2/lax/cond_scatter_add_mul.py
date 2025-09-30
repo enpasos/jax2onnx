@@ -51,7 +51,6 @@ register_example(
             "expected_output_shapes": [(), (6,)],
             "expected_output_dtypes": [jnp.bool_, jnp.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "cond_scatter_add_mul_f64_b",
@@ -65,7 +64,6 @@ register_example(
             "expected_output_shapes": [(), (10,)],
             "expected_output_dtypes": [jnp.bool_, jnp.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

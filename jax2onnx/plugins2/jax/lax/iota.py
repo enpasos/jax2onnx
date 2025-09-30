@@ -41,19 +41,16 @@ _DTYPE_TO_IR = {
             "testcase": "iota_int32",
             "callable": lambda: jax.lax.iota(np.int32, 5),
             "input_shapes": [],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "iota_float32",
             "callable": lambda: jax.lax.iota(np.float32, 10),
             "input_shapes": [],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "broadcasted_iota",
             "callable": lambda: jax.lax.broadcasted_iota(np.int32, (3, 4), 1),
             "input_shapes": [],
-            "use_onnx_ir": True,
         },
     ],
 )

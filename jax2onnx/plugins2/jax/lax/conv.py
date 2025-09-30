@@ -71,7 +71,6 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 x, w, window_strides=(1, 1), padding="VALID"
             ),
             "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
-            "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },
         {
@@ -84,7 +83,6 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
-            "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },
         {
@@ -93,7 +91,6 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 x, w, window_strides=(1, 1), padding="VALID"
             ),
             "input_shapes": [(1, 2, 5, 5), (3, 2, 3, 3)],
-            "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },
         {
@@ -106,7 +103,6 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 5, 5, 3), (3, 3, 3, 4)],
-            "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },
         {
@@ -123,7 +119,6 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 np.ones((2, 2, 3, 4), dtype=np.float32),
             ],
             "expected_output_shapes": [(1, 5, 5, 4)],
-            "use_onnx_ir": True,
             "run_only_f32_variant": True,
         },
     ],

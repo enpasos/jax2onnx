@@ -29,7 +29,6 @@ if TYPE_CHECKING:
             "testcase": "tanh",
             "callable": lambda x: nnx.tanh(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -32,7 +32,7 @@ def format_testcase(spec) -> str:
         )
     else:
         lines.append('            "input_shapes": [(3, 3)],')
-    lines.append('            "use_onnx_ir": True,')
+    lines.append('            "": True,')
     lines.append("        },")
     return "\n".join(lines)
 

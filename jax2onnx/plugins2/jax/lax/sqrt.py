@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "sqrt",
             "callable": lambda x: jax.lax.sqrt(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

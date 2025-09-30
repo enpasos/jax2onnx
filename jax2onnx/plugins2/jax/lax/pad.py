@@ -34,7 +34,6 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 x, jnp.asarray(0.0, dtype=x.dtype), ((1, 2, 0),)
             ),
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pad_const_2d",
@@ -42,7 +41,6 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 x, jnp.asarray(1.0, dtype=x.dtype), ((0, 0, 0), (1, 1, 0))
             ),
             "input_shapes": [(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pad_const_2d_cval",
@@ -52,7 +50,6 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 ((0, 0, 0), (1, 1, 0)),
             ),
             "input_shapes": [(2, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pad_inside_scan_smoke_f64",
@@ -73,7 +70,6 @@ def _flatten(seq: Iterable[int]) -> list[int]:
             "input_shapes": [(1, 3, 8, 8)],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 1, 3, 8, 8)],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "pad_inside_nested_scan_smoke_f64",
@@ -101,7 +97,6 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 ("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2, 1, 3, 8, 8)
             ],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

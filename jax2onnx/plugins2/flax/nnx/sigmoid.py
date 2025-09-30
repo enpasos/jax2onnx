@@ -38,7 +38,6 @@ if TYPE_CHECKING:
             "testcase": "sigmoid",
             "callable": lambda x: nnx.sigmoid(x),
             "input_shapes": [("B", 4)],
-            "use_onnx_ir": True,
         }
     ],
 )

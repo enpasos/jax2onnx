@@ -28,7 +28,6 @@ def test_generated_graphs_have_names():
         fn,
         inputs=[("B", 4)],
         model_name="no_null_graph_ir",
-        use_onnx_ir=True,
     )
 
     for graph in _walk_graphs(model.graph):

@@ -217,7 +217,6 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
             "testcase": "eqx_dropout_inference_mode",
             "callable": eqx.nn.Dropout(p=0.42, inference=True),
             "input_shapes": [(64,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _post_check_constant(
                 m, expected_ratio=0.42, expected_training=False
             ),
@@ -230,7 +229,6 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
             "input_shapes": [(64,)],
             "input_params": {"key": jax.random.PRNGKey(0)},
             "skip_numeric_validation": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _post_check_constant(
                 m, expected_ratio=0.5, expected_training=True
             ),
@@ -242,7 +240,6 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
             ): model(x, key=key, inference=inference),
             "input_shapes": [(64,)],
             "input_params": {"inference": np.array(True, dtype=bool)},
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _post_check_dynamic(
                 m, expected_ratio=0.5
             ),
@@ -253,7 +250,6 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
                 _mod
             )(xs),
             "input_shapes": [("B", 64)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: _post_check_constant(
                 m, expected_ratio=0.3, expected_training=False
             ),

@@ -68,21 +68,18 @@ _CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
             "testcase": "concatenate_basic",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_mixed_dtypes",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
             "input_dtypes": [np.float32, np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_with_explicit_dtype",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0, dtype=jnp.float64),
             "input_shapes": [(3,), (3,)],
             "input_dtypes": [np.float32, np.int32],
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
         {
@@ -91,7 +88,6 @@ _CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
             "input_shapes": [(5, 1), (5, 1)],
             "input_dtypes": [np.int32, np.int32],
             "expected_output_shapes": [(5, 2)],
-            "use_onnx_ir": True,
             "run_only_f64_variant": True,
         },
         {
@@ -99,14 +95,12 @@ _CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
             "callable": lambda a, b: jnp.concatenate((a, b), axis=1),
             "input_shapes": [("B", 1, 8), ("B", 10, 8)],
             "expected_output_shapes": [("B", 11, 8)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "concatenate_tile_and_symbolic",
             "callable": _concat_dynamic_tile,
             "input_shapes": [("B", 49, 256)],
             "expected_output_shapes": [("B", 50, 256)],
-            "use_onnx_ir": True,
         },
     ],
 )

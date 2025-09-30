@@ -52,7 +52,6 @@ def test_model_has_no_duplicate_shape_helpers(dtype):
         enable_double_precision=(dtype == jnp.float64),
         opset=21,
         model_name="ssa_no_dupe_shape_helpers",
-        use_onnx_ir=True,
     )
 
     outs = _all_node_outputs_recursive(model.graph)

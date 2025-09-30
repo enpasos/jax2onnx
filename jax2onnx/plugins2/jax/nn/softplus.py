@@ -35,21 +35,18 @@ _SOFTPLUS_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.softplus(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_softplus_1",
             "callable": lambda x: jax.nn.softplus(x),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_softplus_basic",
             "callable": lambda x: jax.nn.softplus(x),
             "input_shapes": [(4,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

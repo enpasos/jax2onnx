@@ -283,7 +283,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 x,
             )[1],
             "input_shapes": [(2, 3, 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_cumsum",
@@ -293,7 +292,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[1],
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_carry_only",
@@ -303,7 +301,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[0],
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_multiple_sequences",
@@ -313,7 +310,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 (xs, ys),
             )[1],
             "input_shapes": [(4,), (4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_multiple_carry",
@@ -329,7 +325,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[1],
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_matrix_carry_multidim_xs",
@@ -339,7 +334,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs_seq,
             )[1],
             "input_shapes": [(3, 2), (5, 3, 2)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_no_xs",
@@ -349,14 +343,12 @@ def _two_scans_diff_len_with_broadcast_f32():
             "input_shapes": [()],
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_fn",
             "callable": scan_fn,
             "input_values": [jnp.array(0.0, dtype=jnp.float32)],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_jit_no_xs",
@@ -365,7 +357,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_jit_no_xs_f64",
@@ -374,7 +365,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_captured_scalar",
@@ -392,7 +382,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_captured_scalar_f64",
@@ -410,7 +399,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_rank0_sequence_vectorized",
@@ -425,7 +413,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
@@ -440,7 +427,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_two_diff_lengths",
@@ -453,7 +439,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_two_diff_lengths_f64",
@@ -466,7 +451,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_two_diff_lengths_broadcast",
@@ -479,7 +463,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_two_diff_lengths_broadcast_f64",
@@ -492,7 +475,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_two_diff_lengths_with_broadcast",
@@ -504,7 +486,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_nested_len_mismatch",
@@ -514,7 +495,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_nested_len_mismatch_f64",
@@ -524,7 +504,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_captured_scalar_with_xs",
@@ -542,7 +521,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scan_captured_vector_with_xs_f64",
@@ -560,7 +538,6 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
-            "use_onnx_ir": True,
         },
     ],
 )

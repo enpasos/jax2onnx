@@ -13,8 +13,10 @@ from jax2onnx.plugins2.jax.lax.scatter_utils import ensure_supported_mode
         None,
         lax.GatherScatterMode.FILL_OR_DROP,
         lax.GatherScatterMode.PROMISE_IN_BOUNDS,
+        lax.GatherScatterMode.CLIP,
         "fill_or_drop",
         "promiSe_in_bounds",
+        "clip",
     ],
 )
 def test_supported_modes_pass(mode):
@@ -22,7 +24,7 @@ def test_supported_modes_pass(mode):
     ensure_supported_mode(mode)
 
 
-@pytest.mark.parametrize("mode", ["clip", "wrap", lax.GatherScatterMode.CLIP])
+@pytest.mark.parametrize("mode", ["wrap"])
 def test_unsupported_modes_raise(mode):
     with pytest.raises(NotImplementedError):
         ensure_supported_mode(mode)

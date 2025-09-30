@@ -41,7 +41,6 @@ def test_feed_forward_like_nested_loops_mixed_dtypes_ir(tmp_path):
         inputs=[],
         model_name="feed_forward_like_nested",
         enable_double_precision=True,
-        use_onnx_ir=True,
         opset=21,
     )
     out_path = tmp_path / "feed_forward_like_nested.onnx"

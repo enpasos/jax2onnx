@@ -53,13 +53,11 @@ except Exception:
             "testcase": "relu_1d",
             "callable": lambda x: nnx.relu(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "relu_4d",
             "callable": lambda x: nnx.relu(x),
             "input_shapes": [("B", 28, 28, 32)],
-            "use_onnx_ir": True,
         },
     ],
 )

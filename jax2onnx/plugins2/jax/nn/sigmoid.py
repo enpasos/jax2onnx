@@ -36,13 +36,11 @@ _SIGMOID_PRIM.multiple_results = False
             "testcase": "jaxnn_sigmoid",
             "callable": lambda x: jax.nn.sigmoid(x),
             "input_shapes": [(1,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_sigmoid_1",
             "callable": lambda x: jax.nn.sigmoid(x),
             "input_shapes": [(2, 5)],
-            "use_onnx_ir": True,
         },
     ],
 )

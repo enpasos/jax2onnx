@@ -35,7 +35,6 @@ def test_pad_inside_loop_ir_pipeline(dtype):
         enable_double_precision=(dtype == jnp.float64),
         opset=21,
         model_name=f"pad_in_loop_{np.dtype(dtype).name}",
-        use_onnx_ir=True,
     )
 
     # structural sanity

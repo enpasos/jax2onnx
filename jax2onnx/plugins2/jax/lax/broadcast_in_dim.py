@@ -45,7 +45,6 @@ if TYPE_CHECKING:
                 x, (3,), broadcast_dimensions=(0,)
             ),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "broadcast_in_dim_2d_to_3d",
@@ -53,7 +52,6 @@ if TYPE_CHECKING:
                 x, (2, 3, 4), broadcast_dimensions=(1, 2)
             ),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "broadcast_in_dim_scalar",
@@ -63,7 +61,6 @@ if TYPE_CHECKING:
             "input_shapes": [()],
             # switch to value-based numeric testing
             "input_values": [0.5],
-            "use_onnx_ir": True,
         },
         {
             # ------------------------------------------------------------------
@@ -79,7 +76,6 @@ if TYPE_CHECKING:
                 ("B", 49, 256)
             ],  # Use a concrete batch for non-dynamic test
             "expected_output_shapes": [("B", 1, 256)],
-            "use_onnx_ir": True,
         },
         # ------------------------------------------------------------------
         # dynamic-batch test: symbolic B
@@ -92,7 +88,6 @@ if TYPE_CHECKING:
             "post_check_onnx_graph": lambda m: (
                 __import__("onnx").checker.check_model(m) or True
             ),
-            "use_onnx_ir": True,
         },
     ],
 )

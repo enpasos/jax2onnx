@@ -27,7 +27,6 @@ if TYPE_CHECKING:
             "testcase": "greater_equal",
             "callable": lambda x1, x2: jax.lax.ge(x1, x2),
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

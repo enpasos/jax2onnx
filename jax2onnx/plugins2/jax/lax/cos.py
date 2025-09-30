@@ -28,7 +28,6 @@ if TYPE_CHECKING:
             "testcase": "cos",
             "callable": lambda x: jax.lax.cos(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

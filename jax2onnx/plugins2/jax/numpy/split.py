@@ -71,31 +71,26 @@ def _split_sizes(
             "testcase": "split_by_sections",
             "callable": lambda x: jnp.split(x, 3, axis=1),
             "input_shapes": [(1, 9)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "split_by_indices",
             "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(1, 9)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "split_by_indices_symbolic",
             "callable": lambda x: jnp.split(x, [3, 7], axis=2),
             "input_shapes": [("B", 4, 10)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "split_sections",
             "callable": lambda x: jnp.split(x, 3, axis=1),
             "input_shapes": [(1, 9)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "split_indices_numpy",
             "callable": lambda x: jnp.split(x, np.array([2, 5]), axis=1),
             "input_shapes": [(1, 9)],
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -188,9 +183,16 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             def _patched(a, indices_or_sections, axis=0):
                 arr = jnp.asarray(a)
                 axis_norm = _normalize_axis(axis, arr.ndim)
+                if isinstance(indices_or_sections, (list, tuple)):
+                    indices_param = tuple(indices_or_sections)
+                else:
+                    try:
+                        indices_param = tuple(indices_or_sections.tolist())
+                    except AttributeError:
+                        indices_param = indices_or_sections
                 return cls._PRIM.bind(
                     arr,
-                    indices_or_sections=indices_or_sections,
+                    indices_or_sections=indices_param,
                     axis=axis_norm,
                 )
 

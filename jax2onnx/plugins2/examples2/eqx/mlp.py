@@ -94,7 +94,6 @@ register_example(
                 lambda x, *, model=_model, _k=jax.random.PRNGKey(0): model(x, _k)
             ),
             "input_shapes": [(30,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 _check_dropout_training_mode(m, expected_mode=True)
             ),
@@ -104,7 +103,6 @@ register_example(
             "testcase": "mlp_inference_mode",
             "callable": (lambda x, *, model=_inference_model: model(x, key=None)),
             "input_shapes": [(30,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: (
                 _check_dropout_training_mode(m, expected_mode=False)
             ),
@@ -117,7 +115,6 @@ register_example(
                 )
             ),
             "input_shapes": [(8, 30)],
-            "use_onnx_ir": True,
             "skip_numeric_validation": True,
         },
     ],

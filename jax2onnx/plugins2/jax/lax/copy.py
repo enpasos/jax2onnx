@@ -37,7 +37,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float32],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "copy_int64_scalar",
@@ -46,7 +45,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

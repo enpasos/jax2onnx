@@ -15,7 +15,6 @@ def test_tripaxis_dynamic_loads():
         _two_scans_len_mismatch_broadcast_f32,
         [],
         model_name="two_scans_broadcast",
-        use_onnx_ir=True,
     )
     ort.InferenceSession(model.SerializeToString())
 
@@ -43,7 +42,6 @@ def test_tripaxis_is_dynamic(tmp_path, enable_double_precision):
         [],
         model_name="two_scans_dynamic",
         enable_double_precision=enable_double_precision,
-        use_onnx_ir=True,
     )
     onnx.save_model(model, path)
 

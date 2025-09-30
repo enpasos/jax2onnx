@@ -39,7 +39,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 1), (2,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_max_batch_updates_1d_operand",
@@ -55,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 2, 1), (2, 2)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_max_window_2d_operand_1d_indices",
@@ -74,7 +72,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([[0]], dtype=jnp.int32),
                 jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_max_fp64_dtype_path_check",
@@ -89,7 +86,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "scatter_max_depth2_helper_regression_fp64",
@@ -104,7 +100,6 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

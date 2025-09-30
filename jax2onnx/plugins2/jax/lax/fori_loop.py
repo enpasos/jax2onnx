@@ -205,14 +205,12 @@ def _build_body_graph(
             "callable": lambda: jax.lax.fori_loop(0, 5, lambda i, v: v + 1, 0),
             "input_shapes": [],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_zero",
             "callable": lambda: jax.lax.fori_loop(0, 0, lambda i, v: v + 1, 42),
             "input_shapes": [],
             "expected_output_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_vector",
@@ -224,7 +222,6 @@ def _build_body_graph(
             ),
             "input_shapes": [],
             "expected_output_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_example",
@@ -236,7 +233,6 @@ def _build_body_graph(
             )[0],
             "input_shapes": [],
             "expected_output_shapes": [(1,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_test",
@@ -245,7 +241,6 @@ def _build_body_graph(
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [(2,), ()],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "fori_loop_test_f64",
@@ -254,7 +249,6 @@ def _build_body_graph(
             "input_dtypes": [jnp.float64],
             "expected_output_shapes": [(2,), ()],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -265,7 +259,6 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls):
-
         def _patch(orig):
             cls._ORIG_FORI_LOOP = orig
 

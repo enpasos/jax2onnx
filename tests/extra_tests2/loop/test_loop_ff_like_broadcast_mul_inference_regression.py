@@ -89,7 +89,6 @@ def test_ff_like_mul_in_loop_inference_currently_fails(dtype):
             enable_double_precision=True,
             opset=21,
             model_name="ff_like_broadcast_mul_inference_regression",
-            use_onnx_ir=True,
         )
     except InconclusiveDimensionOperation as exc:
         pytest.xfail(f"converter2 cannot export loops with symbolic dims: {exc}")

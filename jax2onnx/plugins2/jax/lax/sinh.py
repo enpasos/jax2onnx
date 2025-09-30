@@ -33,7 +33,6 @@ def _like(ctx, exemplar: ir.Value, name_hint: str) -> ir.Value:
             "testcase": "sinh",
             "callable": lambda x: jax.lax.sinh(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

@@ -14,7 +14,13 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
 from jax2onnx.plugins2._ir_shapes import (
@@ -256,75 +262,99 @@ EXPECT_DYNAMIC_RGR = EG(
     testcases=[
         {
             "testcase": "linear_symbolic_batch",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 128)],
-            "use_onnx_ir": True,
             "expected_output_shapes": [("B", 64)],
             "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 128)],
             "run_only_dynamic": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [("B", 10, 64)],
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_high_rank_static",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(3, 10, 128)],
-            "use_onnx_ir": True,
             "expected_output_shapes": [(3, 10, 64)],
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_no_bias",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, use_bias=False, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 128)],
-            "use_onnx_ir": True,
             "expected_output_shapes": [("B", 64)],
             "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank_no_bias",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, use_bias=False, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 128)],
-            "use_onnx_ir": True,
             "run_only_dynamic": True,
             "expected_output_shapes": [("B", 10, 64)],
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
         {
             "testcase": "linear_high_rank_no_bias",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, use_bias=False, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 10, 128)],
-            "use_onnx_ir": True,
             "expected_output_shapes": [(2, 10, 64)],
             "post_check_onnx_graph": EXPECT_RGR,
         },
         {
             "testcase": "linear_merge_symbolic_dim",
-            "callable_factory": lambda dtype: nnx.Linear(
-                128, 64, dtype=dtype, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 128)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "expected_output_shapes": [("B", 10, 64)],
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
@@ -378,6 +408,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 dtype=xv.dtype,
                 dot_general=dot_general,
                 precision=None,
+                preferred_element_type=None,
             )
             return LinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
 

@@ -36,7 +36,6 @@ if TYPE_CHECKING:
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "none"),
         },
@@ -45,7 +44,6 @@ if TYPE_CHECKING:
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1, 10)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "none"),
         },
@@ -53,7 +51,6 @@ if TYPE_CHECKING:
             "testcase": "gelu_2",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [(1,)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "tanh"),
         },
@@ -61,7 +58,6 @@ if TYPE_CHECKING:
             "testcase": "gelu_3",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [("B", 10)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "tanh"),
         },
@@ -69,7 +65,6 @@ if TYPE_CHECKING:
             "testcase": "gelu_4",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [(1,)],
-            "use_onnx_ir": True,
             # default path (no flag) must be approximate=True => "tanh"
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "tanh"),
@@ -78,7 +73,6 @@ if TYPE_CHECKING:
             "testcase": "gelu_5",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [("B", 10)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
             and _approx_attr_equals(m, "tanh"),
         },

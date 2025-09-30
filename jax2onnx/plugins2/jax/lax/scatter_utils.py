@@ -1718,10 +1718,11 @@ def ensure_supported_mode(mode: Any) -> None:
     if mode_name is not None and mode_name.upper() in {
         "FILL_OR_DROP",
         "PROMISE_IN_BOUNDS",
+        "CLIP",
     }:
         return
     as_str = str(mode).upper()
-    if any(token in as_str for token in ("FILL_OR_DROP", "PROMISE_IN_BOUNDS")):
+    if any(token in as_str for token in ("FILL_OR_DROP", "PROMISE_IN_BOUNDS", "CLIP")):
         return
     raise NotImplementedError(f"scatter mode '{mode}' not supported in plugins2 yet")
 

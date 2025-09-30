@@ -45,7 +45,6 @@ def _promote_dtype(*dtypes):
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=jnp.array([0, 0]),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_broadcast",
@@ -54,7 +53,6 @@ def _promote_dtype(*dtypes):
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=0,
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_gpt2_attention_mask",
@@ -63,7 +61,6 @@ def _promote_dtype(*dtypes):
             ),
             "input_shapes": [("B", 12, "T", "T"), ("B", 1, "T", "T")],
             "input_dtypes": [np.float32, np.bool_],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_basic",
@@ -72,7 +69,6 @@ def _promote_dtype(*dtypes):
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=jnp.array([0, 0]),
             ),
-            "use_onnx_ir": True,
         },
     ],
 )

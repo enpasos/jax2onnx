@@ -53,23 +53,20 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1, 2, 3], dtype=jnp.float32),
                 jnp.array([-1, -2, -3], dtype=jnp.float32),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_broadcast",
             "callable": lambda: jnp.where(
                 jnp.array([True, False, True, False])[:, None],
-                jnp.arange(20, dtype=jnp.float32).reshape(4, 5),
-                -jnp.arange(20, dtype=jnp.float32).reshape(4, 5),
+                jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
+                -jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_gpt_mask_scores_literal_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
             "input_dtypes": [np.bool_, np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_multidim_condition_scalar_branches_broadcast",
@@ -78,7 +75,6 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 5.0,
                 -5.0,
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_A",
@@ -86,7 +82,6 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
                 jnp.array(_WHERE_A_DATA, dtype=jnp.float32),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_B",
@@ -94,14 +89,12 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(_WHERE_B_COND, dtype=jnp.bool_),
                 jnp.array(_WHERE_B_DATA, dtype=jnp.int32),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_gpt_mask_scores_scalar_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
             "input_dtypes": [np.bool_, np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_int_condition_cast",
@@ -110,7 +103,6 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1.0, 2.0, 3.0], dtype=np.float32),
                 jnp.array([0.0, 0.0, 0.0], dtype=np.float32),
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_literal_else_pyfloat",
@@ -119,7 +111,6 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
                 -1e9,
             ),
-            "use_onnx_ir": True,
         },
         {
             "testcase": "where_jax_int_literals_broadcast_f64_mode",
@@ -128,7 +119,6 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(1, dtype=np.int64),
                 jnp.array(0, dtype=np.int64),
             ),
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
         {
@@ -138,26 +128,22 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1.0, -2.0, 3.0], dtype=np.float64),
                 jnp.array([1, 2, 3], dtype=np.int32),
             ),
-            "use_onnx_ir": True,
             "enable_double_precision": True,
         },
         {
             "testcase": "jnp_where_basic",
             "callable": lambda c, x, y: jnp.where(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_where_broadcast",
             "callable": lambda c, x, y: jnp.where(c[:, None], x, y),
             "input_shapes": [(4,), (4, 5), (4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jnp_where_scalar_else",
             "callable": lambda c, x: jnp.where(c, x, -1e9),
             "input_shapes": [(2, 2), (2, 2)],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -19,7 +19,6 @@ if TYPE_CHECKING:
             "testcase": "neg",
             "callable": lambda x: -x,
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

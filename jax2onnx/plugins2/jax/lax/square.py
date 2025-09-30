@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "square",
             "callable": lambda x: jax.lax.square(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

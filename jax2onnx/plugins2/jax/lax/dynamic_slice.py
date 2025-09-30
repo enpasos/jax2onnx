@@ -33,19 +33,16 @@ if TYPE_CHECKING:
             "testcase": "dynamic_slice_test1",
             "callable": lambda x: jax.lax.dynamic_slice(x, [1], [2]),
             "input_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dynamic_slice_2d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 2), (2, 3)),
             "input_shapes": [(4, 6)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dynamic_slice_3d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 0, 2), (2, 3, 1)),
             "input_shapes": [(3, 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "dynamic_slice_vit_like",
@@ -55,7 +52,6 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 50, 256)],
             "expected_output_shapes": [("B", 1, 256)],
-            "use_onnx_ir": True,
         },
     ],
 )

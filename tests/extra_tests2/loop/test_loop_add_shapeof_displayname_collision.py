@@ -109,7 +109,6 @@ def test_loop_body_shape_helpers_are_ssa_unique(dtype):
         enable_double_precision=True,
         opset=21,
         model_name="loop_shapeof_guard_unique",
-        use_onnx_ir=True,
     )
 
     dupes, shape_helpers = _shape_dupes_in_loop_body(model)
@@ -134,7 +133,6 @@ def test_onnxruntime_behaviour_matches_ssa_status(dtype):
         enable_double_precision=True,
         opset=21,
         model_name="loop_shapeof_guard_ort",
-        use_onnx_ir=True,
     )
 
     dupes, _ = _shape_dupes_in_loop_body(model)

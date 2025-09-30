@@ -33,7 +33,6 @@ if TYPE_CHECKING:
             "testcase": "softmax",
             "callable": lambda x: nnx.softmax(x),
             "input_shapes": [("B", 2)],
-            "use_onnx_ir": True,
         }
     ],
 )

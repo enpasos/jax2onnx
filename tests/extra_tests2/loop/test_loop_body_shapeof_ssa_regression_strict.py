@@ -51,7 +51,6 @@ def test_loop_body_shapeof_ssa_and_ort_load(tmp_path, shape):
             inputs=[spec],
             opset=21,
             model_name="loop_body_shapeof_ssa_strict_ir",
-            use_onnx_ir=True,
         )
     except InconclusiveDimensionOperation as exc:
         pytest.xfail(f"converter2 cannot export loops with symbolic dims: {exc}")

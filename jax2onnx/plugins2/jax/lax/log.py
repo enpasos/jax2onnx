@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "log",
             "callable": lambda x: jax.lax.log(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

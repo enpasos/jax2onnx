@@ -24,7 +24,6 @@ import onnx_ir as ir
             "testcase": "tanh",
             "callable": lambda x: jax.lax.tanh(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

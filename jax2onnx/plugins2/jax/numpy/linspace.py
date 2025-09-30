@@ -136,14 +136,12 @@ def _maybe_cast(
             "callable": lambda: jnp.linspace(0.0, 5.0, num=6),
             "input_values": [],
             "expected_output_shapes": [(6,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_static_endpoint_false",
             "callable": lambda: jnp.linspace(0.0, 1.0, num=5, endpoint=False),
             "input_values": [],
             "expected_output_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_static_int_inputs_default_dtype",
@@ -151,14 +149,12 @@ def _maybe_cast(
             "input_values": [],
             "expected_output_shapes": [(5,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_basic_f32",
             "callable": lambda: jnp.linspace(0.0, 10.0, num=5, dtype=jnp.float32),
             "input_values": [],
             "expected_output_shapes": [(5,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_endpoint_false_i32",
@@ -167,28 +163,24 @@ def _maybe_cast(
             ),
             "input_values": [],
             "expected_output_shapes": [(4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_num_zero",
             "callable": lambda: jnp.linspace(0.0, 10.0, num=0),
             "input_values": [],
             "expected_output_shapes": [(0,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_num_one",
             "callable": lambda: jnp.linspace(3.0, 10.0, num=1, dtype=jnp.float64),
             "input_values": [],
             "expected_output_shapes": [(1,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_static_num_0",
             "callable": lambda: jnp.linspace(1.0, 2.0, num=0),
             "input_values": [],
             "expected_output_shapes": [(0,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "linspace_static_num_1",
@@ -196,7 +188,6 @@ def _maybe_cast(
             "input_values": [],
             "expected_output_shapes": [(1,)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

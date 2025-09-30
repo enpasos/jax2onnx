@@ -16,7 +16,13 @@ from jax2onnx.plugins2._ir_shapes import (
 )
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
@@ -55,18 +61,30 @@ EXPECT_EMBED_GATHER = EG(
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": nnx.Embed(num_embeddings=3144, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed,
+                num_embeddings=3144,
+                features=48,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_EMBED_GATHER,
         },
         {
             "testcase": "positional_embedding",
-            "callable": nnx.Embed(num_embeddings=64, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed,
+                num_embeddings=64,
+                features=48,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_EMBED_GATHER,
         },
     ],

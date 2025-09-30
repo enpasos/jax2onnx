@@ -22,7 +22,6 @@ def test_cumsum_vjp_exports_with_ir_pipeline():
         _cumsum_vjp,
         inputs=[(10,), (10,)],
         model_name="cumsum_vjp_ir",
-        use_onnx_ir=True,
     )
 
 
@@ -31,5 +30,4 @@ def test_cumsum_last_term_grad_exports_with_ir_pipeline():
         _cumsum_last_term_grad,
         inputs=[(10,)],
         model_name="cumsum_last_term_grad_ir",
-        use_onnx_ir=True,
     )

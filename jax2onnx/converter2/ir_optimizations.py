@@ -1382,6 +1382,17 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         if nm:
             used.add(nm)
 
+    def _should_always_keep(name: Optional[str]) -> bool:
+        if not name:
+            return False
+        # Preserve positional graph inputs that correspond to original JAX
+        # function arguments (named ``in_<index>`` by IRContext.add_input_for_invar).
+        if name.startswith("in_"):
+            suffix = name[3:]
+            if suffix.isdigit():
+                return True
+        return False
+
     for attr in ("inputs", "input"):
         arr = getattr(graph, attr, None)
         if arr is None:
@@ -1394,7 +1405,7 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         removed = []
         for v in lst:
             nm = _v_name(v)
-            if nm and (nm in used):
+            if nm and (nm in used or _should_always_keep(nm)):
                 keep.append(v)
             elif not nm:
                 keep.append(v)

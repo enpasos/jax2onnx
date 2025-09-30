@@ -1,20 +1,16 @@
 #!/usr/bin/env python
-"""Generate MigrationStatus.md summarizing legacy vs converter2 coverage."""
+"""Generate MigrationStatus.md summarizing converter2/plugin coverage."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Set
 
-from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY as LEGACY_REGISTRY
-from jax2onnx.plugins.plugin_system import import_all_plugins as import_legacy_plugins
 from jax2onnx.plugins2.plugin_system import (
     EXAMPLE_REGISTRY2,
-    PLUGIN_REGISTRY2 as NEW_REGISTRY,
-    import_all_plugins as import_new_plugins,
+    PLUGIN_REGISTRY2,
+    import_all_plugins as import_plugins2,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,26 +42,6 @@ def _coerce_tests(metadata_tests) -> Set[str]:
     return tests
 
 
-def add_entry(
-    store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]],
-    context: str,
-    component: str,
-    bucket: str,
-    tests: Iterable[str],
-) -> None:
-    canon = canonical_context(context)
-    ctx_map = store.setdefault(
-        canon,
-        {
-            "legacy": defaultdict(lambda: {"contexts": set(), "tests": set()}),
-            "new": defaultdict(lambda: {"contexts": set(), "tests": set()}),
-        },
-    )
-    entry = ctx_map[bucket][component]
-    entry["contexts"].add(context)
-    entry["tests"].update(tests)
-
-
 def _iter_test_files(base: Path) -> Iterator[Path]:
     if not base.exists():
         return iter(())
@@ -79,12 +55,25 @@ def _iter_test_files(base: Path) -> Iterator[Path]:
     return _iter()
 
 
-def _add_extra_tests(
-    store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]],
+def _add_entry(
+    store: Dict[str, Dict[str, Dict[str, Set[str]]]],
+    *,
+    context: str,
+    component: str,
+    tests: Iterable[str],
+) -> None:
+    canon = canonical_context(context)
+    components = store.setdefault(canon, {})
+    entry = components.setdefault(component, {"contexts": set(), "tests": set()})
+    entry["contexts"].add(context)
+    entry["tests"].update(tests)
+
+
+def _add_test_dir(
+    store: Dict[str, Dict[str, Dict[str, Set[str]]]],
     *,
     base_dir: Path,
     context_prefix: str,
-    bucket: str,
 ) -> None:
     for path in _iter_test_files(base_dir):
         rel = path.relative_to(base_dir)
@@ -93,16 +82,15 @@ def _add_extra_tests(
             ".".join([context_prefix] + sub_parts) if sub_parts else context_prefix
         )
         component = rel.stem
-        add_entry(store, context, component, bucket, [component])
+        _add_entry(store, context=context, component=component, tests={component})
 
 
-def gather() -> Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]:
-    import_legacy_plugins()
-    import_new_plugins()
+def gather() -> Dict[str, Dict[str, Dict[str, Set[str]]]]:
+    import_plugins2()
 
-    store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]] = {}
+    store: Dict[str, Dict[str, Dict[str, Set[str]]]] = {}
 
-    for plugin in LEGACY_REGISTRY.values():
+    for plugin in PLUGIN_REGISTRY2.values():
         metadata = getattr(plugin, "metadata", None)
         if not isinstance(metadata, dict):
             continue
@@ -110,91 +98,50 @@ def gather() -> Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]:
         component = metadata.get("component")
         if isinstance(context, str) and isinstance(component, str) and component:
             tests = _coerce_tests(metadata.get("testcases"))
-            add_entry(store, context, component, "legacy", tests)
+            _add_entry(store, context=context, component=component, tests=tests)
 
     for metadata in EXAMPLE_REGISTRY2.values():
         context = metadata.get("context")
         component = metadata.get("component")
         if isinstance(context, str) and isinstance(component, str) and component:
             tests = _coerce_tests(metadata.get("testcases"))
-            add_entry(store, context, component, "new", tests)
-
-    for plugin in NEW_REGISTRY.values():
-        metadata = getattr(plugin, "metadata", None)
-        if not isinstance(metadata, dict):
-            continue
-        context = metadata.get("context")
-        component = metadata.get("component")
-        if isinstance(context, str) and isinstance(component, str) and component:
-            tests = _coerce_tests(metadata.get("testcases"))
-            add_entry(store, context, component, "new", tests)
+            _add_entry(store, context=context, component=component, tests=tests)
 
     tests_root = ROOT / "tests"
-    _add_extra_tests(
-        store,
-        base_dir=tests_root / "extra_tests",
-        context_prefix="extra_tests",
-        bucket="legacy",
+    _add_test_dir(
+        store, base_dir=tests_root / "extra_tests2", context_prefix="extra_tests2"
     )
-    _add_extra_tests(
-        store,
-        base_dir=tests_root / "extra_tests2",
-        context_prefix="extra_tests2",
-        bucket="new",
+    _add_test_dir(store, base_dir=tests_root / "examples2", context_prefix="examples2")
+    _add_test_dir(
+        store, base_dir=tests_root / "primitives2", context_prefix="primitives2"
     )
 
     return store
 
 
-def format_table(store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]) -> str:
+def format_table(store: Dict[str, Dict[str, Dict[str, Set[str]]]]) -> str:
     lines: list[str] = []
     lines.append("# Migration Status")
     lines.append("")
     lines.append(
         "This file is auto-generated. Run `poetry run python scripts/generate_migration_status.py` "
-        "to refresh after adding or converting plugins/examples."
+        "to refresh after adding or updating converter2/plugins2 coverage."
     )
     lines.append("")
 
     for canon_context in sorted(store):
-        data = store[canon_context]
-        all_components: Set[str] = set(data["legacy"].keys()) | set(data["new"].keys())
+        components = store[canon_context]
         lines.append(f"## {canon_context}")
         lines.append("")
-        for component in sorted(all_components):
-            legacy_entry = data["legacy"].get(
-                component, {"contexts": set(), "tests": set()}
-            )
-            new_entry = data["new"].get(component, {"contexts": set(), "tests": set()})
-
-            legacy_tests = legacy_entry["tests"]
-            new_tests = new_entry["tests"]
-
-            if not legacy_tests:
-                coverage = "-"
-            elif legacy_tests.issubset(new_tests):
-                coverage = "✅ complete"
-            elif new_tests:
-                missing = ", ".join(sorted(legacy_tests - new_tests))
-                coverage = f"⚠️ partial (missing: {missing})"
-            else:
-                coverage = "❌ missing"
-
-            lines.append(f"### {component}")
-            lines.append(f"- Coverage: {coverage}")
-            if legacy_entry["contexts"]:
-                ctx_str = ", ".join(sorted(legacy_entry["contexts"]))
-                lines.append(f"- Legacy contexts: {ctx_str}")
-            if new_entry["contexts"]:
-                ctx_str = ", ".join(sorted(new_entry["contexts"]))
-                lines.append(f"- Converter2 contexts: {ctx_str}")
-            if legacy_tests:
-                tests_str = ", ".join(sorted(legacy_tests))
-                lines.append(f"- Legacy testcases: {tests_str}")
-            if new_tests:
-                tests_str = ", ".join(sorted(new_tests))
-                lines.append(f"- Converter2 testcases: {tests_str}")
-            lines.append("")
+        for component in sorted(components):
+            entry = components[component]
+            ctx_str = ", ".join(sorted(entry["contexts"]))
+            tests = entry["tests"]
+            tests_str = ", ".join(sorted(tests)) if tests else "-"
+            lines.append(f"- **{component}**")
+            lines.append(f"  - contexts: {ctx_str}")
+            lines.append(f"  - tests: {tests_str}")
+        lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -202,8 +149,7 @@ def format_table(store: Dict[str, Dict[str, Dict[str, Dict[str, Set[str]]]]]) ->
 def main() -> None:
     store = gather()
     output = format_table(store)
-    root = Path(__file__).resolve().parents[1]
-    out_path = root / "MigrationStatus.md"
+    out_path = ROOT / "MigrationStatus.md"
     out_path.write_text(output)
 
 

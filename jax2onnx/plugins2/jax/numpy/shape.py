@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import onnx_ir as ir
+from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 
 from jax2onnx.plugins2._ir_shapes import _stamp_type_and_shape, _ensure_value_info
@@ -39,15 +41,13 @@ def _shape_eval(x):
     testcases=[
         {
             "testcase": "shape_basic",
-            "callable": lambda x: jnp.shape(x),
+            "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "shape_dynamic",
-            "callable": lambda x: jnp.shape(x),
+            "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
             "input_shapes": [("B", 12, "T", "T")],
-            "use_onnx_ir": True,
         },
     ],
 )
@@ -59,6 +59,12 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(x):
         result = _shape_eval(x)
+        if isinstance(result, tuple):
+            rank = len(result)
+            if rank == 0:
+                return core.ShapedArray((0,), jnp.int32)
+            dtype = getattr(result[0], "dtype", jnp.int32)
+            return core.ShapedArray((rank,), dtype)
         return core.ShapedArray(result.shape, result.dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
@@ -68,19 +74,62 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("shape_in"))
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shape_out"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Shape",
-                domain="",
-                inputs=[arr_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Shape"),
-            )
-        )
-
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, target_shape)
-        _ensure_value_info(ctx, out_val)
+        target_dtype = getattr(getattr(out_var, "aval", None), "dtype", jnp.int32)
+        try:
+            np_dtype = np.dtype(target_dtype)
+        except TypeError:
+            np_dtype = np.dtype("int32")
+
+        dtype_map = {
+            np.dtype("int64"): ir.DataType.INT64,
+            np.dtype("int32"): ir.DataType.INT32,
+            np.dtype("int16"): ir.DataType.INT16,
+            np.dtype("int8"): ir.DataType.INT8,
+            np.dtype("uint8"): ir.DataType.UINT8,
+        }
+        desired = dtype_map.get(np_dtype, ir.DataType.INT32)
+
+        if desired == ir.DataType.INT64:
+            ctx.add_node(
+                ir.Node(
+                    op_type="Shape",
+                    domain="",
+                    inputs=[arr_val],
+                    outputs=[out_val],
+                    name=ctx.fresh_name("Shape"),
+                )
+            )
+            _stamp_type_and_shape(out_val, target_shape)
+            _ensure_value_info(ctx, out_val)
+        else:
+            raw_out = ir.Value(
+                name=ctx.fresh_name("shape_raw"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(target_shape),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Shape",
+                    domain="",
+                    inputs=[arr_val],
+                    outputs=[raw_out],
+                    name=ctx.fresh_name("Shape"),
+                )
+            )
+
+            cast_node = ir.Node(
+                op_type="Cast",
+                domain="",
+                inputs=[raw_out],
+                outputs=[out_val],
+                name=ctx.fresh_name("Cast"),
+                attributes=[IRAttr("to", IRAttrType.INT, int(desired.value))],
+            )
+            ctx.add_node(cast_node)
+
+            _stamp_type_and_shape(out_val, target_shape)
+            _ensure_value_info(ctx, out_val)
 
     @classmethod
     def binding_specs(cls):

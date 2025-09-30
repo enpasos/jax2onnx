@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "sin",
             "callable": lambda x: jax.lax.sin(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

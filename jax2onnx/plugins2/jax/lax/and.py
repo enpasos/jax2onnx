@@ -34,7 +34,6 @@ if TYPE_CHECKING:
                 np.array([True, True, False, False], dtype=np.bool_),
                 np.array([True, False, True, False], dtype=np.bool_),
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "and_int",
@@ -43,7 +42,6 @@ if TYPE_CHECKING:
                 np.array([1, 2, 3], dtype=np.int32),
                 np.array([3, 1, 2], dtype=np.int32),
             ],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -43,7 +43,6 @@ class TestLoopShapeOfSSARegression:
             inputs=[input_spec],
             model_name="loop_shapeof_ssa_regression",
             opset=21,
-            use_onnx_ir=True,
         )
 
         # Try loading with ORT: buggy builds throw INVALID_GRAPH with "...__shape"

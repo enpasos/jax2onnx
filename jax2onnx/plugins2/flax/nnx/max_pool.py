@@ -71,7 +71,6 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(1, 32, 32, 3)],
             "expected_output_shapes": [(1, 16, 16, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_MP_T,
         },
         {
@@ -82,7 +81,6 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(1, 32, 32, 3)],
             "expected_output_shapes": [(1, 16, 16, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_MP_T,
         },
         {
@@ -93,7 +91,6 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [(1, 8, 8, 3)],
             "expected_output_shapes": [(1, 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_MP_T,
         },
         {
@@ -104,7 +101,6 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
             "input_shapes": [("B", 10, 10, 3)],
             "expected_output_shapes": [("B", 5, 5, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_T_MP_T,
         },
     ],

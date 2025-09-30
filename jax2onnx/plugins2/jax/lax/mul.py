@@ -20,13 +20,11 @@ if TYPE_CHECKING:
             "testcase": "mul_test1",
             "callable": lambda x1, x2: x1 * x2,
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "mul_test2",
             "callable": lambda x1, x2: x1 * x2,
             "input_shapes": [(2, 2), (2, 2)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "mul_pyfloat_promotes_to_array_dtype_f64",
@@ -34,7 +32,6 @@ if TYPE_CHECKING:
             "input_values": [np.array([1.0, 2.0], dtype=np.float64)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "mul_scalar_broadcast_promote_to_f64",
@@ -42,7 +39,6 @@ if TYPE_CHECKING:
             "input_values": [np.array([1.0, 2.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

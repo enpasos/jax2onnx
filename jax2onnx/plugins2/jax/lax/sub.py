@@ -20,19 +20,16 @@ if TYPE_CHECKING:
             "testcase": "sub_test1",
             "callable": lambda x1, x2: x1 - x2,
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "sub_test2",
             "callable": lambda x1, x2: jax.lax.sub(x1, x2),
             "input_shapes": [(2, 2), (2, 2)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "sub_const",
             "callable": lambda x: x - 1.0,
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -75,7 +75,6 @@ def test_nested_loop_gathernd_mixed_dtypes_fails_without_harmonization(
         enable_double_precision=True,
         opset=21,
         model_name="nested_loop_gathernd_mixed_no_cast",
-        use_onnx_ir=True,
     )
     p = tmp_path / "nested_loop_gathernd_mixed_no_cast.onnx"
     p.write_bytes(model.SerializeToString())

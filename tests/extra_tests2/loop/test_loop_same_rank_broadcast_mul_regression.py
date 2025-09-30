@@ -41,7 +41,6 @@ def test_loop_same_rank_broadcast_mul_regression(dtype):
         # critical to match integration behavior
         opset=21,
         model_name="same_rank_broadcast_mul_regression",
-        use_onnx_ir=True,
     )
 
     # Build ORT session (this used to fail with TypeInferenceError before the fix)

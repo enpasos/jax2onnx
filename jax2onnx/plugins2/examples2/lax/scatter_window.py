@@ -47,7 +47,6 @@ register_example(
             "expected_output_shapes": [(5, 266, 266, 1)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

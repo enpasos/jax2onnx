@@ -45,43 +45,36 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
             "testcase": "matmul_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(4,), (4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_1d_2d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(4,), (4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_2d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_2d_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_3d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(2, 3, 4), (2, 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_dynamic",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [("B", 3, 4), ("B", 4, 5)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "matmul_dynamic_a",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [("B", 3), (3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

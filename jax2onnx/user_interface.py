@@ -1,20 +1,54 @@
 # file: jax2onnx/user_interface.py
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 import argparse
+import importlib
 import logging
+import os
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import onnx
 from jax import config, core
-from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl_v1
-from jax2onnx.converter.validation import allclose as allclose_impl
-from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
-from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl_v2
-from jax2onnx.converter2.ir_postprocess import postprocess_ir_model
-from jax2onnx.serde_onnx import ir_to_onnx
-import importlib
 
-config.update("jax_dynamic_shapes", True)
+from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl
+from jax2onnx.converter2.ir_postprocess import postprocess_ir_model
+from jax2onnx.plugins2.plugin_system import onnx_function as onnx_function_impl
+from jax2onnx.serde_onnx import ir_to_onnx
+
+if TYPE_CHECKING:  # pragma: no cover - import optional dependency for typing
+    import onnxruntime
+else:  # fallback stub so annotations using the name remain valid at runtime
+    onnxruntime = None  # type: ignore[assignment]
+
+try:
+    from onnx import _mapping as _onnx_mapping
+except ImportError:  # pragma: no cover - optional mapping
+    _onnx_mapping = None
+
+
+def _major_minor(version_str: str) -> tuple[int, int]:
+    parts = version_str.split(".")
+    major = int(parts[0]) if parts else 0
+    minor = int(parts[1]) if len(parts) > 1 else 0
+    return major, minor
+
+
+_JAX_VERSION = _major_minor(jax.__version__)
+
+# JAX v0.7.x reworked jaxpr tracing; forcing dynamic-shapes via the legacy
+# config flag currently breaks otherwise-plain jit computations (see
+# https://github.com/jax-ml/jax/releases/tag/jax-v0.7.2).  Keep the behaviour
+# only for older releases where we relied on it, and fall back to the default on
+# newer toolchains.
+if _JAX_VERSION < (0, 7):
+    if os.environ.get("JAX2ONNX_ENABLE_LEGACY_DYNAMIC_SHAPES", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        config.update("jax_dynamic_shapes", True)
 
 # NEW -----------------------------------------------------------------
 _FLOAT64_HELP = (
@@ -30,7 +64,6 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
-    use_onnx_ir: bool = False,
     enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
 ) -> onnx.ModelProto:
@@ -48,7 +81,6 @@ def to_onnx(
                      'deterministic' flags.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
-        use_onnx_ir: If True, route to the new ONNX IR pipeline (converter2). Default: False (legacy).
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be
@@ -73,7 +105,6 @@ def to_onnx(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
-        f"use_onnx_ir={use_onnx_ir}, "
         f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}"
     )
@@ -120,10 +151,7 @@ def to_onnx(
                         f"Got an element of type {type(inputs[0]) if inputs else 'Unknown'} in the list. Error: {e}"
                     )
 
-    # Route to legacy or IR pipeline based on the boolean flag
-    _impl = to_onnx_impl_v2 if use_onnx_ir else to_onnx_impl_v1
-
-    result = _impl(
+    result = to_onnx_impl(
         fn=fn,
         inputs=processed_inputs_for_impl,
         input_params=input_params,
@@ -132,6 +160,29 @@ def to_onnx(
         enable_double_precision=enable_double_precision,
         record_primitive_calls_file=record_primitive_calls_file,
     )
+
+    def _attach_input_params(model_proto: onnx.ModelProto) -> None:
+        if not input_params:
+            return
+        existing = {vi.name for vi in model_proto.graph.input}
+        for name, value in input_params.items():
+            if name in existing:
+                continue
+            arr = np.asarray(value)
+            elem_type = None
+            if _onnx_mapping is not None:
+                try:
+                    elem_type = _onnx_mapping.NP_TYPE_TO_TENSOR_TYPE.get(arr.dtype)
+                except Exception:
+                    elem_type = None
+            if elem_type is None and arr.dtype == np.bool_:
+                elem_type = onnx.TensorProto.BOOL
+            if elem_type is None:
+                continue
+            shape = list(arr.shape)
+            vi = onnx.helper.make_tensor_value_info(name, elem_type, shape)
+            model_proto.graph.input.extend([vi])
+            existing.add(name)
 
     # --- Bridge old vs new worlds gracefully ---
     # New world (converter2): returns an onnx_ir.Model → convert to ONNX ModelProto.
@@ -150,11 +201,14 @@ def to_onnx(
             result,
             promote_to_double=enable_double_precision,
         )
-        return ir_to_onnx(result)
+        model_proto = ir_to_onnx(result)
+        _attach_input_params(model_proto)
+        return model_proto
 
     try:
         onnx_mod = importlib.import_module("onnx")
         if isinstance(result, getattr(onnx_mod, "ModelProto")):
+            _attach_input_params(result)
             return result
     except Exception:
         pass
@@ -272,64 +326,197 @@ def allclose(
     atol: float = 1e-5,
 ) -> Tuple[bool, str]:
     """
-    Checks if JAX and ONNX Runtime outputs produce numerically similar results.
-
-    This function is useful for validating that a converted ONNX model behaves
-    similarly to the original JAX model within specified tolerance thresholds.
+    Checks if JAX and ONNX Runtime outputs remain numerically close.
 
     Args:
-        fn: JAX function or model to compare against the ONNX model
-        onnx_model_path: Path to the saved ONNX model file
-        inputs: Either input tensors (List[np.ndarray]) or shapes (List[Tuple|List]) to pass to both the JAX function and ONNX model
-        rtol: Relative tolerance for numerical comparison (default: 1e-3)
-        atol: Absolute tolerance for numerical comparison (default: 1e-5)
-        input_params: Optional keyword arguments to pass to the JAX function only
+        fn: JAX callable to compare against the exported ONNX model.
+        onnx_model_path: Path to a serialized model that ORT can execute.
+        inputs: Concrete input arrays (or shape tuples, which will be sampled).
+        input_params: Optional keyword arguments applied to both call sites.
+        rtol: Relative tolerance for floating-point comparisons.
+        atol: Absolute tolerance for floating-point comparisons.
 
     Returns:
-        Tuple containing (is_match: bool, message: str) where:
-          - is_match: True if outputs are numerically close, False otherwise
-          - message: Descriptive message with comparison details
-
-    Example:
-        >>> import numpy as np
-        >>> from jax2onnx import to_onnx, allclose
-        >>> # First convert a model
-        >>> onnx_model = to_onnx(my_jax_fn, inputs=[(3, 224, 224)])
-        >>> import onnx
-        >>> onnx.save(onnx_model, "my_model.onnx")
-        >>> # Then validate the outputs match
-        >>> test_input = np.random.rand(3, 224, 224).astype(np.float32)
-        >>> is_close, message = allclose(my_jax_fn, "my_model.onnx", inputs=[test_input], deterministic=True)
-        >>> print(f"Models match: {is_close}")
-        >>> print(message)
+        `(is_match, message)` where `is_match` indicates success and `message`
+        provides context when a mismatch occurs.
     """
-    import numpy as np
 
     logging.info(
-        f"Comparing JAX and ONNX outputs with parameters: "
-        f"onnx_model_path={onnx_model_path}, inputs={inputs}, "
-        f"input_params={input_params}, rtol={rtol}, atol={atol}"
+        "Comparing JAX and ONNX outputs (path=%s, rtol=%s, atol=%s)",
+        onnx_model_path,
+        rtol,
+        atol,
     )
 
-    def is_shape(x):
+    def _is_shape(x: Any) -> bool:
         return isinstance(x, (tuple, list)) and all(
             isinstance(dim, (int, str)) for dim in x
         )
 
-    # If all inputs are shapes, generate random values for them
-    if all(is_shape(x) for x in inputs):
-        xs = tuple(
+    xs: List[Any]
+    if all(_is_shape(x) for x in inputs):
+        xs = [
             np.random.rand(*[d if isinstance(d, int) else 2 for d in shape]).astype(
                 np.float32
             )
             for shape in inputs
-        )
+        ]
     else:
-        xs = tuple(inputs)
+        xs = list(inputs)
 
-    if input_params is None:
-        return allclose_impl(fn, onnx_model_path, *xs, rtol=rtol, atol=atol)
-    else:
-        return allclose_impl(
-            fn, onnx_model_path, *xs, rtol=rtol, atol=atol, **input_params
+    params = dict(input_params or {})
+    return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
+
+
+def _run_allclose(
+    fn: Callable,
+    model_path: str,
+    xs: List[Any],
+    params: Dict[str, Any],
+    *,
+    rtol: float,
+    atol: float,
+) -> Tuple[bool, str]:
+    import onnxruntime as ort
+
+    session = ort.InferenceSession(
+        model_path,
+        providers=ort.get_available_providers(),
+    )
+
+    ort_inputs = _build_ort_inputs(session, xs, params)
+    ort_outputs = session.run(None, ort_inputs)
+
+    jax_args = [_to_jax_array(x) for x in xs]
+    jax_kwargs = {k: _to_jax_kwarg(v) for k, v in params.items()}
+
+    try:
+        jax_result = fn(*jax_args, **jax_kwargs)
+    except Exception as exc:  # pragma: no cover - defensive aid
+        return False, f"Failed to evaluate JAX function: {exc}"
+
+    jax_host = jax.device_get(jax_result)
+    jax_flat, _ = jax.tree_util.tree_flatten(jax_host)
+    jax_outputs = [_to_numpy_output(val) for val in jax_flat]
+
+    if len(jax_outputs) != len(ort_outputs):
+        return (
+            False,
+            f"Output count mismatch (JAX={len(jax_outputs)} vs ORT={len(ort_outputs)})",
         )
+
+    for idx, (expected, got) in enumerate(zip(jax_outputs, ort_outputs)):
+        expected_arr = np.asarray(expected)
+        got_arr = np.asarray(got)
+
+        if expected_arr.shape != got_arr.shape:
+            return (
+                False,
+                "Output {} shape mismatch (JAX {} vs ORT {})".format(
+                    idx, expected_arr.shape, got_arr.shape
+                ),
+            )
+
+        if _is_floating_dtype(expected_arr) or _is_floating_dtype(got_arr):
+            if not np.allclose(
+                expected_arr,
+                got_arr.astype(expected_arr.dtype, copy=False),
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+            ):
+                diff = np.abs(expected_arr - got_arr)
+                max_diff = float(diff.max()) if diff.size else 0.0
+                return (
+                    False,
+                    f"Output {idx} mismatch (max abs diff {max_diff}, rtol={rtol}, atol={atol})",
+                )
+        else:
+            if not np.array_equal(
+                expected_arr, got_arr.astype(expected_arr.dtype, copy=False)
+            ):
+                return (False, f"Output {idx} mismatch (non-floating tensors differ)")
+
+    return True, "Outputs match within tolerance."
+
+
+def _build_ort_inputs(
+    session: "onnxruntime.InferenceSession",
+    xs: List[Any],
+    params: Dict[str, Any],
+) -> Dict[str, np.ndarray]:
+    feed: Dict[str, np.ndarray] = {}
+    positional_iter = iter(xs)
+
+    for input_meta in session.get_inputs():
+        name = input_meta.name
+        if name in params:
+            feed[name] = _to_numpy_input(params[name], input_meta)
+        else:
+            try:
+                value = next(positional_iter)
+            except StopIteration as exc:  # pragma: no cover - defensive
+                raise ValueError(
+                    f"Not enough positional inputs provided for ORT (missing value for '{name}')"
+                ) from exc
+            feed[name] = _to_numpy_input(value, input_meta)
+
+    try:
+        next(positional_iter)
+    except StopIteration:
+        pass
+    else:  # pragma: no cover - defensive
+        raise ValueError("Too many positional inputs supplied for ORT session")
+
+    return feed
+
+
+def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
+    arr = np.asarray(value)
+    expected_dtype = getattr(input_meta, "type", None)
+
+    if isinstance(expected_dtype, str) and expected_dtype.startswith("tensor("):
+        dtype_name = expected_dtype[len("tensor(") : -1]
+        dtype_map = {
+            "float": np.float32,
+            "double": np.float64,
+            "float16": np.float16,
+            "bf16": np.float16,
+            "int64": np.int64,
+            "int32": np.int32,
+            "int16": np.int16,
+            "int8": np.int8,
+            "uint8": np.uint8,
+            "bool": np.bool_,
+        }
+        target_dtype = dtype_map.get(dtype_name)
+        if target_dtype is not None and arr.dtype != target_dtype:
+            arr = arr.astype(target_dtype)
+
+    return arr
+
+
+def _to_jax_array(value: Any) -> jnp.ndarray:
+    if isinstance(value, jnp.ndarray):
+        return value
+    return jnp.asarray(value)
+
+
+def _to_jax_kwarg(value: Any) -> Any:
+    if isinstance(value, (jnp.ndarray, np.ndarray)):
+        return jnp.asarray(value)
+    if isinstance(value, (list, tuple)):
+        return jnp.asarray(value)
+    return value
+
+
+def _to_numpy_output(value: Any) -> np.ndarray:
+    if isinstance(value, np.ndarray):
+        return value
+    if isinstance(value, jnp.ndarray):
+        return np.asarray(value)
+    return np.asarray(value)
+
+
+def _is_floating_dtype(arr: np.ndarray) -> bool:
+    return np.issubdtype(arr.dtype, np.floating)

@@ -35,7 +35,6 @@ register_example(
             "input_shapes": [(3,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_test_scalar_select_option_0",
@@ -48,7 +47,6 @@ register_example(
             "input_shapes": [(4,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_test_scalar_select_option_1",
@@ -61,7 +59,6 @@ register_example(
             "input_shapes": [(2,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_test_scalar_select_option_2",
@@ -74,7 +71,6 @@ register_example(
             "input_shapes": [(5,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "select_test_default_case",
@@ -87,7 +83,6 @@ register_example(
             "input_shapes": [(3,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

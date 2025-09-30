@@ -32,7 +32,6 @@ def test_shared_scalar_two_lengths(tmp_path: pathlib.Path):
         inputs=[],
         model_name="two_scans_shared_scalar",
         opset=21,
-        use_onnx_ir=True,
     )
     onnx.save_model(model, path)
     ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])

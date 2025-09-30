@@ -40,7 +40,6 @@ class TestSubgraphOutputLeaking:
             _leaky_main_function,
             specs,
             model_name="pjit_leak_test_ir",
-            use_onnx_ir=True,
         )
 
         assert len(onnx_model.graph.output) == expected_num_outputs

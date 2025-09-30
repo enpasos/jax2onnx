@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 from flax import nnx
 import numpy as np
 
-from jax2onnx.plugins2.plugin_system import onnx_function, register_example
+from jax2onnx.plugins2.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 # TODO - GPT attention with @onnx_function
 # @onnx_function
-def attention(q, k, v, mask=None):
+def attention(q, k, v, mask=None, **kwargs):
     """A thin wrapper around nnx.dot_product_attention exposing q, k, v, mask."""
-    return nnx.dot_product_attention(q, k, v, mask=mask)
+    return nnx.dot_product_attention(q, k, v, mask=mask, **kwargs)
 
 
 register_example(
@@ -24,7 +30,7 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_attention",
-            "callable": lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
+            "callable": attention,
             "input_values": [
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
@@ -32,7 +38,6 @@ register_example(
                 np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
             ],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -57,10 +62,10 @@ class CausalSelfAttention(nnx.Module):
             out_features=n_embd,
             broadcast_dropout=True,
             dropout_rate=dropout,
-            attention_fn=lambda q, k, v, mask=None, **_: attention(q, k, v, mask=mask),
+            attention_fn=attention,
             rngs=rngs,
         )
-        self.resid_dropout = nnx.Dropout(dropout)
+        self.resid_dropout = nnx.Dropout(dropout, rngs=rngs)
         self.causal_mask = nnx.Param(
             jnp.tril(jnp.ones((block_size, block_size))).reshape(
                 1, 1, block_size, block_size
@@ -84,16 +89,16 @@ register_example(
     testcases=[
         {
             "testcase": "causal_self_attention",
-            "callable": CausalSelfAttention(
+            "callable": construct_and_call(
+                CausalSelfAttention,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024, 768)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -105,12 +110,15 @@ class MLP(nnx.Module):
         super().__init__()
         self.c_fc = nnx.Linear(n_embd, 4 * n_embd, rngs=rngs)
         self.c_proj = nnx.Linear(4 * n_embd, n_embd, rngs=rngs)
-        self.dropout = nnx.Dropout(dropout)
+        self.dropout = nnx.Dropout(dropout, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
+        batch_dims = x.shape[:-1]
         x = self.c_fc(x)
+        x = jnp.reshape(x, batch_dims + (x.shape[-1],))
         x = nnx.gelu(x)
         x = self.c_proj(x)
+        x = jnp.reshape(x, batch_dims + (x.shape[-1],))
         return self.dropout(x, deterministic=deterministic)
 
 
@@ -124,17 +132,15 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_mlp",
-            "callable": MLP(
+            "callable": construct_and_call(
+                MLP,
                 n_embd=768,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )
@@ -178,19 +184,17 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_block",
-            "callable": Block(
+            "callable": construct_and_call(
+                Block,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )
@@ -221,15 +225,15 @@ register_example(
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": TokenEmbedding(
+            "callable": construct_and_call(
+                TokenEmbedding,
                 vocab_size=3144,
                 n_embd=768,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024)],
             "input_dtypes": [jnp.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -243,7 +247,7 @@ class PositionEmbedding(nnx.Module):
         self.wpe = nnx.Embed(block_size, n_embd, rngs=rngs)
 
     def __call__(self) -> jnp.ndarray:
-        pos = jnp.arange(self.block_size, dtype=jnp.int32).reshape((1, self.block_size))
+        pos = jax.lax.broadcasted_iota(jnp.int32, (1, self.block_size), dimension=1)
         return self.wpe(pos)
 
 
@@ -257,15 +261,15 @@ register_example(
     testcases=[
         {
             "testcase": "position_embedding",
-            "callable": PositionEmbedding(
+            "callable": construct_and_call(
+                PositionEmbedding,
                 block_size=1024,
                 n_embd=768,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [],
             "expected_output_shapes": [(1, 1024, 768)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -283,16 +287,18 @@ class GPTTransformerStack(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.blocks = [
-            Block(
-                n_head=n_head,
-                n_embd=n_embd,
-                block_size=block_size,
-                dropout=dropout,
-                rngs=rngs,
-            )
-            for _ in range(n_layer)
-        ]
+        self.blocks = nnx.List(
+            [
+                Block(
+                    n_head=n_head,
+                    n_embd=n_embd,
+                    block_size=block_size,
+                    dropout=dropout,
+                    rngs=rngs,
+                )
+                for _ in range(n_layer)
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for block in self.blocks:
@@ -310,20 +316,18 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack",
-            "callable": GPTTransformerStack(
+            "callable": construct_and_call(
+                GPTTransformerStack,
                 n_layer=2,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )
@@ -346,7 +350,6 @@ register_example(
             "callable": broadcast_add,
             "input_shapes": [("B", 4, 5), (1, 4, 5)],
             "expected_output_shape": ("B", 4, 5),
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -366,7 +369,7 @@ class GPTEmbeddings(nnx.Module):
         super().__init__()
         self.wte = TokenEmbedding(vocab_size, n_embd, rngs=rngs)
         self.wpe = PositionEmbedding(block_size, n_embd, rngs=rngs)
-        self.drop = nnx.Dropout(dropout)
+        self.drop = nnx.Dropout(dropout, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         pos_emb = self.wpe()
@@ -385,21 +388,19 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_embeddings",
-            "callable": GPTEmbeddings(
+            "callable": construct_and_call(
+                GPTEmbeddings,
                 vocab_size=3144,
                 n_embd=768,
                 block_size=1024,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024)],
             "input_dtypes": [jnp.int32],
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 768),
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )
@@ -433,17 +434,15 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_head",
-            "callable": GPTHead(
+            "callable": construct_and_call(
+                GPTHead,
                 vocab_size=3144,
                 n_embd=768,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024, 768)],
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )
@@ -507,23 +506,21 @@ register_example(
     testcases=[
         {
             "testcase": "gpt",
-            "callable": GPT(
+            "callable": construct_and_call(
+                GPT,
                 vocab_size=3144,
                 n_layer=2,
                 n_head=12,
                 n_embd=768,
                 block_size=1024,
                 dropout=0.0,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 1024)],
             "input_dtypes": [jnp.int32],
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
-            "skip_numeric_validation": True,
-            "legacy_only": True,
         }
     ],
 )

@@ -13,10 +13,6 @@ from jax import export as jax_export
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter._optional_shape_inference import (
-    run_optional_shape_inference,
-)
-
 from jax2onnx.plugins2 import plugin_system as ps2
 from jax2onnx.plugins2.plugin_system import (
     PLUGIN_REGISTRY2,
@@ -39,6 +35,11 @@ _LITERAL_TYPES = (jcore_ext.Literal,)
 
 # Keep ORT-compatible IR version (ORT ~1.18 supports IR v10 broadly)
 _ORT_SAFE_IR_VERSION = 10
+
+
+def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
+    """Placeholder for optional shape inference; returns the model unchanged."""
+    return model
 
 
 # ---------------------------

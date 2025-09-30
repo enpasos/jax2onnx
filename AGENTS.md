@@ -2,16 +2,27 @@
 
 ## Project overview
 
-This monorepo implements a **JAX → ONNX** conversion stack with two pipelines:
+This monorepo now runs entirely on the **IR-only** pipeline:
 
-* `converter/` – legacy, ONNX‐proto heavy path.
-* `converter2/` – **IR-only** path (recommended). Uses `onnx_ir` to build an intermediate representation, then serializes to ONNX later.
+* `converter2/` – main entrypoint. Uses `onnx_ir` to build an intermediate representation, then serializes to ONNX later.
 * `plugins2/` – modular lowering for JAX/Flax primitives into IR (no ONNX proto imports here).
-* `tests/` – unit, integration, and policy tests (including “no onnx in converter2/plugins2” guards).
+* `tests/` – unit, integration, and policy tests targeting the new world (legacy `extra_tests/`, `examples/`, and `plugins/` are gone).
 
 **Python**: 3.11+ (some users run 3.12 successfully).
 **Packaging**: Poetry.
 **Style**: Ruff (lint+format), mypy (type hints), Black-ish formatting via Ruff.
+
+### Recent updates (2025-10-02)
+
+- All NNX example modules now construct RNGs via `with_rng_seed(...)` and avoid inline `lambda` layers—mirror that pattern when adding tests so `construct_and_call` stays hashable under JAX 0.7.
+- The `jax.nn`/`flax.nnx` dot-product-attention lowering now normalizes masked weights safely (`NaN` only in float64); keep plugin changes in sync with test expectations when touching attention masks.
+
+### Compatibility (2025-10)
+
+- Our supported toolchain target is **JAX ≥0.7.2** and **Flax/NNX ≥0.12.0**. These upgrades introduced a few important behavioural changes that the codebase already accounts for:
+  * JAX 0.7.x tightened tracing rules. We **no longer force** `jax_dynamic_shapes` on startup for these versions—doing so produces `jit` staging crashes. The flag is still enabled automatically for older (<0.7.0) JAX releases.
+  * JAX 0.7.x requires hashable primitive parameters; the plugin system’s `construct_and_call(...).with_dtype(...)` now builds the module **once per dtype** and reuses the instance instead of constructing inside the traced call. This prevents stray `jit` primitives from appearing in jaxprs.
+  * Flax NNX 0.12.0 enforces strict pytree semantics. All plugin/example modules have been updated to wrap array-holding containers with `nnx.List(...)` (or explicit `nnx.data(...)`) so attributes with Arrays are marked as data. When adding new NNX examples, follow the same pattern.
 
 ---
 
@@ -46,14 +57,33 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 
 * ONNX **protobuf** shape inference or serialization should live in top-level adapters, not in IR passes or plugins.
 
-### Coverage migration focus
+### Old world removal (current focus)
 
-* We are in the **full test coverage phase**: every legacy converter/plugin test needs an equivalent in `plugins2`.
-* Use `MigrationStatus.md` as the source of truth for coverage gaps. It is auto-generated via `poetry run python scripts/generate_migration_status.py` and marks items as ✅ complete, ⚠️ partial, or ❌ missing.
-* When picking work, choose a ❌/⚠️ entry, port the missing legacy testcase(s) into the IR-only pipeline, and add/extend tests under `tests/` (typically `tests/extra_tests2/...`).
-  * For legacy `tests/extra_tests/**` suites, keep the original subdirectory layout when creating `tests/extra_tests2/**` mirrors. Port in batches when possible; if converter2 is still missing functionality, land the new IR test marked with a clear `pytest.xfail` explaining the gap so the coverage tracker reflects the migrated case.
-* After landing new coverage, rerun the generator to refresh `MigrationStatus.md` so future contributors see the updated status.
-* Keep migrations incremental: one plugin/test family per PR keeps diffs small and makes review easier.
+* Legacy `converter/`, `plugins/`, `examples/`, and `tests/extra_tests/` have been removed. Clean up any remaining imports, registry shims, or docs that still reference them.
+* Update tooling (`scripts/`, `tests/`, docs) to rely solely on `converter2` + `plugins2` resources. If something still depends on the old modules, replace it with the IR-only equivalent or delete it.
+* Keep an eye on `MigrationStatus.md`: it now tracks only IR coverage. Regenerate it (`poetry run python scripts/generate_migration_status.py`) after adding or pruning tests so the status stays accurate.
+* Deleting unused assets is encouraged, but do it incrementally with green tests. Prefer one plugin/test family per change set to keep diffs understandable.
+
+### Randomness & module construction (critical)
+
+* **Never seed at import time.** Constructors must receive an explicit `jax.random.PRNGKey` (Equinox) or `nnx.Rngs` (Flax NNX). No module-level `PRNGKey(...)` or `nnx.Rngs(...)`.
+* **Keys are single-use.** Split once per independent consumer (e.g., params vs. dropout). While iterating locally, enable `jax.config.update("jax_debug_key_reuse", True)` to catch reuse bugs immediately.
+* **Expose explicit callables in metadata/tests.** Wrap stochastic objects with `construct_and_call(...)` from `plugins2.plugin_system` and use the placeholders `with_requested_dtype()`, `with_rng_seed(seed)`, or `with_prng_key(seed)` when dtype/seed must track the test harness.
+* **Do not use `callable_factory`.** All metadata should provide a `"callable"` entry built via `construct_and_call` so the generator can rebuild modules for f32/f64 variants automatically.
+
+Example:
+
+```python
+"callable": construct_and_call(
+    nnx.LinearGeneral,
+    in_features=(8, 32),
+    out_features=(256,),
+    axis=(-2, -1),
+    dtype=with_requested_dtype(),
+    param_dtype=with_requested_dtype(),
+    rngs=with_rng_seed(0),
+),
+```
 
 ### Numeric validation parity
 
@@ -126,6 +156,8 @@ poetry run pytest -q tests/examples2/test_nnx.py::Test_MLP::test_simple_mlp_dyna
 ```
 
 > Prefer adding small “extra\_tests” that isolate new behavior you introduce. They run fast and are great for regression safety.
+
+When a testcase needs dtype-specific instantiation, expose a `construct_and_call(...)` callable (with helpers like `with_requested_dtype()` and `with_rng_seed(...)`) so the harness can materialize consistent f32/f64 variants.
 
 ---
 

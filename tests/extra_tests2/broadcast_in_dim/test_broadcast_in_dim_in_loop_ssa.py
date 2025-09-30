@@ -74,7 +74,6 @@ def test_broadcast_in_dim_inside_loop_ssa_unique(tmp_path):
         inputs=[spec],
         opset=21,
         model_name="broadcast_in_dim_loop_ssa_unique",
-        use_onnx_ir=True,
     )
 
     all_outs = _collect_node_outputs_recursive(model.graph)
@@ -111,7 +110,6 @@ def test_broadcast_in_dim_loop_emits_shape_nodes_against_body_inputs():
         inputs=[spec],
         opset=21,
         model_name="broadcast_in_dim_loop_shape_inputs",
-        use_onnx_ir=True,
     )
     loop_body = _find_first_loop_body(model.graph)
     assert loop_body is not None

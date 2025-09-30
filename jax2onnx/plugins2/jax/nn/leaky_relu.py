@@ -38,28 +38,24 @@ _LEAKY_RELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.1),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_leaky_relu_1",
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.2),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_leaky_relu_default",
             "callable": lambda x: jax.nn.leaky_relu(x),
             "input_shapes": [("B", 3, 4)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "jaxnn_leaky_relu_custom",
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.3),
             "input_shapes": [(5,)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
     ],
 )

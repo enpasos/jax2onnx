@@ -20,7 +20,6 @@ from jax2onnx.plugins2.plugin_system import register_primitive
                 1
             ],
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         }
     ],
 )

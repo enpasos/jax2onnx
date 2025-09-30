@@ -13,13 +13,15 @@ from jax2onnx.user_interface import to_onnx
 @onnx_function
 class _MLPBlock(nnx.Module):
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
         for layer in self.layers:
@@ -47,7 +49,6 @@ def test_onnx_function_deterministic_param_is_input_ir():
         inputs=[(5, 10, 3)],
         input_params={"deterministic": True},
         model_name="test_deterministic_param_ir",
-        use_onnx_ir=True,
     )
 
     for init in model.graph.initializer:

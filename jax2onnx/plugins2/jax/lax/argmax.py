@@ -38,14 +38,12 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "argmax_float_axis1",
             "callable": lambda x: jax.lax.argmax(x, axis=1, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "argmax_boolean_input_axis0_specific_values",
@@ -56,7 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
                     dtype=np.bool_,
                 )
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "argmax_boolean_input_axis1_specific_values",
@@ -67,14 +64,12 @@ if TYPE_CHECKING:  # pragma: no cover
                     dtype=np.bool_,
                 )
             ],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "argmax_boolean_random_input_axis0",
             "callable": lambda x: jax.lax.argmax(x, axis=0, index_dtype=jnp.int32),
             "input_shapes": [(4, 5)],
             "input_dtypes": [np.bool_],
-            "use_onnx_ir": True,
         },
     ],
 )

@@ -66,7 +66,6 @@ register_example(
             "testcase": "sign_fn",
             "callable": _sign_fn,
             "input_values": [np.array([-2.0, 0.0, 3.0], dtype=np.float32)],
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -81,7 +80,6 @@ register_example(
             "testcase": "abs_fn",
             "callable": _abs_fn,
             "input_values": [np.array([-2.0, 0.0, 3.0], dtype=np.float32)],
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -96,7 +94,6 @@ register_example(
             "testcase": "fori_loop_fn",
             "callable": _fori_loop_fn,
             "input_values": [np.array(0.0, dtype=np.float32)],
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -112,7 +109,6 @@ register_example(
             "callable": _while_loop_fn,
             "input_values": [np.array(0.0, dtype=np.float64)],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -128,7 +124,6 @@ register_example(
             "callable": _scan_fn,
             "input_values": [np.array(0.0, dtype=np.float32)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -146,7 +141,6 @@ register_example(
                 np.array([-1.0, 1.0, 0.0], dtype=np.float32),
                 np.array([10.0, 11.0, 12.0], dtype=np.float32),
             ],
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -162,7 +156,6 @@ register_example(
             "callable": _arange_fn,
             "input_values": [],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )
@@ -178,7 +171,6 @@ register_example(
             "callable": _linspace_fn,
             "input_values": [],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         }
     ],
 )

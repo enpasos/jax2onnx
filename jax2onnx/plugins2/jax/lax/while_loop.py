@@ -380,7 +380,6 @@ def _build_loop_body_graph(
                 lambda v: v < 5, lambda v: v + 1, x
             ),
             "input_shapes": [()],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_tuple_state",
@@ -391,14 +390,12 @@ def _build_loop_body_graph(
             ),
             "input_shapes": [(), ()],
             "input_dtypes": [np.int32, np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_counter",
             "callable": lambda: jax.lax.while_loop(lambda v: v < 5, lambda v: v + 1, 0),
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int64],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_vector",
@@ -409,7 +406,6 @@ def _build_loop_body_graph(
             ),
             "expected_output_shapes": [(1,)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_f64",
@@ -420,7 +416,6 @@ def _build_loop_body_graph(
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_multi_state_f32",
@@ -430,7 +425,6 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(2,)],
             "expected_output_dtypes": [np.float32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_multi_state_f64",
@@ -440,20 +434,17 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(2,)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_with_closure",
             "callable": _while_loop_closure_fn,
             "input_values": [np.float32(1.0)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_basic",
             "callable": _loop_single,
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_two_state",
@@ -462,14 +453,12 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(), ()],
             "expected_output_dtypes": [np.float32, np.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_captured_tracer",
             "callable": _loop_with_tracer,
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_with_scalar_state",
@@ -481,7 +470,6 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(2,), ()],
             "expected_output_dtypes": [np.float32, np.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_renamed_passthrough",
@@ -493,7 +481,6 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(2,), ()],
             "expected_output_dtypes": [np.float32, np.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_closure_topo",
@@ -502,7 +489,6 @@ def _build_loop_body_graph(
             ),
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_mixed_rank",
@@ -512,7 +498,6 @@ def _build_loop_body_graph(
             "expected_output_shapes": [(1, 16, 28, 28), ()],
             "expected_output_dtypes": [np.float32, np.int32],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_tracer_passthrough",
@@ -521,7 +506,6 @@ def _build_loop_body_graph(
             ),
             "input_values": [np.float32(1.1)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_no_loop_output_reused_as_input",
@@ -530,7 +514,6 @@ def _build_loop_body_graph(
             ),
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": lambda model: _no_loop_output_reuse(model),
         },
         {
@@ -543,7 +526,6 @@ def _build_loop_body_graph(
             ),
             "expected_output_shapes": [(1, 16, 28, 28), ()],
             "expected_output_dtypes": [np.float32, np.int32],
-            "use_onnx_ir": True,
             "rtol_f64": 1e-6,
         },
         {
@@ -555,7 +537,6 @@ def _build_loop_body_graph(
             ],
             "expected_output_shapes": [(1, 3, 28, 28), ()],
             "expected_output_dtypes": [np.float32, np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "while_loop_nnx_repro",
@@ -566,7 +547,6 @@ def _build_loop_body_graph(
             ],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
     ],
 )

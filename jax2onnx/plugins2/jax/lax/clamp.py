@@ -61,7 +61,6 @@ def _cast_value(
             ),
             "input_values": [np.array([-3, 1, 9, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clamp_scalar_float_bounds_match_x",
@@ -72,7 +71,6 @@ def _cast_value(
             ),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clamp_vector_bounds_match",
@@ -85,7 +83,6 @@ def _cast_value(
             "expected_output_shapes": [(5,)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "use_onnx_ir": True,
         },
         {
             "testcase": "clamp_pyint_bounds_promote_to_x_dtype",
@@ -96,7 +93,6 @@ def _cast_value(
             ),
             "input_values": [np.array([-2.0, 0.25, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
-            "use_onnx_ir": True,
         },
     ],
 )

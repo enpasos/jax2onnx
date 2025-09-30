@@ -48,7 +48,6 @@ class TestQuickstart:
             model,
             [("B", 30)],
             model_name="quickstart_ir",
-            use_onnx_ir=True,
         )
         out_file = tmp_path / "my_callable.onnx"
         onnx.save_model(onnx_model, out_file)
@@ -67,12 +66,13 @@ class TestQuickstartFunctions:
             model,
             [(100, 256)],
             model_name="quickstart_functions_ir",
-            use_onnx_ir=True,
         )
         out_file = tmp_path / "model_with_function.onnx"
         onnx.save_model(onnx_model, out_file)
         loaded = onnx.load(out_file)
         onnx.checker.check_model(loaded)
         op_types = {node.op_type for node in loaded.graph.node}
+        for fn in getattr(loaded, "functions", []) or []:
+            op_types.update(node.op_type for node in fn.node)
         assert "BatchNormalization" in op_types
         assert "Gemm" in op_types

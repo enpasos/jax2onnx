@@ -10,7 +10,13 @@ from flax import nnx
 from jax.extend.core import Primitive
 
 import onnx_ir as ir
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
 from jax2onnx.plugins2._ir_shapes import (
@@ -75,34 +81,56 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
     testcases=[
         {
             "testcase": "rms_norm_basic",
-            "callable": nnx.RMSNorm(num_features=6, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
             "testcase": "rms_norm_use_scale_false",
-            "callable": nnx.RMSNorm(num_features=6, use_scale=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                use_scale=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
             "testcase": "rms_norm_4d_dynamic",
-            "callable": nnx.RMSNorm(num_features=3, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=3,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
         {
             "testcase": "rms_norm_4d_dynamic_no_scale",
-            "callable": nnx.RMSNorm(num_features=3, use_scale=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=3,
+                use_scale=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "use_onnx_ir": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
         },
     ],

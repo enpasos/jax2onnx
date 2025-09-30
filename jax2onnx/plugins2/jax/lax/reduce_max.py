@@ -42,27 +42,22 @@ def _check_reduce_max_axes_input(model) -> bool:
             "testcase": "reduce_max",
             "callable": lambda x: jnp.max(x, axis=(0,)),
             "input_shapes": [(3, 3)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_max_allaxes",
             "callable": lambda x: jnp.max(x),
             "input_shapes": [(2, 3, 4)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "reduce_max_axes_input",
             "callable": lambda x: jnp.max(x, axis=(1,)),
             "input_shapes": [(2, 3)],
-            "use_onnx_ir": True,
             "post_check_onnx_graph": _check_reduce_max_axes_input,
-            "skip_numeric_validation": True,
         },
         {
             "testcase": "reduce_max_keepdims",
             "callable": lambda x: jnp.max(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
-            "use_onnx_ir": True,
         },
     ],
 )

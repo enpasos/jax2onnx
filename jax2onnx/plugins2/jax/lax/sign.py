@@ -26,7 +26,6 @@ if TYPE_CHECKING:
             "testcase": "sign",
             "callable": lambda x: jax.lax.sign(x),
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
     ],
 )

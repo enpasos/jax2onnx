@@ -22,13 +22,11 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "div",
             "callable": lambda x1, x2: x1 / x2,
             "input_shapes": [(3,), (3,)],
-            "use_onnx_ir": True,
         },
         {
             "testcase": "div_const",
             "callable": lambda x: x / 2.0,
             "input_shapes": [(3,)],
-            "use_onnx_ir": True,
         },
     ],
 )
