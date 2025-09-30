@@ -382,7 +382,11 @@ class IRContext:
     # Bind an existing IR Value to a JAX var (no new Value created).
     # Used by FunctionPlugin to tie function-scope inputs to inner jaxpr invars.
     def bind_value_for_var(self, var: object, value: ir.Value) -> None:
-        self.builder._var2val[var] = value
+        try:
+            self.builder._var2val[var] = value
+        except TypeError:
+            # Some JAX Literal objects are unhashable; skip caching in that case.
+            pass
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = var.aval
