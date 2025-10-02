@@ -1,6 +1,18 @@
 # file: jax2onnx/user_interface.py
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    overload,
+)
 import argparse
 import importlib
 import logging
@@ -19,8 +31,14 @@ from jax2onnx.serde_onnx import ir_to_onnx
 
 if TYPE_CHECKING:  # pragma: no cover - import optional dependency for typing
     import onnxruntime
+
+    try:
+        from onnx_ir import Model as IRModel  # type: ignore
+    except Exception:
+        IRModel = Any  # type: ignore
 else:  # fallback stub so annotations using the name remain valid at runtime
     onnxruntime = None  # type: ignore[assignment]
+    IRModel = Any  # type: ignore
 
 try:
     from onnx import _mapping as _onnx_mapping
@@ -57,6 +75,67 @@ _FLOAT64_HELP = (
 )
 
 
+ReturnMode = Literal["proto", "ir", "file"]
+_VALID_RETURN_MODES = {"proto", "ir", "file"}
+
+
+PathLikeStr = Union[str, os.PathLike[str]]
+
+
+def _normalize_return_mode(value: str) -> ReturnMode:
+    mode = value.lower().strip()
+    if mode not in _VALID_RETURN_MODES:
+        raise ValueError(
+            f"Unsupported return_mode '{value}'. Expected one of: {sorted(_VALID_RETURN_MODES)}"
+        )
+    return cast(ReturnMode, mode)
+
+
+@overload
+def to_onnx(
+    fn: Callable,
+    inputs: List[Any],
+    input_params: Optional[Dict[str, Any]] = ...,
+    model_name: str = ...,
+    opset: int = ...,
+    *,
+    enable_double_precision: bool = ...,
+    record_primitive_calls_file: Optional[str] = ...,
+    return_mode: Literal["proto"] = ...,
+    output_path: None = ...,
+) -> onnx.ModelProto: ...
+
+
+@overload
+def to_onnx(
+    fn: Callable,
+    inputs: List[Any],
+    input_params: Optional[Dict[str, Any]] = ...,
+    model_name: str = ...,
+    opset: int = ...,
+    *,
+    enable_double_precision: bool = ...,
+    record_primitive_calls_file: Optional[str] = ...,
+    return_mode: Literal["ir"],
+    output_path: Optional[PathLikeStr] = ...,
+) -> IRModel: ...
+
+
+@overload
+def to_onnx(
+    fn: Callable,
+    inputs: List[Any],
+    input_params: Optional[Dict[str, Any]] = ...,
+    model_name: str = ...,
+    opset: int = ...,
+    *,
+    enable_double_precision: bool = ...,
+    record_primitive_calls_file: Optional[str] = ...,
+    return_mode: Literal["file"],
+    output_path: PathLikeStr,
+) -> str: ...
+
+
 def to_onnx(
     fn: Callable,
     inputs: List[Any],
@@ -66,7 +145,9 @@ def to_onnx(
     *,  # All arguments after this must be keyword-only
     enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
-) -> onnx.ModelProto:
+    return_mode: ReturnMode = "proto",
+    output_path: Optional[PathLikeStr] = None,
+) -> Union[onnx.ModelProto, IRModel, str]:
     """
     Converts a JAX function or model into an ONNX model.
 
@@ -86,9 +167,15 @@ def to_onnx(
             details of each JAX primitive encountered during conversion will be
             recorded to this file. This log can be used by developers to manually
             create new test cases. Defaults to None (disabled).
+        return_mode: Output mode. `"proto"` (default) returns an ONNX ModelProto,
+            `"ir"` returns the intermediate onnx_ir.Model, and `"file"`
+            serialises directly to disk.
+        output_path: Destination path (str or PathLike) required when `return_mode` is
+            `"file"`. Ignored otherwise.
 
     Returns:
-        An ONNX ModelProto object representing the converted model.
+        Depending on `return_mode`, either an ONNX ModelProto, an onnx_ir.Model,
+        or the filesystem path written to when `return_mode="file"`.
 
     Example:
         >>> import jax.numpy as jnp
@@ -106,10 +193,24 @@ def to_onnx(
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
         f"enable_double_precision={enable_double_precision}, "
-        f"record_primitive_calls_file={record_primitive_calls_file}"
+        f"record_primitive_calls_file={record_primitive_calls_file}, "
+        f"return_mode={return_mode}, output_path={output_path}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
+    normalized_mode = _normalize_return_mode(return_mode)
+
+    file_path: Optional[str] = None
+    if normalized_mode == "file":
+        if output_path is None:
+            raise ValueError(
+                "`output_path` must be provided when return_mode is 'file'."
+            )
+        path_value = os.fspath(output_path)
+        if isinstance(path_value, bytes):
+            path_value = path_value.decode()
+        file_path = cast(str, path_value)
+
     processed_inputs_for_impl: list
 
     if not inputs:  # Handle empty inputs list
@@ -184,6 +285,13 @@ def to_onnx(
             model_proto.graph.input.extend([vi])
             existing.add(name)
 
+    def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
+        dest_dir = os.path.dirname(dest)
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
+        onnx.save(model_proto, dest)
+        return dest
+
     # --- Bridge old vs new worlds gracefully ---
     # New world (converter2): returns an onnx_ir.Model → convert to ONNX ModelProto.
     # Old world (converter v1): already returns an onnx.ModelProto → pass through.
@@ -194,24 +302,42 @@ def to_onnx(
         ir_model_type = None
 
     result_module = getattr(type(result), "__module__", "")
-    if (
-        ir_model_type is not None and isinstance(result, ir_model_type)
-    ) or result_module.startswith("onnx_ir"):
+    is_ir_model = False
+    if ir_model_type is not None and isinstance(result, ir_model_type):
+        is_ir_model = True
+    elif result_module.startswith("onnx_ir"):
+        is_ir_model = True
+
+    if is_ir_model:
         postprocess_ir_model(
             result,
             promote_to_double=enable_double_precision,
         )
+        if normalized_mode == "ir":
+            return result
         model_proto = ir_to_onnx(result)
         _attach_input_params(model_proto)
+        if normalized_mode == "file":
+            assert file_path is not None
+            return _save_model_proto(model_proto, file_path)
         return model_proto
 
     try:
         onnx_mod = importlib.import_module("onnx")
-        if isinstance(result, getattr(onnx_mod, "ModelProto")):
-            _attach_input_params(result)
-            return result
+        model_proto_cls = getattr(onnx_mod, "ModelProto", None)
     except Exception:
-        pass
+        model_proto_cls = None
+
+    if model_proto_cls is not None and isinstance(result, model_proto_cls):
+        _attach_input_params(result)
+        if normalized_mode == "ir":
+            raise TypeError(
+                "return_mode='ir' requested, but backend produced an onnx.ModelProto."
+            )
+        if normalized_mode == "file":
+            assert file_path is not None
+            return _save_model_proto(result, file_path)
+        return result
 
     # If we get here, we don't recognize the return type.
     raise TypeError(
@@ -283,6 +409,8 @@ def run_command_line():
         opset=args.opset,
         enable_double_precision=args.enable_double_precision,
         record_primitive_calls_file=args.record_primitive_calls_file,
+        return_mode="file",
+        output_path=args.out,
     )
 
 

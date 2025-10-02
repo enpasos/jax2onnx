@@ -51,6 +51,9 @@ onnx_model = to_onnx(my_callable, [("B", 30)])
 
 # Save the model
 onnx.save_model(onnx_model, "my_callable.onnx")
+
+# Or export directly to disk without keeping the proto in memory
+to_onnx(my_callable, [("B", 30)], return_mode="file", output_path="my_callable.onnx")
 ```
  
 🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/my_callable.onnx)
