@@ -90,7 +90,7 @@ to_onnx(
     callable,
     [(100, 256)],
     return_mode="file",
-    output_path="docs/onnx/model_with_function.onnx",
+    output_path="model_with_function.onnx",
 )
 ```
 
