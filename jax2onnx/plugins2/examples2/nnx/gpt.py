@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 import numpy as np
+from functools import wraps
 
 from jax2onnx.plugins2.plugin_system import (
     construct_and_call,
@@ -13,11 +14,15 @@ from jax2onnx.plugins2.plugin_system import (
 )
 
 
-# TODO - GPT attention with @onnx_function
-# @onnx_function
+@onnx_function
 def attention(q, k, v, mask=None, **kwargs):
     """A thin wrapper around nnx.dot_product_attention exposing q, k, v, mask."""
     return nnx.dot_product_attention(q, k, v, mask=mask, **kwargs)
+
+
+@wraps(attention)
+def _call_attention(*args, **kwargs):
+    return attention(*args, **kwargs)
 
 
 register_example(
@@ -30,13 +35,14 @@ register_example(
     testcases=[
         {
             "testcase": "gpt_attention",
-            "callable": attention,
+            "callable": _call_attention,
             "input_values": [
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.random.randn(1, 1024, 12, 64).astype(np.float32),
                 np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
             ],
+            "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
         }
     ],
@@ -62,7 +68,7 @@ class CausalSelfAttention(nnx.Module):
             out_features=n_embd,
             broadcast_dropout=True,
             dropout_rate=dropout,
-            attention_fn=attention,
+            attention_fn=_call_attention,
             rngs=rngs,
         )
         self.resid_dropout = nnx.Dropout(dropout, rngs=rngs)

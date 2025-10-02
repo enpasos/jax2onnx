@@ -17,7 +17,11 @@ from jax2onnx.plugins2._ir_shapes import (
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins2._utils import cast_param_like
-from jax2onnx.plugins2.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins2.plugin_system import (
+    PrimitiveLeafPlugin,
+    _DynamicParamWrapper,
+    register_primitive,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins2.plugin_system import _IRBuildContext as IRContext  # type: ignore
@@ -201,7 +205,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         return core.ShapedArray(q.shape, q.dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
-        params = dict(getattr(eqn, "params", {}) or {})
+        params_raw = dict(getattr(eqn, "params", {}) or {})
+        params = {
+            key: (val.value if isinstance(val, _DynamicParamWrapper) else val)
+            for key, val in params_raw.items()
+        }
         has_mask = bool(params.get("has_mask", False))
         has_bias = bool(params.get("has_bias", False))
 
@@ -485,11 +493,17 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     operands.append(mask)
                 if has_bias:
                     operands.append(bias)
+                safe_kwargs = {}
+                for key, value in kwargs.items():
+                    if hasattr(value, "aval"):
+                        safe_kwargs[key] = _DynamicParamWrapper(value)
+                    else:
+                        safe_kwargs[key] = value
                 return cls._PRIM.bind(
                     *operands,
                     has_mask=has_mask,
                     has_bias=has_bias,
-                    **kwargs,
+                    **safe_kwargs,
                 )
 
             return patched
