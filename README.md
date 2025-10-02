@@ -170,8 +170,8 @@ See [`docs/coverage_tables.md`](docs/coverage_tables.md#examples) for the autoge
 | Library       | Versions |  
 |:--------------|:---------| 
 | `JAX`         | 0.7.2    | 
-| `Flax`        | 0.11.2   | 
-| `Equinox`     | 0.13.1   | 
+| `Flax`        | 0.12.0   | 
+| `Equinox`     | 0.13.1  | 
 | `onnx-ir`     | 0.1.10   | 
 | `onnx`        | 1.19.0   |  
 | `onnxruntime` | 1.23.0   |  
