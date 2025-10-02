@@ -193,6 +193,9 @@ This pass is **op-agnostic** (no Conv/Pool knowledge), conservative (no branchin
   With `match="exact"`, the test fails if required ops are missing or **extra** ops are present between anchors.
 * **CNN sentinel.** The CNN static test is a canary: if Conv doesn’t lower, flatten will see `{B,14,14,1}` and fail a later `Reshape(B,3136)`. With the optimizer, extra `Transpose…Transpose` pairs around **Relu** are eliminated; pairs around **AveragePool** remain (by design).
 
+See `docs/expect_graph_reference.md` for a focused reference on writing
+`expect_graph` checks (shapes, counts, symbols, and helper flags).
+
 ---
 
 # Typical plugin lifecycle (concrete but generic)

@@ -260,6 +260,7 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     into `lower`; missing batching support shows up as a JAX error long before
     we reach ONNX.
     """
+
     primitive: str
     metadata: dict[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None

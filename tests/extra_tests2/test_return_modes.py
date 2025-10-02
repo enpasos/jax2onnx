@@ -42,4 +42,3 @@ def test_return_mode_file(tmp_path: Path):
     assert output.is_file()
     loaded = onnx.load_model(output)
     assert any(node.op_type == "Add" for node in loaded.graph.node)
-

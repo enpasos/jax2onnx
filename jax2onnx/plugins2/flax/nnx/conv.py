@@ -23,6 +23,12 @@ from jax2onnx.plugins2.plugin_system import (
 )
 from jax2onnx.plugins2._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins2._utils import cast_param_like
+from jax2onnx.plugins2._ir_shapes import (
+    _as_ir_dim_label,
+    _dim_label_from_value_or_aval,
+    _ensure_value_info as _register_value_info,
+    _stamp_type_and_shape,
+)
 from functools import reduce
 from operator import mul
 
@@ -93,16 +99,32 @@ def _is_concrete_shape(shape) -> bool:
         return False
 
 
-def _annotate_value(val: ir.Value, dtype, shape) -> None:
+def _annotate_value(ctx, val: ir.Value, dtype, shape) -> None:
     """Attach dtype/shape to an IR Value so exporters create value_info."""
-    if not shape or not _is_concrete_shape(shape):
+    if not shape:
         return
+    dims = []
+    for dim in shape:
+        label = _as_ir_dim_label(dim)
+        if label is not None:
+            dims.append(label)
+        else:
+            dims.append(dim)
+    dims_tuple = tuple(dims)
     try:
-        val.type = ir.TensorType(_ir_dtype_from_numpy(dtype))
-        val.shape = ir.Shape(tuple(int(d) for d in shape))
+        _stamp_type_and_shape(val, dims_tuple)
     except Exception:
-        # Best-effort only; never fail conversion just for annotations.
         pass
+    try:
+        if getattr(val, "type", None) is None:
+            val.type = ir.TensorType(_ir_dtype_from_numpy(dtype))
+    except Exception:
+        pass
+    if ctx is not None:
+        try:
+            _register_value_info(ctx, val)
+        except Exception:
+            pass
 
 
 def _calc_out_spatial(
@@ -1641,10 +1663,27 @@ class ConvPlugin(PrimitiveLeafPlugin):
         rank_after = x_spatial + 2
         perm = (0, rank_after - 1, *range(1, rank_after - 1))
         x_nchw = _transpose(ctx, x_pre, perm)
-        # Annotate Transpose output when statically known (common path: no flattening)
-        if not need_flatten and _is_concrete_shape(x_shape):
+        # Annotate Transpose output (preserve batch/channel labels when available)
+        if not need_flatten and x_shape:
             in_sp = x_shape[1 : 1 + x_spatial]
-            _annotate_value(x_nchw, x_dtype_np, (x_shape[0], x_shape[-1], *in_sp))
+            batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
+            if batch_dim is None:
+                batch_dim = x_shape[0]
+            channel_dim = _dim_label_from_value_or_aval(
+                x_val, x_shape, len(x_shape) - 1
+            )
+            if channel_dim is None:
+                channel_dim = x_shape[-1]
+            spatial_dims = []
+            for axis in range(1, 1 + x_spatial):
+                label = _dim_label_from_value_or_aval(x_val, x_shape, axis)
+                spatial_dims.append(label if label is not None else x_shape[axis])
+            _annotate_value(
+                ctx,
+                x_nchw,
+                x_dtype_np,
+                (batch_dim, channel_dim, *spatial_dims),
+            )
 
         # Match param dtypes to activation statically (no CastLike nodes)
         k_val = cast_param_like(ctx, k_val, x_val)
@@ -1707,15 +1746,29 @@ class ConvPlugin(PrimitiveLeafPlugin):
         # 3) Use Conv's bias input directly (no Add/Reshape, no CastLike)
         y = _conv(ctx, x_nchw, k_oih, b_val if use_bias else None, conv_attrs)
         # Try to annotate Conv's NCH... output when possible
-        if (
-            not need_flatten
-            and _is_concrete_shape(x_shape)
-            and _is_concrete_shape(k_shape)
-        ):
+        if not need_flatten and x_shape and k_shape:
             in_sp = x_shape[1 : 1 + conv_spatial]
             k_sp = k_shape[:conv_spatial]
-            out_sp = _calc_out_spatial(in_sp, k_sp, strides, dilations, padding_param)
-            _annotate_value(y, x_dtype_np, (x_shape[0], k_shape[-1], *out_sp))
+            try:
+                in_sp_ints = [int(d) for d in in_sp]
+                k_sp_ints = [int(d) for d in k_sp]
+                strides_ints = [int(s) for s in strides]
+                dilations_ints = [int(d) for d in dilations]
+                out_sp = _calc_out_spatial(
+                    in_sp_ints, k_sp_ints, strides_ints, dilations_ints, padding_param
+                )
+            except Exception:
+                out_sp = None
+            if out_sp is not None:
+                batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
+                if batch_dim is None:
+                    batch_dim = x_shape[0]
+                _annotate_value(
+                    ctx,
+                    y,
+                    x_dtype_np,
+                    (batch_dim, int(k_shape[-1]), *out_sp),
+                )
 
         # Back to NH...C
         post_perm = (0, *range(2, x_spatial + 2), 1)  # (N,C,S...) -> (N,S...,C)
@@ -1751,15 +1804,29 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 )
             )
 
-        if (
-            not need_flatten
-            and _is_concrete_shape(x_shape)
-            and _is_concrete_shape(k_shape)
-        ):
+        if not need_flatten and x_shape and k_shape:
             in_sp = x_shape[1 : 1 + conv_spatial]
             k_sp = k_shape[:conv_spatial]
-            out_sp = _calc_out_spatial(in_sp, k_sp, strides, dilations, padding_param)
-            _annotate_value(y_out, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
+            try:
+                in_sp_ints = [int(d) for d in in_sp]
+                k_sp_ints = [int(d) for d in k_sp]
+                strides_ints = [int(s) for s in strides]
+                dilations_ints = [int(d) for d in dilations]
+                out_sp = _calc_out_spatial(
+                    in_sp_ints, k_sp_ints, strides_ints, dilations_ints, padding_param
+                )
+            except Exception:
+                out_sp = None
+            if out_sp is not None:
+                batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
+                if batch_dim is None:
+                    batch_dim = x_shape[0]
+                _annotate_value(
+                    ctx,
+                    y_out,
+                    x_dtype_np,
+                    (batch_dim, *out_sp, int(k_shape[-1])),
+                )
 
         if need_flatten:
             # Prefer STATIC reshape back when concrete dims are available.
@@ -1823,17 +1890,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
                     )
                 )
         # else: already wrote transpose to y_out
-
-        # Final output annotation if statically known (no flatten)
-        if (
-            not need_flatten
-            and _is_concrete_shape(x_shape)
-            and _is_concrete_shape(k_shape)
-        ):
-            in_sp = x_shape[1 : 1 + conv_spatial]
-            k_sp = k_shape[:conv_spatial]
-            out_sp = _calc_out_spatial(in_sp, k_sp, strides, dilations, padding_param)
-            _annotate_value(y_out, x_dtype_np, (x_shape[0], *out_sp, k_shape[-1]))
 
         # Pattern A complete: y_out is already the var-bound output; nothing to attach/rename
         return y_out

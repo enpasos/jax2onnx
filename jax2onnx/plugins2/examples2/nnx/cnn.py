@@ -49,7 +49,10 @@ register_example(
             "post_check_onnx_graph": EG(
                 [
                     (
-                        "Transpose -> Conv -> Relu -> AveragePool -> Conv -> Relu -> AveragePool -> Transpose -> Reshape -> Gemm -> Relu -> Gemm",
+                        "Transpose:3x1x28x28 -> Conv:3x32x28x28 -> Relu:3x32x28x28 -> "
+                        "AveragePool:3x32x14x14 -> Conv:3x64x14x14 -> Relu:3x64x14x14 -> "
+                        "AveragePool:3x64x7x7 -> Transpose:3x7x7x64 -> Reshape:3x3136 -> "
+                        "Gemm:3x256 -> Relu:3x256 -> Gemm:3x10",
                         {
                             "counts": {
                                 "Transpose": 2,
@@ -61,7 +64,9 @@ register_example(
                             }
                         },
                     ),
-                ]
+                ],
+                no_unused_inputs=True,
+                mode="all",
             ),
         },
         {
@@ -71,6 +76,32 @@ register_example(
             "run_only_f32_variant": True,
             "run_only_dynamic": True,
             "expected_output_shapes": [("B", 10)],
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Transpose:Bx1x28x28 -> Conv:Bx32x28x28 -> Relu:Bx32x28x28 -> "
+                        "AveragePool:Bx32x14x14 -> Conv:Bx64x14x14 -> Relu:Bx64x14x14 -> "
+                        "AveragePool:Bx64x7x7 -> Transpose:Bx7x7x64 -> Reshape:Bx3136 -> "
+                        "Gemm:Bx256 -> Relu:Bx256 -> Gemm:Bx10",
+                        {
+                            "counts": {
+                                "Transpose": 2,
+                                "Conv": 2,
+                                "Relu": 3,
+                                "AveragePool": 2,
+                                "Reshape": 1,
+                                "Gemm": 2,
+                                "Shape": 1,
+                                "Gather": 1,
+                                "Unsqueeze": 1,
+                                "Concat": 1,
+                            }
+                        },
+                    ),
+                ],
+                no_unused_inputs=True,
+                mode="all",
+            ),
         },
     ],
 )

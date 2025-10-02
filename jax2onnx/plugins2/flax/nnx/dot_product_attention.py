@@ -81,8 +81,7 @@ EXPECT_DPA_BASE = EG(
                 }
             },
         )
-    ],
-    passthrough_ops={"Add", "Where", "Cast"},
+    ]
 )
 
 

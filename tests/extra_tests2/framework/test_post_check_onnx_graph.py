@@ -98,6 +98,27 @@ def build_chain_with_dangling_input():
     return m
 
 
+def build_branchy_transpose_reshape():
+    x = V("x", ir.DataType.FLOAT, (3, 28, 28, 1))
+    t = V("t", ir.DataType.FLOAT, (3, 1, 28, 28))
+    shape_out = V("shape", ir.DataType.INT64, (4,))
+    y = V("y", ir.DataType.FLOAT, (3, 3136))
+
+    n1 = ir.Node(op_type="Transpose", domain="", inputs=[x], outputs=[t], name="T")
+    n2 = ir.Node(op_type="Shape", domain="", inputs=[t], outputs=[shape_out], name="S")
+    n3 = ir.Node(
+        op_type="Reshape", domain="", inputs=[t, shape_out], outputs=[y], name="R"
+    )
+
+    gr = ir.Graph(name="top", inputs=[x], outputs=[y], nodes=[n1, n2, n3])
+    m = ir.Model(graph=gr, ir_version=10)
+    try:
+        m.opset_imports = {"": 21}
+    except Exception:
+        pass
+    return m
+
+
 def test_static_path_with_shapes_and_symbols_and_no_unused():
     m = build_static_chain(B=3)
     check = EG(
@@ -132,6 +153,12 @@ def test_no_unused_inputs_catches_dangling():
         no_unused_inputs=True,
     )
     assert not check(m)  # should fail because of dangling 'deterministic'
+
+
+def test_path_walks_over_shape_side_chain():
+    m = build_branchy_transpose_reshape()
+    check = EG(["Transpose -> Reshape"])
+    assert check(m)
 
 
 def test_function_body_search_matches():

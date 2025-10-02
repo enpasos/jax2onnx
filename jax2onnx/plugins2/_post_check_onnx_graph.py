@@ -13,6 +13,7 @@ from typing import (
     Set,
     Mapping,
 )
+from collections import deque
 
 ShapeDim = Optional[Union[int, str]]
 
@@ -24,6 +25,22 @@ SpecItem = Union[
 ]
 
 
+DEFAULT_PASSTHROUGH_OPS: Set[str] = {
+    "Reshape",
+    "Identity",
+    "Cast",
+    "CastLike",
+    "Squeeze",
+    "Unsqueeze",
+    "Flatten",
+    "Shape",
+    "Gather",
+    "Concat",
+    "Where",
+    "Add",
+}
+
+
 def expect_graph(
     specs: Sequence[SpecItem],
     *,
@@ -32,7 +49,6 @@ def expect_graph(
     must_absent: Optional[Iterable[str]] = None,
     no_unused_inputs: bool = False,
     search_functions: bool = False,  # default: check TOP graph only
-    passthrough_ops: Optional[Iterable[str]] = None,
     explain_on_fail: bool = True,
 ):
     """
@@ -68,9 +84,6 @@ def expect_graph(
         If True, fail when the top graph contains dangling inputs.
     search_functions : bool
         If True, search all function bodies in addition to the top graph.
-    passthrough_ops : iterable[str]
-        Ops to skip between anchors when walking the path (e.g., {"Reshape","Identity"}).
-        Defaults to a conservative useful set if not provided.
     explain_on_fail : bool
         If True, print a short diagnostic report on failure.
 
@@ -84,16 +97,7 @@ def expect_graph(
         gv = _GraphView(
             model,
             search_functions=search_functions,
-            passthrough_ops=set(passthrough_ops or ())
-            or {
-                "Reshape",
-                "Identity",
-                "Cast",
-                "CastLike",
-                "Squeeze",
-                "Unsqueeze",
-                "Flatten",
-            },
+            passthrough_ops=DEFAULT_PASSTHROUGH_OPS,
         )
         ok = True
         # must_absent
@@ -182,7 +186,7 @@ class _GraphView:
     def __init__(self, model, *, search_functions: bool, passthrough_ops: set[str]):
         self.model = model
         self.search_functions = search_functions
-        self.passthrough_ops = passthrough_ops
+        self.passthrough_ops = set(passthrough_ops)
         self.errors: List[str] = []
 
         # Graph inventory: top + functions (duck-typed)
@@ -582,6 +586,7 @@ def _match_path_on_graph(
     shape_index: Dict[str, Tuple],
 ) -> Tuple[bool, str]:
     nodes = _nodes(g)
+    consumer_map = _build_consumer_map(nodes)
     # op index
     index: Dict[str, List[int]] = {}
     for i, n in enumerate(nodes):
@@ -600,7 +605,9 @@ def _match_path_on_graph(
     reason = "start mismatch"
     for i0 in starts:
         env_copy = dict(env)
-        ok, r = _path_from(nodes, i0, steps, env_copy, passthrough_ops, shape_index)
+        ok, r = _path_from(
+            nodes, i0, steps, env_copy, passthrough_ops, shape_index, consumer_map
+        )
         if ok:
             env.update(env_copy)
             return True, ""
@@ -615,6 +622,7 @@ def _path_from(
     env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
     shape_index: Dict[str, Tuple],
+    consumer_map: Dict[Tuple, List[int]],
 ) -> Tuple[bool, str]:
     i = i0
     if nodes[i].op_type != steps[0][0]:
@@ -637,11 +645,12 @@ def _path_from(
     # walk adjacency by “shares an output → input”; allow passthrough ops
     for s in range(1, len(steps)):
         want_op, want_shape = steps[s]
-        next_idx, trace = _walk_to_op(nodes, i, want_op, passthrough_ops)
+        next_idx, trace = _walk_to_op(nodes, i, want_op, passthrough_ops, consumer_map)
         if next_idx is None:
             return (
                 False,
-                f"could not reach '{want_op}' from '{nodes[i].op_type}' (next chain: {trace})",
+                f"could not reach '{want_op}' from '{nodes[i].op_type}'"
+                + (f" (chain: {' -> '.join(trace)})" if trace else ""),
             )
         if want_shape is not None:
             outs = _outputs_of(nodes[next_idx])
@@ -658,46 +667,86 @@ def _path_from(
     return True, ""
 
 
-def _unique_successor(nodes, i: int) -> Optional[int]:
-    outs = _outputs_of(nodes[i])
-    succ: Optional[int] = None
-    for j, n in enumerate(nodes):
-        if j == i:
-            continue
-        ins = _inputs_of(n)
-        if any(ov in ins for ov in outs):
-            succ = j
-            break
-    return succ
+def _value_keys(v) -> List[Tuple[str, Any]]:
+    keys: List[Tuple[str, Any]] = []
+    name = _value_name(v)
+    if name:
+        keys.append(("name", name))
+    if not isinstance(v, str):
+        try:
+            keys.append(("id", id(v)))
+        except Exception:
+            pass
+    return keys if keys else [("anon", id(v))]
+
+
+def _build_consumer_map(nodes) -> Dict[Tuple, List[int]]:
+    mapping: Dict[Tuple, List[int]] = {}
+    for idx, node in enumerate(nodes):
+        for inp in _inputs_of(node):
+            for key in _value_keys(inp):
+                mapping.setdefault(key, []).append(idx)
+    return mapping
+
+
+def _consumer_indices(
+    nodes, idx: int, consumer_map: Dict[Tuple, List[int]]
+) -> List[int]:
+    outs = _outputs_of(nodes[idx])
+    seen: Set[int] = set()
+    result: List[int] = []
+    for ov in outs:
+        for key in _value_keys(ov):
+            for cand in consumer_map.get(key, []):
+                if cand == idx or cand in seen:
+                    continue
+                seen.add(cand)
+                result.append(cand)
+    return result
 
 
 def _walk_to_op(
-    nodes, i: int, target_op: str, passthrough_ops: set[str]
+    nodes,
+    i: int,
+    target_op: str,
+    passthrough_ops: set[str],
+    consumer_map: Dict[Tuple, List[int]],
 ) -> Tuple[Optional[int], List[str]]:
-    """
-    Starting from node index i, walk forward along data edges, skipping any number
-    of 'passthrough' ops, until a node with op_type == target_op is found.
-    Returns (index, trace_of_ops_encountered).
-    """
-    trace: List[str] = []
-    visited = set()
-    j = _unique_successor(nodes, i)
-    steps = 0
-    while j is not None and steps < 64:
-        steps += 1
-        if j in visited:
-            break
-        visited.add(j)
-        op = nodes[j].op_type
-        trace.append(op)
-        if op == target_op:
-            return j, trace
+    candidates = _consumer_indices(nodes, i, consumer_map)
+    if not candidates:
+        return None, []
+
+    # Prioritise direct matches before broader search.
+    for cand in candidates:
+        if nodes[cand].op_type == target_op:
+            return cand, [target_op]
+
+    queue: deque[Tuple[int, List[str]]] = deque()
+    visited: Set[int] = set()
+    best_trace: List[str] = []
+
+    for cand in candidates:
+        op = nodes[cand].op_type
         if op in passthrough_ops:
-            j = _unique_successor(nodes, j)
+            queue.append((cand, [op]))
+            visited.add(cand)
+
+    while queue:
+        idx, trace = queue.popleft()
+        if len(trace) > len(best_trace):
+            best_trace = trace
+        if len(trace) >= 64:
             continue
-        # hit a different non-passthrough node -> stop
-        break
-    return None, trace
+        for nxt in _consumer_indices(nodes, idx, consumer_map):
+            op = nodes[nxt].op_type
+            new_trace = trace + [op]
+            if op == target_op:
+                return nxt, new_trace
+            if op in passthrough_ops and nxt not in visited:
+                visited.add(nxt)
+                queue.append((nxt, new_trace))
+
+    return None, best_trace
 
 
 # ---------- Liveness (reachable-from-outputs) ----------

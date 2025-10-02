@@ -139,7 +139,10 @@ def update_coverage_tables(
         coverage_content, START_MARKER, END_MARKER, new_plugins_section
     )
     coverage_content = replace_markers(
-        coverage_content, EXAMPLES_START_MARKER, EXAMPLES_END_MARKER, new_examples_section
+        coverage_content,
+        EXAMPLES_START_MARKER,
+        EXAMPLES_END_MARKER,
+        new_examples_section,
     )
 
     COVERAGE_PATH.write_text(coverage_content, encoding="utf-8")

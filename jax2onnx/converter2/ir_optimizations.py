@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Set, Iterable, Any
+import copy
 import os
 import numpy as np
 
@@ -298,6 +299,55 @@ def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple]:
     for d in shp:
         out.append(d if isinstance(d, int) else -1)
     return tuple(out)
+
+
+def _shape_dims_key(shape) -> Optional[Tuple[str, ...]]:
+    """Return a hashable key representing the shape's dimensions."""
+    if shape is None:
+        return None
+    dims = getattr(shape, "dims", None)
+    if dims is None:
+        try:
+            dims = tuple(shape)
+        except Exception:
+            return None
+    key: List[str] = []
+    for d in dims:
+        if isinstance(d, (int, np.integer)):
+            key.append(f"int:{int(d)}")
+        else:
+            key.append(f"repr:{repr(d)}")
+    return tuple(key)
+
+
+def _clone_shape_obj(shape):
+    """Best-effort clone of an onnx_ir Shape object."""
+    if shape is None:
+        return None
+    try:
+        return copy.deepcopy(shape)
+    except Exception:
+        pass
+
+    dims = getattr(shape, "dims", None)
+    if dims is None:
+        try:
+            dims = tuple(shape)
+        except Exception:
+            return None
+    norm_dims: List[Any] = []
+    for d in dims:
+        if isinstance(d, (int, np.integer)):
+            norm_dims.append(int(d))
+        else:
+            try:
+                norm_dims.append(int(d))
+            except Exception:
+                norm_dims.append(str(d))
+    try:
+        return ir.Shape(tuple(norm_dims))
+    except Exception:
+        return tuple(norm_dims)
 
 
 def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool:
@@ -742,18 +792,17 @@ def _copy_shape_only(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bo
     if s_shp is None:
         return False
     d_shp = getattr(dst, "shape", None)
-    if d_shp is not None:
-        try:
-            # keep existing concrete dims; only copy when dst is unknown/symbolic
-            for d in d_shp:
-                if not isinstance(d, int) or d < 0:
-                    break
-            else:
-                return False
-        except Exception:
-            pass
+    s_key = _shape_dims_key(s_shp)
+    d_key = _shape_dims_key(d_shp) if d_shp is not None else None
+    if s_key is None:
+        return False
+    if d_key == s_key:
+        return False
+    cloned = _clone_shape_obj(s_shp)
+    if cloned is None:
+        return False
     try:
-        dst.shape = s_shp
+        dst.shape = cloned
         return True
     except Exception:
         return False
@@ -769,23 +818,16 @@ def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> b
     s_shp = getattr(src, "shape", None)
     d_shp = getattr(dst, "shape", None)
     if s_shp is not None:
-        need = False
-        if d_shp is None:
-            need = True
-        else:
-            try:
-                for d in d_shp:
-                    if not isinstance(d, int) or d < 0:
-                        need = True
-                        break
-            except Exception:
-                need = True
-        if need:
-            try:
-                dst.shape = s_shp
-                changed = True
-            except Exception:
-                pass
+        s_key = _shape_dims_key(s_shp)
+        d_key = _shape_dims_key(d_shp) if d_shp is not None else None
+        if s_key is not None and s_key != d_key:
+            cloned = _clone_shape_obj(s_shp)
+            if cloned is not None:
+                try:
+                    dst.shape = cloned
+                    changed = True
+                except Exception:
+                    pass
     s_ty = getattr(src, "type", None)
     d_ty = getattr(dst, "type", None)
     if s_ty is not None and s_ty is not d_ty:
