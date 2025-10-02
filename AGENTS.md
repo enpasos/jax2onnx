@@ -8,6 +8,8 @@ This monorepo now runs entirely on the **IR-only** pipeline:
 * `plugins2/` – modular lowering for JAX/Flax primitives into IR (no ONNX proto imports here).
 * `tests/` – unit, integration, and policy tests targeting the new world (legacy `extra_tests/`, `examples/`, and `plugins/` are gone).
 
+* Docs: `docs/design.md` covers the core vs. plugin architecture, and `docs/subgraph_input_handling.md` explains ONNX control-flow subgraph wiring.
+
 **Python**: 3.11+ (some users run 3.12 successfully).
 **Packaging**: Poetry.
 **Style**: Ruff (lint+format), mypy (type hints), Black-ish formatting via Ruff.
