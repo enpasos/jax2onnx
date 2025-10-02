@@ -229,7 +229,7 @@ That’s the whole contract.
 
 ---
 
-# Why this stays clean (no “hacking”)
+# Architectural Guarantees
 
 * **Inversion of control.** The only dynamic choice the core makes is:
   “Given `eqn.primitive.name` (a string), ask the registry for a handler.”
