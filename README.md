@@ -114,7 +114,6 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
 ### **Current Productive Version**
  
-
 * **0.9.0** *(PyPI)*:
 
   * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py).
@@ -122,13 +121,11 @@ save_model(model, "docs/onnx/model_with_function.onnx")
 
     * `"proto"` (default) → returns an `onnx.ModelProto`
     * `"ir"` → returns the intermediate `onnx_ir.Model`
-    * `"file"` → serializes directly to disk.
-  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.1**, onnx-ir **0.1.10**, onnx **1.19.0**.
+    * `"file"` → serializes directly to disk *(faster than `proto` + external save)*.
+  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.1**, onnx-ir **0.1.10**.
 
  
-
  
-
 ### **Past Versions**
 
 See [`docs/past_versions.md`](docs/past_versions.md) for the full release archive.
@@ -186,7 +183,7 @@ See [`docs/coverage_tables.md`](docs/coverage_tables.md#examples) for the autoge
 
 - Currently not all JAX/Flax components are supported (you can easily help expand this coverage!).
 - Function references need dynamic resolution at call-time.
-- ONNX graph composition is done in-memory before saving to disk, potentially causing memory issues with very large models.
+
 
 ---
 
@@ -197,7 +194,7 @@ We warmly welcome contributions!
 **How you can help:**
 
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins): 
-a custom primitive or an example.
+a custom primitive or an example. See the [plugin quickstart](docs/design.md#roles--responsibilities) for architecture details and lowering patterns.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
 ---
