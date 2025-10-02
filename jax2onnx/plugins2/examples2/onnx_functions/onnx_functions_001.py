@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-# Note: Original header comment mentioned sandbox, corrected path
-
-
 import jax.numpy as jnp
 from flax import nnx
 
