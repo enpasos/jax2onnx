@@ -1,20 +1,19 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault("JAX_ENABLE_X64", "True")
+
 import pytest
 
 import jax.numpy as jnp
 from jax import lax
 
 import onnx
+import onnxruntime as ort
 
 from jax2onnx.user_interface import to_onnx
-
-try:
-    import onnxruntime as ort
-
-    HAS_ORT = True
-except Exception:  # pragma: no cover
-    HAS_ORT = False
 
 
 def _first_loop_body(graph: onnx.GraphProto):
@@ -87,22 +86,13 @@ def test_loop_body_loosen_env_allows_ort_load_and_run(tmp_path):
     onnx.checker.check_model(loaded)
     assert _first_loop_body(loaded.graph) is not None
 
-    if not HAS_ORT:
-        pytest.skip("onnxruntime not available")
-    try:
-        sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        outputs = sess.run(None, {})
-    except Exception as exc:  # pragma: no cover
-        pytest.xfail(f"converter2 loop loosen shapes regression unresolved: {exc}")
-        return
+    sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+    outputs = sess.run(None, {})
     assert len(outputs) == 1
     assert tuple(outputs[0].shape) == (5, 210, 1, 1)
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-@pytest.mark.xfail(
-    reason="converter2 does not yet relax Loop internal value_info ranks", strict=False
-)
 def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_path):
     model = to_onnx(
         _loop_body_broadcast_mul_with_scatter_repro,
