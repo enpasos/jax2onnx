@@ -1,8 +1,11 @@
-"""IR helpers for lax scatter family in plugins2.
+"""IR helpers for the lax scatter family in plugins2.
 
-This module supports element-wise scatter updates (index depth equals operand
-rank) and a basic slice variant where scatter axes form a leading prefix and
-the remaining axes are updated as a contiguous window.
+The lowering keeps a few key invariants in sync with the ONNX backend:
+
+* guard `Where`/`If` emission so all inputs share an explicit broadcast shape;
+* support element-wise scatter (index rank == operand rank) and a prefix-slice
+  variant where the remaining axes form a contiguous window;
+* harmonize float dtypes (updates follow operand) to avoid ORT type drift.
 """
 
 from __future__ import annotations

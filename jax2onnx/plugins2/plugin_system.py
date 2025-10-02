@@ -252,6 +252,14 @@ class PrimitivePlugin(ABC):
 
 
 class PrimitiveLeafPlugin(PrimitivePlugin):
+    """Base class for concrete primitive lowerings.
+
+    Implementations are responsible for wiring the underlying JAX primitive:
+    define its impl/abstract-eval in the JAX registry *and* register a
+    `batching_rule` so tracing under `vmap` succeeds. The converter only calls
+    into `lower`; missing batching support shows up as a JAX error long before
+    we reach ONNX.
+    """
     primitive: str
     metadata: dict[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None
@@ -919,6 +927,15 @@ def _iter_patch_specs():
 
 @contextmanager
 def apply_monkey_patches():
+    """Temporarily swap in tracing-time shims.
+
+    Conversion may patch framework call-sites so tracing emits custom
+    primitives, but those shims must *never* leak beyond the converter’s
+    scope—tests/numeric validation run against upstream JAX behaviour. This
+    context manager mirrors the policy: apply each patch on entry, reference
+    count nested uses, then restore the original attribute on exit so user code
+    stays pristine once conversion finishes.
+    """
     touched: list[tuple[Any, str]] = []
     for patch_fn, targets, attr in _iter_patch_specs():
         for tgt in targets:

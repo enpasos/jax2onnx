@@ -45,10 +45,15 @@ class FunctionRegistry:
 
 
 class FunctionScope:
-    """
-    Capture a function body into a child IRContext. In function-mode:
-    - constants must be emitted as Constant nodes (not initializers)
-    - inputs/outputs are local to the function
+    """Stage a function body in its own IRContext.
+
+    The scope borrows the parent converter settings but switches `function_mode`
+    so constants are emitted as `Constant` nodes (FunctionProto cannot own
+    initializers). Each parent value handed to :meth:`begin` is mirrored with a
+    fresh `ir.Value` that becomes a function input; `end` snapshots the child
+    graph and returns a `FunctionDef` that still references those mirrored
+    values. Call-sites can then emit a single node with `domain`/`op_type`
+    pointing at the produced function while reusing the parent graph values.
     """
 
     def __init__(self, parent: IRContext, name: str, domain: str = ""):

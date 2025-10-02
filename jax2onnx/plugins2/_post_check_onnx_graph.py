@@ -38,6 +38,20 @@ def expect_graph(
     """
     Return a callable(model_or_ir) -> bool for pytest.
 
+    Typical usage in metadata:
+
+    ```python
+    from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
+
+    POST = EG(
+        ["Gemm:Bx20 -> Dropout:Bx20 -> Gemm:Bx10"],
+        symbols={"B": None},
+        must_absent=["Not"],
+        no_unused_inputs=True,
+    )
+    assert POST(model)
+    ```
+
     Parameters
     ----------
     specs : list[str | (str, dict)]

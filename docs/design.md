@@ -96,21 +96,53 @@ A small, stable API:
   * Helpers for constants and attributes,
   * Optionally a couple of generic IR helpers (`emit_node`, tiny wrappers for Shape/Gather/Unsqueeze where dynamic dims are needed).
 
+### Output binding pattern (must follow)
+
+When lowering, always **reuse the IRValue pre-allocated for each equation outvar**. The canonical flow is:
+
+1. Fetch inputs via `ctx.get_value_for_var(eqn.invars[i])`.
+2. Pre-allocate outputs with `ctx.get_value_for_var(eqn.outvars[i])`.
+3. Emit nodes whose `outputs=[...]` point to those pre-allocated values (write final results directly into them).
+4. Optionally stamp dtype/shape metadata on the same values.
+
+Avoid producing temporary outputs and “attaching” them afterwards; that pattern bypasses the var→value map and leads to orphaned tensors. Keeping the contract tight here means downstream equations always receive the correct tensor without extra bookkeeping.
+
 The plugin uses *IR*, not a high-level “builder” that might vary. That keeps plugins robust: they create nodes with `(op_type, inputs, outputs, attributes)` and let the core do the rest.
+
+### Functions (converter-owned call boundaries)
+
+Decorators such as `@onnx_function` register a plugin that lowers the call into a
+**FunctionScope**. At runtime the handler:
+
+1. Builds a `FunctionKey` from the qualified target name, input aval signature,
+   and capture signature (class instance id/config).
+2. Reuses an existing definition if the key is cached; otherwise it opens a
+   `FunctionScope`, maps parent inputs to fresh function inputs, and recursively
+   lowers the original callable inside the child IRContext (constants are emitted
+   as `Constant` nodes because FunctionProto bodies cannot own initializers).
+3. Seals the scope into an `onnx_ir.Function`, records any attribute overrides,
+   and caches the result.
+4. Emits a call-site node in the parent graph with `domain/op_type` matching the
+   function and wires the original in/out values to that node.
+
+Because the definition is keyed on avals and capture signature, identical calls
+share a single function body, while shape/config changes trigger new entries.
 
 ---
 
 # Shapes & symbolic dims
 
 * **Inputs.** If the user gives symbolic strings (e.g., `"B"`), the core creates JAX symbolic dims so the jaxpr records symbols instead of numbers.
-* **Abstract eval.** Plugins preserve symbols; never coerce them to ints.
+* **Abstract eval.** Preserve `_DimExpr` symbols—call `jax.eval_shape` on the
+  original callable (with `ShapeDtypeStruct` inputs) instead of doing manual
+  shape math. Never cast symbolic dims to ints.
 * **Dynamic shapes in IR.** When an IR op needs runtime sizes (e.g., a flatten), plugins use:
 
   * `Shape(x)` → shape vector,
   * `Gather(shape, axis=i)` → ith dimension,
   * `Unsqueeze/Concat` → assemble a runtime shape tensor,
   * `Reshape(x, shape_tensor)`.
-* **Output stamping.** After lowering, the core restamps inputs/outputs so symbolic labels survive through ONNX `ValueInfo` (only where no concrete size is present).
+* **Output stamping.** After lowering, the core restamps inputs/outputs so symbolic labels survive through ONNX `ValueInfo` (only where no concrete size is present). `IRContext` tracks the origin tensor/axis for each symbol so helpers like `dim_as_value` can materialize runtime shapes via `Shape → Gather → Squeeze`.
 
 ---
 

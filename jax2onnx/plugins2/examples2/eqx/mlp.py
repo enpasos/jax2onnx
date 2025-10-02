@@ -35,6 +35,7 @@ class Mlp(eqx.Module):
 
 _model = Mlp(30, 20, 10, key=jax.random.PRNGKey(0))
 _inference_model = eqx.nn.inference_mode(_model, value=True)
+# Equinox modules operate on a single batch element; wrap with vmap for batched inputs.
 _batched_model = jax.vmap(_model, in_axes=(0, None))
 
 
