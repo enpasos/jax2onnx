@@ -332,11 +332,9 @@ def to_onnx(
             enable_double_precision=enable_double_precision,
             input_specs=sds_list,
         )
-        setattr(
-            ctx,
-            "_call_input_param_names",
-            set(input_params.keys()) if input_params else set(),
-        )
+        call_param_names = set(input_params.keys()) if input_params else set()
+        setattr(ctx, "_call_input_param_names", call_param_names)
+        setattr(ctx, "_call_input_param_literals", dict(input_params or {}))
         # Expose knobs for downstream (optional)
 
         if record_primitive_calls_file:

@@ -1372,14 +1372,36 @@ def _iter_node_attrs(node: object) -> Iterable[object]:
 
 
 def _collect_used_value_names(graph, used: Set[str]) -> None:
+    """Record names that are consumed from an *outer* scope.
+
+    A name is considered "used" for the parent when it appears as an input to
+    a node but is not defined within the current graph (i.e. not produced by a
+    node, declared as a graph input, or introduced as an initializer). This
+    mirrors ONNX's lexical scoping rules for control-flow/function bodies.
+    """
+
     nodes, _ = _get_node_seq_and_setter(graph)
     if not nodes:
-        return
+        nodes = []
+
+    local_defs: Set[str] = set()
+    for g_in in _graph_inputs_list(graph):
+        nm = _v_name(g_in)
+        if nm:
+            local_defs.add(nm)
+
+    for node in nodes:
+        for ov in _node_outputs(node):
+            nm = _v_name(ov)
+            if nm:
+                local_defs.add(nm)
+
     for node in nodes:
         for iv in _node_inputs(node):
             nm = _v_name(iv)
-            if nm:
+            if nm and nm not in local_defs:
                 used.add(nm)
+
         for attr in _iter_node_attrs(node):
             kind = _attr_kind(attr)
             if kind == "GRAPH":
@@ -1388,10 +1410,6 @@ def _collect_used_value_names(graph, used: Set[str]) -> None:
                     sub = getattr(attr, "g", None)
                 if sub is not None:
                     _collect_used_value_names(sub, used)
-                    for ov in _graph_outputs_list(sub):
-                        nm = _v_name(ov)
-                        if nm:
-                            used.add(nm)
             elif kind == "GRAPHS":
                 subs = getattr(attr, "value", None)
                 if subs is None:
@@ -1406,10 +1424,6 @@ def _collect_used_value_names(graph, used: Set[str]) -> None:
                     if sub is None:
                         continue
                     _collect_used_value_names(sub, used)
-                    for ov in _graph_outputs_list(sub):
-                        nm = _v_name(ov)
-                        if nm:
-                            used.add(nm)
 
 
 def prune_unused_graph_inputs_ir(graph) -> None:
@@ -1417,12 +1431,15 @@ def prune_unused_graph_inputs_ir(graph) -> None:
     Remove graph inputs that are not consumed by any node and are not graph outputs.
     (We do NOT run this on function bodies to avoid changing function signatures.)
     """
+    nodes, _ = _get_node_seq_and_setter(graph)
     used: Set[str] = set()
     _collect_used_value_names(graph, used)
     for ov in _graph_outputs_list(graph):
         nm = _v_name(ov)
         if nm:
             used.add(nm)
+
+    output_names = {nm for nm in (_v_name(v) for v in _graph_outputs_list(graph)) if nm}
 
     def _should_always_keep(name: Optional[str]) -> bool:
         if not name:
@@ -1447,9 +1464,21 @@ def prune_unused_graph_inputs_ir(graph) -> None:
         removed = []
         for v in lst:
             nm = _v_name(v)
-            if nm and (nm in used or _should_always_keep(nm)):
+            if not nm:
                 keep.append(v)
-            elif not nm:
+                continue
+
+            should_keep = False
+            if _should_always_keep(nm):
+                should_keep = True
+            elif nm in output_names:
+                should_keep = True
+            elif _count_consumers(nodes or [], nm, v) > 0:
+                should_keep = True
+            elif nm in used:
+                should_keep = True
+
+            if should_keep:
                 keep.append(v)
             else:
                 removed.append(nm)
@@ -1461,7 +1490,11 @@ def prune_unused_graph_inputs_ir(graph) -> None:
             try:
                 arr[:] = keep
             except Exception:
-                pass
+                try:
+                    arr.clear()
+                    arr.extend(keep)
+                except Exception:
+                    pass
         break
 
 

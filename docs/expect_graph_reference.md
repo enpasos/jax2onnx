@@ -77,7 +77,8 @@ Common fields:
 - `mode`: one of `"all"` (default; all patterns must match), `"any"` (at least
   one matches), or `"exact"` (the entire graph must equal the pattern).
 - `no_unused_inputs`: when `True`, fail if the graph retains dangling inputs
-  after conversion.
+  after conversion. Combine with `no_unused_function_inputs=True` to extend the
+  check to every imported ONNX function body (requires `search_functions=True`).
 - `search_functions`: include function bodies (control-flow subgraphs) in the
   search.
 

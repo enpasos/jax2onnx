@@ -187,3 +187,50 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     assert "deterministic" not in in_names
     assert "x" in in_names
     assert "ratio" in in_names
+
+
+def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
+    top_in = V_ir("in_0", ir.DataType.FLOAT, (2, 4))
+    det_top = V_ir("deterministic", ir.DataType.BOOL, ())
+    top_out = V_ir("out", ir.DataType.FLOAT, (2, 4))
+
+    inner_data = V_ir("payload", ir.DataType.FLOAT, (2, 4))
+    inner_det = V_ir("deterministic", ir.DataType.BOOL, ())
+    inner_out = V_ir("inner_out", ir.DataType.FLOAT, (2, 4))
+    inner_node = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[inner_det],
+        outputs=[inner_out],
+        name="InnerIdentity",
+    )
+
+    inner_graph = ir.Graph(
+        name="inner_graph",
+        inputs=[inner_data, inner_det],
+        outputs=[inner_out],
+        nodes=[inner_node],
+    )
+
+    call_node = ir.Node(
+        op_type="CallInner",
+        domain="",
+        inputs=[top_in],
+        outputs=[top_out],
+        name="CallInner",
+        attributes=[ir.Attr("body", ir.AttributeType.GRAPH, inner_graph)],
+    )
+
+    top_graph = ir.Graph(
+        name="top_graph",
+        inputs=[top_in, det_top],
+        outputs=[top_out],
+        nodes=[call_node],
+    )
+
+    model = ir.Model(graph=top_graph, ir_version=10)
+    optimized = optimize_graph(model)
+    input_names = {getattr(v, "name", "") for v in _inputs(optimized.graph)}
+
+    assert "deterministic" not in input_names
+    assert "in_0" in input_names

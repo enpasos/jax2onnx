@@ -219,6 +219,54 @@ def test_function_body_search_matches():
     assert check(m)
 
 
+def test_no_unused_function_inputs_detects_dangling():
+    xi = V("xi", ir.DataType.FLOAT, (2, 2))
+    xo = V("xo", ir.DataType.FLOAT, (2, 2))
+    passt = ir.Node(op_type="Identity", domain="", inputs=[xi], outputs=[xo], name="Id")
+    top = ir.Graph(name="top", inputs=[xi], outputs=[xo], nodes=[passt])
+    m = ir.Model(graph=top, ir_version=10)
+
+    a = V("a", ir.DataType.FLOAT, (2, 2))
+    det = V("deterministic", ir.DataType.BOOL, ())
+    b = V("b", ir.DataType.FLOAT, (2, 2))
+    body = ir.Node(op_type="Identity", domain="", inputs=[a], outputs=[b], name="Body")
+    fgraph = ir.Graph(name="fn_body", inputs=[a, det], outputs=[b], nodes=[body])
+
+    class _Fn:
+        pass
+
+    fn = _Fn()
+    fn.domain = "custom"
+    fn.name = "has_unused_input"
+    fn.graph = fgraph
+
+    attached = False
+    cont = getattr(m, "functions", None)
+    try:
+        if isinstance(cont, dict):
+            cont[(getattr(fn, "domain", ""), getattr(fn, "name", ""), "")] = fn
+            attached = True
+        elif isinstance(cont, list):
+            cont.append(fn)
+            attached = True
+    except Exception:
+        pass
+    if not attached:
+        try:
+            setattr(m, "_functions", [fn])
+            attached = True
+        except Exception:
+            pass
+    assert attached, "Could not attach function body to the test Model"
+
+    check = EG(
+        [],
+        search_functions=True,
+        no_unused_function_inputs=True,
+    )
+    assert not check(m)
+
+
 def test_strict_symbols_reject_unknown_dims():
     # Build a chain where one edge has unknown batch (?x20)
     m = build_dynamic_chain()

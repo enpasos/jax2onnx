@@ -180,6 +180,13 @@ class IRContext:
         """Top-level: return/create a BOOL[] graph input `name`.
         Function body: return the Value for `var` (function input or literal)."""
         if getattr(self, "_inside_function_scope", False):
+            if var is None:
+                lookup = getattr(self, "_call_param_value_by_name", None)
+                if isinstance(lookup, dict) and name in lookup:
+                    return lookup[name]
+                raise RuntimeError(
+                    f"Call parameter '{name}' does not have a dynamic value in function scope"
+                )
             return self.get_value_for_var(var, name_hint=name)
         # top-level graph input (reuse if already present)
         for vi in getattr(self.builder, "inputs", []):

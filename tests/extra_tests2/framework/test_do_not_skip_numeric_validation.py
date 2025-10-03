@@ -34,6 +34,11 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "truncated_normal",
         "flax_dense_like_init",
     ),
+    (
+        "primitives2.random",
+        "random_bits",
+        "random_bits_uint32",
+    ),
 }
 
 

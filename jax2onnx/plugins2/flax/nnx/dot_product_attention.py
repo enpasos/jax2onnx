@@ -435,6 +435,50 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _add_value_info(ctx, weights)
 
+        call_param_values = getattr(ctx, "_call_param_value_by_name", {}) or {}
+        det_input = call_param_values.get("deterministic")
+
+        dropout_rate = float(params.get("dropout_rate", 0.0) or 0.0)
+        if det_input is not None:
+            training_mode = ir.Value(
+                name=ctx.fresh_name("dpa_training_mode"),
+                type=ir.TensorType(ir.DataType.BOOL),
+                shape=ir.Shape(()),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Not",
+                    domain="",
+                    inputs=[det_input],
+                    outputs=[training_mode],
+                    name=ctx.fresh_name("Not"),
+                )
+            )
+            ratio_val = ctx.builder.add_initializer_from_scalar(
+                ctx.fresh_name("dpa_dropout_ratio"),
+                np.asarray(dropout_rate, dtype=np.float32),
+            )
+            dropped_weights = _make_tensor_value(
+                ctx,
+                weights,
+                (batch_dim, num_heads, q_len, k_len),
+                base="dpa_dropout_weights",
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Dropout",
+                    domain="",
+                    inputs=[weights, ratio_val, training_mode],
+                    outputs=[dropped_weights],
+                    name=ctx.fresh_name("Dropout"),
+                )
+            )
+            _stamp_type_and_shape(
+                dropped_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, dropped_weights)
+            weights = dropped_weights
+
         v_t = _make_tensor_value(
             ctx, v_val, (batch_dim, num_heads, k_len, head_dim), base="dpa_vT"
         )

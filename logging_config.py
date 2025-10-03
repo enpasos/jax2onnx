@@ -15,7 +15,8 @@ def configure_logging():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pyproject_path = os.path.join(base_dir, "pyproject.toml")
     if os.path.exists(pyproject_path):
-        with open(pyproject_path, "rb") as f:
+        read_mode = "rb" if getattr(tomllib, "__name__", "") == "tomllib" else "r"
+        with open(pyproject_path, read_mode) as f:
             config = (
                 tomllib.load(f).get("tool", {}).get("jax2onnx", {}).get("logging", {})
             )

@@ -11,7 +11,7 @@ import pathlib
 import pkgutil
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import jax
 import jax.numpy as jnp
@@ -25,7 +25,7 @@ from jax2onnx import to_onnx
 jax.config.update("jax_enable_x64", True)
 
 
-DATA_DIR = pathlib.Path(__file__).resolve().parent 
+DATA_DIR = pathlib.Path(__file__).resolve().parent
 PAYLOAD_PATH = DATA_DIR / "issue52_feedforward_payload.npz"
 ONNX_PATH = pathlib.Path("sod_issue52_payload.onnx")
 
@@ -41,7 +41,9 @@ class ArrayLoader:
 def _deserialize_aval(desc: Dict[str, Any]) -> core.AbstractValue:
     if desc["type"] == "ShapedArray":
         dtype = None if desc["dtype"] is None else np.dtype(desc["dtype"])
-        return core.ShapedArray(tuple(desc["shape"]), dtype, weak_type=desc.get("weak_type", False))
+        return core.ShapedArray(
+            tuple(desc["shape"]), dtype, weak_type=desc.get("weak_type", False)
+        )
     if desc["type"] == "AbstractToken":
         return core.AbstractToken()
     raise TypeError(f"Unsupported aval description: {desc}")
@@ -100,7 +102,9 @@ def _deserialize_value(desc: Any, loader: ArrayLoader) -> Any:
     return desc
 
 
-def _deserialize_atom(desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]) -> core.Atom:
+def _deserialize_atom(
+    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]
+) -> core.Atom:
     kind = desc["kind"]
     if kind == "var":
         name = desc["name"]
@@ -112,12 +116,21 @@ def _deserialize_atom(desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[s
     raise TypeError(f"Unsupported atom kind: {kind}")
 
 
-def _deserialize_eqn(desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]) -> core.JaxprEqn:
+def _deserialize_eqn(
+    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]
+) -> core.JaxprEqn:
     primitive = _primitive_registry()[desc["primitive"]]
     invars = [_deserialize_atom(atom, loader, var_map) for atom in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
     params = _deserialize_value(desc["params"], loader)
-    return core.new_jaxpr_eqn(invars, outvars, primitive, params, effects=(), source_info=source_info_util.new_source_info())
+    return core.new_jaxpr_eqn(
+        invars,
+        outvars,
+        primitive,
+        params,
+        effects=(),
+        source_info=source_info_util.new_source_info(),
+    )
 
 
 def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> core.Jaxpr:
@@ -160,7 +173,9 @@ def _import_module(module_name: str):
         raise
 
 
-def _deserialize_closed_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> core.ClosedJaxpr:
+def _deserialize_closed_jaxpr(
+    desc: Dict[str, Any], loader: ArrayLoader
+) -> core.ClosedJaxpr:
     jaxpr = _deserialize_jaxpr(desc["jaxpr"], loader)
     consts = [_deserialize_value(c, loader) for c in desc["consts"]]
     return core.ClosedJaxpr(jaxpr, consts)
@@ -189,11 +204,20 @@ def _feed_forward_fn(closed: core.ClosedJaxpr):
 
 
 def _export_to_onnx(ff, prim0, t_arr, dt_arr) -> None:
-    kwargs = dict(inputs=[prim0, t_arr, dt_arr], model_name="feed_forward_step")
+    inputs: List[Any] = [prim0, t_arr, dt_arr]
     try:
-        model = to_onnx(ff, enable_double_precision=True, **kwargs)
+        model = to_onnx(
+            ff,
+            inputs=inputs,
+            model_name="feed_forward_step",
+            enable_double_precision=True,
+        )
     except TypeError:
-        model = to_onnx(ff, **kwargs)
+        model = to_onnx(
+            ff,
+            inputs=inputs,
+            model_name="feed_forward_step",
+        )
     ONNX_PATH.write_bytes(model.SerializeToString())
     print(f"[INFO] ONNX payload written to {ONNX_PATH}")
 

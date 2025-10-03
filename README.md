@@ -115,7 +115,7 @@ to_onnx(
 
 ### **Current Productive Version**
  
-* **0.9.0** *(PyPI)*:
+* **0.9.0** *(Upcoming PyPI)*:
 
   * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py).
   * added a `return_mode` option in `to_onnx`:
@@ -123,7 +123,7 @@ to_onnx(
     * `"proto"` (default) → returns an `onnx.ModelProto`
     * `"ir"` → returns the intermediate `onnx_ir.Model`
     * `"file"` → serializes directly to disk *(faster than `proto` + external save)*.
-  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.1**, onnx-ir **0.1.10**.
+  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.1**, onnx-ir **0.1.10**, onnx **1.19.0**.
 
  
  

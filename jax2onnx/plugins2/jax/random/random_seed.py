@@ -168,3 +168,27 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))
         ctx.bind_value_for_var(out_var, key_value)
+
+
+@register_primitive(
+    jaxpr_primitive="random_wrap",
+    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.wrap_key.html",
+    onnx=[
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        }
+    ],
+    since="v0.7.2",
+    context="primitives2.random",
+    component="random_wrap",
+    testcases=[],
+)
+class RandomWrapPlugin(PrimitiveLeafPlugin):
+    """No-op wrapper around PRNG keys."""
+
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        key_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+        key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))
+        ctx.bind_value_for_var(out_var, key_value)

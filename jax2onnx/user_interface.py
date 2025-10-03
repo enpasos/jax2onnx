@@ -265,10 +265,33 @@ def to_onnx(
     def _attach_input_params(model_proto: onnx.ModelProto) -> None:
         if not input_params:
             return
-        existing = {vi.name for vi in model_proto.graph.input}
+
+        graph = model_proto.graph
+        existing_inputs = {vi.name for vi in graph.input}
+        provided_names = set(existing_inputs)
+        provided_names.update(init.name for init in graph.initializer)
+        sparse_inits = getattr(graph, "sparse_initializer", None)
+        if sparse_inits is not None:
+            provided_names.update(init.name for init in sparse_inits)
+
+        referenced: set[str] = set()
+        for node in graph.node:
+            for inp_name in node.input:
+                if inp_name:
+                    referenced.add(inp_name)
+        for output in graph.output:
+            name = output.name
+            if name:
+                referenced.add(name)
+
         for name, value in input_params.items():
-            if name in existing:
+            if not name or name in existing_inputs:
                 continue
+            if name in provided_names:
+                continue
+            if name not in referenced:
+                continue
+
             arr = np.asarray(value)
             elem_type = None
             if _onnx_mapping is not None:
@@ -282,8 +305,9 @@ def to_onnx(
                 continue
             shape = list(arr.shape)
             vi = onnx.helper.make_tensor_value_info(name, elem_type, shape)
-            model_proto.graph.input.extend([vi])
-            existing.add(name)
+            graph.input.extend([vi])
+            existing_inputs.add(name)
+            provided_names.add(name)
 
     def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
         dest_dir = os.path.dirname(dest)

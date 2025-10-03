@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, Dict, Optional, Set, TYPE_CHECKING, cast
 
 import jax
 from jax.extend import core as jcore_ext
@@ -555,6 +555,7 @@ class FunctionPlugin(PrimitivePlugin):
         if ctx is None:
             raise RuntimeError("[onnx_function] Cannot locate IRContext")
 
+        call_param_names = set(getattr(ctx, "_call_input_param_names", set()))
         # Ensure a function registry exists on the parent (converter2 sets this)
         freg = getattr(ctx, "_function_registry", None)
         if freg is None:
@@ -593,10 +594,14 @@ class FunctionPlugin(PrimitivePlugin):
             frame = getattr(getattr(tracer, "_trace", None), "frame", None)
             if frame is None:
                 return None
-            var = frame.tracer_to_var.get(id(tracer))
+            tracer_map = getattr(frame, "tracer_to_var", None)
+            getter = getattr(tracer_map, "get", None)
+            var = getter(id(tracer)) if callable(getter) else None
             if var is None:
                 return None
-            const_val = frame.constvar_to_val.get(var)
+            const_map = getattr(frame, "constvar_to_val", None)
+            const_getter = getattr(const_map, "get", None)
+            const_val = const_getter(var) if callable(const_getter) else None
             if const_val is not None:
                 return const_val
             return var
@@ -645,6 +650,34 @@ class FunctionPlugin(PrimitivePlugin):
                     }
                 )
                 capture_items.append((pname, _capture_dynamic_from_var(resolved)))
+            elif pname in call_param_names:
+                if hasattr(original_val, "aval"):
+                    aval = getattr(original_val, "aval", None)
+                    shape = tuple(getattr(aval, "shape", ()))
+                    aval_dtype = getattr(aval, "dtype", np.float32)
+                    try:
+                        dtype_np = np.dtype(aval_dtype)
+                    except TypeError:
+                        dtype_np = np.dtype(np.float32)
+                    dtype_for_capture = dtype_np
+                else:
+                    arr = np.asarray(original_val)
+                    shape = tuple(arr.shape)
+                    dtype_np = arr.dtype
+                    dtype_for_capture = dtype_np
+                sds = jax.ShapeDtypeStruct(shape, dtype_np)
+                dynamic_entries.append(
+                    {
+                        "name": pname,
+                        "var": None,
+                        "sds": sds,
+                        "force_external": True,
+                    }
+                )
+                capture_items.append(
+                    (pname, ("call_input", shape, str(dtype_for_capture)))
+                )
+                continue
             else:
                 value_for_capture = resolved if resolved is not None else original_val
                 try:
@@ -655,10 +688,49 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 static_params[pname] = original_val
 
+        handled_names: set[str] = {entry["name"] for entry in dynamic_entries}
+        handled_names.update(static_params.keys())
+        literal_map = getattr(ctx, "_call_input_param_literals", None)
+        if isinstance(literal_map, dict):
+            for pname in call_param_names:
+                if pname in handled_names:
+                    continue
+                if pname not in literal_map:
+                    continue
+                accepts_param = False
+                target_fn = callee
+                if target_fn is not None:
+                    try:
+                        sig = inspect.signature(target_fn)
+                        accepts_param = pname in sig.parameters
+                    except Exception:
+                        accepts_param = False
+                if not accepts_param:
+                    continue
+                literal = literal_map[pname]
+                arr = np.asarray(literal)
+                shape = tuple(arr.shape)
+                dtype_np = arr.dtype
+                dynamic_entries.append(
+                    {
+                        "name": pname,
+                        "var": None,
+                        "sds": jax.ShapeDtypeStruct(shape, dtype_np),
+                        "force_external": True,
+                    }
+                )
+                capture_items.append((pname, ("call_input", shape, str(dtype_np))))
+                handled_names.add(pname)
+
         for entry in dynamic_entries:
-            entry["ir_value"] = ctx.get_value_for_var(
-                entry["var"], name_hint=entry["name"]
-            )
+            if entry.get("force_external"):
+                entry["ir_value"] = ctx.ensure_external_flag(
+                    entry["name"], entry.get("var")
+                )
+            else:
+                entry["ir_value"] = ctx.get_value_for_var(
+                    entry["var"], name_hint=entry["name"]
+                )
 
         param_values = [entry["ir_value"] for entry in dynamic_entries]
         capture_sig = (id(callee), tuple(capture_items))
@@ -679,14 +751,41 @@ class FunctionPlugin(PrimitivePlugin):
             counters = getattr(ctx, "_func_name_counters", None)
             if counters is not None:
                 setattr(fscope.ctx, "_func_name_counters", counters)
-            call_param_names = getattr(ctx, "_call_input_param_names", None)
-            if call_param_names is not None:
-                setattr(fscope.ctx, "_call_input_param_names", call_param_names)
+            call_param_names_obj = getattr(ctx, "_call_input_param_names", None)
+            if isinstance(call_param_names_obj, set):
+                call_param_names_set = cast(Set[Any], call_param_names_obj)
+                setattr(
+                    fscope.ctx, "_call_input_param_names", set(call_param_names_set)
+                )
+            call_param_literals_obj = getattr(ctx, "_call_input_param_literals", None)
+            if isinstance(call_param_literals_obj, dict):
+                setattr(
+                    fscope.ctx,
+                    "_call_input_param_literals",
+                    dict(call_param_literals_obj),
+                )
 
             # parent → child inputs for this call-site
             base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
+            base_input_count = len(base_inputs)
             in_vals_parent = base_inputs + param_values
             in_vals_child = fscope.begin(in_vals_parent)
+
+            if dynamic_entries:
+                child_dynamic_vals = in_vals_child[base_input_count:]
+                if child_dynamic_vals:
+                    existing_lookup = getattr(
+                        fscope.ctx, "_call_param_value_by_name", None
+                    )
+                    if isinstance(existing_lookup, dict):
+                        call_value_map = dict(existing_lookup)
+                    else:
+                        call_value_map = {}
+                    for entry, child_val in zip(dynamic_entries, child_dynamic_vals):
+                        entry["child_input"] = child_val
+                        call_value_map[entry["name"]] = child_val
+                    if call_value_map:
+                        setattr(fscope.ctx, "_call_param_value_by_name", call_value_map)
 
             # ---- Trace the callee with child input specs and lower into CHILD ctx ----
 
@@ -761,6 +860,42 @@ class FunctionPlugin(PrimitivePlugin):
                 else:
                     raise NotImplementedError(
                         f"[onnx_function] Unsupported plugin type for '{prim}'"
+                    )
+
+            if dynamic_entries:
+                nodes = list(getattr(fscope.ctx.builder, "nodes", []) or [])
+                fn_outputs = list(getattr(fscope.ctx.builder, "outputs", []) or [])
+
+                def _value_used(val: Any) -> bool:
+                    for node in nodes:
+                        for inp in getattr(node, "inputs", []) or []:
+                            if inp is val:
+                                return True
+                    for out in fn_outputs:
+                        if out is val:
+                            return True
+                    return False
+
+                for entry in dynamic_entries:
+                    child_val = entry.get("child_input")
+                    if child_val is None:
+                        continue
+                    if _value_used(child_val):
+                        continue
+                    sink_name = fscope.ctx.fresh_name(f"{entry['name']}_sink")
+                    sink_val = ir.Value(
+                        name=sink_name,
+                        type=getattr(child_val, "type", None),
+                        shape=getattr(child_val, "shape", None),
+                    )
+                    fscope.ctx.add_node(
+                        ir.Node(
+                            op_type="Identity",
+                            domain="",
+                            inputs=[child_val],
+                            outputs=[sink_val],
+                            name=fscope.ctx.fresh_name("Identity"),
+                        )
                     )
 
             # Explicit outputs from inner jaxpr

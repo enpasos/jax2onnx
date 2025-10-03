@@ -6,6 +6,7 @@ from flax import nnx
 import numpy as np
 from functools import wraps
 
+from jax2onnx.plugins2._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins2.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -527,6 +528,12 @@ register_example(
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [],
+                no_unused_inputs=True,
+                no_unused_function_inputs=True,
+                search_functions=True,
+            ),
         }
     ],
 )

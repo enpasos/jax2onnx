@@ -35,7 +35,9 @@ def test_issue52_scatter_payload_roundtrip(tmp_path):
     closed, prim0, initial_time, time_step = _load_payload()
     feed_forward = _feed_forward_fn(closed)
 
-    expected_outputs = [np.asarray(arr) for arr in feed_forward(prim0, initial_time, time_step)]
+    expected_outputs = [
+        np.asarray(arr) for arr in feed_forward(prim0, initial_time, time_step)
+    ]
 
     model = _export_issue52_model(feed_forward, prim0, initial_time, time_step)
     model_path = tmp_path / "issue52_scatter_payload.onnx"
@@ -81,7 +83,9 @@ def _iter_graphs(model_proto: "onnx.ModelProto"):
                     queue.append(attr.g)
 
 
-def _get_constant_tensor(model_proto: "onnx.ModelProto", name: str) -> np.ndarray | None:
+def _get_constant_tensor(
+    model_proto: "onnx.ModelProto", name: str
+) -> np.ndarray | None:
     for graph in _iter_graphs(model_proto):
         for node in graph.node:
             if node.op_type != "Constant" or not node.output:
@@ -94,7 +98,9 @@ def _get_constant_tensor(model_proto: "onnx.ModelProto", name: str) -> np.ndarra
     return None
 
 
-@pytest.mark.xfail(reason="Scatter window dimension drops the 6-element extent (issue #52)")
+@pytest.mark.xfail(
+    reason="Scatter window dimension drops the 6-element extent (issue #52)"
+)
 def test_issue52_scatter_window_keeps_update_axis(tmp_path):
     ort = pytest.importorskip(
         "onnxruntime", reason="onnxruntime is required to reproduce issue #52"

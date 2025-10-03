@@ -48,6 +48,7 @@ def expect_graph(
     mode: str = "all",  # "all" (default) or "any"
     must_absent: Optional[Iterable[str]] = None,
     no_unused_inputs: bool = False,
+    no_unused_function_inputs: bool = False,
     search_functions: bool = False,  # default: check TOP graph only
     explain_on_fail: bool = True,
 ):
@@ -117,6 +118,21 @@ def expect_graph(
             if unused:
                 gv._fail(f"Unused graph inputs: {sorted(unused)}")
                 ok = False
+        if no_unused_function_inputs:
+            if not search_functions:
+                gv._fail(
+                    "no_unused_function_inputs=True requires search_functions=True"
+                )
+                ok = False
+            else:
+                unused_by_fn = gv.unused_function_inputs()
+                if unused_by_fn:
+                    details = ", ".join(
+                        f"{name}: {sorted(vals)}"
+                        for name, vals in sorted(unused_by_fn.items())
+                    )
+                    gv._fail(f"Unused function inputs: {details}")
+                    ok = False
 
         # path specs
         if specs:
@@ -239,8 +255,7 @@ class _GraphView:
                     out.append((gname, idx))
         return out
 
-    def unused_graph_inputs(self) -> List[str]:
-        name, g = self.graphs[0]  # top only
+    def _unused_inputs_for_graph(self, g) -> List[str]:
         used = set()
         for n in _nodes(g):
             for v in _inputs_of(n):
@@ -257,6 +272,18 @@ class _GraphView:
             nm = _value_name(v)
             if nm and nm not in used:
                 res.append(nm)
+        return res
+
+    def unused_graph_inputs(self) -> List[str]:
+        _name, g = self.graphs[0]  # top only
+        return self._unused_inputs_for_graph(g)
+
+    def unused_function_inputs(self) -> Dict[str, List[str]]:
+        res: Dict[str, List[str]] = {}
+        for name, g in self.graphs[1:]:
+            unused = self._unused_inputs_for_graph(g)
+            if unused:
+                res[name] = unused
         return res
 
     # -- Path matcher with inline shapes --

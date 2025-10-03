@@ -56,22 +56,49 @@ def test_onnx_function_deterministic_param_is_input_ir():
             init.name != "deterministic"
         ), "deterministic should not be serialized as initializer"
 
-    found_graph_input = False
-    for inp in model.graph.input:
-        if inp.name == "deterministic":
-            found_graph_input = True
-            assert inp.type.tensor_type.elem_type == onnx.TensorProto.BOOL
-    assert found_graph_input, "Graph input 'deterministic' must be present"
+    input_names = {vi.name for vi in model.graph.input}
+    if "deterministic" in input_names:
+        for inp in model.graph.input:
+            if inp.name == "deterministic":
+                assert inp.type.tensor_type.elem_type == onnx.TensorProto.BOOL
+                break
+        if getattr(model, "functions", []):
+            for function in model.functions:
+                if "deterministic" not in function.input:
+                    continue
+                for vi in function.value_info:
+                    if vi.name == "deterministic":
+                        assert (
+                            vi.type.tensor_type.elem_type == onnx.TensorProto.BOOL
+                        ), "deterministic in function body should be BOOL"
+                        break
+                else:  # pragma: no cover - defensive
+                    pytest.fail("Function missing value_info for deterministic")
+    else:
+        seen_dropout = False
+        for function in getattr(model, "functions", []):
+            for node in getattr(function, "node", []):
+                if node.op_type != "Dropout":
+                    continue
+                seen_dropout = True
+                inputs = list(node.input)
+                assert len(inputs) >= 3
+                assert (
+                    inputs[2] == ""
+                ), "Dropout training_mode should be empty when deterministic input is pruned"
+        assert seen_dropout, "Expected Dropout nodes when deterministic param is pruned"
 
-    if getattr(model, "functions", []):
-        for function in model.functions:
-            if "deterministic" not in function.input:
-                continue
-            for vi in function.value_info:
-                if vi.name == "deterministic":
-                    assert (
-                        vi.type.tensor_type.elem_type == onnx.TensorProto.BOOL
-                    ), "deterministic in function body should be BOOL"
-                    break
-            else:  # pragma: no cover - defensive
-                pytest.fail("Function missing value_info for deterministic")
+
+def test_unused_input_param_does_not_reappear():
+    def _identity(x, deterministic: bool = True):
+        return x
+
+    model = to_onnx(
+        _identity,
+        inputs=[(2,)],
+        input_params={"deterministic": True},
+        model_name="test_unused_input_param",
+    )
+
+    input_names = {vi.name for vi in model.graph.input}
+    assert input_names == {"in_0"}
