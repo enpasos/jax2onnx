@@ -1,0 +1,73 @@
+from typing import TYPE_CHECKING
+
+import jax
+import numpy as np
+import onnx_ir as ir
+
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+if TYPE_CHECKING:
+    pass  # type hints only
+
+
+@register_primitive(
+    jaxpr_primitive=jax.lax.ne_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.ne.html",
+    onnx=[
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {
+            "component": "Not",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Not.html",
+        },
+    ],
+    since="v0.2.0",
+    context="primitives.lax",
+    component="ne",
+    testcases=[
+        {
+            "testcase": "ne",
+            "callable": lambda x1, x2: x1 != x2,
+            "input_shapes": [(3,), (3,)],
+        }
+    ],
+)
+class NePlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx, eqn):
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
+
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ne_lhs"))
+        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        rhs_val = ctx.get_value_for_var(
+            rhs_var,
+            name_hint=ctx.fresh_name("ne_rhs"),
+            prefer_np_dtype=prefer_dtype,
+        )
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ne_out"))
+
+        eq_tmp = ir.Value(
+            name=ctx.fresh_name("ne_eq_tmp"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=lhs_val.shape,
+        )
+
+        eq_node = ir.Node(
+            op_type="Equal",
+            domain="",
+            inputs=[lhs_val, rhs_val],
+            outputs=[eq_tmp],
+            name=ctx.fresh_name("Equal"),
+        )
+        ctx.add_node(eq_node)
+
+        not_node = ir.Node(
+            op_type="Not",
+            domain="",
+            inputs=[eq_tmp],
+            outputs=[out_val],
+            name=ctx.fresh_name("Not"),
+        )
+        ctx.add_node(not_node)

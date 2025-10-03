@@ -13,10 +13,10 @@ from onnx import TensorProto
 
 from logging_config import configure_logging
 from jax2onnx import allclose
-from jax2onnx.plugins2.plugin_system import (
+from jax2onnx.plugins.plugin_system import (
     EXAMPLE_REGISTRY2,
     PLUGIN_REGISTRY2,
-    import_all_plugins as import_all_plugins2,
+    import_all_plugins as import_all_plugins,
 )
 from jax2onnx.user_interface import to_onnx
 
@@ -136,9 +136,7 @@ def clean_generated_dir(directory: str):
 
 def clean_generated_test_dirs():
     clean_generated_dir(os.path.join(TESTS_DIR, "primitives"))
-    clean_generated_dir(os.path.join(TESTS_DIR, "primitives2"))
     clean_generated_dir(os.path.join(TESTS_DIR, "examples"))
-    clean_generated_dir(os.path.join(TESTS_DIR, "examples2"))
 
 
 # --- Metadata Loading ---
@@ -161,7 +159,7 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
 
 
 def load_metadata_from_plugins() -> list[dict[str, Any]]:
-    import_all_plugins2()
+    import_all_plugins()
 
     items2 = [
         {**plugin.metadata, "jaxpr_primitive": name}

@@ -1,0 +1,1480 @@
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+import jax
+import jax.numpy as jnp
+from jax import core as jax_core
+from jax import lax
+
+try:
+    from jax.extend import core as jax_core_ext  # type: ignore
+except ImportError:  # pragma: no cover - older jax
+    jax_core_ext = None
+try:
+    from jax._src import core as jax_core_internal  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - private API moved
+    jax_core_internal = None
+import numpy as np
+import onnx_ir as ir
+from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
+
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    lower_jaxpr_eqns,
+    make_subgraph_context,
+    relax_value_to_rank_only,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - import only for type checking
+    from jax2onnx.converter.ir_context import IRContext
+
+
+def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
+    aval = getattr(var, "aval", None)
+    if aval is None:
+        return None
+    aval_dtype = getattr(aval, "dtype", None)
+    if aval_dtype is None:
+        return None
+    try:
+        np_dtype = np.dtype(aval_dtype)
+    except TypeError:
+        return None
+    if np.issubdtype(np_dtype, np.floating):
+        return _dtype_to_ir(np_dtype, enable_double)
+    return _dtype_to_ir(np_dtype, enable_double)
+
+
+def _set_value_dtype_from_var(ctx, value: ir.Value, var) -> None:
+    aval = getattr(var, "aval", None)
+    aval_dtype = getattr(aval, "dtype", None)
+    if aval_dtype is None:
+        return
+    try:
+        np_dtype = np.dtype(aval_dtype)
+    except TypeError:
+        return
+    promote_flag = getattr(ctx.builder, "enable_double_precision", False)
+    if np.issubdtype(np_dtype, np.floating):
+        promote_flag = False
+    dtype_enum = _dtype_to_ir(np_dtype, promote_flag)
+    try:
+        value.type = ir.TensorType(dtype_enum, getattr(value, "shape", None))
+    except Exception:
+        value.type = ir.TensorType(dtype_enum)
+    _ensure_value_info(ctx, value)
+
+
+def _maybe_cast_value(
+    ctx, value: ir.Value, target_enum: ir.DataType, *, force: bool = False
+) -> ir.Value:
+    current_enum = getattr(getattr(value, "type", None), "dtype", None)
+    if not force and (current_enum is None or current_enum == target_enum):
+        return value
+    cast_val = ir.Value(
+        name=ctx.fresh_name("scan_dtype_fix"),
+        type=ir.TensorType(target_enum),
+        shape=value.shape,
+    )
+    ctx.add_node(
+        ir.Node(
+            op_type="Cast",
+            domain="",
+            inputs=[value],
+            outputs=[cast_val],
+            name=ctx.fresh_name("Cast"),
+            attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
+        )
+    )
+    _ensure_value_info(ctx, cast_val)
+    return cast_val
+
+
+def _maybe_var_type(mod):
+    if mod is None:
+        return None
+    try:
+        return getattr(mod, "Var")
+    except AttributeError:
+        return None
+
+
+_JAX_VAR_TYPES = tuple(
+    t
+    for t in (
+        _maybe_var_type(jax_core),
+        _maybe_var_type(jax_core_ext),
+        _maybe_var_type(jax_core_internal),
+    )
+    if t is not None
+)
+
+
+def _maybe_dropvar_type(mod):
+    if mod is None:
+        return None
+    try:
+        return getattr(mod, "DropVar")
+    except AttributeError:
+        return None
+
+
+_DROP_VAR_TYPES = tuple(
+    t
+    for t in (
+        _maybe_dropvar_type(jax_core),
+        _maybe_dropvar_type(jax_core_ext),
+        _maybe_dropvar_type(jax_core_internal),
+    )
+    if t is not None
+)
+
+
+def _is_dropvar(obj) -> bool:
+    return bool(_DROP_VAR_TYPES) and isinstance(obj, _DROP_VAR_TYPES)
+
+
+def _is_jax_var(obj) -> bool:
+    return (
+        bool(_JAX_VAR_TYPES)
+        and isinstance(obj, _JAX_VAR_TYPES)
+        and not _is_dropvar(obj)
+    )
+
+
+def scan_fn(x):
+    def body(carry, _):
+        carry = carry + 1
+        return carry, carry
+
+    _, ys = lax.scan(body, x, None, length=5)
+    return ys
+
+
+def _scan_jit_no_xs() -> jax.Array:
+    def simulate():
+        def step_fn(carry, _):
+            return carry + 1, carry * 2
+
+        _, ys = lax.scan(step_fn, 0, xs=None, length=10)
+        return ys
+
+    return jax.jit(simulate)()
+
+
+def _nested_scan_len_mismatch_f32():
+    xs_outer = jnp.arange(100, dtype=jnp.float32)
+
+    def inner(carry, x):
+        x = x.astype(carry.dtype)
+        _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
+        return carry + x, ys[-1]
+
+    _, ys = lax.scan(inner, jnp.asarray(0.0, dtype=jnp.float32), xs_outer)
+    return ys
+
+
+def _nested_scan_len_mismatch_f64():
+    xs_outer = jnp.arange(100, dtype=jnp.float64)
+
+    def inner(carry, x):
+        x = x.astype(carry.dtype)
+        _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
+        return carry + x, ys[-1]
+
+    _, ys = lax.scan(inner, jnp.asarray(0.0, dtype=jnp.float64), xs_outer)
+    return ys
+
+
+def _two_scans_diff_len_f32():
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
+    fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float32))
+    fill_big = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float32))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    return y1, y2
+
+
+def _two_scans_diff_len_f64():
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
+    fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float64))
+    fill_big = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float64))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    return y1, y2
+
+
+def _two_scans_len_mismatch_broadcast_f32():
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
+    fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float32))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, jnp.broadcast_to(0.1, xs_small.shape)),
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill))
+    return y1, y2
+
+
+def _two_scans_len_mismatch_broadcast_f64():
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
+    fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float64))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, jnp.broadcast_to(0.1, xs_small.shape)),
+    )
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill))
+    return y1, y2
+
+
+def _two_scans_diff_len_with_broadcast_f32():
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
+
+    _, y1 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, jnp.broadcast_to(0.1, xs_small.shape)),
+    )
+    _, y2 = lax.scan(
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_big, jnp.full_like(xs_big, 0.1)),
+    )
+    return y1, y2
+
+
+@register_primitive(
+    jaxpr_primitive=jax.lax.scan_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
+    onnx=[
+        {
+            "component": "Scan",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html",
+        }
+    ],
+    since="v0.5.1",
+    context="primitives.lax",
+    component="scan",
+    testcases=[
+        {
+            "testcase": "scan_identity_slice_helper",
+            "callable": lambda x: jax.lax.scan(
+                lambda c, xt: (c, jnp.squeeze(xt[None, ...][0:1, :, :, :], axis=0)),
+                jnp.zeros(x.shape[1:], dtype=x.dtype),
+                x,
+            )[1],
+            "input_shapes": [(2, 3, 4, 5)],
+        },
+        {
+            "testcase": "scan_cumsum",
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c + x),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[1],
+            "input_shapes": [(5,)],
+        },
+        {
+            "testcase": "scan_carry_only",
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[0],
+            "input_shapes": [(3,)],
+        },
+        {
+            "testcase": "scan_multiple_sequences",
+            "callable": lambda xs, ys: jax.lax.scan(
+                lambda c, xy: (c + xy[0] * xy[1], c + xy[0]),
+                jnp.zeros((), dtype=xs.dtype),
+                (xs, ys),
+            )[1],
+            "input_shapes": [(4,), (4,)],
+        },
+        {
+            "testcase": "scan_multiple_carry",
+            "callable": lambda xs: jax.lax.scan(
+                lambda carry, x: (
+                    (carry[0] + x, carry[1] * x),
+                    carry[0] + carry[1],
+                ),
+                (
+                    jnp.zeros((), dtype=xs.dtype),
+                    jnp.ones((), dtype=xs.dtype),
+                ),
+                xs,
+            )[1],
+            "input_shapes": [(3,)],
+        },
+        {
+            "testcase": "scan_matrix_carry_multidim_xs",
+            "callable": lambda init_carry, xs_seq: jax.lax.scan(
+                lambda c_mat, x_slice: (c_mat + x_slice, jnp.sum(c_mat + x_slice)),
+                init_carry,
+                xs_seq,
+            )[1],
+            "input_shapes": [(3, 2), (5, 3, 2)],
+        },
+        {
+            "testcase": "scan_no_xs",
+            "callable": lambda x: jax.lax.scan(
+                lambda carry, _: (carry + 1, carry), x, xs=None, length=5
+            )[1],
+            "input_shapes": [()],
+            "input_dtypes": [jnp.float32],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+        },
+        {
+            "testcase": "scan_fn",
+            "callable": scan_fn,
+            "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+        },
+        {
+            "testcase": "scan_jit_no_xs",
+            "callable": _scan_jit_no_xs,
+            "input_shapes": [],
+            "expected_output_shapes": [(10,)],
+            "expected_output_dtypes": [jnp.int32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_jit_no_xs_f64",
+            "callable": _scan_jit_no_xs,
+            "input_shapes": [],
+            "expected_output_shapes": [(10,)],
+            "expected_output_dtypes": [jnp.int64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_captured_scalar",
+            "callable": (
+                lambda dt=jnp.asarray(0.1, dtype=jnp.float32): (
+                    jax.lax.scan(
+                        lambda carry, _: (carry + dt, carry + dt),
+                        jnp.asarray(0.0, dtype=jnp.float32),
+                        xs=None,
+                        length=3,
+                    )[1]
+                )
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_captured_scalar_f64",
+            "callable": (
+                lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
+                    jax.lax.scan(
+                        lambda carry, _: (carry + dt, carry + dt),
+                        jnp.asarray(0.0, dtype=jnp.float64),
+                        xs=None,
+                        length=3,
+                    )[1]
+                )
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_rank0_sequence_vectorized",
+            "callable": (
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float32): jax.lax.scan(
+                    lambda carry, xs: (carry + xs[0] + xs[1], carry),
+                    0.0,
+                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float32)),
+                )[1]
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_rank0_sequence_vectorized_f64",
+            "callable": (
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): jax.lax.scan(
+                    lambda carry, xs: (carry + xs[0] + xs[1], carry),
+                    0.0,
+                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
+                )[1]
+            ),
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths",
+            "callable": _two_scans_diff_len_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_f64",
+            "callable": _two_scans_diff_len_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
+            "expected_output_dtypes": [jnp.float64, jnp.float64],
+            "run_only_f64_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_broadcast",
+            "callable": _two_scans_len_mismatch_broadcast_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_broadcast_f64",
+            "callable": _two_scans_len_mismatch_broadcast_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
+            "expected_output_dtypes": [jnp.float64, jnp.float64],
+            "run_only_f64_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_two_diff_lengths_with_broadcast",
+            "callable": _two_scans_diff_len_with_broadcast_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
+            "expected_output_dtypes": [jnp.float32, jnp.float32],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "scan_nested_len_mismatch",
+            "callable": _nested_scan_len_mismatch_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_nested_len_mismatch_f64",
+            "callable": _nested_scan_len_mismatch_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_captured_scalar_with_xs",
+            "callable": (
+                lambda xs, dt=jnp.asarray(0.1, dtype=jnp.float32): (
+                    jax.lax.scan(
+                        lambda carry, x: (carry + dt * x, carry + dt * x),
+                        jnp.asarray(0.0, dtype=jnp.float32),
+                        xs,
+                    )[1]
+                )
+            ),
+            "input_shapes": [(8,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+            "check_onnx_load": True,
+        },
+        {
+            "testcase": "scan_captured_vector_with_xs_f64",
+            "callable": (
+                lambda xs, dt=jnp.asarray([0.1, -0.2], dtype=jnp.float64): (
+                    jax.lax.scan(
+                        lambda carry, x: (carry + dt * x, carry + dt * x),
+                        jnp.zeros((2,), dtype=jnp.float64),
+                        xs,
+                    )[1]
+                )
+            ),
+            "input_shapes": [(5, 2)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+            "check_onnx_load": True,
+        },
+    ],
+)
+class ScanPlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: IRContext, eqn):  # type: ignore[name-defined]
+        params = eqn.params
+        closed_jaxpr = params["jaxpr"]
+        num_carry = int(params.get("num_carry", 0))
+        num_consts = int(params.get("num_consts", 0) or 0)
+        if params.get("reverse", False):
+            raise NotImplementedError("Reverse scan is not supported in IR pipeline.")
+        if params.get("unroll", 1) != 1:
+            raise NotImplementedError(
+                "Scan with unroll > 1 is not supported in IR pipeline."
+            )
+
+        jaxpr = closed_jaxpr.jaxpr
+        total_invars = len(jaxpr.invars)
+        num_scan = int(params.get("num_xs", total_invars - num_carry - num_consts))
+        if num_scan < 0 or (num_carry + num_scan + num_consts) != total_invars:
+            raise ValueError(
+                "Inconsistent Scan arity: expected consts/carry/scan to match jaxpr invars"
+            )
+        length = params.get("length")
+
+        if num_scan == 0:
+            node_outputs = self._lower_without_scan_inputs(
+                ctx, eqn, closed_jaxpr, num_carry, num_consts, length
+            )
+        else:
+            node_outputs = self._lower_with_scan_inputs(
+                ctx, eqn, closed_jaxpr, num_carry, num_consts, num_scan, length
+            )
+
+        carry_outvars = list(closed_jaxpr.jaxpr.outvars[:num_carry])
+        scan_outvars = list(closed_jaxpr.jaxpr.outvars[num_carry:])
+        output_indices: list[int] = []
+        eqn_idx = 0
+        for i, carry_var in enumerate(carry_outvars):
+            if not _is_dropvar(carry_var):
+                output_indices.append(num_consts + i)
+                eqn_idx += 1
+        for j, _ in enumerate(scan_outvars):
+            output_indices.append(num_consts + num_carry + num_scan + j)
+
+        for idx, var in enumerate(eqn.outvars):
+            out_idx = output_indices[idx]
+            val = node_outputs[out_idx]
+            aval = getattr(var, "aval", None)
+            if aval is not None:
+                aval_shape = tuple(getattr(aval, "shape", ()))
+                if idx >= num_carry and aval_shape:
+                    desired_shape = ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",) + aval_shape[1:]
+                else:
+                    desired_shape = aval_shape
+                desired_np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
+                if np.issubdtype(desired_np_dtype, np.integer):
+                    target_enum = (
+                        ir.DataType.INT64
+                        if ctx.builder.enable_double_precision
+                        else ir.DataType.INT32
+                    )
+                    cast_val = ir.Value(
+                        name=ctx.fresh_name("scan_out_cast"),
+                        type=ir.TensorType(target_enum),
+                        shape=val.shape,
+                    )
+                    ctx.add_node(
+                        ir.Node(
+                            op_type="Cast",
+                            domain="",
+                            inputs=[val],
+                            outputs=[cast_val],
+                            name=ctx.fresh_name("Cast"),
+                            attributes=[
+                                IRAttr("to", IRAttrType.INT, int(target_enum.value))
+                            ],
+                        )
+                    )
+                    node_outputs[out_idx] = cast_val
+                    try:
+                        ctx.builder._var2val[var] = cast_val
+                    except TypeError:
+                        pass
+                    val = cast_val
+                _stamp_type_and_shape(val, desired_shape)
+
+    def _lower_without_scan_inputs(
+        self,
+        ctx: IRContext,  # type: ignore[name-defined]
+        eqn,
+        closed_jaxpr,
+        num_carry: int,
+        num_consts: int,
+        length,
+    ) -> list[ir.Value]:
+        if not isinstance(length, (int, np.integer)):
+            raise NotImplementedError(
+                "Scan without xs requires a static length in the IR pipeline."
+            )
+
+        jaxpr = closed_jaxpr.jaxpr
+        loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if (
+            dtypes
+            and any(dt == np.float32 for dt in dtypes)
+            and not any(dt == np.float64 for dt in dtypes)
+        ):
+            setattr(loop_ctx, "_keep_function_float32", True)
+        const_float32 = any(
+            hasattr(var, "aval")
+            and getattr(var.aval, "dtype", None) is not None
+            and np.dtype(var.aval.dtype) == np.float32
+            for var in jaxpr.invars[:num_consts]
+        )
+        if const_float32:
+            setattr(loop_ctx, "_keep_function_float32", True)
+        # Only retain float32 when there are no scanned inputs (handled in the no-xs code path).
+
+        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
+            np_c = np.asarray(cval)
+            aval = getattr(cv, "aval", None)
+            if aval is not None:
+                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
+            loop_ctx.bind_const_for_var(cv, np_c)
+
+        iter_in = ir.Value(
+            name=loop_ctx.fresh_name("loop_iter"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+        )
+        cond_in = ir.Value(
+            name=loop_ctx.fresh_name("loop_cond_in"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+        )
+        loop_ctx.builder.inputs.extend([iter_in, cond_in])
+        _stamp_type_and_shape(iter_in, ())
+        _stamp_type_and_shape(cond_in, ())
+
+        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
+        allow_double_consts = (
+            ctx.builder.enable_double_precision and not function_keep_float32
+        )
+
+        state_inputs: list[ir.Value] = []
+        for idx, var in enumerate(jaxpr.invars):
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            if idx < num_consts:
+                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
+                if casted is not state_input:
+                    loop_ctx.bind_value_for_var(var, casted)
+                    state_input = casted
+            _set_value_dtype_from_var(loop_ctx, state_input, var)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
+        if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+            print(
+                "[scan_no_xs_state]",
+                [
+                    (
+                        idx,
+                        getattr(getattr(var, "aval", None), "dtype", None),
+                        getattr(
+                            getattr(state_inputs[idx], "type", None), "dtype", None
+                        ),
+                    )
+                    for idx, var in enumerate(jaxpr.invars)
+                ],
+                flush=True,
+            )
+
+        keep_float32 = function_keep_float32
+        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
+
+        lower_jaxpr_eqns(loop_ctx, jaxpr)
+
+        body_outputs: list[ir.Value] = []
+
+        cond_out = ir.Value(
+            name=loop_ctx.fresh_name("loop_cond_out"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+        )
+        loop_ctx.add_node(
+            ir.Node(
+                op_type="Identity",
+                domain="",
+                inputs=[cond_in],
+                outputs=[cond_out],
+                name=loop_ctx.fresh_name("Identity"),
+            )
+        )
+        body_outputs.append(cond_out)
+
+        for i in range(num_consts):
+            inp_val = state_inputs[i]
+            out_val = ir.Value(
+                name=loop_ctx.fresh_name("loop_const_out"),
+                type=inp_val.type,
+                shape=inp_val.shape,
+            )
+            loop_ctx.add_node(
+                ir.Node(
+                    op_type="Identity",
+                    domain="",
+                    inputs=[inp_val],
+                    outputs=[out_val],
+                    name=loop_ctx.fresh_name("Identity"),
+                )
+            )
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        for out_var in jaxpr.outvars[:num_carry]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_out_carry]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        carry_outputs_start = 1 + num_consts
+        for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
+            value = body_outputs[carry_outputs_start + rel_idx]
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if target_enum is None:
+                continue
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[carry_outputs_start + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+
+        for out_var in jaxpr.outvars[num_carry:]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_out_seq]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        outputs_start_no_xs = 1 + num_consts + num_carry
+        for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
+            value = body_outputs[outputs_start_no_xs + rel_idx]
+            _set_value_dtype_from_var(loop_ctx, value, out_var)
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[outputs_start_no_xs + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_body_output]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    getattr(getattr(casted, "type", None), "dtype", None),
+                    flush=True,
+                )
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_body_output]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    getattr(getattr(value, "type", None), "dtype", None),
+                    flush=True,
+                )
+
+        loop_ctx.builder.outputs = body_outputs
+
+        body_graph = ir.Graph(
+            inputs=list(loop_ctx.builder.inputs),
+            outputs=list(loop_ctx.builder.outputs),
+            nodes=list(loop_ctx.builder.nodes),
+            initializers=list(loop_ctx.builder.initializers),
+            name=ctx.fresh_name("scan_loop_body"),
+            opset_imports={"": getattr(ctx.builder, "opset", 21)},
+        )
+
+        trip_count = ir.Value(
+            name=ctx.fresh_name("scan_trip_count"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(np.asarray(int(length), dtype=np.int64)),
+        )
+        ctx.builder.initializers.append(trip_count)
+
+        cond_init = ir.Value(
+            name=ctx.fresh_name("scan_cond_init"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(np.asarray(True, dtype=np.bool_)),
+        )
+        ctx.builder.initializers.append(cond_init)
+
+        node_inputs = [trip_count, cond_init]
+        inbound_vals: list[ir.Value] = []
+        for idx, v in enumerate(eqn.invars):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and ctx.builder.enable_double_precision
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    cast_val = ir.Value(
+                        name=ctx.fresh_name("scan_state_cast"),
+                        type=ir.TensorType(expected_enum),
+                        shape=top_val.shape,
+                    )
+                    ctx.add_node(
+                        ir.Node(
+                            op_type="Cast",
+                            domain="",
+                            inputs=[top_val],
+                            outputs=[cast_val],
+                            name=ctx.fresh_name("Cast"),
+                            attributes=[
+                                IRAttr(
+                                    "to",
+                                    IRAttrType.INT,
+                                    int(expected_enum.value),
+                                )
+                            ],
+                        )
+                    )
+                    _ensure_value_info(ctx, cast_val)
+                    top_val = cast_val
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
+
+        node_outputs: list[ir.Value] = []
+
+        const_body_outs = body_outputs[1 : 1 + num_consts]
+        for body_out in const_body_outs:
+            node_outputs.append(
+                ir.Value(
+                    name=ctx.fresh_name("loop_const_unused"),
+                    type=body_out.type,
+                    shape=body_out.shape,
+                )
+            )
+
+        carry_body_outs = body_outputs[1 + num_consts : 1 + num_consts + num_carry]
+        for idx, body_out in enumerate(carry_body_outs):
+            out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
+            if out_var is not None and not _is_dropvar(out_var):
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+                if expected_enum is None:
+                    expected_enum = getattr(
+                        getattr(body_out, "type", None), "dtype", None
+                    )
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
+            else:
+                node_outputs.append(
+                    ir.Value(
+                        name=ctx.fresh_name("loop_state_unused"),
+                        type=body_out.type,
+                        shape=body_out.shape,
+                    )
+                )
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("loop_out")
+            )
+            expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if expected_enum is None:
+                expected_enum = getattr(
+                    getattr(
+                        body_outputs[1 + num_consts + num_carry + rel_idx],
+                        "type",
+                        None,
+                    ),
+                    "dtype",
+                    None,
+                )
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=top_val.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
+
+        loop_node = ir.Node(
+            op_type="Loop",
+            domain="",
+            inputs=node_inputs,
+            outputs=node_outputs,
+            name=ctx.fresh_name("Loop"),
+            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+        )
+        ctx.add_node(loop_node)
+
+        return node_outputs
+
+    def _lower_with_scan_inputs(
+        self,
+        ctx: IRContext,  # type: ignore[name-defined]
+        eqn,
+        closed_jaxpr,
+        num_carry: int,
+        num_consts: int,
+        num_scan: int,
+        length,
+    ) -> list[ir.Value]:
+        jaxpr = closed_jaxpr.jaxpr
+
+        seq_invars = list(
+            eqn.invars[num_consts + num_carry : num_consts + num_carry + num_scan]
+        )
+        if not seq_invars:
+            raise ValueError("Expected at least one scanned input when num_scan > 0")
+
+        if length is None:
+            first_seq_aval = getattr(seq_invars[0], "aval", None)
+            if first_seq_aval is None or not getattr(first_seq_aval, "shape", ()):  # type: ignore[arg-type]
+                trip_count_int = None
+            else:
+                dim0 = first_seq_aval.shape[0]
+                trip_count_int = (
+                    int(dim0) if isinstance(dim0, (int, np.integer)) else None
+                )
+        elif isinstance(length, (int, np.integer)):
+            trip_count_int = int(length)
+        else:
+            trip_count_int = None
+
+        for seq_var in seq_invars:
+            aval = getattr(seq_var, "aval", None)
+            if aval is None or not getattr(aval, "shape", ()):  # type: ignore[arg-type]
+                continue
+            dim0 = aval.shape[0]
+            if trip_count_int is not None and isinstance(dim0, (int, np.integer)):
+                if int(dim0) != trip_count_int:
+                    raise ValueError(
+                        "All scanned inputs must share the same leading dimension"
+                    )
+
+        loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if (
+            dtypes
+            and any(dt == np.float32 for dt in dtypes)
+            and not any(dt == np.float64 for dt in dtypes)
+        ):
+            setattr(loop_ctx, "_keep_function_float32", True)
+
+        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
+            np_c = np.asarray(cval)
+            aval = getattr(cv, "aval", None)
+            if aval is not None:
+                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
+            loop_ctx.bind_const_for_var(cv, np_c)
+
+        iter_in = ir.Value(
+            name=loop_ctx.fresh_name("loop_iter"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+        )
+        cond_in = ir.Value(
+            name=loop_ctx.fresh_name("loop_cond_in"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+        )
+        loop_ctx.builder.inputs.extend([iter_in, cond_in])
+        _stamp_type_and_shape(iter_in, ())
+        _stamp_type_and_shape(cond_in, ())
+
+        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
+        allow_double_consts = (
+            ctx.builder.enable_double_precision and not function_keep_float32
+        )
+
+        state_inputs: list[ir.Value] = []
+        for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            if idx < num_consts:
+                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
+                if casted is not state_input:
+                    loop_ctx.bind_value_for_var(var, casted)
+                    state_input = casted
+            _set_value_dtype_from_var(loop_ctx, state_input, var)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
+        if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+            print(
+                "[scan_with_inputs_state]",
+                [
+                    (
+                        idx,
+                        getattr(getattr(var, "aval", None), "dtype", None),
+                        getattr(
+                            getattr(state_inputs[idx], "type", None), "dtype", None
+                        ),
+                    )
+                    for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry])
+                ],
+                flush=True,
+            )
+
+        sequence_states: list[ir.Value] = []
+        for i, seq_eqn_var in enumerate(seq_invars):
+            outer_seq_val = ctx.get_value_for_var(seq_eqn_var)
+            seq_state = ir.Value(
+                name=loop_ctx.fresh_name("scan_seq_state"),
+                type=outer_seq_val.type,
+                shape=outer_seq_val.shape,
+            )
+            loop_ctx.builder.inputs.append(seq_state)
+            sequence_states.append(seq_state)
+
+        scan_input_vars = jaxpr.invars[
+            num_consts + num_carry : num_consts + num_carry + num_scan
+        ]
+        keep_float32 = function_keep_float32
+        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
+        for seq_state, per_step_var in zip(sequence_states, scan_input_vars):
+            per_step_val = loop_ctx.get_value_for_var(
+                per_step_var, name_hint=loop_ctx.fresh_name("scan_elem")
+            )
+            loop_ctx.add_node(
+                ir.Node(
+                    op_type="Gather",
+                    domain="",
+                    inputs=[seq_state, iter_in],
+                    outputs=[per_step_val],
+                    name=loop_ctx.fresh_name("GatherScanInput"),
+                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+                )
+            )
+            aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
+            if aval_dtype is not None:
+                try:
+                    np_dtype = np.dtype(aval_dtype)
+                except TypeError:
+                    np_dtype = None
+                if np_dtype is not None and np.issubdtype(np_dtype, np.floating):
+                    target_enum = ir.DataType.DOUBLE
+                    if keep_float32:
+                        target_enum = ir.DataType.FLOAT
+                    per_step_val.type = ir.TensorType(target_enum)
+                    _ensure_value_info(loop_ctx, per_step_val)
+                    loop_ctx.bind_value_for_var(per_step_var, per_step_val)
+
+        lower_jaxpr_eqns(loop_ctx, jaxpr)
+
+        body_outputs: list[ir.Value] = []
+
+        cond_out = ir.Value(
+            name=loop_ctx.fresh_name("loop_cond_out"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+        )
+        loop_ctx.add_node(
+            ir.Node(
+                op_type="Identity",
+                domain="",
+                inputs=[cond_in],
+                outputs=[cond_out],
+                name=loop_ctx.fresh_name("Identity"),
+            )
+        )
+        body_outputs.append(cond_out)
+
+        for i in range(num_consts):
+            inp_val = state_inputs[i]
+            out_val = ir.Value(
+                name=loop_ctx.fresh_name("loop_const_out"),
+                type=inp_val.type,
+                shape=inp_val.shape,
+            )
+            loop_ctx.add_node(
+                ir.Node(
+                    op_type="Identity",
+                    domain="",
+                    inputs=[inp_val],
+                    outputs=[out_val],
+                    name=loop_ctx.fresh_name("Identity"),
+                )
+            )
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        for out_var in jaxpr.outvars[:num_carry]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_with_inputs_out_carry]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        carry_outputs_start = 1 + num_consts
+        for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
+            value = body_outputs[carry_outputs_start + rel_idx]
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if target_enum is None:
+                continue
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[carry_outputs_start + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+
+        for seq_state in sequence_states:
+            seq_passthrough = ir.Value(
+                name=loop_ctx.fresh_name("loop_seq_out"),
+                type=seq_state.type,
+                shape=seq_state.shape,
+            )
+            loop_ctx.add_node(
+                ir.Node(
+                    op_type="Identity",
+                    domain="",
+                    inputs=[seq_state],
+                    outputs=[seq_passthrough],
+                    name=loop_ctx.fresh_name("Identity"),
+                )
+            )
+            body_outputs.append(seq_passthrough)
+
+        for out_var in jaxpr.outvars[num_carry:]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_with_inputs_out_seq]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        outputs_start_with_seq = 1 + num_consts + num_carry + len(sequence_states)
+        for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
+            value = body_outputs[outputs_start_with_seq + rel_idx]
+            _set_value_dtype_from_var(loop_ctx, value, out_var)
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[outputs_start_with_seq + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+                if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                    print(
+                        "[scan_with_inputs_body_output]",
+                        getattr(getattr(out_var, "aval", None), "dtype", None),
+                        getattr(getattr(casted, "type", None), "dtype", None),
+                        flush=True,
+                    )
+
+        loop_ctx.builder.outputs = body_outputs
+
+        body_graph = ir.Graph(
+            inputs=list(loop_ctx.builder.inputs),
+            outputs=list(loop_ctx.builder.outputs),
+            nodes=list(loop_ctx.builder.nodes),
+            initializers=list(loop_ctx.builder.initializers),
+            name=ctx.fresh_name("scan_loop_body"),
+            opset_imports={"": getattr(ctx.builder, "opset", 21)},
+        )
+
+        if trip_count_int is not None:
+            trip_count_val = ir.Value(
+                name=ctx.fresh_name("scan_trip_count"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(()),
+                const_value=ir.tensor(np.asarray(trip_count_int, dtype=np.int64)),
+            )
+            ctx.builder.initializers.append(trip_count_val)
+        else:
+            first_seq_val = ctx.get_value_for_var(seq_invars[0])
+            shape_val = ir.Value(
+                name=ctx.fresh_name("scan_seq_shape"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape((None,)),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Shape",
+                    domain="",
+                    inputs=[first_seq_val],
+                    outputs=[shape_val],
+                    name=ctx.fresh_name("Shape"),
+                )
+            )
+            zero_idx = ir.Value(
+                name=ctx.fresh_name("scan_len_idx"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(()),
+                const_value=ir.tensor(np.asarray(0, dtype=np.int64)),
+            )
+            ctx.builder.initializers.append(zero_idx)
+            trip_count_val = ir.Value(
+                name=ctx.fresh_name("scan_trip_dynamic"),
+                type=ir.TensorType(ir.DataType.INT64),
+                shape=ir.Shape(()),
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Gather",
+                    domain="",
+                    inputs=[shape_val, zero_idx],
+                    outputs=[trip_count_val],
+                    name=ctx.fresh_name("GatherTripCount"),
+                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+                )
+            )
+
+        cond_init = ir.Value(
+            name=ctx.fresh_name("scan_cond_init"),
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(np.asarray(True, dtype=np.bool_)),
+        )
+        ctx.builder.initializers.append(cond_init)
+
+        node_inputs = [trip_count_val, cond_init]
+        inbound_vals = []
+        limit = num_consts + num_carry + num_scan
+        for idx, v in enumerate(eqn.invars[:limit]):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and allow_double_consts
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    cast_val = ir.Value(
+                        name=ctx.fresh_name("scan_state_cast"),
+                        type=ir.TensorType(expected_enum),
+                        shape=top_val.shape,
+                    )
+                    ctx.add_node(
+                        ir.Node(
+                            op_type="Cast",
+                            domain="",
+                            inputs=[top_val],
+                            outputs=[cast_val],
+                            name=ctx.fresh_name("Cast"),
+                            attributes=[
+                                IRAttr(
+                                    "to",
+                                    IRAttrType.INT,
+                                    int(expected_enum.value),
+                                )
+                            ],
+                        )
+                    )
+                    top_val = cast_val
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
+
+        node_outputs: list[ir.Value] = []
+
+        const_body_outs = body_outputs[1 : 1 + num_consts]
+        for body_out in const_body_outs:
+            node_outputs.append(
+                ir.Value(
+                    name=ctx.fresh_name("loop_const_unused"),
+                    type=body_out.type,
+                    shape=body_out.shape,
+                )
+            )
+
+        carry_body_start = 1 + num_consts
+        for idx in range(num_carry):
+            body_out = body_outputs[carry_body_start + idx]
+            out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
+            if out_var is not None and not _is_dropvar(out_var):
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(
+                    out_var, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = getattr(
+                        getattr(body_out, "type", None), "dtype", None
+                    )
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
+            else:
+                node_outputs.append(
+                    ir.Value(
+                        name=ctx.fresh_name("loop_state_unused"),
+                        type=body_out.type,
+                        shape=body_out.shape,
+                    )
+                )
+
+        seq_body_start = carry_body_start + num_carry
+        for seq_idx in range(num_scan):
+            body_out = body_outputs[seq_body_start + seq_idx]
+            node_outputs.append(
+                ir.Value(
+                    name=ctx.fresh_name("loop_seq_unused"),
+                    type=body_out.type,
+                    shape=body_out.shape,
+                )
+            )
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("loop_out")
+            )
+            body_out = body_outputs[seq_body_start + num_scan + rel_idx]
+            expected_enum = _dtype_enum_for_var(
+                out_var, ctx.builder.enable_double_precision
+            )
+            if expected_enum is None:
+                expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=body_out.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
+
+        loop_node = ir.Node(
+            op_type="Loop",
+            domain="",
+            inputs=node_inputs,
+            outputs=node_outputs,
+            name=ctx.fresh_name("Loop"),
+            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+        )
+        ctx.add_node(loop_node)
+
+        return node_outputs

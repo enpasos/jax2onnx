@@ -1,6 +1,6 @@
 # `expect_graph` checklist for plugins
 
-`expect_graph` (from `jax2onnx.plugins2._post_check_onnx_graph`) is the lightweight
+`expect_graph` (from `jax2onnx.plugins._post_check_onnx_graph`) is the lightweight
 structural assertion helper used by plugin tests and examples. It lets a test
 express the operators, ordering, and shapes that should appear in a converted
 IR/ONNX graph without dumping the full model. This document captures the
@@ -10,7 +10,7 @@ expectations.
 ## Import
 
 ```python
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 ```
 
 Alias it to `EG` inside tests to keep callsites short.
@@ -109,10 +109,10 @@ out into shape-building side chains, such as the CNN dynamic example where the
 ## Where to use it
 
 `post_check_onnx_graph` entries appear inside example/plugin test metadata (see
-`jax2onnx/plugins2/examples2/nnx/cnn.py` for a reference). The helper works with
+`jax2onnx/plugins/examples/nnx/cnn.py` for a reference). The helper works with
 any object that produces an ONNX IR graph compatible with
 `onnx_ir.GraphProto`. The same API is shared by policy tests under
-`tests/extra_tests2`.
+`tests/extra_tests`.
 
 When adding new metadata entries, seed them with a minimal structural check,
 run the example once to capture the intended op sequence, and then layer on

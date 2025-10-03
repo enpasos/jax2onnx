@@ -1,21 +1,21 @@
 #!/usr/bin/env python
-"""One-off helper to port missing reduction testcases into converter2 plugins."""
+"""One-off helper to port missing reduction testcases into converter plugins."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, List
 
-from jax2onnx.plugins2.jax.lax._reduction_registry import REDUCTION_TESTS
+from jax2onnx.plugins.jax.lax._reduction_registry import REDUCTION_TESTS
 
 TARGETS: Dict[str, str] = {
-    "reduce_max": "jax2onnx/plugins2/jax/lax/reduce_max.py",
-    "reduce_min": "jax2onnx/plugins2/jax/lax/reduce_min.py",
-    "reduce_or": "jax2onnx/plugins2/jax/lax/reduce_or.py",
-    "reduce_and": "jax2onnx/plugins2/jax/lax/reduce_and.py",
-    "reduce_prod": "jax2onnx/plugins2/jax/lax/reduce_prod.py",
-    "reduce_sum": "jax2onnx/plugins2/jax/lax/reduce_sum.py",
-    "reduce_xor": "jax2onnx/plugins2/jax/lax/reduce_xor.py",
+    "reduce_max": "jax2onnx/plugins/jax/lax/reduce_max.py",
+    "reduce_min": "jax2onnx/plugins/jax/lax/reduce_min.py",
+    "reduce_or": "jax2onnx/plugins/jax/lax/reduce_or.py",
+    "reduce_and": "jax2onnx/plugins/jax/lax/reduce_and.py",
+    "reduce_prod": "jax2onnx/plugins/jax/lax/reduce_prod.py",
+    "reduce_sum": "jax2onnx/plugins/jax/lax/reduce_sum.py",
+    "reduce_xor": "jax2onnx/plugins/jax/lax/reduce_xor.py",
 }
 
 

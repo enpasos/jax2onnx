@@ -1,0 +1,679 @@
+# file: jax2onnx/plugins/flax/nnx/linear.py
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, Callable, ClassVar, cast
+from typing import (
+    Protocol,
+    Dict,
+    Any,
+)
+import numpy as np
+import jax
+import jax.numpy as jnp
+from jax.extend.core import Primitive
+from flax import nnx
+import onnx_ir as ir
+
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._ir_shapes import (
+    _stamp_type_and_shape,
+    _is_static_int,
+    _dim_label_from_value_or_aval,
+    _ensure_value_info,
+    _as_ir_dim_label,
+    is_shape_all_unknown,
+)
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+
+if TYPE_CHECKING:
+    # Use the same build-context type that cast_param_like expects:
+    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
+
+    # For calls to set_node_attrs (not declared on _IRBuildContext), narrow via this Protocol.
+    from typing import Protocol, Dict, Any
+
+    class _HasNodeAttrs(Protocol):
+        def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None: ...
+
+
+def _attr_i(name: str, val: int):
+    """Robust INT attribute across onnx_ir variants."""
+    Attr = getattr(ir, "Attr", None)
+    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+    if Attr is None:
+        raise RuntimeError("onnx_ir.Attr not found")
+    ival = int(val)
+    if hasattr(Attr, "i"):
+        return Attr.i(name, ival)
+    if AttrType is not None:
+        return Attr(name, AttrType.INT, ival)
+    return Attr(name, ival)
+
+
+def _attr_t(name: str, tensor_obj):
+    """Robust TENSOR attribute for Constant.value across onnx_ir variants."""
+    Attr = getattr(ir, "Attr", None)
+    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+    if Attr is None:
+        raise RuntimeError("onnx_ir.Attr not found")
+    if hasattr(Attr, "t"):
+        return Attr.t(name, tensor_obj)
+    if AttrType is not None:
+        return Attr(name, AttrType.TENSOR, tensor_obj)
+    return Attr(name, tensor_obj)
+
+
+def _const_i64(ctx, data, *, name: str):
+    """
+    Create an INT64 tensor constant as a producer node when inside function
+    bodies (so it survives FunctionProto), while also working at top level.
+    Always returns the produced ir.Value.
+    """
+    arr = np.asarray(data, dtype=np.int64)
+    v = ir.Value(
+        name=ctx.fresh_name(name),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape(arr.shape if arr.shape else ()),
+        const_value=ir.tensor(arr),  # nice for debugging/pretty
+    )
+    inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
+    if inside_fn:
+        # In function bodies we must serialize the tensor in a Constant node.
+        try:
+            cattr = _attr_t("value", ir.tensor(arr))
+            node = ir.Node(
+                op_type="Constant",
+                domain="",
+                inputs=[],
+                outputs=[v],
+                name=ctx.fresh_name("Constant"),
+                attributes=[cattr],
+                num_outputs=1,
+            )
+            ctx.add_node(node)
+        except Exception:
+            # Worst-case fallback: add as initializer
+            try:
+                ctx._initializers.append(v)
+            except Exception:
+                pass
+    else:
+        # Top-level: prefer initializer so graph patterns remain exact.
+        try:
+            ctx._initializers.append(v)
+        except Exception:
+            # If some IR build needs a node, fall back to Constant
+            try:
+                cattr = _attr_t("value", ir.tensor(arr))
+                node = ir.Node(
+                    op_type="Constant",
+                    domain="",
+                    inputs=[],
+                    outputs=[v],
+                    name=ctx.fresh_name("Constant"),
+                    attributes=[cattr],
+                    num_outputs=1,
+                )
+                ctx.add_node(node)
+            except Exception:
+                pass
+    return v
+
+
+def _linear_output_dims(
+    x_val: ir.Value,
+    x_shape: tuple,
+    out_val: ir.Value,
+    out_shape: tuple,
+    fallback_last: int,
+):
+    """Return dims tuple for linear outputs preserving batch labels when known."""
+    out_rank = len(out_shape)
+    batch_rank = max(len(x_shape) - 1, 0)
+    if out_rank:
+        batch_rank = min(batch_rank, max(out_rank - 1, 0))
+
+    dims: list[Any] = []
+    for idx in range(batch_rank):
+        label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        if label is None and idx < len(x_shape):
+            maybe_dim = x_shape[idx]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                label = fallback_label
+        dims.append(label)
+
+    last_dim = None
+    if out_rank:
+        last_dim = _dim_label_from_value_or_aval(out_val, out_shape, out_rank - 1)
+        if last_dim is None and (out_rank - 1) < len(out_shape):
+            maybe_dim = out_shape[out_rank - 1]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                last_dim = fallback_label
+    if last_dim is None:
+        last_dim = fallback_last
+
+    dims.append(last_dim)
+    return tuple(dims)
+
+
+# ------------------------------------------------------------------
+# Graph-pattern expectations used by tests
+# ------------------------------------------------------------------
+# Basic presence of a single Gemm (no flatten/reshape path needed).
+EXPECT_GEMM_ONLY = EG(
+    [
+        (
+            "Gemm",
+            {
+                "counts": {
+                    "Gemm": 1,
+                    "Reshape": 0,
+                    "Shape": 0,
+                    "Slice": 0,
+                    "Concat": 0,
+                    "CastLike": 0,
+                    "Transpose": 0,
+                }
+            },
+        )
+    ]
+)
+# Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
+EXPECT_RGR = EG(
+    [
+        (
+            "Reshape -> Gemm -> Reshape",
+            {
+                "counts": {
+                    "Reshape": 2,
+                    "Gemm": 1,
+                    "Shape": 0,
+                    "Slice": 0,
+                    "Concat": 0,
+                    "CastLike": 0,
+                    "Transpose": 0,
+                }
+            },
+        )
+    ]
+)
+# Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
+# (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
+EXPECT_DYNAMIC_RGR = EG(
+    [
+        (
+            "Reshape -> Gemm -> Reshape",
+            {
+                "counts": {
+                    "Reshape": 2,
+                    "Gemm": 1,
+                    "Shape": 1,
+                    "Slice": 1,
+                    "Concat": 1,
+                    "CastLike": 0,
+                    "Transpose": 0,
+                }
+            },
+        ),
+        "Shape -> Slice -> Concat -> Reshape",
+    ]
+)
+
+
+@register_primitive(
+    jaxpr_primitive="nnx.linear",
+    jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html",
+    onnx=[
+        {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+        {
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+        },
+        {
+            "component": "Slice",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+        },
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
+        {
+            "component": "CastLike",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+        },
+    ],
+    since="v0.1.0",
+    context="primitives.nnx",
+    component="linear",
+    testcases=[
+        {
+            "testcase": "linear_symbolic_batch",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 128)],
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
+        },
+        {
+            "testcase": "linear_high_rank",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank_static",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 10, 128)],
+            "expected_output_shapes": [(3, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR,
+        },
+        {
+            "testcase": "linear_no_bias",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 128)],
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
+        },
+        {
+            "testcase": "linear_high_rank_no_bias",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank_no_bias",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 10, 128)],
+            "expected_output_shapes": [(2, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR,
+        },
+        {
+            "testcase": "linear_merge_symbolic_dim",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+    ],
+)
+class LinearPlugin(PrimitiveLeafPlugin):
+    # Private primitive for this world (no import-time global assignment)
+    _PRIM: ClassVar[Primitive] = Primitive("nnx.linear")
+    _PRIM.multiple_results = False
+    _ORIGINAL_LINEAR_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+
+    # ---------- abstract eval ----------
+    @staticmethod
+    def abstract_eval(x, kernel, bias, *, use_bias: bool, dimension_numbers=None):
+        # If we don't have the original __call__, fall back to shape math.
+        if LinearPlugin._ORIGINAL_LINEAR_CALL is None:
+            if dimension_numbers is None:
+                lhs, rhs = ((x.ndim - 1,), (0,))
+                dimension_numbers = ((lhs, rhs), ((), ()))
+            k0, k1 = kernel.shape
+            need_flat = (k0 != x.shape[-1]) or (x.ndim > 2)
+            out_shape = (x.shape[0], k1) if need_flat else (*x.shape[:-1], k1)
+            return jax.core.ShapedArray(out_shape, x.dtype)
+
+        if dimension_numbers is None:
+            lhs, rhs = ((x.ndim - 1,), (0,))
+            dimension_numbers = ((lhs, rhs), ((), ()))
+
+        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
+        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype) if use_bias else None
+
+        def _helper(xv, kv, bv):
+            from types import SimpleNamespace
+
+            def promote_dtype(args, dtype=None):
+                return args
+
+            def dot_general(a, b, dimension_numbers=None, precision=None, **kwargs):
+                return jax.lax.dot_general(a, b, dimension_numbers)
+
+            dummy = SimpleNamespace(
+                kernel=SimpleNamespace(value=kv),
+                bias=SimpleNamespace(value=bv) if use_bias else None,
+                use_bias=use_bias,
+                axis=-1,
+                in_features=kv.shape[0],
+                out_features=kv.shape[1],
+                promote_dtype=promote_dtype,
+                dtype=xv.dtype,
+                dot_general=dot_general,
+                precision=None,
+                preferred_element_type=None,
+            )
+            return LinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
+
+        out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
+        out = jax.tree_util.tree_leaves(out)[0]
+        return jax.core.ShapedArray(out.shape, out.dtype)
+
+    # ---------- lowering (IR) ----------
+
+    def lower(self, ctx: "IRBuildContext", eqn):
+        x_var, kernel_var, bias_var = eqn.invars
+        out_var = eqn.outvars[0]
+        use_bias = bool(eqn.params["use_bias"])
+
+        # Values
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
+        k_val = ctx.get_value_for_var(kernel_var, name_hint=ctx.fresh_name("kernel"))
+        if use_bias:
+            b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
+
+        # Preserve original input meta shape on graph.input if the binder left it unknown
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if is_shape_all_unknown(getattr(x_val, "shape", None)):
+            if any(d is not None for d in x_shape):
+                _stamp_type_and_shape(x_val, x_shape)
+
+        # Cast parameters AFTER shaping/promotion decisions (promote params -> input dtype)
+        k_val = cast_param_like(ctx, k_val, x_val, "kernel_cast")
+        if use_bias:
+            b_val = cast_param_like(ctx, b_val, x_val, "bias_cast")
+
+        k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
+        in_features = int(k_shape[0])
+        out_features = int(k_shape[1])
+
+        # Flatten if rank > 2
+        need_flatten = len(x_shape) > 2
+        gemm_in = x_val
+        if need_flatten:
+            # Compute product of batch dims if all static (e.g., 3×10 -> 30)
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+            if all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                x2d_shape = ir.Shape((m_size, in_features))
+            else:
+                x2d_shape = ir.Shape((None, in_features))
+
+            x2d_shape_c = _const_i64(ctx, [-1, in_features], name="x2d_shape")
+            x2d = ir.Value(
+                name=ctx.fresh_name("input_reshape"),
+                type=x_val.type,
+                shape=x2d_shape,
+            )
+            ctx.add_node(
+                ir.Node(
+                    op_type="Reshape",
+                    domain="",
+                    inputs=[x_val, x2d_shape_c],
+                    outputs=[x2d],
+                    name=ctx.fresh_name("Reshape"),
+                )
+            )
+            gemm_in = x2d
+
+        # Gemm
+        if need_flatten:
+            # If batch dims are static, keep concrete M; otherwise leave None
+            if "all_batch_static" in locals() and all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                gemm_shape = ir.Shape((m_size, out_features))
+            else:
+                gemm_shape = ir.Shape((None, out_features))
+            gemm_out = ir.Value(
+                name=ctx.fresh_name("gemm_output"),
+                type=x_val.type,
+                shape=gemm_shape,
+            )
+        else:
+            gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+            out_aval_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+            y_meta = _linear_output_dims(
+                x_val,
+                x_shape,
+                gemm_out,
+                out_aval_shape,
+                int(out_features),
+            )
+            _stamp_type_and_shape(gemm_out, y_meta)
+            _ensure_value_info(ctx, gemm_out)
+
+        inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
+        gemm_node = ir.Node(
+            op_type="Gemm",
+            domain="",
+            inputs=inputs,
+            outputs=[gemm_out],
+            name=ctx.fresh_name("Gemm"),
+        )
+        ctx.add_node(gemm_node)
+        # _IRBuildContext doesn't declare set_node_attrs; narrow just for this call.
+        cast("_HasNodeAttrs", ctx).set_node_attrs(
+            gemm_node,
+            {
+                "alpha": 1.0,
+                # If there's no bias input, set beta=0.0 for strict ORT semantics.
+                "beta": 0.0 if not use_bias else 1.0,
+                "transA": 0,
+                "transB": 0,
+            },
+        )
+
+        # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
+        if need_flatten:
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+
+            if all_batch_static:
+                final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
+                final_shape_c = _const_i64(ctx, final_vals, name="final_shape_c")
+
+                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+                out_aval_shape = tuple(
+                    getattr(getattr(out_var, "aval", None), "shape", ())
+                )
+                y_meta = _linear_output_dims(
+                    x_val,
+                    x_shape,
+                    y_val,
+                    out_aval_shape,
+                    int(out_features),
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[gemm_out, final_shape_c],
+                        outputs=[y_val],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                _ensure_value_info(ctx, y_val)
+            else:
+                shp = ir.Value(
+                    name=ctx.fresh_name("x_shape"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape),)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Shape",
+                        domain="",
+                        inputs=[x_val],
+                        outputs=[shp],
+                        name=ctx.fresh_name("Shape"),
+                    )
+                )
+                starts = _const_i64(ctx, [0], name="slice_starts")
+                ends = _const_i64(ctx, [len(x_shape) - 1], name="slice_ends")
+                axes_val = _const_i64(ctx, [0], name="slice_axes")
+                # Missing output placeholder for Slice → define it before the node.
+                batch_dims = ir.Value(
+                    name=ctx.fresh_name("batch_dims"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape) - 1,)),
+                )
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Slice",
+                        domain="",
+                        inputs=[shp, starts, ends, axes_val],
+                        outputs=[batch_dims],
+                        name=ctx.fresh_name("Slice"),
+                    )
+                )
+                of = _const_i64(ctx, [out_features], name="out_features_c")
+                final_shape = ir.Value(
+                    name=ctx.fresh_name("final_shape"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((len(x_shape),)),
+                )
+                # Build Concat WITH axis attribute set at creation time.
+                # This avoids depending on late overrides for a required attribute.
+                try:
+                    concat_attrs = [_attr_i("axis", 0)]
+                except Exception:
+                    concat_attrs = []
+                concat_node = ir.Node(
+                    op_type="Concat",
+                    domain="",
+                    inputs=[batch_dims, of],
+                    outputs=[final_shape],
+                    name=ctx.fresh_name("Concat"),
+                    attributes=concat_attrs,
+                )
+                ctx.add_node(concat_node)
+                # Keep scope-agnostic override path as a backstop (no harm if duplicate).
+                ctx.set_node_attrs(concat_node, {"axis": 0})
+
+                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+                out_aval_shape = tuple(
+                    getattr(getattr(out_var, "aval", None), "shape", ())
+                )
+                y_meta = _linear_output_dims(
+                    x_val,
+                    x_shape,
+                    y_val,
+                    out_aval_shape,
+                    int(out_features),
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                ctx.add_node(
+                    ir.Node(
+                        op_type="Reshape",
+                        domain="",
+                        inputs=[gemm_out, final_shape],
+                        outputs=[y_val],
+                        name=ctx.fresh_name("Reshape"),
+                    )
+                )
+                _stamp_type_and_shape(y_val, y_meta)
+                _ensure_value_info(ctx, y_val)
+
+    # ---------- monkey-patch helper (single, non-duplicated) ----------
+    @staticmethod
+    def get_monkey_patch(orig_fn):
+        LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
+        prim = LinearPlugin._PRIM
+
+        def patched(self, x):
+            dn = (((x.ndim - 1,), (0,)), ((), ()))
+            kernel = self.kernel.value
+            use_bias = self.bias is not None
+            bias = self.bias.value if use_bias else jnp.zeros((), dtype=x.dtype)
+            return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
+
+        return patched
+
+    @classmethod
+    def binding_specs(cls):
+        """Patch bindings while active."""
+        return [
+            AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="flax.nnx.Linear",
+                attr="__call__",
+                make_value=lambda orig: cls.get_monkey_patch(orig),
+                delete_if_missing=False,
+            ),
+        ]
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
+
+
+@LinearPlugin._PRIM.def_impl
+def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
+    if use_bias and bias is not None:
+        y = y + bias
+    return y

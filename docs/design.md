@@ -18,7 +18,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 
 ## Core (plugin-agnostic)
 
-* **Plugin discovery.** Recursively import `plugins2/*`. Plugins self-register into a registry keyed by **primitive name** (string). The core never sees concrete classes like `nnx.Conv`.
+* **Plugin discovery.** Recursively import `plugins/*`. Plugins self-register into a registry keyed by **primitive name** (string). The core never sees concrete classes like `nnx.Conv`.
 * **Activation window.** Core enters a context that applies *whatever patches plugins declare*. This context **wraps tracing** so patched high-level calls (e.g., `nnx.Conv.__call__`) emit the right primitive names. No allowlists; no special-cases.
 * **Tracing.** `make_jaxpr(fn)(*shape_specs)` yields a **ClosedJaxpr**: `(constvars, invars, eqns, outvars)`.
 * **IR assembly.** Walk equations in order; for each equation:

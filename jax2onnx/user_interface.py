@@ -24,9 +24,9 @@ import numpy as np
 import onnx
 from jax import config, core
 
-from jax2onnx.converter2.conversion_api import to_onnx as to_onnx_impl
-from jax2onnx.converter2.ir_postprocess import postprocess_ir_model
-from jax2onnx.plugins2.plugin_system import onnx_function as onnx_function_impl
+from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
+from jax2onnx.converter.ir_postprocess import postprocess_ir_model
+from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.serde_onnx import ir_to_onnx
 
 if TYPE_CHECKING:  # pragma: no cover - import optional dependency for typing
@@ -317,7 +317,7 @@ def to_onnx(
         return dest
 
     # --- Bridge old vs new worlds gracefully ---
-    # New world (converter2): returns an onnx_ir.Model → convert to ONNX ModelProto.
+    # New world (converter): returns an onnx_ir.Model → convert to ONNX ModelProto.
     # Old world (converter v1): already returns an onnx.ModelProto → pass through.
     ir_model_type = None
     try:

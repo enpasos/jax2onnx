@@ -4,8 +4,8 @@
 
 This monorepo now runs entirely on the **IR-only** pipeline:
 
-* `converter2/` – main entrypoint. Uses `onnx_ir` to build an intermediate representation, then serializes to ONNX later.
-* `plugins2/` – modular lowering for JAX/Flax primitives into IR (no ONNX proto imports here).
+* `converter/` – main entrypoint. Uses `onnx_ir` to build an intermediate representation, then serializes to ONNX later.
+* `plugins/` – modular lowering for JAX/Flax primitives into IR (no ONNX proto imports here).
 * `tests/` – unit, integration, and policy tests targeting the new world (legacy `extra_tests/`, `examples/`, and `plugins/` are gone).
 
 * Docs: `docs/design.md` covers the core vs. plugin architecture, and `docs/subgraph_input_handling.md` explains ONNX control-flow subgraph wiring.
@@ -54,15 +54,15 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 
 ### IR vs ONNX (critical)
 
-* The **converter2** pipeline and **plugins2** plugins must be **IR-only**.
-  **Do not** import `onnx` (protobuf) in `converter2/*` or `plugins2/*`. There is a policy test under `tests/extra_tests2/framework/test_no_onnx_in_converter2_plugins2.py` that will fail if you do.
+* The **converter** pipeline and **plugins** plugins must be **IR-only**.
+  **Do not** import `onnx` (protobuf) in `converter/*` or `plugins/*`. There is a policy test under `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` that will fail if you do.
 
 * ONNX **protobuf** shape inference or serialization should live in top-level adapters, not in IR passes or plugins.
 
 ### Old world removal (current focus)
 
 * Legacy `converter/`, `plugins/`, `examples/`, and `tests/extra_tests/` have been removed. Clean up any remaining imports, registry shims, or docs that still reference them.
-* Update tooling (`scripts/`, `tests/`, docs) to rely solely on `converter2` + `plugins2` resources. If something still depends on the old modules, replace it with the IR-only equivalent or delete it.
+* Update tooling (`scripts/`, `tests/`, docs) to rely solely on `converter` + `plugins` resources. If something still depends on the old modules, replace it with the IR-only equivalent or delete it.
 * Keep an eye on `MigrationStatus.md`: it now tracks only IR coverage. Regenerate it (`poetry run python scripts/generate_migration_status.py`) after adding or pruning tests so the status stays accurate.
 * Deleting unused assets is encouraged, but do it incrementally with green tests. Prefer one plugin/test family per change set to keep diffs understandable.
 
@@ -70,7 +70,7 @@ poetry run pytest -q tests/path/test_file.py::TestClass::test_case
 
 * **Never seed at import time.** Constructors must receive an explicit `jax.random.PRNGKey` (Equinox) or `nnx.Rngs` (Flax NNX). No module-level `PRNGKey(...)` or `nnx.Rngs(...)`.
 * **Keys are single-use.** Split once per independent consumer (e.g., params vs. dropout). While iterating locally, enable `jax.config.update("jax_debug_key_reuse", True)` to catch reuse bugs immediately.
-* **Expose explicit callables in metadata/tests.** Wrap stochastic objects with `construct_and_call(...)` from `plugins2.plugin_system` and use the placeholders `with_requested_dtype()`, `with_rng_seed(seed)`, or `with_prng_key(seed)` when dtype/seed must track the test harness.
+* **Expose explicit callables in metadata/tests.** Wrap stochastic objects with `construct_and_call(...)` from `plugins.plugin_system` and use the placeholders `with_requested_dtype()`, `with_rng_seed(seed)`, or `with_prng_key(seed)` when dtype/seed must track the test harness.
 * **Do not use `callable_factory`.** All metadata should provide a `"callable"` entry built via `construct_and_call` so the generator can rebuild modules for f32/f64 variants automatically.
 
 Example:
@@ -89,13 +89,13 @@ Example:
 
 ### Numeric validation parity
 
-* `skip_numeric_validation` is reserved for stochastic cases. A `plugins2` testcase may only set it when the matching legacy testcase does as well—see `tests/extra_tests2/framework/test_do_not_skip_numeric_validation.py`.
+* `skip_numeric_validation` is reserved for stochastic cases. A `plugins` testcase may only set it when the matching legacy testcase does as well—see `tests/extra_tests/framework/test_do_not_skip_numeric_validation.py`.
 
 ### Structure
 
-* `converter2/ir_optimizations.py` contains IR-level graph passes (reshape/transpose pair folding, Dropout cleanup, dead code elimination, etc.).
-* `plugins2/_post_check_onnx_graph.py` provides **expect\_graph** – structural assertions helpers for tests.
-* `plugins2/flax/nnx/*` contains Flax NNX lowering (e.g., `dropout.py`).
+* `converter/ir_optimizations.py` contains IR-level graph passes (reshape/transpose pair folding, Dropout cleanup, dead code elimination, etc.).
+* `plugins/_post_check_onnx_graph.py` provides **expect\_graph** – structural assertions helpers for tests.
+* `plugins/flax/nnx/*` contains Flax NNX lowering (e.g., `dropout.py`).
 
 ### Coding style
 
@@ -118,7 +118,7 @@ Set these env vars to trace particular subsystems (print to stdout):
 Example:
 
 ```bash
-JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests2/framework/test_ir_optimizations.py::test_dropout_training_mode_inlined_constant_false_and_not_removed
+JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests/framework/test_ir_optimizations.py::test_dropout_training_mode_inlined_constant_false_and_not_removed
 ```
 
 ---
@@ -130,7 +130,7 @@ JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests2/framework/test_ir_op
 Use `expect_graph` to assert shapes/paths/operators without heavy fixtures:
 
 ```python
-from jax2onnx.plugins2._post_check_onnx_graph import expect_graph as EG2
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG2
 
 check = EG2(
     ["Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10"],
@@ -154,7 +154,7 @@ Supported patterns:
 ### Focused test runs
 
 ```bash
-poetry run pytest -q tests/examples2/test_nnx.py::Test_MLP::test_simple_mlp_dynamic
+poetry run pytest -q tests/examples/test_nnx.py::Test_MLP::test_simple_mlp_dynamic
 ```
 
 > Prefer adding small “extra\_tests” that isolate new behavior you introduce. They run fast and are great for regression safety.
@@ -165,7 +165,7 @@ When a testcase needs dtype-specific instantiation, expose a `construct_and_call
 
 ## Working on the IR optimizer
 
-File: `converter2/ir_optimizations.py`
+File: `converter/ir_optimizations.py`
 
 ### Philosophy
 
@@ -210,7 +210,7 @@ If a mutation seems to “not stick”, rebuild the node (fresh `ir.Node`) and r
 
 ---
 
-## Working on plugins (plugins2)
+## Working on plugins (plugins)
 
 * Plugins must be **IR-only**.
 * Keep logic minimal; non-local cleanups should happen in the **optimizer**, not in plugins.
@@ -223,7 +223,7 @@ If a mutation seems to “not stick”, rebuild the node (fresh `ir.Node`) and r
 
 ## Policy & safety rails
 
-* **No ONNX proto imports** in `converter2/*` or `plugins2/*` (tests enforce).
+* **No ONNX proto imports** in `converter/*` or `plugins/*` (tests enforce).
 * **No large binaries** – link externally if needed.
 * If you see flakiness:
 
@@ -257,7 +257,7 @@ If a mutation seems to “not stick”, rebuild the node (fresh `ir.Node`) and r
 * **Run with debug**:
 
   ```bash
-  JAX2ONNX_IROPT_DEBUG=1 JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests2/framework/test_ir_optimizations.py::test_...
+  JAX2ONNX_IROPT_DEBUG=1 JAX2ONNX_TM_DEBUG=1 poetry run pytest -q tests/extra_tests/framework/test_ir_optimizations.py::test_...
   ```
 
 ---
@@ -273,7 +273,7 @@ If a mutation seems to “not stick”, rebuild the node (fresh `ir.Node`) and r
 
 ## When you’re stuck
 
-1. Add a tiny failing test in `tests/extra_tests2/framework/` that reproduces your issue with a minimal graph.
+1. Add a tiny failing test in `tests/extra_tests/framework/` that reproduces your issue with a minimal graph.
 2. Turn on the relevant debug flags (`JAX2ONNX_*_DEBUG=1`) and capture the logs in CI output.
 3. Verify mutations persist (inspect both `graph.nodes` and `graph._nodes` after your pass).
 4. If an attribute/value isn’t being read, extend `_to_numpy_from_any` or `_get_attr` defensively (don’t import ONNX proto).
@@ -283,7 +283,7 @@ If a mutation seems to “not stick”, rebuild the node (fresh `ir.Node`) and r
 ## Glossary
 
 * **IR**: Lightweight intermediate representation (`onnx_ir`) used during conversion.
-* **ONNX proto**: The protobuf schema and helpers; **not** used in `converter2/plugins2`.
+* **ONNX proto**: The protobuf schema and helpers; **not** used in `converter/plugins`.
 * **Live list**: A Python list that reflects the graph’s actual node container (mutations persist).
 * **Missing input**: An ONNX convention where an optional input is given as an empty name `""`.
 
