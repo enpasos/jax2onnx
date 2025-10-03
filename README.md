@@ -113,9 +113,9 @@ to_onnx(
 
 
 
-### **Current Productive Version**
+### **Upcoming Version**
  
-* **0.9.0** *(Upcoming PyPI)*:
+* **0.9.0**:
 
   * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py).
   * added a `return_mode` option in `to_onnx`:
