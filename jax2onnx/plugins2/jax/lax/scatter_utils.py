@@ -677,12 +677,35 @@ def _flatten_updates_after_permute(
 
 def _resolve_operand_to_update_map(
     spec: ScatterSpec, operand_rank: int
-) -> Dict[int, int]:
+) -> tuple[Dict[int, int], Dict[int, int]]:
+    """Return mappings from operand axes to update axes.
+
+    ``full_map`` contains every operand axis participating in the window
+    portion (including scatter axes). ``window_map`` filters out scatter axes so
+    callers can treat them as batch axes when permuting update tensors.
+    """
+
     window_operand_dims = _compute_window_operand_dims(spec, operand_rank)
-    return {
-        operand_axis: int(spec.update_window_dims[i])
+    update_window_dims = tuple(int(dim) for dim in spec.update_window_dims)
+
+    if len(window_operand_dims) != len(update_window_dims):
+        raise NotImplementedError(
+            "scatter lowering: mismatched update_window_dims metadata"
+        )
+
+    full_map: Dict[int, int] = {
+        operand_axis: update_window_dims[i]
         for i, operand_axis in enumerate(window_operand_dims)
     }
+
+    scatter_axes = {int(ax) for ax in spec.scatter_dims_to_operand_dims}
+    window_map = {
+        axis: update_axis
+        for axis, update_axis in full_map.items()
+        if axis not in scatter_axes
+    }
+
+    return full_map, window_map
 
 
 def _compute_window_sizes(
@@ -696,6 +719,7 @@ def _compute_window_sizes(
     ir.Value,
     ir.Value,
     ir.Value,
+    list[ir.Value],
 ]:
     updates_shape_val = _shape_of(ctx, updates_val, "scatter_updates_shape")
 
@@ -756,6 +780,7 @@ def _compute_window_sizes(
         window_shape_val,
         window_total_vec,
         updates_shape_val,
+        size_unsqueezed,
     )
 
 
@@ -1496,7 +1521,9 @@ def _lower_scatter_window_full(
         return False
 
     try:
-        operand_to_update = _resolve_operand_to_update_map(spec, operand_rank)
+        operand_to_update_full, operand_to_update_window = (
+            _resolve_operand_to_update_map(spec, operand_rank)
+        )
     except NotImplementedError:
         return False
 
@@ -1511,22 +1538,44 @@ def _lower_scatter_window_full(
         window_shape_val,
         window_total_vec,
         _,
-    ) = _compute_window_sizes(ctx, updates_val, operand_rank, operand_to_update)
+        size_unsqueezed,
+    ) = _compute_window_sizes(ctx, updates_val, operand_rank, operand_to_update_full)
+
+    hints = getattr(ctx, "_scatter_window_hints", None)
+    if hints is None or not isinstance(hints, dict):
+        hints = {}
+        setattr(ctx, "_scatter_window_hints", hints)
+    for axis in range(operand_rank):
+        if axis in scatter_axes:
+            continue
+        hints.setdefault(axis, []).append(size_unsqueezed[axis])
 
     updates_rank = len(updates_shape)
-    window_axes_set = {int(ax) for ax in spec.update_window_dims}
-    batch_axes = [ax for ax in range(updates_rank) if ax not in window_axes_set]
+    window_axes_update = {
+        update_axis for update_axis in operand_to_update_window.values()
+    }
+    batch_axes = [ax for ax in range(updates_rank) if ax not in window_axes_update]
+
+    # Preserve the relative order of scatter-related update axes to keep the
+    # perm stable, but place them ahead of the window axes.
+    scatter_update_axes = [
+        operand_to_update_full[axis]
+        for axis in scatter_axes
+        if axis in operand_to_update_full
+    ]
+    for axis in scatter_update_axes:
+        if axis not in batch_axes:
+            batch_axes.append(axis)
+    batch_axes.sort()
+
     window_axes_ordered = [
-        operand_to_update[axis]
+        operand_to_update_window[axis]
         for axis in range(operand_rank)
-        if axis in operand_to_update
+        if axis in operand_to_update_window
     ]
     perm = batch_axes + window_axes_ordered
     updates_perm_val = updates_val
     if perm != list(range(updates_rank)):
-        perm_const = _const_i64(
-            ctx, np.asarray(perm, dtype=np.int64), "scatter_updates_perm"
-        )
         perm_shape_dims: list[Any] = []
         for idx in perm:
             if idx < len(updates_shape):
@@ -1542,9 +1591,10 @@ def _lower_scatter_window_full(
             ir.Node(
                 op_type="Transpose",
                 domain="",
-                inputs=[updates_val, perm_const],
+                inputs=[updates_val],
                 outputs=[updates_perm_val],
                 name=ctx.fresh_name("Transpose"),
+                attributes=[IRAttr("perm", IRAttrType.INTS, perm)],
             )
         )
         _ensure_value_info(ctx, updates_perm_val)

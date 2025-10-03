@@ -104,13 +104,29 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         shape = tuple(eqn.params["shape"])
         bdims = tuple(eqn.params["broadcast_dimensions"])
 
+        hints = getattr(ctx, "_scatter_window_hints", None)
+        allow_hints = bool(bdims)
+
+        def _peek_scatter_hint(axis: int) -> ir.Value | None:
+            if not isinstance(hints, dict):
+                return None
+            values = hints.get(axis)
+            if not values:
+                return None
+            return values[-1]
+
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
         # We'll keep a reference tensor with the *desired* float dtype (usually from the
         # origin of a symbolic dim like 'B') so we can CastLike the operand if needed.
         like_ref_val: ir.Value | None = None
-        for d in shape:
+        for axis, d in enumerate(shape):
+            if allow_hints and hints and axis not in bdims:
+                override_val = _peek_scatter_hint(axis)
+                if override_val is not None:
+                    dim_pieces.append(override_val)
+                    continue
             if isinstance(d, (int, np.integer)):
                 c = ir.Value(
                     name=ctx.fresh_name("bcast_dim_c"),
@@ -212,14 +228,38 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 )
                 reshape_dims[r_axis] = dim
 
-            rs_np = np.asarray(reshape_dims, dtype=np.int64)
+            reshape_dim_pieces: list[ir.Value] = []
+            for axis, dim in enumerate(reshape_dims):
+                override_val = None
+                if allow_hints and hints and axis not in bdims:
+                    override_val = _peek_scatter_hint(axis)
+                if override_val is not None:
+                    reshape_dim_pieces.append(override_val)
+                    continue
+                const_val = ir.Value(
+                    name=ctx.fresh_name("bcast_reshape_dim"),
+                    type=ir.TensorType(ir.DataType.INT64),
+                    shape=ir.Shape((1,)),
+                    const_value=ir.tensor(np.asarray([int(dim)], dtype=np.int64)),
+                )
+                ctx._initializers.append(const_val)
+                reshape_dim_pieces.append(const_val)
+
             rs_val = ir.Value(
                 name=ctx.fresh_name("bcast_reshape_shape"),
                 type=ir.TensorType(ir.DataType.INT64),
                 shape=ir.Shape((rrank,)),
-                const_value=ir.tensor(rs_np),
             )
-            ctx._initializers.append(rs_val)
+            ctx.add_node(
+                ir.Node(
+                    op_type="Concat",
+                    domain="",
+                    inputs=reshape_dim_pieces,
+                    outputs=[rs_val],
+                    name=ctx.fresh_name("Concat"),
+                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+                )
+            )
 
             reshaped_val = ir.Value(
                 name=ctx.fresh_name("bcast_reshape_out"),
