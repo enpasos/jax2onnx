@@ -1,1 +1,1 @@
-# Namespace package for plugin2 emitters (onnx_ir pipeline).
+# Namespace package for plugin emitters (onnx_ir pipeline).

@@ -1,5 +1,5 @@
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY2 as IR_REGISTRY,
+    PLUGIN_REGISTRY as IR_REGISTRY,
     import_all_plugins as import_all_ir,
 )
 

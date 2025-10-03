@@ -15,7 +15,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY2,
+    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     apply_monkey_patches,
     import_all_plugins,
@@ -269,7 +269,7 @@ def _activate_plugin_worlds():
         # Legacy patches first
         stack.enter_context(apply_monkey_patches())
         # New-style leaf bindings
-        for plugin_instance in PLUGIN_REGISTRY2.values():
+        for plugin_instance in PLUGIN_REGISTRY.values():
             if isinstance(plugin_instance, PrimitiveLeafPlugin):
                 stack.enter_context(plugin_instance.__class__.plugin_binding())
         yield
@@ -391,7 +391,7 @@ def to_onnx(
 
         for eqn in jpr.eqns:
             prim_name = eqn.primitive.name
-            plugin_ref = PLUGIN_REGISTRY2.get(prim_name)
+            plugin_ref = PLUGIN_REGISTRY.get(prim_name)
             if plugin_ref is None:
                 raise NotImplementedError(
                     f"[converter] No plugins registered for primitive '{prim_name}'"

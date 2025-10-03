@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar
 import numpy as np
 
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY2,
+    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     register_primitive,
 )
@@ -68,7 +68,7 @@ class CustomJvpCallPlugin(PrimitiveLeafPlugin):
 
         for inner_eqn in inner_jaxpr.eqns:
             prim_name = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY2.get(prim_name)
+            plugin = PLUGIN_REGISTRY.get(prim_name)
             if plugin is None:
                 raise NotImplementedError(
                     f"No plugins registered for primitive '{prim_name}' inside custom_jvp body"

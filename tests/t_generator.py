@@ -14,8 +14,8 @@ from onnx import TensorProto
 from logging_config import configure_logging
 from jax2onnx import allclose
 from jax2onnx.plugins.plugin_system import (
-    EXAMPLE_REGISTRY2,
-    PLUGIN_REGISTRY2,
+    EXAMPLE_REGISTRY,
+    PLUGIN_REGISTRY,
     import_all_plugins as import_all_plugins,
 )
 from jax2onnx.user_interface import to_onnx
@@ -163,10 +163,10 @@ def load_metadata_from_plugins() -> list[dict[str, Any]]:
 
     items2 = [
         {**plugin.metadata, "jaxpr_primitive": name}
-        for name, plugin in PLUGIN_REGISTRY2.items()
+        for name, plugin in PLUGIN_REGISTRY.items()
         if hasattr(plugin, "metadata")
     ]
-    example_items2 = [dict(md) for md in EXAMPLE_REGISTRY2.values()]
+    example_items2 = [dict(md) for md in EXAMPLE_REGISTRY.values()]
     return items2 + example_items2
 
 

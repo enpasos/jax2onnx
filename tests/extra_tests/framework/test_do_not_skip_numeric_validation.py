@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Dict, Iterable
 
 from jax2onnx.plugins.plugin_system import (
-    EXAMPLE_REGISTRY2,
-    PLUGIN_REGISTRY2,
+    EXAMPLE_REGISTRY,
+    PLUGIN_REGISTRY,
     import_all_plugins as import_all_plugins,
 )
 
@@ -52,8 +52,8 @@ def _iter_metadata_from_registry(registry: Dict[str, object]) -> Iterable[_Metad
 def test_plugins_skip_numeric_validation_is_constrained():
     import_all_plugins()
 
-    metas = list(_iter_metadata_from_registry(PLUGIN_REGISTRY2))
-    metas.extend(EXAMPLE_REGISTRY2.values())
+    metas = list(_iter_metadata_from_registry(PLUGIN_REGISTRY))
+    metas.extend(EXAMPLE_REGISTRY.values())
 
     unexpected: list[str] = []
 

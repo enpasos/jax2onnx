@@ -23,7 +23,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 * **Tracing.** `make_jaxpr(fn)(*shape_specs)` yields a **ClosedJaxpr**: `(constvars, invars, eqns, outvars)`.
 * **IR assembly.** Walk equations in order; for each equation:
 
-  * Look up `PLUGIN_REGISTRY2[eqn.primitive.name]`.
+  * Look up `PLUGIN_REGISTRY[eqn.primitive.name]`.
   * Give it the equation and a **lowering context**; it emits IR nodes/values.
   * Assert that **every** `eqn.outvars[i]` is bound to an IR value before moving on (generic guardrail).
 * **IR optimization (safe, structure-only).** Run small, local rewrites that don’t encode op semantics, e.g. folding redundant layout ping-pongs (see below).

@@ -7,7 +7,7 @@ from typing import Any
 
 import onnx_ir as ir
 
-from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY2
+from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
 def _call_plugin_lower(plugin: Any, ctx: Any, eqn: Any) -> None:
@@ -28,7 +28,7 @@ def lower_jaxpr_eqns(ctx: Any, jaxpr: Any) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
     for inner_eqn in getattr(jaxpr, "eqns", ()):
         prim = inner_eqn.primitive.name
-        plugin = PLUGIN_REGISTRY2.get(prim)
+        plugin = PLUGIN_REGISTRY.get(prim)
         if plugin is None:
             raise NotImplementedError(
                 f"[control_flow] No plugins registered for primitive '{prim}'"

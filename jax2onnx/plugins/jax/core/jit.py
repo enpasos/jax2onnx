@@ -8,7 +8,7 @@ import numpy as np
 import jax
 
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY2,
+    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     register_primitive,
 )
@@ -59,7 +59,7 @@ class JitPlugin(PrimitiveLeafPlugin):
 
         for inner_eqn in inner_jaxpr.eqns:
             prim_name = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY2.get(prim_name)
+            plugin = PLUGIN_REGISTRY.get(prim_name)
             if plugin is None:
                 raise NotImplementedError(
                     f"[jit] No plugins registered for primitive '{prim_name}' inside jit body"

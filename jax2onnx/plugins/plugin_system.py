@@ -47,10 +47,10 @@ def _sanitize_op_type(s: str) -> str:
 
 
 # Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
-PLUGIN_REGISTRY2: Dict[str, Any] = {}
+PLUGIN_REGISTRY: Dict[str, Any] = {}
 
 # Qualified target name -> FunctionPlugin (for reference)
-ONNX_FUNCTION_PLUGIN_REGISTRY2: Dict[str, "FunctionPlugin"] = {}
+ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
 
 # Store instance objects for class-based call targets
 INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
@@ -64,7 +64,7 @@ _IN_FUNCTION_BUILD: ContextVar[set[str]] = ContextVar(
 )
 
 # Optional examples registry (mirrored into legacy on register_example)
-EXAMPLE_REGISTRY2: Dict[str, dict[str, Any]] = {}
+EXAMPLE_REGISTRY: Dict[str, dict[str, Any]] = {}
 
 # Patching state
 _PATCH_STATE: dict[tuple[Any, str], dict[str, Any]] = {}
@@ -345,7 +345,7 @@ def _activate_full_plugin_worlds_for_body():
         # Function plugins' monkey patches
         stack.enter_context(apply_monkey_patches())
         # Leaf plugins' binding_specs (e.g., nnx/jnp/lax rewrites)
-        for plugin in PLUGIN_REGISTRY2.values():
+        for plugin in PLUGIN_REGISTRY.values():
             cls = plugin.__class__
             try:
                 if issubclass(cls, PrimitiveLeafPlugin):
@@ -835,7 +835,7 @@ class FunctionPlugin(PrimitivePlugin):
             # Walk inner equations and dispatch plugins in CHILD ctx
             for inner_eqn in jpr_f.eqns:
                 prim = inner_eqn.primitive.name
-                plugin = PLUGIN_REGISTRY2.get(prim)
+                plugin = PLUGIN_REGISTRY.get(prim)
                 if plugin is None:
                     raise NotImplementedError(
                         f"[onnx_function] No plugin for '{prim}' in function body"
@@ -945,10 +945,10 @@ def onnx_function(target: Any):
     """
     qual = _qualname_of_target(target)
     prim_name = f"onnx_fn::{qual}"
-    if prim_name not in PLUGIN_REGISTRY2:
+    if prim_name not in PLUGIN_REGISTRY:
         fp = FunctionPlugin(prim_name, target)
-        ONNX_FUNCTION_PLUGIN_REGISTRY2[qual] = fp
-        PLUGIN_REGISTRY2[prim_name] = fp
+        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
+        PLUGIN_REGISTRY[prim_name] = fp
     try:
         setattr(target, "__j2o_onnx_function__", True)
     except Exception:
@@ -971,7 +971,7 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     comp = metadata.get("component")
     if not isinstance(comp, str) or not comp:
         raise ValueError("register_example requires a non-empty 'component' string.")
-    EXAMPLE_REGISTRY2[comp] = metadata
+    EXAMPLE_REGISTRY[comp] = metadata
 
     # Mirror into legacy registry immediately
     # -- Set up a single, typed alias once, then assign from import to avoid mypy no-redef --
@@ -1019,7 +1019,7 @@ def register_primitive(
         if hasattr(cls, "patch_info"):
             instance.patch_info = cls.patch_info
         if isinstance(primitive, str) and primitive:
-            PLUGIN_REGISTRY2[primitive] = instance
+            PLUGIN_REGISTRY[primitive] = instance
         return cls
 
     return _decorator
@@ -1027,7 +1027,7 @@ def register_primitive(
 
 def register_primitive2(jax_primitive_name: str):
     def _wrap(cls):
-        PLUGIN_REGISTRY2[jax_primitive_name] = cls()
+        PLUGIN_REGISTRY[jax_primitive_name] = cls()
         return cls
 
     return _wrap
@@ -1044,7 +1044,7 @@ def _iter_patch_specs():
     Leaf plugin AssignSpec/MonkeyPatchSpec are handled by apply_patches()
     when a plugin opts into its own @plugin_binding context.
     """
-    for plugin in PLUGIN_REGISTRY2.values():
+    for plugin in PLUGIN_REGISTRY.values():
         pinfo = getattr(plugin, "patch_info", None)
         # Only function plugins implement patch_info() in this system.
         if callable(pinfo):
@@ -1145,7 +1145,6 @@ def import_all_plugins() -> None:
     """
     Recursively import every Python module under BOTH
       - jax2onnx/plugins   (preferred)
-      - jax2onnx/plugin2    (singular fallback; some repos use this path)
     so all plugins and examples self-register (no hard-coded lists).
     """
     global _already_imported_plugins
@@ -1155,11 +1154,6 @@ def import_all_plugins() -> None:
     # Preferred tree
     plugins_dir = Path(os.path.dirname(__file__))  # .../jax2onnx/plugins
     _import_tree(plugins_dir, "jax2onnx.plugins")
-
-    # Fallback tree: jax2onnx/plugin2 (singular)
-    base_dir = plugins_dir.parent  # .../jax2onnx
-    plugin2_dir = base_dir / "plugin2"
-    _import_tree(plugin2_dir, "jax2onnx.plugin2")
-
+ 
     # mark as done (avoid duplicate imports/runs)
     _already_imported_plugins = True
