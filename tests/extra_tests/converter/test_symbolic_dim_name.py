@@ -1,3 +1,5 @@
+# tests/extra_tests/converter/test_symbolic_dim_name.py
+
 import jax.numpy as jnp
 from jax2onnx.user_interface import to_onnx
 

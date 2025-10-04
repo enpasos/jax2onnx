@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/shift_right_logical.py
+# jax2onnx/plugins/jax/lax/shift_right_logical.py
 
 from __future__ import annotations
 

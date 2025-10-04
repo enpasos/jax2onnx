@@ -1,4 +1,5 @@
-# file: jax2onnx/plugins/flax/nnx/dropout.py
+# jax2onnx/plugins/flax/nnx/dropout.py
+
 from __future__ import annotations
 from typing import Callable, ClassVar, Any, Optional, Set
 import numpy as np

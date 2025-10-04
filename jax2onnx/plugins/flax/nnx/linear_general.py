@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/linear_general.py
+# jax2onnx/plugins/flax/nnx/linear_general.py
 
 
 from __future__ import annotations

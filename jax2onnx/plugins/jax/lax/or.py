@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/or.py
+# jax2onnx/plugins/jax/lax/or.py
 
 from typing import TYPE_CHECKING
 

@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/conv.py
+# jax2onnx/plugins/flax/nnx/conv.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Callable, Sequence, Tuple, Any, overload

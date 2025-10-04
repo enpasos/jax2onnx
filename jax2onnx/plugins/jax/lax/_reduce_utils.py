@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/_reduce_utils.py
+
 """Shared helpers for reduction primitives in plugins."""
 
 from __future__ import annotations

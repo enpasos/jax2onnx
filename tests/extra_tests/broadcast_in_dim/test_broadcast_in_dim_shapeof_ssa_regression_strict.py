@@ -1,3 +1,5 @@
+# tests/extra_tests/broadcast_in_dim/test_broadcast_in_dim_shapeof_ssa_regression_strict.py
+
 """Converter2 regression: broadcast_in_dim should emit SSA-unique shape helpers."""
 
 from __future__ import annotations

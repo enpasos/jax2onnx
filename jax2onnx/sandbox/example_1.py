@@ -1,3 +1,5 @@
+# jax2onnx/sandbox/example_1.py
+
 from flax import nnx
 from jax2onnx import to_onnx
 

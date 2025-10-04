@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/sin.py
+
 from typing import TYPE_CHECKING
 
 import jax

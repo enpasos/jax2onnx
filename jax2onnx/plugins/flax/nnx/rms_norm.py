@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/rms_norm.py
+# jax2onnx/plugins/flax/nnx/rms_norm.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Sequence

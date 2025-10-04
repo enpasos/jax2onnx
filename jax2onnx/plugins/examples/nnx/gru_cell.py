@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/nnx/gru_cell.py
+
 from __future__ import annotations
 
 import numpy as np

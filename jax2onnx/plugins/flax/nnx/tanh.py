@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/tanh.py
+# jax2onnx/plugins/flax/nnx/tanh.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Callable

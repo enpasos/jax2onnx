@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/nnx/vit.py
+# jax2onnx/plugins/examples/nnx/vit.py
 
 from typing import Sequence
 

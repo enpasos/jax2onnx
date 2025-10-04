@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/sub.py
+
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np

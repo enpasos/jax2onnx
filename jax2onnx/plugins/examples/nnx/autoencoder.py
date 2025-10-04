@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/nnx/autoencoder.py
+
 from __future__ import annotations
 
 import jax

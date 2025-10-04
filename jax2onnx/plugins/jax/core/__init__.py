@@ -1,1 +1,1 @@
-# Namespace package for JAX core primitives in the IR-only pipeline.
+# jax2onnx/plugins/jax/core/__init__.py

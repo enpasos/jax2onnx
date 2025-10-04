@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/leaky_relu.py
+# jax2onnx/plugins/flax/nnx/leaky_relu.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, ClassVar, List, Union

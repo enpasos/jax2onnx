@@ -1,3 +1,5 @@
+# tests/extra_tests/broadcast_in_dim/test_broadcast_in_dim_two_adds_shapeof_ssa_regression.py
+
 """Ensure converter keeps Shape helpers SSA-unique when multiple Adds appear."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
-# file: tests/extra_tests/loop/test_loop_add_shapeof_displayname_collision.py
+# tests/extra_tests/loop/test_loop_add_shapeof_displayname_collision.py
+
 """
 Regression guard: ensure shape-of helpers (names ending with '__shape') are SSA-unique
 inside a Loop body, even when two independent Add→reshape(h, h.shape) sites exist.

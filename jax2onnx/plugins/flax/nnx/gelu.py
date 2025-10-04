@@ -1,4 +1,5 @@
-# file: jax2onnx/plugins/flax/nnx/gelu.py
+# jax2onnx/plugins/flax/nnx/gelu.py
+
 from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Callable, Any
 

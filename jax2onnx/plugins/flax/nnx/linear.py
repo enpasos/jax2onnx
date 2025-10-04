@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/linear.py
+# jax2onnx/plugins/flax/nnx/linear.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, ClassVar, cast

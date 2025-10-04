@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/broadcast_in_dim.py
+# jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
 from typing import TYPE_CHECKING
 import jax

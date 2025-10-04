@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/reshape.py
+# jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Union, Dict, Optional

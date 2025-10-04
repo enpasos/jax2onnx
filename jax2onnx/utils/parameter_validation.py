@@ -1,3 +1,5 @@
+# jax2onnx/utils/parameter_validation.py
+
 """Utilities for validating parameter wiring on serialized ONNX models.
 
 These helpers operate on ``onnx.ModelProto`` objects produced by the IR-only

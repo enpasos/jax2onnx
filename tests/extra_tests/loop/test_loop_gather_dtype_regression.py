@@ -1,4 +1,4 @@
-# file: tests/permanent_examples/test_loop_gather_dtype_regression.py
+# tests/extra_tests/loop/test_loop_gather_dtype_regression.py
 
 import numpy as np
 import jax

@@ -1,4 +1,5 @@
-# jax2onnx/utils/ir_pretty.py
+# jax2onnx/converter/ir_pretty.py
+
 from __future__ import annotations
 
 from typing import Iterable, List, Sequence, Any

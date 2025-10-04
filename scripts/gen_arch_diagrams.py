@@ -1,3 +1,5 @@
+# scripts/gen_arch_diagrams.py
+
 import os
 import json
 import sys

@@ -1,4 +1,4 @@
-# file: tests/extra_tests/loop/test_loop_shapeof_ssa_regression.py
+# tests/extra_tests/loop/test_loop_shapeof_ssa_regression.py
 
 import numpy as np
 import pytest

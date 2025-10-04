@@ -1,3 +1,5 @@
+# jax2onnx/plugins/flax/nnx/dot_product_attention.py
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, ClassVar, Tuple, Union, cast

@@ -1,1 +1,1 @@
-# Namespace package for plugin emitters (onnx_ir pipeline).
+# jax2onnx/plugins/__init__.py

@@ -1,4 +1,4 @@
-# file: scripts/generate_readme.py
+# scripts/generate_readme.py
 
 import json
 import logging

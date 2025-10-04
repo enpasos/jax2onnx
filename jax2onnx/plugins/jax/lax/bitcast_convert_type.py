@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/bitcast_convert_type.py
+# jax2onnx/plugins/jax/lax/bitcast_convert_type.py
 
 from __future__ import annotations
 

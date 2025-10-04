@@ -1,3 +1,5 @@
+# tests/extra_tests/loop/test_loop_body_shapeof_ssa_regression_strict.py
+
 from __future__ import annotations
 
 import numpy as np

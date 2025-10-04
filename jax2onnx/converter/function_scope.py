@@ -1,4 +1,5 @@
-# file: jax2onnx/converter/function_scope.py
+# jax2onnx/converter/function_scope.py
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple

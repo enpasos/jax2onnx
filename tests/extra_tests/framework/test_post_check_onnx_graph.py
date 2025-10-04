@@ -1,4 +1,5 @@
-# tests/extra_tests/test_post_check_onnx_graph.py
+# tests/extra_tests/framework/test_post_check_onnx_graph.py
+
 from __future__ import annotations
 import onnx_ir as ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG

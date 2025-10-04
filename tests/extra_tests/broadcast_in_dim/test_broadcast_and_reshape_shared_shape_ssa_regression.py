@@ -1,3 +1,5 @@
+# tests/extra_tests/broadcast_in_dim/test_broadcast_and_reshape_shared_shape_ssa_regression.py
+
 """IR regression: broadcast_in_dim + reshape share shape helpers without SSA clashes."""
 
 from __future__ import annotations

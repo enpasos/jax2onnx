@@ -1,3 +1,5 @@
+# jax2onnx/serde_onnx.py
+
 from __future__ import annotations
 
 import onnx

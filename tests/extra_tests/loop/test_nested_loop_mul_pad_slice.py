@@ -1,4 +1,5 @@
-# tests/regression/test_nested_loop_mul_pad_slice.py
+# tests/extra_tests/loop/test_nested_loop_mul_pad_slice.py
+
 import os
 import pathlib
 

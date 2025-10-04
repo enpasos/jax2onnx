@@ -1,4 +1,5 @@
-# file: jax2onnx/plugins/jax/random/random_bits.py
+# jax2onnx/plugins/jax/random/random_bits.py
+
 from __future__ import annotations
 
 import math

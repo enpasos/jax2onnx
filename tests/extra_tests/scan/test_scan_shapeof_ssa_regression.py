@@ -1,3 +1,5 @@
+# tests/extra_tests/scan/test_scan_shapeof_ssa_regression.py
+
 from __future__ import annotations
 
 import collections

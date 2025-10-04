@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/nnx/mlp.py
+# jax2onnx/plugins/examples/nnx/mlp.py
 
 from __future__ import annotations
 import jax

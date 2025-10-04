@@ -1,3 +1,5 @@
+# tests/extra_tests/broadcast_in_dim/test_broadcast_in_dim_ssa_unique.py
+
 """Tests to ensure converter keeps SSA names unique for broadcast_in_dim patterns."""
 
 from __future__ import annotations

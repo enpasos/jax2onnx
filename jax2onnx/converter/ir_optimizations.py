@@ -1,4 +1,5 @@
 # jax2onnx/converter/ir_optimizations.py
+
 from __future__ import annotations
 
 from collections import defaultdict

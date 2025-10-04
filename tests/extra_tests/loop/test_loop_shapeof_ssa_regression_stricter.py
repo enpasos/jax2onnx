@@ -1,3 +1,5 @@
+# tests/extra_tests/loop/test_loop_shapeof_ssa_regression_stricter.py
+
 import numpy as np
 import jax
 import jax.numpy as jnp

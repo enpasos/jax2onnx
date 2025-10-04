@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/random/random_fold_in.py
+
 """Minimal lowering for ``random_fold_in``.
 
 The IR pipeline currently only needs deterministic PRNG plumbing for

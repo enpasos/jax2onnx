@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/ir_builder.py
+# jax2onnx/converter/ir_builder.py
 
 
 from __future__ import annotations

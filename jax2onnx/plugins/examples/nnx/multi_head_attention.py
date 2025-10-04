@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/nnx/multi_head_attention.py
+
 from __future__ import annotations
 
 from flax import nnx

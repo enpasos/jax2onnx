@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/eqx/simple_linear.py
+
 from __future__ import annotations
 
 import equinox as eqx

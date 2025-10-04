@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/lax/scatter_window.py
+
 from __future__ import annotations
 
 import numpy as np

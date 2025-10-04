@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/nnx/transformer_decoder_with_sequential.py
+
 from __future__ import annotations
 
 import jax

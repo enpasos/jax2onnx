@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/plugin_system.py
+# jax2onnx/plugins/plugin_system.py
 
 from __future__ import annotations
 
@@ -1154,6 +1154,6 @@ def import_all_plugins() -> None:
     # Preferred tree
     plugins_dir = Path(os.path.dirname(__file__))  # .../jax2onnx/plugins
     _import_tree(plugins_dir, "jax2onnx.plugins")
- 
+
     # mark as done (avoid duplicate imports/runs)
     _already_imported_plugins = True

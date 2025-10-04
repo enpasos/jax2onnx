@@ -1,4 +1,5 @@
-# tests/extra_tests/test_ir_optimizations.py
+# tests/extra_tests/framework/test_ir_optimizations.py
+
 from __future__ import annotations
 
 import numpy as np

@@ -1,4 +1,5 @@
-# Tests for ONNX function call-time parameter handling
+# tests/extra_tests/converter/test_onnx_function_call_params.py
+
 from __future__ import annotations
 
 import jax

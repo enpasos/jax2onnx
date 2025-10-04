@@ -1,3 +1,5 @@
+# jax2onnx/plugins/equinox/eqx/nn/dropout.py
+
 from __future__ import annotations
 
 from typing import ClassVar, Optional

@@ -16,3 +16,12 @@ repos:
     hooks:
       - id: mypy
 
+
+  - repo: local
+    hooks:
+      - id: ensure-path-markers
+        name: Ensure Python files start with their repository path marker
+        entry: python3 scripts/ensure_path_markers.py
+        language: system
+        types: [python]
+        pass_filenames: false

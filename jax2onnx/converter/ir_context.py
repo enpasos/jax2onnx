@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/ir_context.py
+# jax2onnx/converter/ir_context.py
 
 from __future__ import annotations
 from typing import Any, Sequence, Dict, Tuple, Optional

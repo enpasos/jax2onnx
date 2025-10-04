@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/max_pool.py
+# jax2onnx/plugins/flax/nnx/max_pool.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Sequence, Tuple

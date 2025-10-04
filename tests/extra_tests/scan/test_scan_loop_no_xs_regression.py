@@ -1,3 +1,5 @@
+# tests/extra_tests/scan/test_scan_loop_no_xs_regression.py
+
 from __future__ import annotations
 
 import pathlib

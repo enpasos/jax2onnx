@@ -1,3 +1,5 @@
+# jax2onnx/plugins/_ir_shapes.py
+
 from __future__ import annotations
 from typing import Iterable
 import re

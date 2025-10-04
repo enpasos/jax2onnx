@@ -1,4 +1,4 @@
-# file: jax2onnx/sandbox/issue52_scatter_payload_repro.py
+# jax2onnx/sandbox/issue52_scatter_payload_repro.py
 
 
 """Reproduce jax2onnx issue #52 without jaxfluids dependencies."""

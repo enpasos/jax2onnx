@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/group_norm.py
+# jax2onnx/plugins/flax/nnx/group_norm.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Sequence

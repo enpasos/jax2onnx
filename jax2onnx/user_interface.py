@@ -1,4 +1,4 @@
-# file: jax2onnx/user_interface.py
+# jax2onnx/user_interface.py
 
 from typing import (
     TYPE_CHECKING,

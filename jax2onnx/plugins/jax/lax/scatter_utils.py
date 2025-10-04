@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/scatter_utils.py
+
 """IR helpers for the lax scatter family in plugins.
 
 The lowering keeps a few key invariants in sync with the ONNX backend:

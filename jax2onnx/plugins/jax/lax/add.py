@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/add.py
+# jax2onnx/plugins/jax/lax/add.py
 
 from typing import TYPE_CHECKING, Optional
 import jax

@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/_index_utils.py
+
 """Shared helpers for index-heavy lax primitives in plugins."""
 
 from __future__ import annotations

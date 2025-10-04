@@ -1,3 +1,5 @@
+# tests/t_generator.py
+
 import inspect
 import logging
 import os

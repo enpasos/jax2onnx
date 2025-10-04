@@ -1,4 +1,4 @@
-# file: scripts/generate_tests.py
+# scripts/generate_tests.py
 
 from __future__ import annotations
 

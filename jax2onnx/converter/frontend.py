@@ -1,4 +1,4 @@
-# file: jax2onnx/converter/frontend.py
+# jax2onnx/converter/frontend.py
 
 
 from __future__ import annotations

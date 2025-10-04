@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/examples/nnx/vit_flat.py
+# jax2onnx/plugins/examples/nnx/vit_flat.py
 
 
 import jax

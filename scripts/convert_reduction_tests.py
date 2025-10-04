@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# scripts/convert_reduction_tests.py
+
 """One-off helper to port missing reduction testcases into converter plugins."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/flax/nnx/softplus.py
+# jax2onnx/plugins/flax/nnx/softplus.py
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Callable

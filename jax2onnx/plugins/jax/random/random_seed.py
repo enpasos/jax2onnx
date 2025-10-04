@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/random/random_seed.py
+
 """Lowering for JAX PRNG seed primitives."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# file: jax2onnx/plugins/jax/lax/tanh.py
+# jax2onnx/plugins/jax/lax/tanh.py
 
 
 import jax

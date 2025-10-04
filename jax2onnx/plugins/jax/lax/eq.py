@@ -1,3 +1,5 @@
+# jax2onnx/plugins/jax/lax/eq.py
+
 from typing import TYPE_CHECKING
 
 import jax
