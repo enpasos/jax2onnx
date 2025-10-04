@@ -90,32 +90,6 @@ def _extract_python_bool(var) -> Optional[bool]:
     return None
 
 
-def _tp_to_numpy(tensor_proto) -> np.ndarray:
-    raw = getattr(tensor_proto, "raw_data", None)
-    if raw:
-        dt_map = {1: np.float32, 11: np.float64, 9: np.bool_}
-        dtype = dt_map.get(getattr(tensor_proto, "data_type", 0), np.float32)
-        arr = np.frombuffer(raw, dtype=dtype)
-        dims = tuple(getattr(tensor_proto, "dims", ()))
-        return arr.reshape(dims) if dims else arr
-    data_type = getattr(tensor_proto, "data_type", 0)
-    if data_type == 9 and tensor_proto.int32_data:
-        arr = np.array(tensor_proto.int32_data, dtype=np.bool_)
-    elif data_type == 11 and tensor_proto.double_data:
-        arr = np.array(tensor_proto.double_data, dtype=np.float64)
-    else:
-        arr = np.array(getattr(tensor_proto, "float_data", []), dtype=np.float32)
-    dims = tuple(getattr(tensor_proto, "dims", ()))
-    return arr.reshape(dims) if dims else arr
-
-
-def _find_initializer(graph, name: str):
-    for init in getattr(graph, "initializer", []):
-        if getattr(init, "name", "") == name:
-            return init
-    return None
-
-
 def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
     inputs = getattr(ctx.builder, "inputs", None)
     if inputs is None:
@@ -141,61 +115,6 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
     return value
 
 
-def _post_check_constant(
-    model, *, expected_ratio: float, expected_training: bool
-) -> bool:
-    graph = getattr(model, "graph", None)
-    if graph is None or not expect_graph(
-        ["Dropout"], must_absent=["Not"], mode="all", search_functions=False
-    )(model):
-        return False
-    nodes = list(getattr(graph, "node", []))
-    drop = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
-    if drop is None:
-        return False
-    inputs = list(getattr(drop, "input", []))
-    if len(inputs) < 3:
-        return False
-    ratio_init = _find_initializer(graph, inputs[1])
-    tm_init = _find_initializer(graph, inputs[2])
-    if ratio_init is None or tm_init is None:
-        return False
-    ratio_np = np.asarray(_tp_to_numpy(ratio_init)).astype(np.float64)
-    tm_np = np.asarray(_tp_to_numpy(tm_init)).astype(np.bool_)
-    return (
-        np.isclose(ratio_np, expected_ratio).all()
-        and (tm_np == np.array(expected_training, dtype=np.bool_)).all()
-    )
-
-
-def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
-    graph = getattr(model, "graph", None)
-    if graph is None or not expect_graph(
-        ["Not -> Dropout"], mode="any", search_functions=False
-    )(model):
-        return False
-    nodes = list(getattr(graph, "node", []))
-    drop = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
-    not_node = next((n for n in nodes if getattr(n, "op_type", "") == "Not"), None)
-    if drop is None or not_node is None:
-        return False
-    inputs = list(getattr(drop, "input", []))
-    if len(inputs) < 3:
-        return False
-    ratio_init = _find_initializer(graph, inputs[1])
-    if ratio_init is None:
-        return False
-    ratio_np = np.asarray(_tp_to_numpy(ratio_init)).astype(np.float64)
-    if not np.isclose(ratio_np, expected_ratio).all():
-        return False
-    tm_input = inputs[2]
-    if tm_input != getattr(not_node, "output", [None])[0]:
-        return False
-    if _find_initializer(graph, tm_input) is not None:
-        return False
-    return True
-
-
 @register_primitive(
     jaxpr_primitive="eqx.nn.dropout",
     jax_doc="https://docs.kidger.site/equinox/api/nn/dropout/",
@@ -217,20 +136,39 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
             "testcase": "eqx_dropout_inference_mode",
             "callable": eqx.nn.Dropout(p=0.42, inference=True),
             "input_shapes": [(64,)],
-            "post_check_onnx_graph": lambda m: _post_check_constant(
-                m, expected_ratio=0.42, expected_training=False
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout",
+                        "inputs": {
+                            1: {"const": 0.42},
+                            2: {"const_bool": False},
+                        },
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
             "testcase": "eqx_dropout_training_mode",
-            "callable": lambda x, key, model=eqx.nn.Dropout(
-                p=0.5, inference=False
-            ): model(x, key=key),
+            "callable": lambda x, model=eqx.nn.Dropout(p=0.5, inference=False): model(
+                x, key=jax.random.PRNGKey(0)
+            ),
             "input_shapes": [(64,)],
-            "input_params": {"key": jax.random.PRNGKey(0)},
             "skip_numeric_validation": True,
-            "post_check_onnx_graph": lambda m: _post_check_constant(
-                m, expected_ratio=0.5, expected_training=True
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout",
+                        "inputs": {
+                            1: {"const": 0.5},
+                            2: {"const_bool": True},
+                        },
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -240,8 +178,14 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
             ): model(x, key=key, inference=inference),
             "input_shapes": [(64,)],
             "input_params": {"inference": np.array(True, dtype=bool)},
-            "post_check_onnx_graph": lambda m: _post_check_dynamic(
-                m, expected_ratio=0.5
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Not -> Dropout",
+                        "inputs": {1: {"const": 0.5}},
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -250,8 +194,18 @@ def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
                 _mod
             )(xs),
             "input_shapes": [("B", 64)],
-            "post_check_onnx_graph": lambda m: _post_check_constant(
-                m, expected_ratio=0.3, expected_training=False
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout",
+                        "inputs": {
+                            1: {"const": 0.3},
+                            2: {"const_bool": False},
+                        },
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
     ],

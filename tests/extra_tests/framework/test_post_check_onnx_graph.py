@@ -1,8 +1,12 @@
 # tests/extra_tests/framework/test_post_check_onnx_graph.py
 
 from __future__ import annotations
-import onnx_ir as ir
+
 import json
+
+import numpy as np
+import onnx_ir as ir
+
 from jax2onnx.plugins._post_check_onnx_graph import (
     expect_graph as EG,
     auto_expect_graph_spec,
@@ -162,6 +166,51 @@ def attach_function(model: ir.Model, graph: ir.Graph, *, domain: str, name: str)
     return fn
 
 
+def build_dropout_like_graph(ratio=0.5, training=False, use_expand=True):
+    x = V("x", ir.DataType.FLOAT, ("B", 64))
+    ratio_scalar = V("ratio_scalar", ir.DataType.FLOAT, ())
+    ratio_scalar.const_value = np.asarray(ratio, dtype=np.float32)
+    ratio_shape = V("ratio_shape", ir.DataType.INT64, (1,))
+    ratio_shape.const_value = np.asarray([64], dtype=np.int64)
+    ratio_expanded = V("ratio", ir.DataType.FLOAT, (64,))
+    training_val = V("training", ir.DataType.BOOL, ())
+    training_val.const_value = np.asarray(training, dtype=np.bool_)
+    out = V("out", ir.DataType.FLOAT, ("B", 64))
+
+    nodes = []
+    if use_expand:
+        nodes.append(
+            ir.Node(
+                op_type="Expand",
+                domain="",
+                inputs=[ratio_scalar, ratio_shape],
+                outputs=[ratio_expanded],
+                name="Expand",
+            )
+        )
+        ratio_input = ratio_expanded
+    else:
+        ratio_input = ratio_scalar
+
+    nodes.append(
+        ir.Node(
+            op_type="Dropout",
+            domain="",
+            inputs=[x, ratio_input, training_val],
+            outputs=[out],
+            name="Dropout",
+        )
+    )
+
+    graph = ir.Graph(name="top", inputs=[x], outputs=[out], nodes=nodes)
+    model = ir.Model(graph=graph, ir_version=10)
+    try:
+        model.opset_imports = {"": 21}
+    except Exception:
+        pass
+    return model
+
+
 def test_static_path_with_shapes_and_symbols_and_no_unused():
     m = build_static_chain(B=3)
     check = EG(
@@ -202,6 +251,32 @@ def test_path_walks_over_shape_side_chain():
     m = build_branchy_transpose_reshape()
     check = EG(["Transpose -> Reshape"])
     assert check(m)
+
+
+def test_inputs_predicate_matches_constant_after_expand():
+    m = build_dropout_like_graph(ratio=0.5, training=False, use_expand=True)
+    check = EG(
+        [
+            {
+                "path": "Dropout",
+                "inputs": {1: {"const": 0.5}, 2: {"const_bool": False}},
+            }
+        ]
+    )
+    assert check(m)
+
+
+def test_inputs_predicate_const_mismatch():
+    m = build_dropout_like_graph(ratio=0.3, training=False, use_expand=True)
+    check = EG(
+        [
+            {
+                "path": "Dropout",
+                "inputs": {1: {"const": 0.5}},
+            }
+        ]
+    )
+    assert not check(m)
 
 
 def test_auto_expect_graph_spec_roundtrip_static():

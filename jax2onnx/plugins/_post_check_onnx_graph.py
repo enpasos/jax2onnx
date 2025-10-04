@@ -16,6 +16,10 @@ from typing import (
     Mapping,
 )
 from collections import deque
+import numpy as np
+
+# Optional ONNX helper (disabled; kept for API compatibility without importing onnx)
+_onnx_numpy_helper = None
 
 ShapeDim = Optional[Union[int, str]]
 
@@ -179,21 +183,25 @@ def expect_graph(
                 spec_symbols = spec.get("symbols")
                 if spec_symbols:
                     symbol_env.update(spec_symbols)
-                m = gv.match_path_with_shapes(
+                ok_match, reason, matched_nodes = gv.match_path_with_shapes(
                     path,
                     symbols=symbol_env,
                     attrs=spec.get("attrs"),
                     counts=spec.get("counts"),
                     graph_filter=spec.get("graph"),
                     must_absent=spec.get("must_absent"),
+                    input_constraints=spec.get("inputs"),
                 )
-                matches.append(m)
-                ok = ok and m
-            if mode == "any":
-                ok = any(matches)
-            elif mode != "all":
-                gv._fail(f"Unknown mode={mode!r}")
-                ok = False
+                matches.append(ok_match)
+                if not ok_match:
+                    if reason:
+                        gv._fail(reason)
+                    ok = False
+        if mode == "any":
+            ok = any(matches)
+        elif mode != "all":
+            gv._fail(f"Unknown mode={mode!r}")
+            ok = False
 
         if not ok and explain_on_fail:
             print("\n[expect_graph] FAILED")
@@ -356,13 +364,15 @@ class _GraphView:
         counts: Optional[Dict[str, int]] = None,
         graph_filter: Optional[Any] = None,
         must_absent: Optional[Iterable[str]] = None,
-    ) -> bool:
+        input_constraints: Optional[Mapping[Any, Any]] = None,
+    ) -> Tuple[bool, str, List[int]]:
         attrs = attrs or {}
         counts = counts or {}
         ok_any_graph = False
         reasons: List[str] = []
         allowed = _normalize_graph_filter(graph_filter)
         considered_any = False
+        matched_indices: List[int] = []
 
         # Parse path: tokens like "Op[:shape]" split by ->
         tokens = [t.strip() for t in path.strip("^$ ").split("->")]
@@ -378,7 +388,7 @@ class _GraphView:
             if allowed is not None and gname not in allowed:
                 continue
             considered_any = True
-            ok, why = _match_path_on_graph(
+            ok, why, matched = _match_path_on_graph(
                 g,
                 steps,
                 dict(symbols),
@@ -389,6 +399,30 @@ class _GraphView:
             if not ok:
                 reasons.append(why)
                 continue
+
+            if input_constraints:
+                nodes_seq = _nodes(g)
+                if not matched:
+                    reasons.append(
+                        f"[{gname}] internal error: path matched but no node indices captured"
+                    )
+                    continue
+                target_idx = matched[-1]
+                if target_idx >= len(nodes_seq):
+                    reasons.append(
+                        f"[{gname}] matched node index out of range for path {path!r}"
+                    )
+                    continue
+                node_obj = nodes_seq[target_idx]
+                ok_inputs, err = _check_input_constraints(
+                    node_obj,
+                    input_constraints,
+                    nodes_seq,
+                    g,
+                )
+                if not ok_inputs:
+                    reasons.append(f"[{gname}] {err}")
+                    continue
 
             if must_absent:
                 violation = None
@@ -434,16 +468,19 @@ class _GraphView:
                     continue
 
             ok_any_graph = True
+            matched_indices = matched
             break
         if not considered_any and allowed is not None:
             self._fail(f"graph not found: {graph_filter!r}")
-            return False
+            return False, f"graph not found: {graph_filter!r}", []
         if not ok_any_graph:
-            if reasons:
-                self._fail(f"path not found: {path!r} :: " + " | ".join(reasons))
-            else:
-                self._fail(f"path not found: {path!r}")
-        return ok_any_graph
+            reason = (
+                f"path not found: {path!r} :: " + " | ".join(reasons)
+                if reasons
+                else f"path not found: {path!r}"
+            )
+            return False, reason, []
+        return True, "", matched_indices
 
 
 # ---------- helpers for IR/ONNX without importing onnx ----------
@@ -738,7 +775,7 @@ def _match_path_on_graph(
     passthrough_ops: set[str],
     gname: str,
     shape_index: Dict[str, Tuple],
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, List[int]]:
     nodes = _nodes(g)
     consumer_map = _build_consumer_map(nodes)
     # op index
@@ -755,18 +792,27 @@ def _match_path_on_graph(
         return (
             False,
             f"[{gname}] missing start op '{start_op}' (ops present: {show}{'…' if len(present)>10 else ''})",
+            [],
         )
     reason = "start mismatch"
     for i0 in starts:
         env_copy = dict(env)
+        matched_indices: List[int] = []
         ok, r = _path_from(
-            nodes, i0, steps, env_copy, passthrough_ops, shape_index, consumer_map
+            nodes,
+            i0,
+            steps,
+            env_copy,
+            passthrough_ops,
+            shape_index,
+            consumer_map,
+            matched_indices,
         )
         if ok:
             env.update(env_copy)
-            return True, ""
+            return True, "", matched_indices
         reason = r
-    return False, reason
+    return False, reason, []
 
 
 def _path_from(
@@ -777,10 +823,13 @@ def _path_from(
     passthrough_ops: set[str],
     shape_index: Dict[str, Tuple],
     consumer_map: Dict[Tuple, List[int]],
+    matched: Optional[List[int]] = None,
 ) -> Tuple[bool, str]:
+    matched_local: List[int] = []
     i = i0
     if nodes[i].op_type != steps[0][0]:
         return False, "start mismatch"
+    matched_local.append(i)
 
     # shape after first node (check the MAIN data edge = first output only)
     sh = steps[0][1]
@@ -818,6 +867,9 @@ def _path_from(
                     f"shape mismatch after {nodes[next_idx].op_type}: expected {want_shape}, actual_first={a0}",
                 )
         i = next_idx
+        matched_local.append(i)
+    if matched is not None:
+        matched.extend(matched_local)
     return True, ""
 
 
@@ -832,6 +884,240 @@ def _value_keys(v) -> List[Tuple[str, Any]]:
         except Exception:
             pass
     return keys if keys else [("anon", id(v))]
+
+
+def _normalize_input_index(key: Any) -> int:
+    if isinstance(key, int):
+        return key
+    if isinstance(key, str):
+        try:
+            return int(key)
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise ValueError(
+                f"input key must be an int or numeric string, got {key!r}"
+            ) from exc
+    raise TypeError(f"input key must be int or str, got {type(key)!r}")
+
+
+def _check_input_constraints(
+    node, spec: Mapping[Any, Any], nodes, graph
+) -> Tuple[bool, str]:
+    ins = _inputs_of(node)
+    for raw_idx, constraint in spec.items():
+        idx = _normalize_input_index(raw_idx)
+        rule = constraint or {}
+        if rule.get("absent"):
+            if idx < len(ins) and not _is_missing_input(ins[idx]):
+                return False, f"input[{idx}] expected to be absent"
+            continue
+        if idx >= len(ins):
+            return False, f"input[{idx}] missing (only {len(ins)} inputs present)"
+        value = ins[idx]
+
+        init_name = rule.get("initializer_name")
+        if init_name is not None:
+            if _value_name(value) != init_name:
+                return (
+                    False,
+                    f"input[{idx}] expected initializer '{init_name}', found '{_value_name(value)}'",
+                )
+
+        if "const" in rule or "const_bool" in rule:
+            arr = _extract_constant_array(value, nodes, graph)
+            if arr is None:
+                return False, f"input[{idx}] is not constant"
+            if "const_bool" in rule:
+                actual_bool = bool(np.asarray(arr).reshape(()).astype(np.bool_))
+                expected_bool = bool(rule["const_bool"])
+                if actual_bool != expected_bool:
+                    return (
+                        False,
+                        f"input[{idx}] expected bool {expected_bool}, found {actual_bool}",
+                    )
+            if "const" in rule:
+                expected = np.asarray(rule["const"])
+                actual = np.asarray(arr)
+                if actual.shape != expected.shape:
+                    if actual.size == 1 and expected.size == 1:
+                        actual = actual.reshape(())
+                        expected = expected.reshape(())
+                    else:
+                        return (
+                            False,
+                            f"input[{idx}] constant shape mismatch: expected {expected.shape}, found {actual.shape}",
+                        )
+                if actual.dtype.kind == "b" or expected.dtype.kind == "b":
+                    if not np.array_equal(
+                        actual.astype(np.bool_), expected.astype(np.bool_)
+                    ):
+                        return False, f"input[{idx}] constant mismatch"
+                else:
+                    if not np.allclose(
+                        actual.astype(np.float64), expected.astype(np.float64)
+                    ):
+                        return False, f"input[{idx}] constant mismatch"
+    return True, ""
+
+
+def _is_missing_input(val) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, str):
+        return val == ""
+    name = _value_name(val)
+    return name in (None, "")
+
+
+def _extract_constant_array(
+    value, nodes, graph, depth: int = 0
+) -> Optional[np.ndarray]:
+    if depth > 6:
+        return None
+    arr = _value_constant_payload(value)
+    if arr is not None:
+        return arr
+    name = _value_name(value)
+    if name:
+        init_arr = _initializer_to_numpy(graph, name)
+        if init_arr is not None:
+            return init_arr
+    producer = _find_producer_node(nodes, value)
+    if producer is None:
+        return None
+    op_type = getattr(producer, "op_type", "")
+    if op_type == "Constant":
+        tensor = _constant_attr_tensor(producer)
+        return _tensor_to_numpy(tensor)
+    if op_type in {"Expand", "Reshape", "Squeeze", "Unsqueeze"}:
+        inputs = _inputs_of(producer)
+        if inputs:
+            return _extract_constant_array(inputs[0], nodes, graph, depth + 1)
+    return None
+
+
+def _value_constant_payload(val) -> Optional[np.ndarray]:
+    if isinstance(val, str) or val is None:
+        return None
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        payload = getattr(val, attr, None)
+        if payload is None:
+            continue
+        arr = _tensor_to_numpy(payload)
+        if arr is not None:
+            return arr
+        try:
+            return np.asarray(payload)
+        except Exception:
+            continue
+    return None
+
+
+def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[np.ndarray]:
+    if not name:
+        return None
+    for attr_name in ("initializer", "initializers", "_initializers"):
+        inits = getattr(graph, attr_name, None)
+        if inits is None:
+            continue
+        try:
+            iterator = list(inits)
+        except Exception:
+            continue
+        for init in iterator:
+            if getattr(init, "name", "") == name:
+                arr = _tensor_to_numpy(init)
+                if arr is not None:
+                    return arr
+    return None
+
+
+def _tensor_to_numpy(tensor) -> Optional[np.ndarray]:
+    if tensor is None:
+        return None
+    if isinstance(tensor, np.ndarray):
+        return tensor
+    if _onnx_numpy_helper is not None:
+        try:
+            return _onnx_numpy_helper.to_array(tensor)
+        except Exception:
+            pass
+    try:
+        arr = np.asarray(tensor)
+        if arr.dtype != object:
+            return arr
+    except Exception:
+        pass
+    raw = getattr(tensor, "raw_data", None)
+    if raw:
+        dtype = _onnx_dtype_to_np(getattr(tensor, "data_type", 0))
+        arr = np.frombuffer(raw, dtype=dtype)
+        dims = getattr(tensor, "dims", None)
+        dims = tuple(dims) if dims else ()
+        return arr.reshape(dims) if dims else arr
+    for field, dtype in (
+        ("float_data", np.float32),
+        ("double_data", np.float64),
+        ("int64_data", np.int64),
+        ("int32_data", np.int32),
+        ("uint64_data", np.uint64),
+        ("float_data", np.float32),
+        ("int64s", np.int64),
+        ("ints", np.int64),
+        ("floats", np.float32),
+    ):
+        data = getattr(tensor, field, None)
+        if data:
+            arr = np.array(list(data), dtype=dtype)
+            dims = getattr(tensor, "dims", None)
+            dims = tuple(dims) if dims else ()
+            return arr.reshape(dims) if dims else arr
+    return None
+
+
+def _onnx_dtype_to_np(code: int) -> np.dtype:
+    mapping = {
+        1: np.float32,
+        2: np.uint8,
+        3: np.int8,
+        4: np.uint16,
+        5: np.int16,
+        6: np.int32,
+        7: np.int64,
+        9: np.bool_,
+        10: np.float16,
+        11: np.float64,
+    }
+    return np.dtype(mapping.get(code, np.float32))
+
+
+def _constant_attr_tensor(node) -> Any:
+    attrs = getattr(node, "attributes", None)
+    if isinstance(attrs, dict):
+        return attrs.get("value")
+    attr_list = attrs or getattr(node, "attribute", None)
+    if isinstance(attr_list, (list, tuple)):
+        for a in attr_list:
+            if getattr(a, "name", None) == "value":
+                val = getattr(a, "value", None)
+                if val is None and hasattr(a, "t"):
+                    val = getattr(a, "t")
+                return val
+    # Some IRs expose _attributes mapping
+    extra = getattr(node, "_attributes", None)
+    if isinstance(extra, dict):
+        return extra.get("value")
+    return None
+
+
+def _find_producer_node(nodes, value) -> Optional[Any]:
+    target_name = _value_name(value)
+    for node in nodes:
+        for out in _outputs_of(node):
+            if value is out:
+                return node
+            if target_name and _value_name(out) == target_name:
+                return node
+    return None
 
 
 class _SymbolTable:
