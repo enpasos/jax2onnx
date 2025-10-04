@@ -139,11 +139,8 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
             "post_check_onnx_graph": expect_graph(
                 [
                     {
-                        "path": "Dropout",
-                        "inputs": {
-                            1: {"const": 0.42},
-                            2: {"const_bool": False},
-                        },
+                        "path": "Dropout:64",
+                        "inputs": {1: {"const": 0.42}, 2: {"const_bool": False}},
                         "must_absent": ["Not"],
                     }
                 ],
@@ -160,11 +157,8 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
             "post_check_onnx_graph": expect_graph(
                 [
                     {
-                        "path": "Dropout",
-                        "inputs": {
-                            1: {"const": 0.5},
-                            2: {"const_bool": True},
-                        },
+                        "path": "Dropout:64",
+                        "inputs": {1: {"const": 0.5}, 2: {"const_bool": True}},
                         "must_absent": ["Not"],
                     }
                 ],
@@ -181,7 +175,7 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
             "post_check_onnx_graph": expect_graph(
                 [
                     {
-                        "path": "Not -> Dropout",
+                        "path": "Not -> Dropout:64",
                         "inputs": {1: {"const": 0.5}},
                     }
                 ],
@@ -197,14 +191,12 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
             "post_check_onnx_graph": expect_graph(
                 [
                     {
-                        "path": "Dropout",
-                        "inputs": {
-                            1: {"const": 0.3},
-                            2: {"const_bool": False},
-                        },
+                        "path": "Dropout:Bx64",
+                        "inputs": {1: {"const": 0.3}, 2: {"const_bool": False}},
                         "must_absent": ["Not"],
                     }
                 ],
+                symbols={"B": None},
                 no_unused_inputs=True,
             ),
         },

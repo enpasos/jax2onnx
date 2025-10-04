@@ -59,34 +59,73 @@ def expect_graph(
     search_functions: bool = False,  # default: check TOP graph only
     explain_on_fail: bool = True,
 ):
-    """
-    Return a callable(model_or_ir) -> bool for pytest.
+    """Return a callable(model_or_ir) -> bool for pytest.
 
-    Typical usage in metadata:
+    **Basic paths**
+        ``specs`` is a sequence describing graph fragments.  Each entry can be:
 
-    ```python
-    from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+        * a plain string – e.g. ``"Gemm -> Relu -> Gemm"``
+        * a mapping with a ``"path"`` key and optional predicates
+        * a ``(path, options)`` tuple
 
-    POST = EG(
-        ["Gemm:Bx20 -> Dropout:Bx20 -> Gemm:Bx10"],
-        symbols={"B": None},
-        must_absent=["Not"],
-        no_unused_inputs=True,
-    )
-    assert POST(model)
-    ```
+        Nodes are written in evaluation order using ``->``.  Append
+        ``:shape`` to assert the first output tensor's shape, e.g.
+        ``"Dropout:Bx64"``.  Shapes use ``x`` separators and can mix
+        integers with symbolic labels bound via ``symbols``.
 
-    Path specs now also support scoping to a specific graph/function body:
+    **Entry options**
+        When using the mapping/tuple forms a number of predicates are
+        available:
 
-    ```python
-    EG([
-        {
-            "graph": "custom:PositionEmbedding_1",
-            "path": "Range -> Unsqueeze -> Expand -> Gather",
-            "must_absent": ["Cast"],
-        }
-    ], search_functions=True)
-    ```
+        ``inputs``
+            Dict mapping 0-based input indices (integer or numeric string)
+            to constraints.  Supported predicates:
+
+            - ``{"const": value}`` – require a scalar initializer equal to
+              ``value``.  Shape-only wrappers (``Expand``, ``Reshape``, etc.)
+              are folded automatically.
+            - ``{"const_bool": bool}`` – convenience wrapper for boolean
+              scalars.
+            - ``{"initializer_name": "ratio"}`` – expect a specific
+              initializer name.
+            - ``{"absent": True}`` – assert the input slot is missing/empty.
+
+        ``must_absent``
+            List of operator names that must not appear anywhere in the
+            searched graph(s).
+
+        ``counts``
+            Dict of ``op_type -> exact count`` to validate the total
+            occurrences of particular ops.
+
+        ``symbols``
+            Extra symbolic dimension bindings local to the entry.
+
+        ``graph``
+            Limit the search to specific subgraph/function names when
+            ``search_functions`` is enabled.
+
+    **Global options**
+        ``mode``
+            ``"all"`` (default) requires every spec to match at least once;
+            ``"any"`` succeeds if one spec matches.
+
+        ``must_absent``
+            A global blacklist of operator names.
+
+        ``no_unused_inputs`` / ``no_unused_function_inputs``
+            Assert that the top-level graph (and optionally function bodies)
+            have no dangling inputs.
+
+        ``search_functions``
+            If true, run the matcher on every imported function body in
+            addition to the main graph.
+
+    Passthrough operators (Reshape, Cast, Squeeze, etc.) are skipped when
+    traversing forward edges so that small shape helper chains do not need to
+    be spelled out explicitly.  Constant extraction for ``inputs`` predicates
+    uses the same passthrough set, allowing patterns to reference the scalar
+    even if the graph materialises it via ``Expand``.
 
     Parameters
     ----------
