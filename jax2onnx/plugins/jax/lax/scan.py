@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 import jax
 import jax.numpy as jnp
@@ -585,6 +585,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for j, _ in enumerate(scan_outvars):
             output_indices.append(num_consts + num_carry + num_scan + j)
 
+        carry_invars = eqn.invars[num_consts : num_consts + num_carry]
+        scan_invars = eqn.invars[
+            num_consts + num_carry : num_consts + num_carry + num_scan
+        ]
+        has_dynamic_inputs = any(_is_jax_var(v) for v in carry_invars + scan_invars)
+
         for idx, var in enumerate(eqn.outvars):
             out_idx = output_indices[idx]
             val = node_outputs[out_idx]
@@ -592,7 +598,23 @@ class ScanPlugin(PrimitiveLeafPlugin):
             if aval is not None:
                 aval_shape = tuple(getattr(aval, "shape", ()))
                 if idx >= num_carry and aval_shape:
-                    desired_shape = ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",) + aval_shape[1:]
+                    first_dim = aval_shape[0]
+                    first_dim_resolved: Union[int, str]
+                    if (
+                        num_consts == 0
+                        and not has_dynamic_inputs
+                        and isinstance(first_dim, (int, np.integer))
+                    ):
+                        first_dim_resolved = int(first_dim)
+                    elif (
+                        num_consts == 0
+                        and not has_dynamic_inputs
+                        and isinstance(length, (int, np.integer))
+                    ):
+                        first_dim_resolved = int(length)
+                    else:
+                        first_dim_resolved = _DYNAMIC_DIM_SENTINEL
+                    desired_shape = (first_dim_resolved,) + aval_shape[1:]
                 else:
                     desired_shape = aval_shape
                 desired_np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
@@ -1480,3 +1502,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         ctx.add_node(loop_node)
 
         return node_outputs
+
+
+_DYNAMIC_DIM_SENTINEL = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"

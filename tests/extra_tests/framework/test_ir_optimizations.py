@@ -235,3 +235,113 @@ def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
 
     assert "deterministic" not in input_names
     assert "in_0" in input_names
+
+
+def _cast_attr(dtype: ir.DataType) -> ir.Attr:
+    return ir.Attr("to", ir.AttributeType.INT, int(dtype.value))
+
+
+def build_graph_with_identity_cast(dtype: ir.DataType = ir.DataType.FLOAT):
+    x = V_ir("x", dtype, (2,))
+    cast_out = V_ir("x_cast", dtype, (2,))
+    relu_out = V_ir("y", dtype, (2,))
+
+    cast_node = ir.Node(
+        op_type="Cast",
+        domain="",
+        inputs=[x],
+        outputs=[cast_out],
+        name="Cast_identity",
+        attributes=[_cast_attr(dtype)],
+    )
+    relu_node = ir.Node(
+        op_type="Relu",
+        domain="",
+        inputs=[cast_out],
+        outputs=[relu_out],
+        name="Relu_after_cast",
+    )
+
+    g = ir.Graph(name="g", inputs=[x], outputs=[relu_out], nodes=[cast_node, relu_node])
+    m = ir.Model(graph=g, ir_version=10)
+    try:
+        m.opset_imports = {"": 21}
+    except Exception:
+        pass
+    return m
+
+
+def test_identity_cast_removed_and_consumers_rewired():
+    m = build_graph_with_identity_cast()
+    m = optimize_graph(m)
+    g = m.graph
+    nodes = _nodes(g)
+    assert [n.op_type for n in nodes] == ["Relu"]
+    relu = nodes[0]
+    relu_inputs = getattr(relu, "inputs", None) or getattr(relu, "input", [])
+    assert relu_inputs and getattr(relu_inputs[0], "name", relu_inputs[0]) == "x"
+
+
+def test_identity_cast_removed_inside_function_body():
+    inner_model = build_graph_with_identity_cast()
+    top_in = V_ir("top_in", ir.DataType.FLOAT, (2,))
+    top_out = V_ir("top_out", ir.DataType.FLOAT, (2,))
+    passthrough = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[top_in],
+        outputs=[top_out],
+        name="TopIdentity",
+    )
+    top_graph = ir.Graph(
+        name="top", inputs=[top_in], outputs=[top_out], nodes=[passthrough]
+    )
+
+    class Fn:
+        pass
+
+    fn = Fn()
+    fn.domain = "custom"
+    fn.name = "identity_cast"
+    fn.graph = inner_model.graph
+
+    model = ir.Model(graph=top_graph, ir_version=10)
+    attached = False
+    cont = getattr(model, "functions", None)
+    try:
+        if isinstance(cont, list):
+            cont.append(fn)
+            attached = True
+        elif isinstance(cont, dict):
+            cont[(fn.domain, fn.name, "")] = fn
+            attached = True
+    except Exception:
+        attached = False
+    if not attached:
+        try:
+            existing = getattr(model, "_functions", None)
+            if isinstance(existing, list):
+                existing.append(fn)
+            else:
+                setattr(model, "_functions", [fn])
+            attached = True
+        except Exception:
+            attached = False
+    assert attached, "Could not attach function to test model"
+    try:
+        model.opset_imports = {"": 21}
+    except Exception:
+        pass
+
+    optimized = optimize_graph(model)
+    funcs = getattr(optimized, "functions", None) or getattr(
+        optimized, "_functions", None
+    )
+    if isinstance(funcs, dict):
+        fn_graph = next(iter(funcs.values())).graph
+    elif isinstance(funcs, list):
+        fn_graph = funcs[0].graph
+    else:
+        raise AssertionError("optimized model has no function registry")
+    fn_nodes = _nodes(fn_graph)
+    assert [n.op_type for n in fn_nodes] == ["Relu"]

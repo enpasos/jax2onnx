@@ -190,6 +190,30 @@ def _v_name(v: ir.Value | None) -> Optional[str]:
     return nm if isinstance(nm, str) and nm != "" else None
 
 
+def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
+    if val is None or isinstance(val, str):
+        return None
+    # Value may expose dtype directly or via .type
+    dt = getattr(val, "dtype", None)
+    if isinstance(dt, ir.DataType):
+        return int(dt.value)
+    if isinstance(dt, (int, np.integer)):
+        return int(dt)
+    ty = getattr(val, "type", None)
+    if ty is not None:
+        tdt = getattr(ty, "dtype", None)
+        if isinstance(tdt, ir.DataType):
+            return int(tdt.value)
+        if isinstance(tdt, (int, np.integer)):
+            return int(tdt)
+        elem = getattr(ty, "elem_type", None)
+        if isinstance(elem, ir.DataType):
+            return int(elem.value)
+        if isinstance(elem, (int, np.integer)):
+            return int(elem)
+    return None
+
+
 def _node_outputs(n) -> List["ir.Value"]:
     outs = getattr(n, "outputs", None)
     if outs is None:
@@ -585,6 +609,172 @@ def _get_attr(node, name: str):
     if hasattr(node, name):
         return getattr(node, name)
     return None
+
+
+def _attr_to_int(attr: Any) -> Optional[int]:
+    if attr is None:
+        return None
+    if isinstance(attr, (int, np.integer)):
+        return int(attr)
+    for field in ("i", "value", "int_value", "int", "int32", "int64"):
+        if hasattr(attr, field):
+            val = getattr(attr, field)
+            if isinstance(val, (int, np.integer)):
+                return int(val)
+    # Some attrs expose .ints with single element
+    for field in ("ints", "values"):
+        seq = getattr(attr, field, None)
+        if isinstance(seq, (list, tuple)) and len(seq) == 1:
+            val = seq[0]
+            if isinstance(val, (int, np.integer)):
+                return int(val)
+    try:
+        seq = list(attr)
+        if len(seq) == 2 and seq[0] == "to" and isinstance(seq[1], (int, np.integer)):
+            return int(seq[1])
+        if len(seq) == 1 and isinstance(seq[0], (int, np.integer)):
+            return int(seq[0])
+    except Exception:
+        pass
+    return None
+
+
+def _collect_value_dtypes(graph, nodes: List["ir.Node"]) -> Dict[str, int]:
+    type_map: Dict[str, int] = {}
+
+    def _record(val):
+        name = _v_name(val)
+        code = _value_dtype_code(val)
+        if name and code is not None:
+            type_map.setdefault(name, code)
+
+    for attr in ("inputs", "input"):
+        vals = getattr(graph, attr, None)
+        if vals is None:
+            continue
+        try:
+            for v in vals:
+                _record(v)
+        except Exception:
+            pass
+
+    for attr in ("outputs", "output"):
+        vals = getattr(graph, attr, None)
+        if vals is None:
+            continue
+        try:
+            for v in vals:
+                _record(v)
+        except Exception:
+            pass
+
+    inits = getattr(graph, "initializer", None)
+    if inits is not None:
+        try:
+            for init in inits:
+                name = getattr(init, "name", None)
+                dtype = getattr(init, "data_type", None)
+                if isinstance(name, str) and isinstance(dtype, (int, np.integer)):
+                    type_map.setdefault(name, int(dtype))
+        except Exception:
+            pass
+
+    for node in nodes:
+        for ov in _node_outputs(node):
+            _record(ov)
+        # also inspect inputs, in case they carry dtype metadata
+        for iv in _node_inputs(node):
+            _record(iv)
+
+    return type_map
+
+
+# ---------------- Cast cleanup ----------------
+
+
+def remove_redundant_casts_ir(graph) -> None:
+    nodes, store = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+    changed = True
+    while changed:
+        changed = False
+        dtype_map = _collect_value_dtypes(graph, nodes)
+        prod_obj, prod_name, cons_by_obj, cons_by_name = _build_use_maps(nodes)
+        for idx, n in enumerate(nodes):
+            if getattr(n, "op_type", None) != "Cast":
+                continue
+            ins = _node_inputs(n)
+            outs = _node_outputs(n)
+            if not ins or not outs:
+                continue
+            target_attr = _get_attr(n, "to")
+            target_code = _attr_to_int(target_attr)
+            if target_code is None:
+                continue
+            src_dtype = _value_dtype_code(ins[0])
+            if src_dtype is None:
+                src_name = _v_name(ins[0])
+                if src_name and src_name in dtype_map:
+                    src_dtype = dtype_map[src_name]
+            if src_dtype is None:
+                if DEBUG:
+                    _dbg(
+                        "skip Cast (unknown dtype)",
+                        _v_name(ins[0]),
+                        "target",
+                        target_code,
+                    )
+                continue
+            if src_dtype != target_code:
+                # Try folding consecutive Cast→Cast when net dtype is identity.
+                out_val = outs[0]
+                consumer_idx = _unique_consumer(cons_by_obj, cons_by_name, out_val)
+                if consumer_idx is not None:
+                    next_node = nodes[consumer_idx]
+                    if getattr(next_node, "op_type", None) == "Cast":
+                        next_outs = _node_outputs(next_node)
+                        next_ins = _node_inputs(next_node)
+                        if next_outs and next_ins:
+                            next_target = _attr_to_int(_get_attr(next_node, "to"))
+                            if (
+                                next_target is not None
+                                and next_target == src_dtype
+                                and _unique_consumer(cons_by_obj, cons_by_name, out_val)
+                                == consumer_idx
+                            ):
+                                final_out = next_outs[0]
+                                src_val = ins[0]
+                                _replace_everywhere(
+                                    nodes, final_out, _v_name(final_out), src_val
+                                )
+                                _replace_in_graph_outputs(
+                                    graph, final_out, _v_name(final_out), src_val
+                                )
+                                kill = sorted([idx, consumer_idx], reverse=True)
+                                for k in kill:
+                                    nodes.pop(k)
+                                _set_nodes(store, nodes)
+                                changed = True
+                                break
+                if DEBUG:
+                    _dbg(
+                        "skip Cast (dtype mismatch)",
+                        _v_name(ins[0]),
+                        src_dtype,
+                        "→",
+                        target_code,
+                    )
+                continue
+            src_val = ins[0]
+            out_val = outs[0]
+            _replace_everywhere(nodes, out_val, _v_name(out_val), src_val)
+            _replace_in_graph_outputs(graph, out_val, _v_name(out_val), src_val)
+            nodes = nodes[:idx] + nodes[idx + 1 :]
+            _set_nodes(store, nodes)
+            changed = True
+            break
+    _set_nodes(store, nodes)
 
 
 # ---------------- Transpose folding ----------------
@@ -1509,11 +1699,13 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     try:
         gr = getattr(ir_model, "graph", None)
         if gr is not None:
+            remove_redundant_casts_ir(gr)
             remove_redundant_transpose_pairs_ir(gr)
             remove_redundant_reshape_pairs_ir(gr)
             # Constant-only: inline training_mode when provably false / Not(True)
             inline_dropout_training_mode_constants_ir(gr)
             propagate_unary_shapes_ir(gr)
+            remove_redundant_casts_ir(gr)
             remove_dead_nodes_ir(gr)
             prune_unused_graph_inputs_ir(gr)
     except Exception as _e:
@@ -1534,10 +1726,12 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
             fgr = getattr(fn, "graph", None)
             if fgr is not None:
                 try:
+                    remove_redundant_casts_ir(fgr)
                     remove_redundant_transpose_pairs_ir(fgr)
                     remove_redundant_reshape_pairs_ir(fgr)
                     inline_dropout_training_mode_constants_ir(fgr)
                     propagate_unary_shapes_ir(fgr)
+                    remove_redundant_casts_ir(fgr)
                     remove_dead_nodes_ir(fgr)
                 except Exception as _fe:
                     _dbg("optimize_graph: function pass skipped:", _fe)

@@ -531,7 +531,13 @@ register_example(
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
-                [],
+                [
+                    {
+                        "graph": "custom:PositionEmbedding_1",
+                        "path": "Range -> Unsqueeze -> Expand -> Gather",
+                        "must_absent": ["Cast"],
+                    }
+                ],
                 no_unused_inputs=True,
                 no_unused_function_inputs=True,
                 search_functions=True,

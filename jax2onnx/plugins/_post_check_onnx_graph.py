@@ -23,6 +23,7 @@ ShapeDim = Optional[Union[int, str]]
 SpecItem = Union[
     str,  # "A[:shape] -> B[:shape] -> C[:shape]"
     Tuple[str, Dict[str, Any]],  # ("path", { extra predicates })
+    Mapping[str, Any],  # {"graph": ..., "path": ..., ...}
 ]
 
 
@@ -70,6 +71,18 @@ def expect_graph(
     assert POST(model)
     ```
 
+    Path specs now also support scoping to a specific graph/function body:
+
+    ```python
+    EG([
+        {
+            "graph": "custom:PositionEmbedding_1",
+            "path": "Range -> Unsqueeze -> Expand -> Gather",
+            "must_absent": ["Cast"],
+        }
+    ], search_functions=True)
+    ```
+
     Parameters
     ----------
     specs : list[str | (str, dict)]
@@ -94,6 +107,24 @@ def expect_graph(
     callable
         A predicate you can use in tests:  assert expect_graph([...])(model)
     """
+
+    def _parse_spec(item: SpecItem) -> Dict[str, Any]:
+        if isinstance(item, Mapping):
+            if "path" not in item:
+                raise ValueError("expect_graph spec dict requires a 'path' entry")
+            return dict(item)
+        if isinstance(item, tuple):
+            path, preds = item
+            spec = {"path": path}
+            if isinstance(preds, Mapping):
+                spec.update(preds)
+            else:
+                raise TypeError(
+                    "expect_graph tuple spec must provide a mapping as the second item"
+                )
+            return spec
+        # plain string path
+        return {"path": item}
 
     def _run(model) -> bool:
         gv = _GraphView(
@@ -139,12 +170,22 @@ def expect_graph(
         if specs:
             matches = []
             for item in specs:
-                if isinstance(item, tuple):
-                    path, preds = item
-                else:
-                    path, preds = item, {}
+                spec = _parse_spec(item)
+                path = spec.get("path")
+                if not isinstance(path, str):
+                    raise TypeError("expect_graph path spec must be a string")
                 symbol_env: Dict[str, ShapeDim] = dict(symbols or {})
-                m = gv.match_path_with_shapes(path, symbols=symbol_env, **preds)
+                spec_symbols = spec.get("symbols")
+                if spec_symbols:
+                    symbol_env.update(spec_symbols)
+                m = gv.match_path_with_shapes(
+                    path,
+                    symbols=symbol_env,
+                    attrs=spec.get("attrs"),
+                    counts=spec.get("counts"),
+                    graph_filter=spec.get("graph"),
+                    must_absent=spec.get("must_absent"),
+                )
                 matches.append(m)
                 ok = ok and m
             if mode == "any":
@@ -230,9 +271,18 @@ class _GraphView:
 
     # -- basic queries --
 
-    def count_op(self, op_type: str, *, live_only: bool = True) -> int:
+    def count_op(
+        self,
+        op_type: str,
+        *,
+        live_only: bool = True,
+        graphs: Optional[Iterable[str]] = None,
+    ) -> int:
         c = 0
+        allowed = set(graphs) if graphs is not None else None
         for gname, g in self.graphs:
+            if allowed is not None and gname not in allowed:
+                continue
             nodes = _nodes(g)
             live = self._live_index.get(gname, set()) if live_only else None
             for idx, n in enumerate(nodes):
@@ -243,10 +293,17 @@ class _GraphView:
         return c
 
     def list_ops(
-        self, op_type: str, *, live_only: bool = True
+        self,
+        op_type: str,
+        *,
+        live_only: bool = True,
+        graphs: Optional[Iterable[str]] = None,
     ) -> List[Tuple[str, int]]:
         out = []
+        allowed = set(graphs) if graphs is not None else None
         for gname, g in self.graphs:
+            if allowed is not None and gname not in allowed:
+                continue
             nodes = _nodes(g)
             live = self._live_index.get(gname, set()) if live_only else None
             for idx, n in enumerate(nodes):
@@ -296,11 +353,15 @@ class _GraphView:
         symbols: Mapping[str, ShapeDim],
         attrs: Optional[Dict[str, Any]] = None,
         counts: Optional[Dict[str, int]] = None,
+        graph_filter: Optional[Any] = None,
+        must_absent: Optional[Iterable[str]] = None,
     ) -> bool:
         attrs = attrs or {}
         counts = counts or {}
         ok_any_graph = False
         reasons: List[str] = []
+        allowed = _normalize_graph_filter(graph_filter)
+        considered_any = False
 
         # Parse path: tokens like "Op[:shape]" split by ->
         tokens = [t.strip() for t in path.strip("^$ ").split("->")]
@@ -313,6 +374,9 @@ class _GraphView:
                 steps.append((tok, None))
 
         for gname, g in self.graphs:
+            if allowed is not None and gname not in allowed:
+                continue
+            considered_any = True
             ok, why = _match_path_on_graph(
                 g,
                 steps,
@@ -321,27 +385,58 @@ class _GraphView:
                 gname,
                 self._shape_index[gname],
             )
-            if ok:
-                # extra: counts
-                ok_counts = True
-                for op, want in counts.items():
-                    if sum(1 for n in _nodes(g) if n.op_type == op) != want:
-                        ok_counts = False
-                        break
-                # extra: attrs (shallow)
-                ok_attrs = True
-                for op, reqs in attrs.items():
-                    for n in _nodes(g):
-                        if n.op_type != op:
-                            continue
-                        if not _node_has_attrs(n, reqs):
-                            ok_attrs = False
-                            break
-                if ok_counts and ok_attrs:
-                    ok_any_graph = True
-                    break
-            else:
+            if not ok:
                 reasons.append(why)
+                continue
+
+            if must_absent:
+                violation = None
+                for op in must_absent:
+                    if self.count_op(op, graphs=[gname]) > 0:
+                        violation = (
+                            f"[{gname}] operator '{op}' present but must be absent"
+                        )
+                        break
+                if violation is not None:
+                    reasons.append(violation)
+                    continue
+
+            if counts:
+                mismatch = None
+                for op, want in counts.items():
+                    got = self.count_op(op, live_only=False, graphs=[gname])
+                    if got != want:
+                        mismatch = (
+                            f"[{gname}] expected {want} '{op}' nodes but found {got}"
+                        )
+                        break
+                if mismatch is not None:
+                    reasons.append(mismatch)
+                    continue
+
+            if attrs:
+                attr_issue = None
+                for op, reqs in attrs.items():
+                    nodes_for_op = [n for n in _nodes(g) if n.op_type == op]
+                    if not nodes_for_op:
+                        attr_issue = (
+                            f"[{gname}] operator '{op}' not found for attribute check"
+                        )
+                        break
+                    if any(not _node_has_attrs(n, reqs) for n in nodes_for_op):
+                        attr_issue = (
+                            f"[{gname}] operator '{op}' missing required attributes"
+                        )
+                        break
+                if attr_issue is not None:
+                    reasons.append(attr_issue)
+                    continue
+
+            ok_any_graph = True
+            break
+        if not considered_any and allowed is not None:
+            self._fail(f"graph not found: {graph_filter!r}")
+            return False
         if not ok_any_graph:
             if reasons:
                 self._fail(f"path not found: {path!r} :: " + " | ".join(reasons))
@@ -410,6 +505,36 @@ def _function_graphs(model):
 def _nodes(g):
     # onnx_ir graphs may use .nodes/_nodes; ONNX uses .node
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
+
+
+def _normalize_graph_filter(graph_filter: Any) -> Optional[Set[str]]:
+    if graph_filter is None:
+        return None
+    items: List[str]
+    if isinstance(graph_filter, str):
+        items = [graph_filter]
+    else:
+        try:
+            items = list(graph_filter)
+        except TypeError:
+            items = [str(graph_filter)]
+
+    normalized: Set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        if item == "top":
+            normalized.add("top")
+            continue
+        if item.startswith("fn:"):
+            normalized.add(item)
+            trimmed = item[3:]
+            if trimmed:
+                normalized.add(trimmed)
+        else:
+            normalized.add(item)
+            normalized.add(f"fn:{item}")
+    return normalized if normalized else None
 
 
 def _graph_inputs(g):
