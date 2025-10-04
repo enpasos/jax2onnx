@@ -1,6 +1,7 @@
 # jax2onnx/plugins/_post_check_onnx_graph.py
 
 from __future__ import annotations
+import json
 import re
 from typing import (
     Any,
@@ -831,6 +832,237 @@ def _value_keys(v) -> List[Tuple[str, Any]]:
         except Exception:
             pass
     return keys if keys else [("anon", id(v))]
+
+
+class _SymbolTable:
+    _PREFERRED = tuple("BCTNMRQXYZSH")
+
+    def __init__(self) -> None:
+        self._raw_to_symbol: Dict[str, str] = {}
+        self._used: set[str] = set()
+
+    def symbol_for(self, raw: Any) -> str:
+        key = str(raw)
+        cached = self._raw_to_symbol.get(key)
+        if cached is not None:
+            return cached
+        symbol = self._choose_symbol(key)
+        self._raw_to_symbol[key] = symbol
+        self._used.add(symbol)
+        return symbol
+
+    def expect_symbols(self) -> Dict[str, None]:
+        if not self._used:
+            return {}
+        return {sym: None for sym in sorted(self._used)}
+
+    def _choose_symbol(self, candidate: str) -> str:
+        token = candidate.strip()
+        if _looks_like_symbol(token) and token not in self._used:
+            return token
+        for sym in self._PREFERRED:
+            if sym not in self._used:
+                return sym
+        idx = 0
+        while True:
+            sym = f"S{idx}"
+            if sym not in self._used:
+                return sym
+            idx += 1
+
+
+_SYMBOL_TOKEN = re.compile(r"^[A-Z](?:[A-Z0-9_]{0,3})$")
+
+
+def _looks_like_symbol(token: str) -> bool:
+    if not token:
+        return False
+    return bool(_SYMBOL_TOKEN.match(token))
+
+
+def _format_dim(dim: Any, symtab: _SymbolTable) -> str:
+    if dim is None:
+        return "?"
+    if isinstance(dim, int):
+        return str(dim)
+    if isinstance(dim, str):
+        return symtab.symbol_for(dim)
+    try:
+        intval = int(dim)  # type: ignore[arg-type]
+    except Exception:
+        return symtab.symbol_for(dim)
+    return str(intval)
+
+
+def _shape_to_spec_str(
+    shape: Optional[Tuple[ShapeDim, ...]], symtab: _SymbolTable
+) -> str:
+    if shape is None:
+        return ""
+    if not shape:
+        return ""
+    dims = [_format_dim(dim, symtab) for dim in shape]
+    return "x".join(dims)
+
+
+def _format_step(
+    op_type: str, shape: Optional[Tuple[ShapeDim, ...]], symtab: _SymbolTable
+) -> str:
+    spec_shape = _shape_to_spec_str(shape, symtab)
+    return op_type if not spec_shape else f"{op_type}:{spec_shape}"
+
+
+def _producer_index(nodes) -> Dict[Tuple[str, Any], Tuple[int, Any]]:
+    mapping: Dict[Tuple[str, Any], Tuple[int, Any]] = {}
+    for idx, node in enumerate(nodes):
+        for out_val in _outputs_of(node):
+            for key in _value_keys(out_val):
+                mapping[key] = (idx, out_val)
+    return mapping
+
+
+def _trace_main_chain(
+    output_val,
+    nodes,
+    producer_map: Dict[Tuple[str, Any], Tuple[int, Any]],
+    *,
+    hop_limit: int,
+) -> List[Tuple[Any, Any]]:
+    chain: List[Tuple[Any, Any]] = []
+    current = output_val
+    visited: set[int] = set()
+    hops = 0
+    while hops < hop_limit:
+        producer = None
+        for key in _value_keys(current):
+            producer = producer_map.get(key)
+            if producer is not None:
+                break
+        if producer is None:
+            break
+        node_idx, produced = producer
+        if node_idx in visited:
+            break
+        visited.add(node_idx)
+        chain.append((nodes[node_idx], produced))
+        inputs = _inputs_of(nodes[node_idx])
+        if not inputs:
+            break
+        current = inputs[0]
+        hops += 1
+    chain.reverse()
+    return chain
+
+
+def _summarize_graph_primary_paths(
+    g,
+    *,
+    shape_index: Dict[str, Tuple],
+    symtab: _SymbolTable,
+    hop_limit: int,
+) -> List[str]:
+    nodes = _nodes(g)
+    if not nodes:
+        return []
+    producer_map = _producer_index(nodes)
+    specs: List[str] = []
+    seen: set[str] = set()
+    for out_val in _graph_outputs(g):
+        chain = _trace_main_chain(out_val, nodes, producer_map, hop_limit=hop_limit)
+        if not chain:
+            continue
+        parts = []
+        for node, produced in chain:
+            shape = _shape_of_output(produced, shape_index)
+            parts.append(_format_step(getattr(node, "op_type", ""), shape, symtab))
+        spec = " -> ".join(parts)
+        if spec and spec not in seen:
+            seen.add(spec)
+            specs.append(spec)
+    return specs
+
+
+def auto_expect_graph_spec(
+    model,
+    *,
+    graph: Optional[Union[str, Sequence[str]]] = "top",
+    search_functions: Optional[bool] = None,
+    passthrough_ops: Optional[Iterable[str]] = None,
+    hop_limit: int = 128,
+    include_no_unused_inputs: bool = True,
+) -> Dict[str, Any]:
+    """Generate expect_graph specs from the current ONNX/IR graph structure."""
+
+    pas = set(passthrough_ops or DEFAULT_PASSTHROUGH_OPS)
+    if search_functions is None:
+        normalized = _normalize_graph_filter(graph)
+        search_functions = normalized is not None and any(
+            item != "top" and not item.startswith("fn:") for item in normalized
+        )
+    gv = _GraphView(model, search_functions=bool(search_functions), passthrough_ops=pas)
+    target_graphs = _normalize_graph_filter(graph)
+    symtab = _SymbolTable()
+    specs: List[Union[str, Dict[str, Any]]] = []
+    for gname, g in gv.graphs:
+        if target_graphs is not None and gname not in target_graphs:
+            continue
+        shape_index = gv._shape_index.get(gname, {})
+        paths = _summarize_graph_primary_paths(
+            g, shape_index=shape_index, symtab=symtab, hop_limit=hop_limit
+        )
+        for path in paths:
+            if gname != "top":
+                specs.append({"graph": gname, "path": path})
+            else:
+                specs.append(path)
+    if specs:
+        specs = sorted(specs, key=_spec_sort_key)
+    result: Dict[str, Any] = {
+        "specs": specs,
+        "mode": "all",
+        "search_functions": bool(search_functions),
+    }
+    symbols = symtab.expect_symbols()
+    if symbols:
+        result["symbols"] = symbols
+    if include_no_unused_inputs and not gv.unused_graph_inputs():
+        result["no_unused_inputs"] = True
+    return result
+
+
+def expect_graph_from_spec(spec: Dict[str, Any]):
+    """Instantiate expect_graph from a spec generated by auto_expect_graph_spec."""
+
+    specs = spec.get("specs", [])
+    if not specs:
+        raise ValueError("spec does not contain any path specifications")
+    kwargs = {
+        "symbols": spec.get("symbols"),
+        "mode": spec.get("mode", "all"),
+        "must_absent": spec.get("must_absent"),
+        "no_unused_inputs": spec.get("no_unused_inputs", False),
+        "no_unused_function_inputs": spec.get("no_unused_function_inputs", False),
+        "search_functions": spec.get("search_functions", False),
+    }
+    return expect_graph(specs, **kwargs)
+
+
+def expect_graph_from_file(path: str):
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise TypeError(f"expect_graph spec file '{path}' must contain an object")
+    return expect_graph_from_spec(data)
+
+
+def _spec_sort_key(item: Any) -> Tuple[str, str]:
+    if isinstance(item, str):
+        return ("top", item)
+    if isinstance(item, Mapping):
+        graph = str(item.get("graph", "")) or "top"
+        path = str(item.get("path", ""))
+        return (graph, path)
+    return ("top", str(item))
 
 
 def _build_consumer_map(nodes) -> Dict[Tuple, List[int]]:

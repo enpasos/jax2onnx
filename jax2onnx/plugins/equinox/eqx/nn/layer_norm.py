@@ -12,14 +12,15 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _ensure_value_info,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG2
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-
-_EXPECT_LN = EG2(["LayerNormalization"], mode="all", search_functions=False)
 
 
 @register_primitive(
@@ -39,25 +40,37 @@ _EXPECT_LN = EG2(["LayerNormalization"], mode="all", search_functions=False)
             "testcase": "layer_norm",
             "callable": eqx.nn.LayerNorm(32, eps=1e-5),
             "input_shapes": [(32,)],
-            "post_check_onnx_graph": _EXPECT_LN,
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_multiaxis",
             "callable": eqx.nn.LayerNorm((20, 32)),
             "input_shapes": [(20, 32)],
-            "post_check_onnx_graph": _EXPECT_LN,
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:20x32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "batched_layer_norm",
             "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
             "input_shapes": [("B", 32)],
-            "post_check_onnx_graph": _EXPECT_LN,
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:Bx32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
             "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
             "input_shapes": [(32,)],
-            "post_check_onnx_graph": _EXPECT_LN,
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:32"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -100,7 +113,11 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         ctx.set_node_attrs(node, {"axis": int(axis), "epsilon": epsilon})
 
         if x_shape:
-            _stamp_type_and_shape(out_val, x_shape)
+            stamped_dims = []
+            for idx, dim in enumerate(x_shape):
+                label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+                stamped_dims.append(label if label is not None else dim)
+            _stamp_type_and_shape(out_val, tuple(stamped_dims))
         _ensure_value_info(ctx, out_val)
 
     @classmethod

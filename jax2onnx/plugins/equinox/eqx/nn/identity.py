@@ -11,11 +11,8 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG2
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-
-_EXPECT_IDENTITY = EG2(["Identity"], mode="all", search_functions=False)
 
 
 @register_primitive(
@@ -35,13 +32,13 @@ _EXPECT_IDENTITY = EG2(["Identity"], mode="all", search_functions=False)
             "testcase": "eqx_identity_static",
             "callable": eqx.nn.Identity(),
             "input_shapes": [(10, 20)],
-            "post_check_onnx_graph": _EXPECT_IDENTITY,
+            "post_check_onnx_graph": expect_graph(["Identity:10x20"]),
         },
         {
             "testcase": "eqx_identity_symbolic_batch",
             "callable": eqx.nn.Identity(),
             "input_shapes": [("B", 32)],
-            "post_check_onnx_graph": _EXPECT_IDENTITY,
+            "post_check_onnx_graph": expect_graph(["Identity:Bx32"]),
         },
     ],
 )

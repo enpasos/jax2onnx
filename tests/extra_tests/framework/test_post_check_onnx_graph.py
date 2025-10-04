@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 import onnx_ir as ir
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+import json
+from jax2onnx.plugins._post_check_onnx_graph import (
+    expect_graph as EG,
+    auto_expect_graph_spec,
+    expect_graph_from_spec,
+    expect_graph_from_file,
+)
 
 
 def V(name, dtype=ir.DataType.FLOAT, shape=()):
@@ -196,6 +202,22 @@ def test_path_walks_over_shape_side_chain():
     m = build_branchy_transpose_reshape()
     check = EG(["Transpose -> Reshape"])
     assert check(m)
+
+
+def test_auto_expect_graph_spec_roundtrip_static():
+    model = build_static_chain(B=3)
+    spec = auto_expect_graph_spec(model)
+    check = expect_graph_from_spec(spec)
+    assert check(model)
+
+
+def test_expect_graph_from_file_roundtrip(tmp_path):
+    model = build_dynamic_chain()
+    spec = auto_expect_graph_spec(model)
+    dest = tmp_path / "spec.json"
+    dest.write_text(json.dumps(spec, indent=2))
+    check = expect_graph_from_file(str(dest))
+    assert check(model)
 
 
 def test_function_body_search_matches():

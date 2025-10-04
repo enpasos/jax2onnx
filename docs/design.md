@@ -155,6 +155,14 @@ share a single function body, while shape/config changes trigger new entries.
 
 ---
 
+# Graph structure specs
+
+* Post-conversion graph checks live directly in metadata. Use `expect_graph([...], …)` so the contract is visible next to each testcase.
+* When the lowered structure changes, run `poetry run python scripts/emit_expect_graph.py <testcase>` to regenerate a canonical snippet; paste the result into the plugin metadata.
+* The helper relies on `auto_expect_graph_spec` internally, so it always reflects the current ONNX graph without persisting extra fixtures.
+
+---
+
 # IR optimizer (plugin-agnostic)
 
 We run a small, safe, structure-only pass on the IR **before serialization**. Current rule:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 import equinox as eqx
 import jax
@@ -20,12 +20,9 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG2
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-
-_has_gemm = EG2(["Gemm"], mode="any", search_functions=False)
 
 
 def _const_i64(ctx, data, *, name: str) -> ir.Value:
@@ -74,6 +71,190 @@ _eqx_linear_highrank = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(42))
 _eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNGKey(7))
 
 
+def _ensure_static_int(dim: int | str | None) -> int:
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    raise TypeError("Dimension is not a static integer")
+
+
+def _value_to_numpy(val: ir.Value) -> Optional[np.ndarray]:
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        payload = getattr(val, attr, None)
+        if payload is None:
+            continue
+        try:
+            return np.asarray(payload)
+        except Exception:
+            try:
+                return np.asarray(payload())  # callable returning array-like
+            except Exception:
+                continue
+    return None
+
+
+def _set_value_const_payload(val: ir.Value, arr: np.ndarray) -> None:
+    payload = ir.tensor(arr) if hasattr(ir, "tensor") else arr
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        if hasattr(val, attr):
+            try:
+                setattr(val, attr, payload)
+            except Exception:
+                pass
+
+
+def _inline_scalar_bias(ctx, bias_val: ir.Value, out_features: int) -> ir.Value:
+    expand_node = getattr(bias_val, "producer", None)
+    if callable(expand_node):
+        try:
+            expand_node = expand_node()
+        except Exception:
+            expand_node = None
+    if expand_node is None or getattr(expand_node, "op_type", "") != "Expand":
+        return bias_val
+
+    expand_inputs = list(
+        getattr(expand_node, "inputs", getattr(expand_node, "input", []))
+    )
+    if not expand_inputs:
+        return bias_val
+
+    const_input = expand_inputs[0]
+    arr = _value_to_numpy(const_input)
+    # For debugging - disable in production if needed
+    if arr is None:
+        for init in getattr(ctx.builder, "initializers", []):
+            if getattr(init, "name", None) == getattr(const_input, "name", None):
+                arr = _value_to_numpy(init)
+                if arr is not None:
+                    break
+    if arr is None or arr.size != 1:
+        return bias_val
+
+    broadcast = np.broadcast_to(arr.reshape(()), (out_features,))
+    bias_type = getattr(bias_val, "type", None)
+    if isinstance(bias_type, ir.TensorType):
+        new_type = ir.TensorType(bias_type.dtype)
+    else:
+        new_type = bias_type
+
+    new_val = ir.Value(
+        name=ctx.fresh_name("linear_bias_inline"),
+        type=new_type,
+        shape=ir.Shape((out_features,)),
+    )
+    _set_value_const_payload(new_val, broadcast)
+
+    try:
+        inits = getattr(ctx, "_initializers", None)
+        if isinstance(inits, list):
+            inits.append(new_val)
+        else:
+            ctx.builder.initializers.append(new_val)
+    except Exception:
+        try:
+            ctx.builder.initializers.append(new_val)
+        except Exception:
+            pass
+
+    try:
+        mapping = getattr(ctx.builder, "_var2val", None)
+        if isinstance(mapping, dict):
+            for var, val in list(mapping.items()):
+                if val is bias_val:
+                    mapping[var] = new_val
+    except Exception:
+        pass
+
+    try:
+        nodes = getattr(ctx.builder, "nodes", None)
+        if isinstance(nodes, list):
+            if expand_node in nodes:
+                nodes.remove(expand_node)
+            if len(expand_inputs) > 1:
+                shape_val = expand_inputs[1]
+                shape_producer = getattr(shape_val, "producer", None)
+                if callable(shape_producer):
+                    try:
+                        shape_producer = shape_producer()
+                    except Exception:
+                        shape_producer = None
+                if shape_producer and getattr(shape_producer, "op_type", "") in {
+                    "Concat",
+                    "Reshape",
+                }:
+                    output_names = {
+                        getattr(v, "name", None)
+                        for v in getattr(
+                            shape_producer,
+                            "outputs",
+                            getattr(shape_producer, "output", []),
+                        )
+                    }
+                    if output_names:
+                        still_used = False
+                        for node in nodes:
+                            if node is shape_producer:
+                                continue
+                            for iv in getattr(
+                                node, "inputs", getattr(node, "input", [])
+                            ):
+                                if getattr(iv, "name", None) in output_names:
+                                    still_used = True
+                                    break
+                            if still_used:
+                                break
+                        if not still_used and shape_producer in nodes:
+                            nodes.remove(shape_producer)
+    except Exception:
+        pass
+
+    return new_val
+
+
+def _flatten_leading_dim_label(
+    x_val, x_shape: tuple[int | str | None, ...]
+) -> int | str | None:
+    batch_dims = x_shape[:-1]
+    if not batch_dims:
+        return 1
+
+    labels: list[int | str | None] = []
+    all_static = True
+    for idx, dim in enumerate(batch_dims):
+        label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        if label is None:
+            if _is_static_int(dim):
+                label = _ensure_static_int(dim)
+            else:
+                label = None
+        else:
+            if isinstance(label, str) and not label:
+                label = None
+        labels.append(label)
+        if not _is_static_int(dim):
+            all_static = False
+
+    non_null = [lb for lb in labels if lb is not None]
+    if len(non_null) == 1 and len(labels) == 1:
+        return non_null[0]
+
+    if len(non_null) == len(labels) and all(
+        isinstance(lb, (int, np.integer)) for lb in non_null
+    ):
+        prod = 1
+        for lb in non_null:
+            prod *= int(lb)
+        return prod
+
+    if all_static and batch_dims:
+        prod = 1
+        for dim in batch_dims:
+            prod *= _ensure_static_int(dim)
+        return prod
+
+    return None
+
+
 @register_primitive(
     jaxpr_primitive="eqx.nn.linear",
     jax_doc="https://docs.kidger.site/equinox/api/eqx/nn/linear/",
@@ -92,19 +273,31 @@ _eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNG
             "testcase": "eqx_linear_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_symbolic: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "post_check_onnx_graph": _has_gemm,
+            "post_check_onnx_graph": expect_graph(
+                ["Gemm:Bx64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
         {
             "testcase": "eqx_linear_no_bias_symbolic_batch",
             "callable": lambda x, _mod=_eqx_linear_no_bias: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "post_check_onnx_graph": _has_gemm,
+            "post_check_onnx_graph": expect_graph(
+                ["Gemm:Bx64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
         {
             "testcase": "eqx_linear_no_bias_vector",
             "callable": _eqx_linear_no_bias,
             "input_shapes": [(128,)],
-            "post_check_onnx_graph": _has_gemm,
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:1x128 -> Gemm:1x64 -> Reshape:64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
         {
             "testcase": "eqx_linear_high_rank",
@@ -112,13 +305,21 @@ _eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNG
                 x
             ),
             "input_shapes": [(32, 10, 128)],
-            "post_check_onnx_graph": _has_gemm,
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:320x128 -> Gemm:320x64 -> Reshape:32x10x64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
         {
             "testcase": "eqx_linear_vector",
             "callable": _eqx_linear_symbolic,
             "input_shapes": [(128,)],
-            "post_check_onnx_graph": _has_gemm,
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:1x128 -> Gemm:1x64 -> Reshape:64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
     ],
 )
@@ -152,10 +353,21 @@ class LinearPlugin(PrimitiveLeafPlugin):
         weight_shape = tuple(getattr(getattr(weight_var, "aval", None), "shape", ()))
         in_features = int(weight_shape[1]) if len(weight_shape) > 1 else 0
         out_features = int(weight_shape[0]) if weight_shape else 0
+        b_val = _inline_scalar_bias(ctx, b_val, out_features)
 
         need_flatten = len(x_shape) != 2
         if need_flatten:
-            reshape_shape = _const_i64(ctx, [-1, in_features], name="linear_in_shape")
+            flat_dim_label = _flatten_leading_dim_label(x_val, x_shape)
+            reshape_first_dim = -1
+            if isinstance(flat_dim_label, (int, np.integer)) and flat_dim_label > 0:
+                reshape_first_dim = int(flat_dim_label)
+            elif flat_dim_label == 1:
+                reshape_first_dim = 1
+            reshape_shape = _const_i64(
+                ctx,
+                [reshape_first_dim, in_features],
+                name="linear_in_shape",
+            )
             flat_val = ir.Value(
                 name=ctx.fresh_name("linear_flat"),
                 type=x_val.type,
@@ -170,6 +382,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     name=ctx.fresh_name("Reshape"),
                 )
             )
+            if flat_dim_label is not None:
+                _stamp_type_and_shape(flat_val, (flat_dim_label, in_features))
             gemm_input = flat_val
         else:
             gemm_input = x_val
@@ -201,8 +415,13 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if need_flatten:
             batch_dims = x_shape[:-1]
             all_static = all(_is_static_int(d) for d in batch_dims)
+            flat_dim_label = _flatten_leading_dim_label(x_val, x_shape)
+            if flat_dim_label is not None:
+                _stamp_type_and_shape(gemm_out, (flat_dim_label, out_features))
             if all_static:
-                final_vals = [int(d) for d in batch_dims] + [out_features]
+                final_vals = [_ensure_static_int(d) for d in batch_dims] + [
+                    out_features
+                ]
                 final_shape = _const_i64(ctx, final_vals, name="linear_out_shape")
                 ctx.add_node(
                     ir.Node(
@@ -280,8 +499,15 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(out_val, tuple(target_dims))
             _ensure_value_info(ctx, out_val)
         else:
-            out_shape = (*x_shape[:-1], out_features) if x_shape else (out_features,)
-            _stamp_type_and_shape(out_val, out_shape)
+            if x_shape:
+                out_dims = []
+                for idx in range(len(x_shape) - 1):
+                    label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+                    out_dims.append(label if label is not None else x_shape[idx])
+                out_dims.append(out_features)
+                _stamp_type_and_shape(out_val, tuple(out_dims))
+            else:
+                _stamp_type_and_shape(out_val, (out_features,))
             _ensure_value_info(ctx, out_val)
 
     @classmethod

@@ -14,14 +14,8 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG2
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-
-_EXPECT_SIMPLE = EG2(
-    ["Dropout"], must_absent=["Not"], mode="all", search_functions=False
-)
-_EXPECT_DYNAMIC = EG2(["Not -> Dropout"], mode="any", search_functions=False)
 
 
 def _ir_dtype_from_numpy(dtype: np.dtype) -> ir.DataType:
@@ -151,7 +145,9 @@ def _post_check_constant(
     model, *, expected_ratio: float, expected_training: bool
 ) -> bool:
     graph = getattr(model, "graph", None)
-    if graph is None or not _EXPECT_SIMPLE(model):
+    if graph is None or not expect_graph(
+        ["Dropout"], must_absent=["Not"], mode="all", search_functions=False
+    )(model):
         return False
     nodes = list(getattr(graph, "node", []))
     drop = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
@@ -174,7 +170,9 @@ def _post_check_constant(
 
 def _post_check_dynamic(model, *, expected_ratio: float) -> bool:
     graph = getattr(model, "graph", None)
-    if graph is None or not _EXPECT_DYNAMIC(model):
+    if graph is None or not expect_graph(
+        ["Not -> Dropout"], mode="any", search_functions=False
+    )(model):
         return False
     nodes = list(getattr(graph, "node", []))
     drop = next((n for n in nodes if getattr(n, "op_type", "") == "Dropout"), None)
