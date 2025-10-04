@@ -85,8 +85,11 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 
-def _fix_cast_output_types(model: onnx.ModelProto) -> None:
-    """Ensure Cast/CastLike outputs have value_info dtype aligned with target."""
+def _cast_output_types_need_fix(model: onnx.ModelProto) -> bool:
+    """Detect Cast/CastLike value_info dtype mismatches.
+
+    Returns True when any value_info disagrees with the expected dtype.
+    """
     int64_outputs: set[str] = set()
     int32_outputs: set[str] = set()
 
@@ -117,13 +120,20 @@ def _fix_cast_output_types(model: onnx.ModelProto) -> None:
                 _record(node.output, dtype_idx)
 
     if not int64_outputs and not int32_outputs:
-        return
+        return False
 
+    needs_fix = False
     for vi in model.graph.value_info:
-        if vi.name in int64_outputs:
-            vi.type.tensor_type.elem_type = TensorProto.INT64
-        elif vi.name in int32_outputs:
-            vi.type.tensor_type.elem_type = TensorProto.INT32
+        type_proto = vi.type
+        if not type_proto or type_proto.WhichOneof("value") != "tensor_type":
+            continue
+        tensor_type = type_proto.tensor_type
+        if vi.name in int64_outputs and tensor_type.elem_type != TensorProto.INT64:
+            needs_fix = True
+        elif vi.name in int32_outputs and tensor_type.elem_type != TensorProto.INT32:
+            needs_fix = True
+
+    return needs_fix
 
 
 # --- Cleaning and Setup ---
@@ -602,8 +612,23 @@ def make_test_function(tp: dict[str, Any]):
                 model_name=testcase_name,
                 opset=opset_version,
                 enable_double_precision=current_enable_double_precision,
+                return_mode="file",
+                output_path=model_path,
             )
-            onnx_model = to_onnx(**to_onnx_kwargs)
+            written_model_path = to_onnx(**to_onnx_kwargs)
+            if written_model_path != model_path:
+                logger.warning(
+                    "to_onnx returned a different path than requested output_path. "
+                    f"Using '{written_model_path}' instead of '{model_path}'."
+                )
+                model_path = written_model_path
+            onnx_model = onnx.load_model(model_path)
+            if _cast_output_types_need_fix(onnx_model):
+                raise AssertionError(
+                    f"to_onnx returned an ONNX model for '{testcase_name}' with "
+                    "Cast/CastLike value_info dtype mismatches. Conversion must "
+                    "emit a fully-typed graph."
+                )
             if input_params_from_testcase:
                 existing_inputs = {vi.name for vi in onnx_model.graph.input}
                 for pname, pval in input_params_from_testcase.items():
@@ -629,15 +654,17 @@ def make_test_function(tp: dict[str, Any]):
                 onnx_model
             ), f"Post-conversion graph check failed for '{testcase_name}'."
 
-        _fix_cast_output_types(onnx_model)
-
-        onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
         # --- ONNX checker and runtime session (if requested) ---
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
-            _fix_cast_output_types(onnx_model)
+            if _cast_output_types_need_fix(onnx_model):
+                raise AssertionError(
+                    f"Reloaded ONNX model for '{testcase_name}' still has "
+                    "Cast/CastLike value_info dtype mismatches. Conversion must "
+                    "emit a stable graph."
+                )
             onnx.checker.check_model(onnx_model)
 
         # Optional per-test override: skip numeric validation entirely
