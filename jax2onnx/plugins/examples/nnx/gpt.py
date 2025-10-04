@@ -28,6 +28,26 @@ def _call_attention(*args, **kwargs):
     return attention(*args, **kwargs)
 
 
+def _no_cast_where(model) -> bool:
+    """Fail if a Cast feeds directly into a Where node anywhere in the graph."""
+
+    has_cast_where = expect_graph(
+        ["Cast -> Where"],
+        search_functions=True,
+        explain_on_fail=False,
+        mode="any",
+    )(model)
+    if has_cast_where:
+        # Re-run with diagnostics enabled to surface the offending path.
+        expect_graph(
+            ["Cast -> Where"],
+            search_functions=True,
+            mode="any",
+        )(model)
+        return False
+    return True
+
+
 register_example(
     component="GPT_Attention",
     description="A multi-head attention layer.",
@@ -47,6 +67,7 @@ register_example(
             ],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": _no_cast_where,
         }
     ],
 )
@@ -76,7 +97,7 @@ class CausalSelfAttention(nnx.Module):
         )
         self.resid_dropout = nnx.Dropout(dropout, rngs=rngs)
         self.causal_mask = nnx.Param(
-            jnp.tril(jnp.ones((block_size, block_size))).reshape(
+            jnp.tril(jnp.ones((block_size, block_size), dtype=jnp.bool_)).reshape(
                 1, 1, block_size, block_size
             )
         )
@@ -108,6 +129,7 @@ register_example(
             ),
             "input_shapes": [("B", 1024, 768)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": _no_cast_where,
         }
     ],
 )
