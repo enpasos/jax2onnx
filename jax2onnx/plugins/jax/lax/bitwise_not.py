@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -53,16 +52,20 @@ class BitwiseNotPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("not_in"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("not_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("not_out"))
 
         x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.bool_))
         op_type = "Not" if x_dtype.kind == "b" else "BitwiseNot"
 
-        node = ir.Node(
-            op_type=op_type,
-            domain="",
-            inputs=[x_val],
-            outputs=[out_val],
-            name=ctx.fresh_name(op_type.lower()),
-        )
-        ctx.add_node(node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("not_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("not_out")
+
+        builder_fn = getattr(ctx.builder, op_type)
+        result = builder_fn(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

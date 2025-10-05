@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
+from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -128,16 +129,27 @@ class PadPlugin(PrimitiveLeafPlugin):
         pad_raw = ctx.get_value_for_var(
             const_var, name_hint=ctx.fresh_name("pad_cval"), prefer_np_dtype=prefer_dt
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pad_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pad_out"))
 
         data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
         pad_dtype = getattr(getattr(pad_raw, "type", None), "dtype", None)
+
         pad_val = pad_raw
         if data_dtype is not None and pad_dtype is not None and data_dtype != pad_dtype:
-            pad_val = ctx.cast_like(pad_raw, data_val, name_hint="pad_cval_like")
-
-        _stamp_type_and_shape(pad_val, ())
-        _ensure_value_info(ctx, pad_val)
+            cast_name = ctx.fresh_name("pad_cval_like")
+            pad_val = ctx.builder.Cast(
+                pad_raw,
+                _outputs=[cast_name],
+                to=int(data_dtype.value),
+            )
+            pad_val.type = ir.TensorType(data_dtype)
+            pad_val.shape = pad_raw.shape
+            _stamp_type_and_shape(pad_val, tuple(getattr(const_var.aval, "shape", ())))
+            _ensure_value_info(ctx, pad_val)
+        else:
+            pad_shape = tuple(getattr(const_var.aval, "shape", ()))
+            _stamp_type_and_shape(pad_val, pad_shape)
+            _ensure_value_info(ctx, pad_val)
 
         begins = _flatten(lo for (lo, _, _) in padding_config)
         ends = _flatten(hi for (_, hi, _) in padding_config)
@@ -168,17 +180,28 @@ class PadPlugin(PrimitiveLeafPlugin):
 
         pad_inputs = [data_val, pads_val, pad_val]
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Pad",
-                domain="",
-                inputs=pad_inputs,
-                outputs=[out_val],
-                name=ctx.fresh_name("Pad"),
-                attributes=[IRAttr("mode", IRAttrType.STRING, "constant")],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pad")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Pad")
+
+        result = ctx.builder.Pad(
+            *pad_inputs,
+            mode="constant",
+            _outputs=[desired_name],
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+            if result_dtype is None:
+                result_dtype = _dtype_to_ir(
+                    np.dtype(getattr(out_var.aval, "dtype", np.float32)),
+                    ctx.builder.enable_double_precision,
+                )
+        result.type = ir.TensorType(result_dtype)
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

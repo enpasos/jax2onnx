@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -43,7 +42,7 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("convert_in")
         )
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("convert_out")
         )
 
@@ -51,18 +50,18 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
             np.dtype(out_var.aval.dtype), ctx.builder.enable_double_precision
         )
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[operand_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(target_dtype.value))],
-            )
-        )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("convert_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("convert_out")
 
-        out_val.type = ir.TensorType(target_dtype)
-        out_val.dtype = target_dtype
-        _stamp_type_and_shape(out_val, tuple(getattr(out_var.aval, "shape", ())))
-        _ensure_value_info(ctx, out_val)
+        result = ctx.builder.Cast(
+            operand_val,
+            _outputs=[desired_name],
+            to=int(target_dtype.value),
+        )
+        result.type = ir.TensorType(target_dtype)
+        result.shape = operand_val.shape
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

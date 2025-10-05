@@ -9,14 +9,18 @@ from jax import lax
 from jax._src.export.shape_poly import _DimExpr as DimExpr
 
 import onnx_ir as ir
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_info,
+    _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+    from jax2onnx.converter.ir_context import IRContext
 
 
-def _const_i64(ctx: "IRBuildContext", values, name_hint: str) -> ir.Value:
+def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
     arr = np.asarray(values, dtype=np.int64)
     if arr.ndim == 0:
         arr = arr.reshape(1)
@@ -109,12 +113,12 @@ def _dim_const_value(dim) -> int | None:
 class SqueezePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.squeeze → ONNX Squeeze."""
 
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: "IRContext", eqn):
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("squeeze_in"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("squeeze_out"))
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("squeeze_out"))
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()) or ())
         rank = len(x_shape)
@@ -142,21 +146,29 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
         axes_val = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "squeeze_axes")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Squeeze",
-                domain="",
-                inputs=[x_val, axes_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Squeeze"),
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("squeeze_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("squeeze_out")
+
+        result = ctx.builder.Squeeze(
+            x_val,
+            axes_val,
+            _outputs=[desired_name],
         )
 
         if getattr(x_val, "type", None) and isinstance(x_val.type, ir.TensorType):
-            y_val.type = ir.TensorType(x_val.type.dtype)
+            result.type = ir.TensorType(x_val.type.dtype)
 
         if x_shape:
             out_dims = [d for i, d in enumerate(x_shape) if i not in axes]
             _stamp_type_and_shape(
-                y_val, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
+                result, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
             )
+        else:
+            _stamp_type_and_shape(
+                result, tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+            )
+
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(y_var, result)

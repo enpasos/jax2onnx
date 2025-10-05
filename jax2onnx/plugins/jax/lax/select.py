@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -118,45 +117,39 @@ class SelectPlugin(PrimitiveLeafPlugin):
         )
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("select_x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("select_y"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("select_out"))
-
-        # Cast condition to bool if required.
-        if getattr(cond_var.aval, "dtype", np.bool_) != np.bool_:
-            bool_cast = ir.Value(
-                name=ctx.fresh_name("select_cond_bool"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=cond_val.shape,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[cond_val],
-                    outputs=[bool_cast],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[
-                        IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))
-                    ],
-                )
-            )
-            _stamp_type_and_shape(bool_cast, tuple(getattr(cond_var.aval, "shape", ())))
-            _ensure_value_info(ctx, bool_cast)
-            cond_val = bool_cast
-
-        node = ir.Node(
-            op_type="Where",
-            domain="",
-            inputs=[cond_val, x_val, y_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Where"),
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("select_out")
         )
-        ctx.add_node(node)
 
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        if getattr(cond_var.aval, "dtype", np.bool_) != np.bool_:
+            cond_val = ctx.builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("select_cond_bool")],
+                to=int(ir.DataType.BOOL.value),
+            )
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
+            cond_val.shape = cond_val.shape or x_val.shape
+            _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
+            _ensure_value_info(ctx, cond_val)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("select_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("select_out")
+
+        result = ctx.builder.Where(
+            cond_val,
+            x_val,
+            y_val,
+            _outputs=[desired_name],
+        )
         out_dtype_enum = _dtype_to_ir(
             np.dtype(getattr(out_var.aval, "dtype", np.float32)),
             ctx.builder.enable_double_precision,
         )
-        out_val.type = ir.TensorType(out_dtype_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(out_dtype_enum)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

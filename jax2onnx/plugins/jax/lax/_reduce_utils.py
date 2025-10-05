@@ -8,7 +8,6 @@ from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -41,21 +40,13 @@ def _maybe_cast_input(
         return tensor
 
     dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
-    cast_val = ir.Value(
-        name=ctx.fresh_name("reduce_cast"),
-        type=ir.TensorType(dtype_enum),
-        shape=tensor.shape,
+    cast_val = ctx.builder.Cast(
+        tensor,
+        _outputs=[ctx.fresh_name("reduce_cast")],
+        to=int(dtype_enum.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[tensor],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(dtype_enum.value))],
-        )
-    )
+    cast_val.type = ir.TensorType(dtype_enum)
+    cast_val.shape = tensor.shape
     _stamp_type_and_shape(cast_val, tuple(aval_shape))
     _ensure_value_info(ctx, cast_val)
     return cast_val
@@ -96,22 +87,22 @@ def lower_reduction(
         requested_dtype,
     )
 
-    attrs: list[IRAttr] = [IRAttr("keepdims", IRAttrType.INT, 1 if keepdims else 0)]
-
     inputs = [reduced_input]
     if axes_attr is not None:
         axes_const = _const_i64(ctx, list(axes_attr), f"{op_type.lower()}_axes")
         inputs.append(axes_const)
 
-    node = ir.Node(
-        op_type=op_type,
-        domain="",
-        inputs=inputs,
-        outputs=[out_val],
-        name=ctx.fresh_name(op_type),
-        attributes=attrs,
+    desired_name = getattr(out_val, "name", None) or ctx.fresh_name(op_type)
+    producer = getattr(out_val, "producer", lambda: None)
+    if callable(producer) and producer() is not None:
+        desired_name = ctx.fresh_name(op_type)
+
+    reduce_fn = getattr(ctx.builder, op_type)
+    result = reduce_fn(
+        *inputs,
+        keepdims=1 if keepdims else 0,
+        _outputs=[desired_name],
     )
-    ctx.add_node(node)
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     aval_dtype = getattr(out_var.aval, "dtype", None)
@@ -119,10 +110,12 @@ def lower_reduction(
         out_dtype_enum = _dtype_to_ir(
             np.dtype(aval_dtype), ctx.builder.enable_double_precision
         )
-        out_val.type = ir.TensorType(out_dtype_enum)
-    _stamp_type_and_shape(out_val, out_shape)
+        result.type = ir.TensorType(out_dtype_enum)
+    result.shape = ir.Shape(out_shape)
+    _stamp_type_and_shape(result, out_shape)
 
-    _ensure_value_info(ctx, out_val)
+    _ensure_value_info(ctx, result)
+    ctx.bind_value_for_var(out_var, result)
 
 
 def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
@@ -136,7 +129,7 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
     operand_val = ctx.get_value_for_var(
         operand_var, name_hint=ctx.fresh_name(f"{mode}_in")
     )
-    out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(f"{mode}_out"))
+    ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(f"{mode}_out"))
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
@@ -145,12 +138,6 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     keepdims_attr = 1 if keepdims else 0
-
-    reduce_out = ir.Value(
-        name=ctx.fresh_name(f"{mode}_reduce"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(tuple(out_shape)),
-    )
 
     inputs = [int_operand]
     if axes_attr is not None:
@@ -164,61 +151,49 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
     else:
         reduce_op = "ReduceMin"
 
-    ctx.add_node(
-        ir.Node(
-            op_type=reduce_op,
-            domain="",
-            inputs=inputs,
-            outputs=[reduce_out],
-            name=ctx.fresh_name(reduce_op),
-            attributes=[IRAttr("keepdims", IRAttrType.INT, keepdims_attr)],
-        )
+    reduce_out = getattr(ctx.builder, reduce_op)(
+        *inputs,
+        keepdims=keepdims_attr,
+        _outputs=[ctx.fresh_name(reduce_op)],
     )
+    reduce_out.type = ir.TensorType(ir.DataType.INT64)
+    reduce_out.shape = ir.Shape(tuple(out_shape))
     _stamp_type_and_shape(reduce_out, out_shape)
     _ensure_value_info(ctx, reduce_out)
 
     if mode == "reduce_xor":
         two_const = _scalar_i64(ctx, 2, f"{mode}_two")
-        mod_out = ir.Value(
-            name=ctx.fresh_name(f"{mode}_mod"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(tuple(out_shape)),
+        mod_out = ctx.builder.Mod(
+            reduce_out,
+            two_const,
+            fmod=0,
+            _outputs=[ctx.fresh_name(f"{mode}_mod")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Mod",
-                domain="",
-                inputs=[reduce_out, two_const],
-                outputs=[mod_out],
-                name=ctx.fresh_name("Mod"),
-                attributes=[IRAttr("fmod", IRAttrType.INT, 0)],
-            )
-        )
+        mod_out.type = ir.TensorType(ir.DataType.INT64)
+        mod_out.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(mod_out, out_shape)
         _ensure_value_info(ctx, mod_out)
 
         one_const = _scalar_i64(ctx, 1, f"{mode}_one")
-        ctx.add_node(
-            ir.Node(
-                op_type="Equal",
-                domain="",
-                inputs=[mod_out, one_const],
-                outputs=[out_val],
-                name=ctx.fresh_name("Equal"),
-            )
+        result = ctx.builder.Equal(
+            mod_out,
+            one_const,
+            _outputs=[ctx.fresh_name(f"{mode}_eq")],
         )
+        result.type = ir.TensorType(ir.DataType.BOOL)
+        result.shape = ir.Shape(tuple(out_shape))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+        return
     else:
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[reduce_out],
-                outputs=[out_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))],
-            )
+        result = ctx.builder.Cast(
+            reduce_out,
+            _outputs=[ctx.fresh_name(f"{mode}_cast")],
+            to=int(ir.DataType.BOOL.value),
         )
-
-    out_val.type = ir.TensorType(ir.DataType.BOOL)
-    _stamp_type_and_shape(out_val, out_shape)
-    _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(ir.DataType.BOOL)
+        result.shape = ir.Shape(tuple(out_shape))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -94,88 +93,60 @@ class RemPlugin(PrimitiveLeafPlugin):
         y_val = ctx.get_value_for_var(
             y_var, name_hint=ctx.fresh_name("rem_y"), prefer_np_dtype=prefer_dt
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rem_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rem_out"))
 
         aval = getattr(x_var, "aval", None)
         dtype = np.dtype(getattr(aval, "dtype", np.float32))
         out_shape = tuple(getattr(aval, "shape", ()))
 
-        out_dtype_enum = getattr(getattr(out_val, "type", None), "dtype", None)
-        if out_dtype_enum is None:
-            out_dtype_enum = ir.DataType.FLOAT
+        x_dtype_enum = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("rem_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("rem_out")
 
         if np.issubdtype(dtype, np.floating):
-            mod_tmp = ir.Value(
-                name=ctx.fresh_name("rem_mod"),
-                type=ir.TensorType(out_dtype_enum),
-                shape=out_val.shape,
+            result = ctx.builder.Mod(
+                x_val,
+                y_val,
+                fmod=1,
+                _outputs=[desired_name],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Mod",
-                    domain="",
-                    inputs=[x_val, y_val],
-                    outputs=[mod_tmp],
-                    name=ctx.fresh_name("Mod"),
-                    attributes=[IRAttr("fmod", IRAttrType.INT, 1)],
-                )
-            )
-            _stamp_type_and_shape(mod_tmp, out_shape)
-            _ensure_value_info(ctx, mod_tmp)
+            result.type = ir.TensorType(x_dtype_enum)
+            result.shape = ir.Shape(out_shape)
+            _stamp_type_and_shape(result, out_shape)
+            _ensure_value_info(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
 
-            ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[mod_tmp],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Identity"),
-                )
-            )
-        else:
-            quot_val = ir.Value(
-                name=ctx.fresh_name("rem_div"),
-                type=ir.TensorType(out_dtype_enum),
-                shape=out_val.shape,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Div",
-                    domain="",
-                    inputs=[x_val, y_val],
-                    outputs=[quot_val],
-                    name=ctx.fresh_name("Div"),
-                )
-            )
-            _stamp_type_and_shape(quot_val, out_shape)
-            _ensure_value_info(ctx, quot_val)
+        div_val = ctx.builder.Div(
+            x_val,
+            y_val,
+            _outputs=[ctx.fresh_name("rem_div")],
+        )
+        div_val.type = ir.TensorType(x_dtype_enum)
+        div_val.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(div_val, out_shape)
+        _ensure_value_info(ctx, div_val)
 
-            prod_val = ir.Value(
-                name=ctx.fresh_name("rem_mul"),
-                type=ir.TensorType(out_dtype_enum),
-                shape=out_val.shape,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Mul",
-                    domain="",
-                    inputs=[quot_val, y_val],
-                    outputs=[prod_val],
-                    name=ctx.fresh_name("Mul"),
-                )
-            )
-            _stamp_type_and_shape(prod_val, out_shape)
-            _ensure_value_info(ctx, prod_val)
+        mul_val = ctx.builder.Mul(
+            div_val,
+            y_val,
+            _outputs=[ctx.fresh_name("rem_mul")],
+        )
+        mul_val.type = ir.TensorType(x_dtype_enum)
+        mul_val.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(mul_val, out_shape)
+        _ensure_value_info(ctx, mul_val)
 
-            ctx.add_node(
-                ir.Node(
-                    op_type="Sub",
-                    domain="",
-                    inputs=[x_val, prod_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Sub"),
-                )
-            )
-
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result = ctx.builder.Sub(
+            x_val,
+            mul_val,
+            _outputs=[desired_name],
+        )
+        result.type = ir.TensorType(x_dtype_enum)
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
