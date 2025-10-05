@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -31,7 +30,7 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "ne",
-            "callable": lambda x1, x2: x1 != x2,
+            "callable": lambda x1, x2: jax.lax.ne(x1, x2),
             "input_shapes": [(3,), (3,)],
         }
     ],
@@ -48,28 +47,19 @@ class NePlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("ne_rhs"),
             prefer_np_dtype=prefer_dtype,
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ne_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ne_out"))
 
-        eq_tmp = ir.Value(
-            name=ctx.fresh_name("ne_eq_tmp"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=lhs_val.shape,
-        )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ne_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("ne_out")
 
-        eq_node = ir.Node(
-            op_type="Equal",
-            domain="",
-            inputs=[lhs_val, rhs_val],
-            outputs=[eq_tmp],
-            name=ctx.fresh_name("Equal"),
-        )
-        ctx.add_node(eq_node)
+        eq_val = ctx.builder.Equal(lhs_val, rhs_val, _outputs=[ctx.fresh_name("ne_eq")])
+        eq_val.shape = lhs_val.shape
 
-        not_node = ir.Node(
-            op_type="Not",
-            domain="",
-            inputs=[eq_tmp],
-            outputs=[out_val],
-            name=ctx.fresh_name("Not"),
-        )
-        ctx.add_node(not_node)
+        result = ctx.builder.Not(eq_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

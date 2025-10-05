@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
-
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -38,15 +35,21 @@ class ShiftRightLogicalPlugin(PrimitiveLeafPlugin):
         rhs_val = ctx.get_value_for_var(
             rhs_var, name_hint=ctx.fresh_name("srl_shift"), prefer_np_dtype=None
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("srl_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("srl_out"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="BitShift",
-                domain="",
-                inputs=[lhs_val, rhs_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("BitShift"),
-                attributes=[IRAttr("direction", IRAttrType.STRING, "RIGHT")],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("srl_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("srl_out")
+
+        result = ctx.builder.BitShift(
+            lhs_val,
+            rhs_val,
+            direction="RIGHT",
+            _outputs=[desired_name],
         )
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

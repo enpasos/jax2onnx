@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -23,21 +22,14 @@ def _cast_value(
     current = getattr(getattr(value, "type", None), "dtype", None)
     if current == target:
         return value
-    cast_val = ir.Value(
-        name=ctx.fresh_name(name),
-        type=ir.TensorType(target),
-        shape=ir.Shape(tuple(shape)),
+    cast_name = ctx.fresh_name(name)
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[cast_name],
+        to=int(target.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target.value))],
-        )
-    )
+    cast_val.type = ir.TensorType(target)
+    cast_val.shape = ir.Shape(tuple(shape))
     _stamp_type_and_shape(cast_val, shape)
     _ensure_value_info(ctx, cast_val)
     return cast_val
@@ -114,7 +106,7 @@ class ClampPlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("clamp_max"),
             prefer_np_dtype=np.dtype(getattr(x_var.aval, "dtype", np.float32)),
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clamp_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clamp_out"))
 
         target_dtype = _dtype_to_ir(
             np.dtype(getattr(x_var.aval, "dtype", np.float32)),
@@ -125,31 +117,21 @@ class ClampPlugin(PrimitiveLeafPlugin):
         min_cast = _cast_value(ctx, min_val, target_dtype, x_shape, "ClampMinCast")
         max_cast = _cast_value(ctx, max_val, target_dtype, x_shape, "ClampMaxCast")
 
-        max_out = ir.Value(
-            name=ctx.fresh_name("clamp_max_out"),
-            type=ir.TensorType(target_dtype),
-            shape=ir.Shape(x_shape),
-        )
-        ctx.add_node(
-            ir.Node(
-                op_type="Max",
-                domain="",
-                inputs=[x_val, min_cast],
-                outputs=[max_out],
-                name=ctx.fresh_name("Max"),
-            )
-        )
+        max_name = ctx.fresh_name("clamp_max_out")
+        max_out = ctx.builder.Max(x_val, min_cast, _outputs=[max_name])
+        max_out.type = ir.TensorType(target_dtype)
+        max_out.shape = ir.Shape(x_shape)
         _stamp_type_and_shape(max_out, x_shape)
         _ensure_value_info(ctx, max_out)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Min",
-                domain="",
-                inputs=[max_out, max_cast],
-                outputs=[out_val],
-                name=ctx.fresh_name("Min"),
-            )
-        )
-        _stamp_type_and_shape(out_val, tuple(getattr(out_var.aval, "shape", ())))
-        _ensure_value_info(ctx, out_val)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("clamp_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("clamp_out")
+
+        result = ctx.builder.Min(max_out, max_cast, _outputs=[desired_name])
+        result.type = ir.TensorType(target_dtype)
+        result.shape = ir.Shape(tuple(getattr(out_var.aval, "shape", x_shape)))
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

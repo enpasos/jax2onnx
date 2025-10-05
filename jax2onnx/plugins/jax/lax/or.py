@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING
 
 import numpy as np
-import onnx_ir as ir
 import jax
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -42,16 +41,19 @@ class OrPlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("or_rhs"),
             prefer_np_dtype=prefer_dtype,
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("or_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("or_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("or_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("or_out")
 
         op_type = "Or" if np.issubdtype(prefer_dtype, np.bool_) else "BitwiseOr"
+        builder_fn = getattr(ctx.builder, op_type)
 
-        ctx.add_node(
-            ir.Node(
-                op_type=op_type,
-                domain="",
-                inputs=[lhs_val, rhs_val],
-                outputs=[out_val],
-                name=ctx.fresh_name(op_type.lower()),
-            )
-        )
+        result = builder_fn(lhs_val, rhs_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

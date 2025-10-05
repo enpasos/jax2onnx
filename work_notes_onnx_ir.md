@@ -164,7 +164,7 @@ Key checks before serialization:
 - Optional operator slots represented with `None` in positional args to preserve indices.
 - Node naming/doc strings assigned post-creation to avoid accidental attribute injection.
 
-Progress: lax `Add`, `Mul`, `Sub`, `Div`, `Max`, `Min`, `Sin`, `Cos`, `Log`, `Tanh`, `Exp`, `Abs`, `Sqrt`, `Sign`, and `Logistic` now emit nodes through `ctx.builder`, providing reference patterns for remaining elementwise lowers.
+Progress: lax `Add`, `Mul`, `Sub`, `Div`, `Max`, `Min`, `Sin`, `Cos`, `Log`, `Tanh`, `Exp`, `Abs`, `Sqrt`, `Sign`, `Logistic`, `Cosh`, `Neg`, `Sinh`, `Eq`, `Gt`, `Ge`, `Lt`, `Ne`, `And`, `Or`, and `ShiftRightLogical` now emit nodes through `ctx.builder`, providing reference patterns for remaining elementwise lowers.
 
 ## Step 4 – Validation & Lint Hooks
 

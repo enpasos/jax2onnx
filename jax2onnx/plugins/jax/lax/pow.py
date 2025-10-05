@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -23,37 +22,23 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
 
     base_val = ctx.get_value_for_var(base_var, name_hint=ctx.fresh_name("pow_base"))
     exp_val = ctx.get_value_for_var(exponent_var, name_hint=ctx.fresh_name("pow_exp"))
-    out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
+    out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
 
     target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
     exp_dtype = np.dtype(getattr(exponent_var.aval, "dtype", target_dtype))
+
     if exp_dtype != target_dtype:
-        cast_val = ir.Value(
-            name=ctx.fresh_name("pow_exp_cast"),
-            type=ir.TensorType(
-                _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        cast_name = ctx.fresh_name("pow_exp_cast")
+        cast_val = ctx.builder.Cast(
+            exp_val,
+            _outputs=[cast_name],
+            to=int(
+                _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision).value
             ),
-            shape=exp_val.shape,
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[exp_val],
-                outputs=[cast_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[
-                    IRAttr(
-                        "to",
-                        IRAttrType.INT,
-                        int(
-                            _dtype_to_ir(
-                                target_dtype, ctx.builder.enable_double_precision
-                            ).value
-                        ),
-                    )
-                ],
-            )
+        cast_val.shape = exp_val.shape
+        cast_val.type = ir.TensorType(
+            _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         )
         _stamp_type_and_shape(cast_val, tuple(getattr(exponent_var.aval, "shape", ())))
         _ensure_value_info(ctx, cast_val)
@@ -61,20 +46,22 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
     else:
         exp_input = exp_val
 
-    node = ir.Node(
-        op_type="Pow",
-        domain="",
-        inputs=[base_val, exp_input],
-        outputs=[out_val],
-        name=ctx.fresh_name("Pow"),
-    )
-    ctx.add_node(node)
+    desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("pow_out")
+    producer = getattr(out_spec, "producer", lambda: None)
+    if callable(producer) and producer() is not None:
+        desired_name = ctx.fresh_name("pow_out")
 
-    out_shape = tuple(getattr(out_var.aval, "shape", ()))
-    out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-    out_val.type = ir.TensorType(out_dtype_enum)
-    _stamp_type_and_shape(out_val, out_shape)
-    _ensure_value_info(ctx, out_val)
+    result = ctx.builder.Pow(base_val, exp_input, _outputs=[desired_name])
+    if getattr(out_spec, "type", None) is not None:
+        result.type = out_spec.type
+    else:
+        out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        result.type = ir.TensorType(out_dtype_enum)
+    if getattr(out_spec, "shape", None) is not None:
+        result.shape = out_spec.shape
+    else:
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+    ctx.bind_value_for_var(out_var, result)
 
 
 @register_primitive(
