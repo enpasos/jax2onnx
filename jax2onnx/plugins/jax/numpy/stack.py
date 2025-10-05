@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -147,43 +146,47 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
             out_shape = list(shape)
             out_shape.insert(unsqueeze_axis, 1)
 
-            unsqueezed = ir.Value(
-                name=ctx.fresh_name("stack_unsqueeze"),
-                type=ir.TensorType(val.type.dtype),
-                shape=ir.Shape(tuple(out_shape)),
+            unsqueezed = ctx.builder.Unsqueeze(
+                val,
+                axes_const,
+                _outputs=[ctx.fresh_name("stack_unsqueeze")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[val, axes_const],
-                    outputs=[unsqueezed],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
+            dtype_enum = getattr(getattr(val, "type", None), "dtype", None)
+            if dtype_enum is not None:
+                unsqueezed.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(unsqueezed, tuple(out_shape))
             _ensure_value_info(ctx, unsqueezed)
             unsqueezed_vals.append(unsqueezed)
 
         out_var = eqn.outvars[0]
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stack_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stack_out"))
         out_shape_tuple = tuple(getattr(out_var.aval, "shape", ()))
         concat_axis = axis if axis >= 0 else axis + len(out_shape_tuple)
 
-        out_shape = list(out_shape_tuple)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Concat")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Concat",
-                domain="",
-                inputs=unsqueezed_vals,
-                outputs=[out_val],
-                name=ctx.fresh_name("Concat"),
-                attributes=[IRAttr("axis", IRAttrType.INT, int(concat_axis))],
-            )
+        result = ctx.builder.Concat(
+            *unsqueezed_vals,
+            axis=int(concat_axis),
+            _outputs=[desired_name],
         )
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result_dtype = None
+        if unsqueezed_vals:
+            result_dtype = getattr(
+                getattr(unsqueezed_vals[0], "type", None), "dtype", None
+            )
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+        else:
+            result.type = out_spec.type
+        _stamp_type_and_shape(result, tuple(out_shape_tuple))
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

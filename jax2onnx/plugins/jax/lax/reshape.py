@@ -19,10 +19,11 @@ from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_info as _add_value_info,
 )
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+    from jax2onnx.converter.ir_context import IRContext
 
 
 # --- helper for tests: forbid constant-only Concat as Reshape shape input ---
@@ -208,7 +209,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     """
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: "IRContext", eqn):
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])
@@ -229,42 +230,23 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # Helpers to make INT64 constants
         def const_i64_vec(vals: np.ndarray) -> ir.Value:
-            v = ir.Value(
-                name=ctx.fresh_name("shape_const"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((int(vals.size),)),
-                const_value=ir.tensor(vals.astype(np.int64, copy=False)),
+            return _const_i64(
+                ctx, vals.astype(np.int64, copy=False), ctx.fresh_name("shape_const")
             )
-            ctx._initializers.append(v)
-            return v
 
         def const_i64_scalar(val: int) -> ir.Value:
-            v = ir.Value(
-                name=ctx.fresh_name("i64"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-                const_value=ir.tensor(np.array(val, dtype=np.int64)),
+            return _const_i64(
+                ctx, np.asarray(val, dtype=np.int64), ctx.fresh_name("i64")
             )
-            ctx._initializers.append(v)
-            return v
 
-        def unsqueeze_to_1d0(src: ir.Value) -> ir.Value:
+        def unsqueeze_to_len1(src: ir.Value) -> ir.Value:
             axes = const_i64_vec(np.array([0], dtype=np.int64))
-            out = ir.Value(
-                name=ctx.fresh_name("unsq"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
+            unsqueezed = ctx.builder.Unsqueeze(
+                src, axes, _outputs=[ctx.fresh_name("unsq")]
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[src, axes],
-                    outputs=[out],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
-            return out
+            _stamp_type_and_shape(unsqueezed, (1,))
+            _add_value_info(ctx, unsqueezed)
+            return unsqueezed
 
         # Build pieces of the shape tensor.
         # We keep two views:
@@ -401,7 +383,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                         attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
                     )
                 )
-                shape_parts.append(unsqueeze_to_1d0(gathered))
+                shape_parts.append(unsqueeze_to_len1(gathered))
                 if debug:
                     print("    dynamic gather from input axis", axis_idx)
             elif hasattr(dim, "dtype") and np.issubdtype(
@@ -412,7 +394,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 dyn_val = ctx.get_value_for_var(
                     dyn_var, name_hint=ctx.fresh_name("dyn")
                 )
-                shape_parts.append(unsqueeze_to_1d0(dyn_val))
+                shape_parts.append(unsqueeze_to_len1(dyn_val))
                 all_const = False
             else:
                 raise TypeError(f"Unsupported reshape size element: {type(dim)}")

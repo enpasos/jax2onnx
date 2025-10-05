@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
-
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -43,17 +42,22 @@ class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("bitcast_in")
         )
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("bitcast_out")
         )
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Bitcast",
-                domain="",
-                inputs=[operand_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Bitcast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(target_dtype.value))],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Bitcast")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Bitcast")
+
+        result = ctx.builder.Bitcast(
+            operand_val,
+            _outputs=[desired_name],
+            to=int(target_dtype.value),
         )
+        result.type = ir.TensorType(target_dtype)
+        result.shape = operand_val.shape
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

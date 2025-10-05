@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 import jax
 
@@ -51,20 +50,11 @@ def _unsqueeze(ctx: "IRContext", value: ir.Value, axis: int) -> ir.Value:
     squeezed_shape = (1,) + tuple(
         int(d) if isinstance(d, (int, np.integer)) else d for d in base_dims
     )
-    squeezed = ir.Value(
-        name=ctx.fresh_name("unsqueeze"),
-        type=value.type,
-        shape=ir.Shape(squeezed_shape),
+    squeezed = ctx.builder.Unsqueeze(
+        value, axes, _outputs=[ctx.fresh_name("unsqueeze")]
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Unsqueeze",
-            domain="",
-            inputs=[value, axes],
-            outputs=[squeezed],
-            name=ctx.fresh_name("Unsqueeze"),
-        )
-    )
+    squeezed.type = value.type
+    squeezed.shape = ir.Shape(squeezed_shape)
     return squeezed
 
 
@@ -104,23 +94,13 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
 
         seed_value = ctx.get_value_for_var(seed_var, name_hint=ctx.fresh_name("seed"))
 
-        cast_target = ir.Value(
-            name=ctx.fresh_name("seed_u32"),
-            type=ir.TensorType(ir.DataType.UINT32),
-            shape=seed_value.shape,
+        cast_target = ctx.builder.Cast(
+            seed_value,
+            _outputs=[ctx.fresh_name("seed_u32")],
+            to=int(ir.DataType.UINT32.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[seed_value],
-                outputs=[cast_target],
-                name=ctx.fresh_name("Cast"),
-                attributes=[
-                    IRAttr("to", IRAttrType.INT, int(ir.DataType.UINT32.value))
-                ],
-            )
-        )
+        cast_target.type = ir.TensorType(ir.DataType.UINT32)
+        cast_target.shape = seed_value.shape
 
         seed_vector = _unsqueeze(ctx, cast_target, axis=0)
 
@@ -128,22 +108,14 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
             ctx, np.asarray([0], dtype=np.uint32), name_hint="prng_zero"
         )
 
-        key_value = ir.Value(
-            name=ctx.fresh_name("prng_key"),
-            type=ir.TensorType(ir.DataType.UINT32),
-            shape=ir.Shape((2,)),
+        key_value = ctx.builder.Concat(
+            zero_vector,
+            seed_vector,
+            axis=0,
+            _outputs=[ctx.fresh_name("prng_key")],
         )
-
-        ctx.add_node(
-            ir.Node(
-                op_type="Concat",
-                domain="",
-                inputs=[zero_vector, seed_vector],
-                outputs=[key_value],
-                name=ctx.fresh_name("Concat"),
-                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-            )
-        )
+        key_value.type = ir.TensorType(ir.DataType.UINT32)
+        key_value.shape = ir.Shape((2,))
 
         ctx.bind_value_for_var(out_var, key_value)
 

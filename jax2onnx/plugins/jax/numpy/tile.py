@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -172,26 +171,15 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             repeats_dtype = np.dtype(getattr(repeats_var.aval, "dtype", np.int64))
             if repeats_dtype != np.int64:
-                cast_val = ir.Value(
-                    name=ctx.fresh_name("tile_repeats_cast"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=repeats_val.shape,
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Cast",
-                        domain="",
-                        inputs=[repeats_val],
-                        outputs=[cast_val],
-                        name=ctx.fresh_name("Cast"),
-                        attributes=[
-                            IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))
-                        ],
-                    )
+                cast_val = ctx.builder.Cast(
+                    repeats_val,
+                    _outputs=[ctx.fresh_name("tile_repeats_cast")],
+                    to=int(ir.DataType.INT64.value),
                 )
                 _stamp_type_and_shape(
                     cast_val, tuple(getattr(repeats_var.aval, "shape", ()))
                 )
+                cast_val.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_info(ctx, cast_val)
                 repeats_val = cast_val
             repeats_rank_dim = getattr(repeats_var.aval, "shape", (None,))[0]
@@ -212,14 +200,15 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             repeats_rank,
         )
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Tile",
-                domain="",
-                inputs=[input_val, repeats_vec],
-                outputs=[out_val],
-                name=ctx.fresh_name("Tile"),
-            )
+        desired_name = getattr(out_val, "name", None) or ctx.fresh_name("Tile")
+        producer = getattr(out_val, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Tile")
+
+        result = ctx.builder.Tile(
+            input_val,
+            repeats_vec,
+            _outputs=[desired_name],
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
@@ -227,9 +216,10 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             np.dtype(getattr(out_var.aval, "dtype", input_dtype)),
             ctx.builder.enable_double_precision,
         )
-        out_val.type = ir.TensorType(out_dtype)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(out_dtype)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):
@@ -279,20 +269,10 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         if cached is not None:
             return cached
         rank = len(getattr(getattr(src, "shape", None), "dims", ()) or ())
-        shape_val = ir.Value(
-            name=ctx.fresh_name("tile_shape"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((rank,)),
-        )
-        ctx.add_node(
-            ir.Node(
-                op_type="Shape",
-                domain="",
-                inputs=[src],
-                outputs=[shape_val],
-                name=ctx.fresh_name("Shape"),
-            )
-        )
+        shape_val = ctx.builder.Shape(src, _outputs=[ctx.fresh_name("tile_shape")])
+        shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shape_val, (rank,))
+        _ensure_value_info(ctx, shape_val)
         cache[src] = shape_val
         return shape_val
 
@@ -321,22 +301,14 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 src_val, axis = origin
                 shape_vec = self._shape_vector(ctx, shape_cache, src_val)
                 gather_idx = _const_i64(ctx, [int(axis)], f"tile_sym_idx_{idx}")
-                gathered = ir.Value(
-                    name=ctx.fresh_name("tile_rep_dyn"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Gather",
-                        domain="",
-                        inputs=[shape_vec, gather_idx],
-                        outputs=[gathered],
-                        name=ctx.fresh_name("Gather"),
-                        attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                    )
+                gathered = ctx.builder.Gather(
+                    shape_vec,
+                    gather_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("tile_rep_dyn")],
                 )
                 _stamp_type_and_shape(gathered, (1,))
+                gathered.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_info(ctx, gathered)
                 pieces.append(gathered)
             else:
@@ -345,21 +317,12 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         if len(pieces) == 1:
             repeats_vec = pieces[0]
         else:
-            repeats_vec = ir.Value(
-                name=ctx.fresh_name("tile_repeats"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(pieces),)),
+            repeats_vec = ctx.builder.Concat(
+                *pieces,
+                axis=0,
+                _outputs=[ctx.fresh_name("tile_repeats")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=pieces,
-                    outputs=[repeats_vec],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            repeats_vec.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(repeats_vec, (len(pieces),))
             _ensure_value_info(ctx, repeats_vec)
         repeats_rank = len(pieces)
@@ -382,21 +345,13 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             pad = _const_i64(
                 ctx, np.ones(input_rank - repeats_rank, dtype=np.int64), "tile_pad"
             )
-            new_vec = ir.Value(
-                name=ctx.fresh_name("tile_repeats_pad"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((input_rank,)),
+            new_vec = ctx.builder.Concat(
+                pad,
+                aligned,
+                axis=0,
+                _outputs=[ctx.fresh_name("tile_repeats_pad")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[pad, aligned],
-                    outputs=[new_vec],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            new_vec.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(new_vec, (input_rank,))
             _ensure_value_info(ctx, new_vec)
             aligned = new_vec
@@ -408,36 +363,20 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 ctx, np.ones(num_new, dtype=np.int64), "tile_pre_shape"
             )
 
-            input_shape_val = ir.Value(
-                name=ctx.fresh_name("tile_input_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((input_rank,)),
+            input_shape_val = ctx.builder.Shape(
+                input_val, _outputs=[ctx.fresh_name("tile_input_shape")]
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[input_val],
-                    outputs=[input_shape_val],
-                    name=ctx.fresh_name("Shape"),
-                )
-            )
+            input_shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(input_shape_val, (input_rank,))
+            _ensure_value_info(ctx, input_shape_val)
 
-            target_shape = ir.Value(
-                name=ctx.fresh_name("tile_target_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((repeats_rank,)),
+            target_shape = ctx.builder.Concat(
+                ones_vec,
+                input_shape_val,
+                axis=0,
+                _outputs=[ctx.fresh_name("tile_target_shape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[ones_vec, input_shape_val],
-                    outputs=[target_shape],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            target_shape.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(target_shape, (repeats_rank,))
             _ensure_value_info(ctx, target_shape)
 
@@ -445,20 +384,12 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 input_np_dtype, ctx.builder.enable_double_precision
             )
             new_shape = tuple([1] * num_new + list(current_shape))
-            reshaped = ir.Value(
-                name=ctx.fresh_name("tile_input_pad"),
-                type=ir.TensorType(dtype_enum),
-                shape=ir.Shape(new_shape),
+            reshaped = ctx.builder.Reshape(
+                input_val,
+                target_shape,
+                _outputs=[ctx.fresh_name("tile_input_pad")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[input_val, target_shape],
-                    outputs=[reshaped],
-                    name=ctx.fresh_name("Reshape"),
-                )
-            )
+            reshaped.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(reshaped, new_shape)
             _ensure_value_info(ctx, reshaped)
             input_val = reshaped

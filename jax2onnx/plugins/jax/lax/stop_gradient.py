@@ -47,17 +47,21 @@ class StopGradientPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         inp_val = ctx.get_value_for_var(inp_var, name_hint=ctx.fresh_name("stop_in"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stop_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stop_out"))
 
-        node = ir.Node(
-            op_type="Identity",
-            domain="",
-            inputs=[inp_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Identity"),
-        )
-        ctx.add_node(node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Identity")
+
+        result = ctx.builder.Identity(inp_val, _outputs=[desired_name])
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        else:
+            result.type = getattr(inp_val, "type", None)
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

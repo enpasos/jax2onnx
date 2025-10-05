@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Iterable, Sequence
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -37,21 +36,12 @@ def _cast_value(
     current = getattr(getattr(value, "type", None), "dtype", None)
     if current == target:
         return value
-    cast_val = ir.Value(
-        name=ctx.fresh_name("concat_cast"),
-        type=ir.TensorType(target),
-        shape=ir.Shape(shape),
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name("concat_cast")],
+        to=int(target.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target.value))],
-        )
-    )
+    cast_val.type = ir.TensorType(target)
     _stamp_type_and_shape(cast_val, shape)
     _ensure_value_info(ctx, cast_val)
     return cast_val
@@ -132,17 +122,21 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
                 val = _cast_value(ctx, val, target_enum, shape)
             inputs.append(val)
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("concat_out"))
-        node = ir.Node(
-            op_type="Concat",
-            domain="",
-            inputs=inputs,
-            outputs=[out_val],
-            name=ctx.fresh_name("Concat"),
-            attributes=[IRAttr("axis", IRAttrType.INT, int(norm_axis))],
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("concat_out")
         )
-        ctx.add_node(node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Concat")
+
+        result = ctx.builder.Concat(
+            *inputs,
+            axis=int(norm_axis),
+            _outputs=[desired_name],
+        )
+        result.type = ir.TensorType(target_enum)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_val.type = ir.TensorType(target_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

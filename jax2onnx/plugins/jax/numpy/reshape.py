@@ -218,7 +218,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(gather_val, ())
             _ensure_value_info(ctx, gather_val)
             axes_const = _const_i64(
-                ctx, np.asarray([0], dtype=np.int64), "reshape_unsqueeze_axes"
+                ctx, np.asarray([0], dtype=np.int64), "reshape_unsq_axes"
             )
             unsqueezed = ir.Value(
                 name=ctx.fresh_name("reshape_dim_unsq"),

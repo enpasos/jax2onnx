@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -191,46 +190,37 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("jnp_concat_in"))
             var_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
             if var_dtype != target_dtype:
-                cast_val = ir.Value(
-                    name=ctx.fresh_name("jnp_concat_cast"),
-                    type=ir.TensorType(target_enum),
-                    shape=val.shape,
+                cast_val = ctx.builder.Cast(
+                    val,
+                    _outputs=[ctx.fresh_name("jnp_concat_cast")],
+                    to=int(target_enum.value),
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Cast",
-                        domain="",
-                        inputs=[val],
-                        outputs=[cast_val],
-                        name=ctx.fresh_name("Cast"),
-                        attributes=[
-                            IRAttr("to", IRAttrType.INT, int(target_enum.value))
-                        ],
-                    )
-                )
+                cast_val.type = ir.TensorType(target_enum)
                 _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
                 _ensure_value_info(ctx, cast_val)
                 inputs.append(cast_val)
             else:
                 inputs.append(val)
 
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("jnp_concat_out")
         )
-        concat_node = ir.Node(
-            op_type="Concat",
-            domain="",
-            inputs=inputs,
-            outputs=[out_val],
-            name=ctx.fresh_name("Concat"),
-            attributes=[IRAttr("axis", IRAttrType.INT, int(norm_axis))],
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Concat")
+
+        result = ctx.builder.Concat(
+            *inputs,
+            axis=int(norm_axis),
+            _outputs=[desired_name],
         )
-        ctx.add_node(concat_node)
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_val.type = ir.TensorType(target_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(target_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

@@ -49,24 +49,23 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
         base_val = ctx.get_value_for_var(
             base_var, name_hint=ctx.fresh_name("ipow_base")
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ipow_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ipow_out"))
 
         target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
         exp_const = ctx.builder.add_initializer_from_scalar(
             ctx.fresh_name("ipow_exp"), np.array(exponent, dtype=target_dtype)
         )
 
-        node = ir.Node(
-            op_type="Pow",
-            domain="",
-            inputs=[base_val, exp_const],
-            outputs=[out_val],
-            name=ctx.fresh_name("Pow"),
-        )
-        ctx.add_node(node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pow")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Pow")
+
+        result = ctx.builder.Pow(base_val, exp_const, _outputs=[desired_name])
 
         out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_val.type = ir.TensorType(out_dtype_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(out_dtype_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
