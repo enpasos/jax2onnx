@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
-import onnx_ir as ir  # IR builder (converter lane)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -22,16 +21,11 @@ def lower_add(ctx, eqn) -> None:
     b_val = ctx.get_value_for_var(
         y_var, name_hint=ctx.fresh_name("add_rhs"), prefer_np_dtype=prefer_dt
     )
-    out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
-
-    node = ir.Node(
-        op_type="Add",
-        domain="",
-        inputs=[a_val, b_val],
-        outputs=[out_val],
-        name=ctx.fresh_name("add"),
-    )
-    ctx.add_node(node)
+    out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
+    result = ctx.builder.Add(a_val, b_val, _outputs=[out_spec.name])
+    result.type = out_spec.type
+    result.shape = out_spec.shape
+    ctx.bind_value_for_var(out_var, result)
 
 
 @register_primitive(

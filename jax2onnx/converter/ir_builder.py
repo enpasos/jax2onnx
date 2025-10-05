@@ -6,6 +6,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
+from onnx_ir._tape import Builder as _TapeBuilder
 
 
 _NP_TO_IR_BASE = {
@@ -56,24 +57,50 @@ class IRBuilder:
     def __init__(self, *, opset: int, enable_double_precision: bool):
         self.opset = opset
         self.enable_double_precision = enable_double_precision
+        self._tape_builder = _TapeBuilder()
         self.inputs: list[ir.Value] = []
         self.outputs: list[ir.Value] = []
         self.nodes: list[ir.Node] = []
         self.initializers: list[ir.Value] = []
+        self.value_info: list[ir.Value] = []
+        self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
         self.initializers_by_name: dict[str, ir.Value] = {}
         # Intermediate ValueInfo entries (propagated to ir.Graph)
-        self.value_info: list[ir.Value] = []
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
+        self._tape_node_index = 0
+        self._tape_initializer_index = 0
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
         return f"{base}_{i}"
+
+    def _sync_from_tape_builder(self) -> None:
+        tape_nodes = getattr(self._tape_builder, "nodes", ())
+        for node in tape_nodes[self._tape_node_index :]:
+            self.nodes.append(node)
+        self._tape_node_index = len(tape_nodes)
+
+        tape_initializers = getattr(self._tape_builder, "initializers", ())
+        for value in tape_initializers[self._tape_initializer_index :]:
+            existing = self.initializers_by_name.get(value.name)
+            if existing is not None:
+                try:
+                    idx = self.initializers.index(existing)
+                    self.initializers[idx] = value
+                except ValueError:
+                    self.initializers.append(value)
+            else:
+                self.initializers.append(value)
+            self.initializers_by_name[value.name] = value
+        self._tape_initializer_index = len(tape_initializers)
+        # Builder exposes value_info as a helper function rather than a container; leave
+        # IRBuilder.value_info under local control for compatibility with existing code.
 
     # ---------- values ----------
     def _make_value(
@@ -90,13 +117,15 @@ class IRBuilder:
         if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
             arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
-        v = ir.Value(
-            name=name,
-            shape=ir.Shape(arr.shape if arr.shape else ()),
-            type=ir.TensorType(_dtype_to_ir(arr.dtype, self.enable_double_precision)),
-            const_value=tensor,
-        )
         if getattr(self, "_function_mode", False):
+            v = ir.Value(
+                name=name,
+                shape=ir.Shape(arr.shape if arr.shape else ()),
+                type=ir.TensorType(
+                    _dtype_to_ir(arr.dtype, self.enable_double_precision)
+                ),
+                const_value=tensor,
+            )
             Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
             AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
             attributes: list[Any] = []
@@ -120,10 +149,10 @@ class IRBuilder:
             )
             self.nodes.append(node)
             return v
+        v = self._tape_builder.initializer(tensor, name=name)
+        self._sync_from_tape_builder()
         # overwrite-safe: last wins
         self.initializers_by_name[name] = v
-        # keep list for stable order
-        self.initializers.append(v)
         return v
 
     def add_initializer_from_array(self, name: str, array: np.ndarray) -> ir.Value:
@@ -208,6 +237,28 @@ class IRBuilder:
         self.nodes.append(n)
         return n
 
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            )
+        tape_builder = object.__getattribute__(self, "_tape_builder")
+        try:
+            attr = getattr(tape_builder, name)
+        except AttributeError as err:
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            ) from err
+        if callable(attr):
+
+            def _wrapped(*args: Any, **kwargs: Any):
+                result = attr(*args, **kwargs)
+                self._sync_from_tape_builder()
+                return result
+
+            return _wrapped
+        return attr
+
     # ---------- symbolic dim origin ----------
     def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None:
         self._sym_origin[sym] = (src_val, axis)
@@ -217,6 +268,7 @@ class IRBuilder:
 
     # ---------- finalize (IR only) ----------
     def to_ir_model(self, *, name: str, ir_version: int = 10) -> "ir.Model":
+        self._sync_from_tape_builder()
         graph = ir.Graph(
             inputs=self.inputs,
             outputs=self.outputs,

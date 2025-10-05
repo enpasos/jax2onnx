@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING
 
 import jax
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -37,13 +36,9 @@ class LogPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("log_in"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("log_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("log_out"))
 
-        node = ir.Node(
-            op_type="Log",
-            domain="",
-            inputs=[x_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Log"),
-        )
-        ctx.add_node(node)
+        result = ctx.builder.Log(x_val, _outputs=[out_spec.name])
+        result.type = out_spec.type
+        result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

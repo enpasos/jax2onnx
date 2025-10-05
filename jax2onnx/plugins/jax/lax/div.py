@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Optional
 
 import jax
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -47,14 +46,9 @@ class DivPlugin(PrimitiveLeafPlugin):
         rhs_val = ctx.get_value_for_var(
             y_var, name_hint=ctx.fresh_name("div_rhs"), prefer_np_dtype=prefer_dt
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("div_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("div_out"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Div",
-                domain="",
-                inputs=[lhs_val, rhs_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Div"),
-            )
-        )
+        result = ctx.builder.Div(lhs_val, rhs_val, _outputs=[out_spec.name])
+        result.type = out_spec.type
+        result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

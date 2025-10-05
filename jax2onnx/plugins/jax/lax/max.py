@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -44,23 +43,16 @@ class MaxPlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("max_rhs"),
             prefer_np_dtype=prefer_dtype,
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("max_out"))
-        if (
-            callable(getattr(out_val, "producer", None))
-            and out_val.producer() is not None
-        ):
-            out_val = ir.Value(
-                name=ctx.fresh_name("max_out"),
-                type=out_val.type,
-                shape=out_val.shape,
-            )
-            ctx.builder._var2val[out_var] = out_val
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("max_out"))
 
-        node = ir.Node(
-            op_type="Max",
-            domain="",
-            inputs=[lhs_val, rhs_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Max"),
-        )
-        ctx.add_node(node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("max_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("max_out")
+
+        result = ctx.builder.Max(lhs_val, rhs_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

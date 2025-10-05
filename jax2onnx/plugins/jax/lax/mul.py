@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
-import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -56,13 +55,8 @@ class MulPlugin(PrimitiveLeafPlugin):
         b_val = ctx.get_value_for_var(
             y_var, name_hint=ctx.fresh_name("mul_rhs"), prefer_np_dtype=prefer_dt
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mul_out"))
-
-        node = ir.Node(
-            op_type="Mul",
-            domain="",
-            inputs=[a_val, b_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Mul"),
-        )
-        ctx.add_node(node)
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mul_out"))
+        result = ctx.builder.Mul(a_val, b_val, _outputs=[out_spec.name])
+        result.type = out_spec.type
+        result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

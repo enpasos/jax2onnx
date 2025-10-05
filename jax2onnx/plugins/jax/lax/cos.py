@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
@@ -47,47 +46,23 @@ class CosPlugin(PrimitiveLeafPlugin):
                 object(), np.asarray(np.pi / 2, dtype=np.float64)
             )
 
-            shifted = ir.Value(
-                name=ctx.fresh_name("cos_shifted"),
-                type=x_val.type,
-                shape=x_val.shape,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Add",
-                    domain="",
-                    inputs=[x_val, pi_over_two],
-                    outputs=[shifted],
-                    name=ctx.fresh_name("Add"),
-                )
-            )
+            shifted_name = ctx.fresh_name("cos_shifted")
+            result_add = ctx.builder.Add(x_val, pi_over_two, _outputs=[shifted_name])
+            result_add.type = x_val.type
+            result_add.shape = x_val.shape
 
-            sin_out = ir.Value(
-                name=ctx.fresh_name("cos_via_sin"),
-                type=x_val.type,
-                shape=x_val.shape,
+            sin_out = ctx.builder.Sin(
+                result_add, _outputs=[ctx.fresh_name("cos_via_sin")]
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Sin",
-                    domain="",
-                    inputs=[shifted],
-                    outputs=[sin_out],
-                    name=ctx.fresh_name("Sin"),
-                )
-            )
-
+            sin_out.type = x_val.type
+            sin_out.shape = x_val.shape
             _stamp_type_and_shape(sin_out, getattr(x_var.aval, "shape", ()))
             ctx.bind_value_for_var(out_var, sin_out)
         else:
-            out_val = ctx.get_value_for_var(
+            out_spec = ctx.get_value_for_var(
                 out_var, name_hint=ctx.fresh_name("cos_out")
             )
-            node = ir.Node(
-                op_type="Cos",
-                domain="",
-                inputs=[x_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Cos"),
-            )
-            ctx.add_node(node)
+            result = ctx.builder.Cos(x_val, _outputs=[out_spec.name])
+            result.type = out_spec.type
+            result.shape = out_spec.shape
+            ctx.bind_value_for_var(out_var, result)
