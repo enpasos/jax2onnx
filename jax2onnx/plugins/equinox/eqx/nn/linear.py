@@ -127,10 +127,17 @@ def _inline_scalar_bias(ctx, bias_val: ir.Value, out_features: int) -> ir.Value:
                 arr = _value_to_numpy(init)
                 if arr is not None:
                     break
-    if arr is None or arr.size != 1:
+    if arr is None:
         return bias_val
 
-    broadcast = np.broadcast_to(arr.reshape(()), (out_features,))
+    arr = np.asarray(arr)
+
+    if arr.size == 1:
+        broadcast = np.broadcast_to(arr.reshape(()), (out_features,))
+    elif arr.size == out_features:
+        broadcast = arr.reshape((out_features,))
+    else:
+        return bias_val
     bias_type = getattr(bias_val, "type", None)
     if isinstance(bias_type, ir.TensorType):
         new_type = ir.TensorType(bias_type.dtype)

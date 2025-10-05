@@ -10,6 +10,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -38,6 +39,11 @@ if TYPE_CHECKING:
             "testcase": "sigmoid",
             "callable": lambda x: nnx.sigmoid(x),
             "input_shapes": [("B", 4)],
+            "post_check_onnx_graph": expect_graph(
+                ["Sigmoid:Bx4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

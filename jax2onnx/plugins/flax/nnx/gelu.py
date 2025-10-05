@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/gelu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable, Any
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 import jax
 from jax.extend.core import Primitive
@@ -16,10 +16,24 @@ from jax2onnx.plugins._ir_shapes import (
     is_shape_all_unknown,
     _ensure_value_info as _add_value_info,
 )
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+
+
+def _make_gelu_checker(
+    path: str,
+    *,
+    approx: str,
+    symbols: Optional[dict[str, Optional[int]]] = None,
+):
+    graph_check = expect_graph([path], symbols=symbols, no_unused_inputs=True)
+
+    def _run(model):
+        return graph_check(model) and _approx_attr_equals(model, approx)
+
+    return _run
 
 
 @register_primitive(
@@ -37,45 +51,43 @@ if TYPE_CHECKING:
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "none"),
+            "post_check_onnx_graph": _make_gelu_checker("Gelu:1", approx="none"),
         },
         {
             "testcase": "gelu_1",
             "callable": lambda x: nnx.gelu(x, approximate=False),
             "input_shapes": [(1, 10)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "none"),
+            "post_check_onnx_graph": _make_gelu_checker("Gelu:1x10", approx="none"),
         },
         {
             "testcase": "gelu_2",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [(1,)],
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": _make_gelu_checker("Gelu:1", approx="tanh"),
         },
         {
             "testcase": "gelu_3",
             "callable": lambda x: nnx.gelu(x, approximate=True),
             "input_shapes": [("B", 10)],
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": _make_gelu_checker(
+                "Gelu:Bx10", symbols={"B": None}, approx="tanh"
+            ),
         },
         {
             "testcase": "gelu_4",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [(1,)],
             # default path (no flag) must be approximate=True => "tanh"
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": _make_gelu_checker("Gelu:1", approx="tanh"),
         },
         {
             "testcase": "gelu_5",
             "callable": lambda x: nnx.gelu(x),
             "input_shapes": [("B", 10)],
-            "post_check_onnx_graph": lambda m: EXPECT_GELU(m)
-            and _approx_attr_equals(m, "tanh"),
+            "post_check_onnx_graph": _make_gelu_checker(
+                "Gelu:Bx10", symbols={"B": None}, approx="tanh"
+            ),
         },
     ],
 )
@@ -218,7 +230,3 @@ def _approx_attr_equals(model, expected: str) -> bool:
                 pass
     # If attribute list is missing, fail
     return False
-
-
-# simple presence expectation
-EXPECT_GELU: Callable[[Any], bool] = EG([("Gelu", {"counts": {"Gelu": 1}})])

@@ -1246,10 +1246,41 @@ def _producer_index(nodes) -> Dict[Tuple[str, Any], Tuple[int, Any]]:
     return mapping
 
 
+def _is_constant_value(nodes, producer_map, graph, value) -> bool:
+    arr = _extract_constant_array(value, nodes, graph)
+    if arr is not None:
+        return True
+    for key in _value_keys(value):
+        prod = producer_map.get(key)
+        if prod is None:
+            continue
+        node_idx, _ = prod
+        node = nodes[node_idx]
+        if getattr(node, "op_type", "") == "Constant":
+            return True
+    return False
+
+
+def _pick_chain_input(
+    nodes, producer_map, graph, inputs: Sequence[Any]
+) -> Optional[Any]:
+    if not inputs:
+        return None
+    scored: list[tuple[int, int, Any]] = []
+    for idx, val in enumerate(inputs):
+        score = 0
+        if _is_constant_value(nodes, producer_map, graph, val):
+            score = 2
+        scored.append((score, idx, val))
+    scored.sort()
+    return scored[0][2]
+
+
 def _trace_main_chain(
     output_val,
     nodes,
     producer_map: Dict[Tuple[str, Any], Tuple[int, Any]],
+    graph,
     *,
     hop_limit: int,
 ) -> List[Tuple[Any, Any]]:
@@ -1273,7 +1304,10 @@ def _trace_main_chain(
         inputs = _inputs_of(nodes[node_idx])
         if not inputs:
             break
-        current = inputs[0]
+        next_input = _pick_chain_input(nodes, producer_map, graph, inputs)
+        if next_input is None:
+            break
+        current = next_input
         hops += 1
     chain.reverse()
     return chain
@@ -1293,7 +1327,7 @@ def _summarize_graph_primary_paths(
     specs: List[str] = []
     seen: set[str] = set()
     for out_val in _graph_outputs(g):
-        chain = _trace_main_chain(out_val, nodes, producer_map, hop_limit=hop_limit)
+        chain = _trace_main_chain(out_val, nodes, producer_map, g, hop_limit=hop_limit)
         if not chain:
             continue
         parts = []

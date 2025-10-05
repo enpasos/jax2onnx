@@ -10,6 +10,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -58,6 +59,15 @@ def _alpha_attr_equals(model, expected: float) -> bool:
     return abs(float(expected) - 1.0) < 1e-6
 
 
+def _make_checker(specs, *, alpha: float, **kwargs):
+    checker = expect_graph(specs, **kwargs)
+
+    def _run(model):
+        return checker(model) and _alpha_attr_equals(model, alpha)
+
+    return _run
+
+
 @register_primitive(
     jaxpr_primitive="nnx.elu",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.elu.html",
@@ -71,21 +81,27 @@ def _alpha_attr_equals(model, expected: float) -> bool:
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 1.0),
+            "post_check_onnx_graph": _make_checker(
+                ["Elu:1"], alpha=1.0, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "elu_default",
             "callable": lambda x: nnx.elu(x),
             "input_shapes": [("B", 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 1.0),
+            "post_check_onnx_graph": _make_checker(
+                ["Elu:Bx3"], symbols={"B": None}, alpha=1.0, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "elu_alpha",
             "callable": lambda x: nnx.elu(x, alpha=0.5),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.5),
+            "post_check_onnx_graph": _make_checker(
+                ["Elu:2x3"], alpha=0.5, no_unused_inputs=True
+            ),
         },
     ],
 )

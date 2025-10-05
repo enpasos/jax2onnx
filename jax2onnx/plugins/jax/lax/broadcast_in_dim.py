@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Set
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -13,9 +13,196 @@ from onnx_ir import (
     Attr as IRAttr,
     AttributeType as IRAttrType,
 )  # FIX: correct attr types
+from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
+from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 
 if TYPE_CHECKING:
     pass  # for hints
+
+_IR_TO_NP_DTYPE = {
+    getattr(ir.DataType, "FLOAT16", None): np.float16,
+    getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
+    ir.DataType.FLOAT: np.float32,
+    getattr(ir.DataType, "DOUBLE", None): np.float64,
+    ir.DataType.INT8: np.int8,
+    ir.DataType.INT16: np.int16,
+    ir.DataType.INT32: np.int32,
+    ir.DataType.INT64: np.int64,
+    getattr(ir.DataType, "UINT8", None): np.uint8,
+    getattr(ir.DataType, "UINT16", None): np.uint16,
+    getattr(ir.DataType, "UINT32", None): np.uint32,
+    getattr(ir.DataType, "UINT64", None): np.uint64,
+    ir.DataType.BOOL: np.bool_,
+}
+
+
+def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
+    if isinstance(enum, ir.DataType):
+        return _IR_TO_NP_DTYPE.get(enum)
+    if isinstance(enum, (int, np.integer)):
+        try:
+            return _IR_TO_NP_DTYPE.get(ir.DataType(enum))
+        except Exception:
+            return None
+    return None
+
+
+def _value_to_numpy(val: ir.Value | None):
+    if val is None:
+        return None
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        payload = getattr(val, attr, None)
+        if payload is None:
+            continue
+        try:
+            return np.asarray(payload)
+        except Exception:
+            try:
+                return np.asarray(payload())
+            except Exception:
+                continue
+    return None
+
+
+def _static_shape_tuple(shape_tuple):
+    dims = []
+    for dim in shape_tuple:
+        if isinstance(dim, (int, np.integer)):
+            dims.append(int(dim))
+        else:
+            return None
+    return tuple(dims)
+
+
+def _node_constant_array(ctx, node, target_value, seen: Set[object]):
+    op_type = getattr(node, "op_type", "")
+    inputs = _iro_node_inputs(node)
+    if op_type == "Cast" and inputs:
+        arr = _materialize_constant_array(ctx, inputs[0], seen)
+        if arr is None:
+            return None
+        target_enum = getattr(getattr(target_value, "type", None), "dtype", None)
+        dtype = _np_dtype_from_ir(target_enum)
+        if dtype is not None:
+            return np.asarray(arr, dtype=dtype)
+        return arr
+    if op_type == "CastLike" and len(inputs) >= 2:
+        arr = _materialize_constant_array(ctx, inputs[0], seen)
+        like_arr = _materialize_constant_array(ctx, inputs[1], seen)
+        if arr is None or like_arr is None:
+            return None
+        return np.asarray(arr, dtype=like_arr.dtype)
+    if op_type == "Reshape" and len(inputs) >= 2:
+        data_arr = _materialize_constant_array(ctx, inputs[0], seen)
+        shape_arr = _materialize_constant_array(ctx, inputs[1], seen)
+        if data_arr is None or shape_arr is None:
+            return None
+        try:
+            target_shape = tuple(int(x) for x in np.asarray(shape_arr).reshape(-1))
+        except Exception:
+            return None
+        try:
+            return np.reshape(data_arr, target_shape)
+        except Exception:
+            return None
+    return None
+
+
+def _materialize_constant_array(ctx, value, seen: Optional[Set[object]] = None):
+    arr = _value_to_numpy(value)
+    if arr is not None:
+        return arr
+    name = getattr(value, "name", None)
+    if name:
+        inits = []
+        for attr in ("initializers", "_initializers"):
+            seq = getattr(ctx.builder, attr, None)
+            if seq is None:
+                continue
+            try:
+                inits.extend(list(seq))
+            except Exception:
+                try:
+                    inits.extend(iter(seq))
+                except Exception:
+                    pass
+        for init in inits:
+            if getattr(init, "name", None) == name:
+                arr = _value_to_numpy(init)
+                if arr is not None:
+                    return arr
+
+    producer_fn = getattr(value, "producer", None)
+    node = None
+    if callable(producer_fn):
+        try:
+            node = producer_fn()
+        except Exception:
+            node = None
+    if node is None:
+        return None
+    if seen is None:
+        seen = set()
+    if node in seen:
+        return None
+    seen.add(node)
+    arr = _node_constant_array(ctx, node, value, seen)
+    if arr is not None:
+        return arr
+    # Fallback: Constant node attributes
+    if getattr(node, "op_type", "") == "Constant":
+        attr = _iro_get_attr(node, "value")
+        if attr is not None:
+            return _value_to_numpy(attr)
+    return None
+
+
+def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape):
+    const_arr = _materialize_constant_array(ctx, x_val)
+    if const_arr is None:
+        return False
+
+    static_shape = _static_shape_tuple(shape)
+    if static_shape is None:
+        return False
+
+    reshape_tuple = None
+    if len(op_shape) != len(shape):
+        dims = [1] * len(shape)
+        ok = True
+        for src_axis, out_axis in enumerate(bdims):
+            if src_axis >= len(op_shape):
+                ok = False
+                break
+            dim_size = op_shape[src_axis]
+            if not isinstance(dim_size, (int, np.integer)):
+                ok = False
+                break
+            dims[out_axis] = int(dim_size)
+        if not ok:
+            return False
+        reshape_tuple = tuple(dims)
+
+    arr = np.asarray(const_arr)
+    try:
+        if reshape_tuple is not None and tuple(arr.shape) != reshape_tuple:
+            arr = np.reshape(arr, reshape_tuple)
+        broadcasted = np.broadcast_to(arr, static_shape)
+    except Exception:
+        return False
+
+    target_dtype = None
+    aval = getattr(out_var, "aval", None)
+    if aval is not None:
+        try:
+            target_dtype = np.dtype(getattr(aval, "dtype", arr.dtype))
+        except TypeError:
+            target_dtype = None
+    if target_dtype is not None and broadcasted.dtype != target_dtype:
+        broadcasted = np.asarray(broadcasted, dtype=target_dtype)
+
+    ctx.bind_const_for_var(out_var, np.asarray(broadcasted))
+    return True
 
 
 @register_primitive(
@@ -106,6 +293,14 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
         hints = getattr(ctx, "_scatter_window_hints", None)
         allow_hints = bool(bdims)
+
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
+        op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+
+        if _maybe_inline_constant_broadcast(
+            ctx, out_var, x_val, shape, bdims, op_shape
+        ):
+            return
 
         def _peek_scatter_hint(axis: int) -> ir.Value | None:
             if not isinstance(hints, dict):
@@ -209,10 +404,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         )
         ctx.add_node(concat_node)
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
-
         # If operand is a scalar, we can skip the Reshape and go straight to Expand.
-        op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         need_reshape = len(op_shape) > 0 and len(shape) != len(op_shape)
 
         if need_reshape:

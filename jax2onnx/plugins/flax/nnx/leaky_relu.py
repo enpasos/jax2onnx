@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/leaky_relu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, List, Union
+from typing import TYPE_CHECKING, Callable, ClassVar, List, Union, Optional
 
 import numpy as np
 import jax
@@ -11,6 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
@@ -57,6 +58,20 @@ def _alpha_attr_equals(model, expected: float) -> bool:
     return abs(float(expected) - 0.01) < 1e-6
 
 
+def _make_leaky_relu_checker(
+    path: str,
+    *,
+    alpha: float,
+    symbols: Optional[dict[str, Optional[int]]] = None,
+):
+    graph_check = expect_graph([path], symbols=symbols, no_unused_inputs=True)
+
+    def _run(model):
+        return graph_check(model) and _alpha_attr_equals(model, alpha)
+
+    return _run
+
+
 @register_primitive(
     jaxpr_primitive="nnx.leaky_relu",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.leaky_relu.html",
@@ -75,21 +90,27 @@ def _alpha_attr_equals(model, expected: float) -> bool:
             "callable": lambda x: nnx.leaky_relu(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.01),
+            "post_check_onnx_graph": _make_leaky_relu_checker(
+                "LeakyRelu:1", alpha=0.01
+            ),
         },
         {
             "testcase": "leaky_relu_default",
             "callable": lambda x: nnx.leaky_relu(x),
             "input_shapes": [("B", 5)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.01),
+            "post_check_onnx_graph": _make_leaky_relu_checker(
+                "LeakyRelu:Bx5", symbols={"B": None}, alpha=0.01
+            ),
         },
         {
             "testcase": "leaky_relu_custom",
             "callable": lambda x: nnx.leaky_relu(x, negative_slope=0.2),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: _alpha_attr_equals(m, 0.2),
+            "post_check_onnx_graph": _make_leaky_relu_checker(
+                "LeakyRelu:2x3", alpha=0.2
+            ),
         },
     ],
 )

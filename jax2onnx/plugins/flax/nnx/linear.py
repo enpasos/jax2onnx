@@ -169,64 +169,70 @@ def _linear_output_dims(
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-# Basic presence of a single Gemm (no flatten/reshape path needed).
-EXPECT_GEMM_ONLY = EG(
-    [
-        (
-            "Gemm",
-            {
-                "counts": {
-                    "Gemm": 1,
-                    "Reshape": 0,
-                    "Shape": 0,
-                    "Slice": 0,
-                    "Concat": 0,
-                    "CastLike": 0,
-                    "Transpose": 0,
-                }
-            },
-        )
-    ]
+_GEMM_ONLY_COUNTS = {
+    "Gemm": 1,
+    "Reshape": 0,
+    "Shape": 0,
+    "Slice": 0,
+    "Concat": 0,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+_RGR_COUNTS = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 0,
+    "Slice": 0,
+    "Concat": 0,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+_DYNAMIC_RGR_COUNTS = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 1,
+    "Slice": 1,
+    "Concat": 1,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+
+def _linear_expect(
+    path: str,
+    *,
+    counts: dict[str, int],
+    symbols: dict[str, Any] | None = None,
+    extra_specs: tuple[str, ...] = (),
+):
+    specs: list[Any] = [(path, {"counts": dict(counts)})]
+    specs.extend(extra_specs)
+    return EG(specs, symbols=symbols, no_unused_inputs=True)
+
+
+EXPECT_GEMM_ONLY = _linear_expect(
+    "Gemm:Bx64",
+    symbols={"B": None},
+    counts=_GEMM_ONLY_COUNTS,
 )
-# Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
-EXPECT_RGR = EG(
-    [
-        (
-            "Reshape -> Gemm -> Reshape",
-            {
-                "counts": {
-                    "Reshape": 2,
-                    "Gemm": 1,
-                    "Shape": 0,
-                    "Slice": 0,
-                    "Concat": 0,
-                    "CastLike": 0,
-                    "Transpose": 0,
-                }
-            },
-        )
-    ]
+
+EXPECT_RGR_STATIC_3 = _linear_expect(
+    "Reshape:30x128 -> Gemm:30x64 -> Reshape:3x10x64",
+    counts=_RGR_COUNTS,
 )
-# Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
-# (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
-EXPECT_DYNAMIC_RGR = EG(
-    [
-        (
-            "Reshape -> Gemm -> Reshape",
-            {
-                "counts": {
-                    "Reshape": 2,
-                    "Gemm": 1,
-                    "Shape": 1,
-                    "Slice": 1,
-                    "Concat": 1,
-                    "CastLike": 0,
-                    "Transpose": 0,
-                }
-            },
-        ),
-        "Shape -> Slice -> Concat -> Reshape",
-    ]
+
+EXPECT_RGR_STATIC_2 = _linear_expect(
+    "Reshape:20x128 -> Gemm:20x64 -> Reshape:2x10x64",
+    counts=_RGR_COUNTS,
+)
+
+EXPECT_DYNAMIC_RGR = _linear_expect(
+    "Reshape:?x128 -> Gemm:?x64 -> Reshape:Bx10x64",
+    counts=_DYNAMIC_RGR_COUNTS,
+    symbols={"B": None},
+    extra_specs=("Shape -> Slice -> Concat -> Reshape",),
 )
 
 
@@ -298,7 +304,7 @@ EXPECT_DYNAMIC_RGR = EG(
             ),
             "input_shapes": [(3, 10, 128)],
             "expected_output_shapes": [(3, 10, 64)],
-            "post_check_onnx_graph": EXPECT_RGR,
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_3,
         },
         {
             "testcase": "linear_no_bias",
@@ -341,7 +347,7 @@ EXPECT_DYNAMIC_RGR = EG(
             ),
             "input_shapes": [(2, 10, 128)],
             "expected_output_shapes": [(2, 10, 64)],
-            "post_check_onnx_graph": EXPECT_RGR,
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_2,
         },
         {
             "testcase": "linear_merge_symbolic_dim",

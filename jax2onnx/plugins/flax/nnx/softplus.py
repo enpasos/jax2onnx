@@ -9,6 +9,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
 if TYPE_CHECKING:
@@ -33,6 +34,10 @@ if TYPE_CHECKING:
             "callable": lambda x: nnx.softplus(x),
             "input_shapes": [(3,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["Softplus:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

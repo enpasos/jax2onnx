@@ -5,6 +5,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -40,6 +41,11 @@ register_example(
                 key=with_prng_key(0),
             ),
             "input_shapes": [(12, 30)],
+            "post_check_onnx_graph": expect_graph(
+                ["Transpose:30x12 -> Gemm:3x12 -> Transpose:12x3 -> Add:12x3"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
+            ),
         },
         {
             "testcase": "nn_linear",
@@ -50,6 +56,11 @@ register_example(
                 key=with_prng_key(1),
             ),
             "input_shapes": [(12, 30)],
+            "post_check_onnx_graph": expect_graph(
+                ["Gemm:12x3"],
+                no_unused_inputs=True,
+                must_absent=["Concat", "Expand", "Reshape"],
+            ),
         },
     ],
 )

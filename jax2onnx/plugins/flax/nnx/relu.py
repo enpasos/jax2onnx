@@ -10,6 +10,7 @@ from flax import nnx
 
 import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
@@ -55,11 +56,20 @@ except Exception:
             "testcase": "relu_1d",
             "callable": lambda x: nnx.relu(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": expect_graph(
+                ["Relu:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "relu_4d",
             "callable": lambda x: nnx.relu(x),
             "input_shapes": [("B", 28, 28, 32)],
+            "post_check_onnx_graph": expect_graph(
+                ["Relu:Bx28x28x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

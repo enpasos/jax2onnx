@@ -27,21 +27,40 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-EXPECT_T_POOL_T = EG(
-    [
-        (
-            "Transpose -> AveragePool -> Transpose",
-            {
-                "counts": {
-                    "Transpose": 2,
-                    "AveragePool": 1,
-                    "Reshape": 0,
-                    "CastLike": 0,
-                    "Identity": 0,
-                }
-            },
-        )
-    ]
+_POOL_COUNTS = {
+    "Transpose": 2,
+    "AveragePool": 1,
+    "Reshape": 0,
+    "CastLike": 0,
+    "Identity": 0,
+}
+
+
+def _make_expect(path: str, *, symbols: Optional[dict[str, Optional[int]]] = None):
+    spec = [(path, {"counts": dict(_POOL_COUNTS)})]
+    if symbols is None:
+        return EG(spec, no_unused_inputs=True)
+    return EG(spec, symbols=symbols, no_unused_inputs=True)
+
+
+EXPECT_32_TO_16 = _make_expect(
+    "Transpose:Bx3x32x32 -> AveragePool:Bx3x16x16 -> Transpose:Bx16x16x3",
+    symbols={"B": None},
+)
+
+EXPECT_8_TO_7 = _make_expect(
+    "Transpose:Bx3x8x8 -> AveragePool:Bx3x7x7 -> Transpose:Bx7x7x3",
+    symbols={"B": None},
+)
+
+EXPECT_10_TO_4 = _make_expect(
+    "Transpose:Bx1x10x10 -> AveragePool:Bx1x4x4 -> Transpose:Bx4x4x1",
+    symbols={"B": None},
+)
+
+EXPECT_8_TO_4 = _make_expect(
+    "Transpose:Bx3x8x8 -> AveragePool:Bx3x4x4 -> Transpose:Bx4x4x3",
+    symbols={"B": None},
 )
 
 
@@ -70,7 +89,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_32_TO_16,
         },
         {
             "testcase": "avg_pool_same_padding",
@@ -80,7 +99,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_32_TO_16,
         },
         {
             "testcase": "avg_pool_default_padding",
@@ -88,7 +107,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 32, 32, 3)],
             "expected_output_shapes": [("B", 16, 16, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_32_TO_16,
         },
         {
             "testcase": "avg_pool_stride1",
@@ -98,7 +117,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 7, 7, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_8_TO_7,
         },
         {
             "testcase": "avg_pool_win3x3_stride2",
@@ -108,7 +127,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 10, 10, 1)],
             "expected_output_shapes": [("B", 4, 4, 1)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_10_TO_4,
         },
         {
             "testcase": "avg_pool_stride_none",
@@ -118,7 +137,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 7, 7, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_8_TO_7,
         },
         {
             "testcase": "avg_pool_count_include_pad_false",
@@ -132,7 +151,7 @@ EXPECT_T_POOL_T = EG(
             "input_shapes": [("B", 8, 8, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_T_POOL_T,
+            "post_check_onnx_graph": EXPECT_8_TO_4,
         },
     ],
 )
