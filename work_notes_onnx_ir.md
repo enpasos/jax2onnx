@@ -193,6 +193,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 
 - Thin wrapper no longer needed: `IRBuilder` directly instantiates `_tape.Builder` and mirrors its state. Remaining work focuses on migrating residual manual `ir.Node` usage to the builder APIs.
 - Incrementally migrate high-traffic plugins (start with `jax/lax` arithmetic ops, then Flax NNX linear layers) to the canonical builder helpers, adding focused pytest cases per primitive to verify op sequencing.
+- Introduced `plugins/jax/nn/_builder_utils.lower_unary_elementwise`; migrated the unary activations to it so builder wiring/shapes stay consistent. Consider generalising for binary reductions before tackling the remaining EQX rewrites.
 - Harden attribute/helper modules (`plugins/flax/nnx/linear.py`, `plugins/flax/nnx/conv.py`) by routing through shared builder utilities once the wrapper is in place; conv now issues Transpose/Reshape/Conv via the builder. Add regression tests ensuring dtype/shape stamping survives conversion.
 - Introduce integration tests that serialize representative graphs to protobuf via `ir.to_proto` only at the very edge, confirming converter/plugins remain protobuf-free.
 - After each refactor batch, refresh the migration snapshot in this note and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
@@ -210,12 +211,13 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX indexing – scatter | ✅ builder-only | `scatter_utils.py` rewritten to typed builder APIs. |
 | LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
 | LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
-| Control-flow scaffolding and complex lowers (`conv`, `scan`, `while_loop`, `batch_norm`, etc.) | ⏳ mixed/manual | Large rewrites remain (scan/while/function bodies). Track separately in the next refactor batch. |
+| Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ✅ builder-only | Outer Loop/If nodes, body captures, and dtype harmonisation now flow through `ctx.builder`; shared subgraph helpers reset builder bookkeeping. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
-| Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed | Builder used for params; wiring still manual in places. |
+| Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed/manual | Parameters flow through helpers, but reshape/Gemm/Identity wiring still emits raw `ir.Node`s. Needs a dedicated builder rewrite (see `equinox/eqx/nn/*`). |
+| JAX/NN primitive plugins (`jax/nn/*`) | ⏳ mixed/manual | Unary activations now share `_builder_utils.lower_unary_elementwise`; `dot_product_attention` still constructs bespoke control/data paths and remains manual. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
 | IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
 
 ---
 
-Status (2025-10-05): IRBuilder aligned with `_tape.Builder`; lax add/mul/sub migrated to builder-only lowers. Next focus: extend builder usage across remaining primitives and tighten validation hooks.
+Status (2025-10-06): Unary `jax.nn` activations now route through the shared builder helper; next focus is the EQX linear stack and paring down the bespoke `dot_product_attention` path.

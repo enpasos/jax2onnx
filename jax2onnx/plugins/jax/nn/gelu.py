@@ -7,13 +7,10 @@ from typing import TYPE_CHECKING, ClassVar
 import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info as _add_value_info
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -77,30 +74,18 @@ class GeluPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
-        (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
         approximate = bool(eqn.params.get("approximate", True))
-
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("gelu_in"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("gelu_out"))
 
         approx_attr = "tanh" if approximate else "none"
 
-        attr = IRAttr("approximate", IRAttrType.STRING, approx_attr)
-        ctx.add_node(
-            ir.Node(
-                op_type="Gelu",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Gelu"),
-                attributes=[attr],
-            )
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Gelu",
+            input_hint="gelu_in",
+            output_hint="gelu_out",
+            attrs={"approximate": approx_attr},
         )
-
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        _stamp_type_and_shape(y_val, x_shape)
-        _add_value_info(ctx, y_val)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):

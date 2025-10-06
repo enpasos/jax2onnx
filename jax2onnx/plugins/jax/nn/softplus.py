@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 from jax.extend.core import Primitive
-import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -63,20 +63,12 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
-        x_var = eqn.invars[0]
-        y_var = eqn.outvars[0]
-
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("softplus_in"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("softplus_out"))
-
-        ctx.add_node(
-            ir.Node(
-                op_type="Softplus",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Softplus"),
-            )
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Softplus",
+            input_hint="softplus_in",
+            output_hint="softplus_out",
         )
 
     @classmethod

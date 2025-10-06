@@ -6,13 +6,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax
 from jax.extend.core import Primitive
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info as _add_value_info
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -65,30 +62,20 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
 
         axis = int(eqn.params.get("axis", -1))
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         rank = len(x_shape)
         norm_axis = (axis % rank) if (axis < 0 and rank) else axis
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("softmax_in"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("softmax_out"))
-
-        attr = IRAttr("axis", IRAttrType.INT, int(norm_axis))
-        ctx.add_node(
-            ir.Node(
-                op_type="Softmax",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Softmax"),
-                attributes=[attr],
-            )
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Softmax",
+            input_hint="softmax_in",
+            output_hint="softmax_out",
+            attrs={"axis": int(norm_axis)},
         )
-
-        _stamp_type_and_shape(y_val, x_shape)
-        _add_value_info(ctx, y_val)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):
