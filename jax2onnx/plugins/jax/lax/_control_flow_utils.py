@@ -84,6 +84,11 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
             child_ctx.builder,
         ),
     )
+    # Mirror builder bookkeeping so body graphs own independent lists.
+    child_ctx.builder.inputs = []
+    child_ctx.builder.outputs = []
+    child_ctx.builder.nodes = []
+    child_ctx.builder.initializers = []
     return child_ctx
 
 
