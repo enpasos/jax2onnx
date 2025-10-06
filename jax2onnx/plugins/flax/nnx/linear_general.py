@@ -2,7 +2,7 @@
 
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import Any, Callable, ClassVar
 import numpy as np
 import jax
 from jax.extend.core import Primitive
@@ -28,10 +28,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_info as _add_value_info,  # avoid local name shadowing
     _as_ir_dim_label,
 )
-
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 # ------------------------------------------------------------------
@@ -472,7 +468,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(out.shape, out.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: Any, eqn):
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
         ((lhs_contract, rhs_contract), _) = eqn.params["dimension_numbers"]

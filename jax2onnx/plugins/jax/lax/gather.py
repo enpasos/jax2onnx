@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _append_initializer
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -204,13 +204,9 @@ class GatherPlugin(PrimitiveLeafPlugin):
             target_shape.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_info(ctx, target_shape)
 
-            base_index = ir.Value(
-                name=ctx.fresh_name("gather_base_idx"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1, 1)),
-                const_value=ir.tensor(np.zeros((1, 1), dtype=np.int64)),
+            base_index = _const_i64(
+                ctx, np.zeros((1, 1), dtype=np.int64), "gather_base_idx"
             )
-            _append_initializer(ctx, base_index)
 
             indices_val = ctx.builder.Expand(
                 base_index,

@@ -23,47 +23,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-
-def _const_i64(ctx, data, *, name: str) -> ir.Value:
-    arr = np.asarray(data, dtype=np.int64)
-    if hasattr(ir, "tensor"):
-        tensor_obj = ir.tensor(arr)
-    else:
-        tensor_obj = arr
-    value = ir.Value(
-        name=ctx.fresh_name(name),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(arr.shape if arr.shape else ()),
-        const_value=tensor_obj if hasattr(ir.Value, "const_value") else None,
-    )
-    try:
-        ctx._initializers.append(value)
-    except Exception:
-        attrs = []
-        Attr = getattr(ir, "Attr", None)
-        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-        if Attr is not None:
-            try:
-                if hasattr(Attr, "t"):
-                    attrs = [Attr.t("value", tensor_obj)]
-                elif AttrType is not None:
-                    attrs = [Attr("value", AttrType.TENSOR, tensor_obj)]
-                else:
-                    attrs = [Attr("value", tensor_obj)]
-            except Exception:
-                attrs = []
-        node = ir.Node(
-            op_type="Constant",
-            domain="",
-            inputs=[],
-            outputs=[value],
-            name=ctx.fresh_name("Constant"),
-            attributes=attrs,
-            num_outputs=1,
-        )
-        ctx.add_node(node)
-    return value
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
 _eqx_linear_symbolic = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
@@ -429,7 +389,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 final_vals = [_ensure_static_int(d) for d in batch_dims] + [
                     out_features
                 ]
-                final_shape = _const_i64(ctx, final_vals, name="linear_out_shape")
+                final_shape = _const_i64(ctx, final_vals, name_hint="linear_out_shape")
                 ctx.add_node(
                     ir.Node(
                         op_type="Reshape",
@@ -456,9 +416,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Shape"),
                     )
                 )
-                starts = _const_i64(ctx, [0], name="linear_slice_start")
-                ends = _const_i64(ctx, [max(rank - 1, 0)], name="linear_slice_end")
-                axes = _const_i64(ctx, [0], name="linear_slice_axes")
+                starts = _const_i64(ctx, [0], name_hint="linear_slice_start")
+                ends = _const_i64(ctx, [max(rank - 1, 0)], name_hint="linear_slice_end")
+                axes = _const_i64(ctx, [0], name_hint="linear_slice_axes")
                 batch_dims_val = ir.Value(
                     name=ctx.fresh_name("linear_batch_dims"),
                     type=ir.TensorType(ir.DataType.INT64),
@@ -473,7 +433,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("Slice"),
                     )
                 )
-                out_feat = _const_i64(ctx, [out_features], name="linear_out_feature")
+                out_feat = _const_i64(
+                    ctx, [out_features], name_hint="linear_out_feature"
+                )
                 final_shape = ir.Value(
                     name=ctx.fresh_name("linear_final_shape"),
                     type=ir.TensorType(ir.DataType.INT64),

@@ -12,38 +12,61 @@ import onnx_ir as ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 
 
-def _append_initializer(ctx: Any, value: ir.Value) -> None:
-    """Best-effort append of an initializer value to the active context."""
-    if value is None:
-        return
-    try:
-        inits = getattr(ctx, "_initializers", None)
-        if inits is not None and hasattr(inits, "append"):
-            inits.append(value)
-            return
-    except Exception:
-        pass
-    builder = getattr(ctx, "builder", None)
-    if builder is not None:
-        try:
-            binits = getattr(builder, "initializers", None)
-            if isinstance(binits, list):
-                binits.append(value)
-        except Exception:
-            pass
-
-
-def _const_i64(ctx: Any, values: Any, name_hint: str) -> ir.Value:
+def _const_i64(
+    ctx: Any,
+    values: Any,
+    name_hint: str | None = None,
+    *,
+    name: str | None = None,
+) -> ir.Value:
     """Create an INT64 initializer (scalar or vector) with a fresh name."""
+
+    if name is not None:
+        name_hint = name
+    if name_hint is None:
+        raise TypeError("_const_i64 requires either a positional name_hint or 'name='")
+
     arr = np.asarray(values, dtype=np.int64)
+    builder = getattr(ctx, "builder", None)
+    base_name = ctx.fresh_name(name_hint) if hasattr(ctx, "fresh_name") else name_hint
+
+    builder_mode = (
+        bool(getattr(builder, "_function_mode", False))
+        if builder is not None
+        else False
+    )
+    inside_function = bool(
+        getattr(ctx, "_inside_function_scope", False)
+        or getattr(ctx, "_function_mode", False)
+    )
+    if builder is not None and not inside_function and not builder_mode:
+        add_initializer = getattr(builder, "add_initializer_from_array", None)
+        if callable(add_initializer):
+            return add_initializer(base_name, arr)
+
+    tensor_obj = ir.tensor(arr)
     shape = () if arr.ndim == 0 else tuple(int(d) for d in arr.shape)
     val = ir.Value(
-        name=ctx.fresh_name(name_hint),
+        name=base_name,
         type=ir.TensorType(ir.DataType.INT64),
         shape=ir.Shape(shape),
-        const_value=ir.tensor(arr),
+        const_value=tensor_obj,
     )
-    _append_initializer(ctx, val)
+
+    handler = getattr(ctx, "_handle_initializer_append", None)
+    if callable(handler):
+        handler(val)
+        return val
+
+    init_list = getattr(ctx, "_initializers", None)
+    if init_list is not None and hasattr(init_list, "append"):
+        init_list.append(val)
+        return val
+
+    if builder is not None:
+        builder_inits = getattr(builder, "initializers", None)
+        if isinstance(builder_inits, list):
+            builder_inits.append(val)
     return val
 
 
@@ -113,7 +136,6 @@ def _infer_rank(value: ir.Value, axis_hint: int) -> int:
 
 
 __all__ = [
-    "_append_initializer",
     "_const_i64",
     "_scalar_i64",
     "_cast_to_i64",

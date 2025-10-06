@@ -1,19 +1,17 @@
 # jax2onnx/plugins/jax/lax/transpose.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, List
+from typing import Any, List
 
 from jax import lax
 
 import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_info,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 @register_primitive(
@@ -69,7 +67,7 @@ if TYPE_CHECKING:
 class TransposePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.transpose → ONNX Transpose."""
 
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: Any, eqn):
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 
@@ -86,25 +84,33 @@ class TransposePlugin(PrimitiveLeafPlugin):
 
         # Inputs/outputs
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("y"))
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("y"))
 
-        # Emit ONNX Transpose
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[ir.Attr("perm", ir.AttributeType.INTS, list(perm))],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Transpose")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Transpose")
+
+        result = ctx.builder.Transpose(
+            x_val,
+            perm=list(perm),
+            _outputs=[desired_name],
         )
 
         # Stamp output shape/type by permuting the input aval shape.
         in_aval = getattr(x_var, "aval", None)
         in_shape = tuple(getattr(in_aval, "shape", ()) or ())
+        result_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+
         if in_shape:
             out_dims: List[Any] = [in_shape[i] for i in perm]
             _stamp_type_and_shape(
-                y_val, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
+                result, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
             )
+
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(y_var, result)

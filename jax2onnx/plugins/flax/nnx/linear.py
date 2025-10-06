@@ -1,12 +1,7 @@
 # jax2onnx/plugins/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, cast
-from typing import (
-    Protocol,
-    Dict,
-    Any,
-)
+from typing import Any, Callable, ClassVar, Optional
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -32,100 +27,7 @@ from jax2onnx.plugins._ir_shapes import (
     is_shape_all_unknown,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-
-if TYPE_CHECKING:
-    # Use the same build-context type that cast_param_like expects:
-    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
-
-    # For calls to set_node_attrs (not declared on _IRBuildContext), narrow via this Protocol.
-    from typing import Protocol, Dict, Any
-
-    class _HasNodeAttrs(Protocol):
-        def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None: ...
-
-
-def _attr_i(name: str, val: int):
-    """Robust INT attribute across onnx_ir variants."""
-    Attr = getattr(ir, "Attr", None)
-    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-    if Attr is None:
-        raise RuntimeError("onnx_ir.Attr not found")
-    ival = int(val)
-    if hasattr(Attr, "i"):
-        return Attr.i(name, ival)
-    if AttrType is not None:
-        return Attr(name, AttrType.INT, ival)
-    return Attr(name, ival)
-
-
-def _attr_t(name: str, tensor_obj):
-    """Robust TENSOR attribute for Constant.value across onnx_ir variants."""
-    Attr = getattr(ir, "Attr", None)
-    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-    if Attr is None:
-        raise RuntimeError("onnx_ir.Attr not found")
-    if hasattr(Attr, "t"):
-        return Attr.t(name, tensor_obj)
-    if AttrType is not None:
-        return Attr(name, AttrType.TENSOR, tensor_obj)
-    return Attr(name, tensor_obj)
-
-
-def _const_i64(ctx, data, *, name: str):
-    """
-    Create an INT64 tensor constant as a producer node when inside function
-    bodies (so it survives FunctionProto), while also working at top level.
-    Always returns the produced ir.Value.
-    """
-    arr = np.asarray(data, dtype=np.int64)
-    v = ir.Value(
-        name=ctx.fresh_name(name),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(arr.shape if arr.shape else ()),
-        const_value=ir.tensor(arr),  # nice for debugging/pretty
-    )
-    inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
-    if inside_fn:
-        # In function bodies we must serialize the tensor in a Constant node.
-        try:
-            cattr = _attr_t("value", ir.tensor(arr))
-            node = ir.Node(
-                op_type="Constant",
-                domain="",
-                inputs=[],
-                outputs=[v],
-                name=ctx.fresh_name("Constant"),
-                attributes=[cattr],
-                num_outputs=1,
-            )
-            ctx.add_node(node)
-        except Exception:
-            # Worst-case fallback: add as initializer
-            try:
-                ctx._initializers.append(v)
-            except Exception:
-                pass
-    else:
-        # Top-level: prefer initializer so graph patterns remain exact.
-        try:
-            ctx._initializers.append(v)
-        except Exception:
-            # If some IR build needs a node, fall back to Constant
-            try:
-                cattr = _attr_t("value", ir.tensor(arr))
-                node = ir.Node(
-                    op_type="Constant",
-                    domain="",
-                    inputs=[],
-                    outputs=[v],
-                    name=ctx.fresh_name("Constant"),
-                    attributes=[cattr],
-                    num_outputs=1,
-                )
-                ctx.add_node(node)
-            except Exception:
-                pass
-    return v
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
 def _linear_output_dims(
@@ -424,223 +326,177 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
     # ---------- lowering (IR) ----------
 
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: Any, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder")
+
         x_var, kernel_var, bias_var = eqn.invars
         out_var = eqn.outvars[0]
         use_bias = bool(eqn.params["use_bias"])
 
-        # Values
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         k_val = ctx.get_value_for_var(kernel_var, name_hint=ctx.fresh_name("kernel"))
-        if use_bias:
-            b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
+        b_val = (
+            ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
+            if use_bias
+            else None
+        )
 
-        # Preserve original input meta shape on graph.input if the binder left it unknown
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        if is_shape_all_unknown(getattr(x_val, "shape", None)):
-            if any(d is not None for d in x_shape):
-                _stamp_type_and_shape(x_val, x_shape)
+        if is_shape_all_unknown(getattr(x_val, "shape", None)) and any(
+            d is not None for d in x_shape
+        ):
+            _stamp_type_and_shape(x_val, x_shape)
 
-        # Cast parameters AFTER shaping/promotion decisions (promote params -> input dtype)
         k_val = cast_param_like(ctx, k_val, x_val, "kernel_cast")
-        if use_bias:
+        if use_bias and b_val is not None:
             b_val = cast_param_like(ctx, b_val, x_val, "bias_cast")
 
         k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
         in_features = int(k_shape[0])
         out_features = int(k_shape[1])
 
-        # Flatten if rank > 2
         need_flatten = len(x_shape) > 2
-        gemm_in = x_val
+        gemm_input = x_val
+        batch_dim_vals: list[Any] = []
+        all_batch_static = True
+
         if need_flatten:
-            # Compute product of batch dims if all static (e.g., 3×10 -> 30)
             x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
             batch_dim_vals = [x_shape[i] for i in x_batch_idx]
             all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
             if all_batch_static:
                 m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
-                x2d_shape = ir.Shape((m_size, in_features))
+                x2d_dims: tuple[Optional[int], int] = (m_size, in_features)
             else:
-                x2d_shape = ir.Shape((None, in_features))
+                x2d_dims = (None, in_features)
 
-            x2d_shape_c = _const_i64(ctx, [-1, in_features], name="x2d_shape")
-            x2d = ir.Value(
-                name=ctx.fresh_name("input_reshape"),
-                type=x_val.type,
-                shape=x2d_shape,
+            x2d_shape_c = _const_i64(ctx, [-1, in_features], name_hint="x2d_shape")
+            gemm_input = builder.Reshape(
+                x_val,
+                x2d_shape_c,
+                _outputs=[ctx.fresh_name("input_reshape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[x_val, x2d_shape_c],
-                    outputs=[x2d],
-                    name=ctx.fresh_name("Reshape"),
-                )
-            )
-            gemm_in = x2d
+            if getattr(x_val, "type", None) is not None:
+                gemm_input.type = x_val.type
+            _stamp_type_and_shape(gemm_input, x2d_dims)
+            _ensure_value_info(ctx, gemm_input)
 
-        # Gemm
+        gemm_output_name = ctx.fresh_name("gemm_output" if need_flatten else "out")
+        gemm_inputs = [gemm_input, k_val]
+        if use_bias and b_val is not None:
+            gemm_inputs.append(b_val)
+
+        gemm_result = builder.Gemm(
+            *gemm_inputs,
+            alpha=1.0,
+            beta=0.0 if not use_bias else 1.0,
+            transA=0,
+            transB=0,
+            _outputs=[gemm_output_name],
+        )
+
+        result_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if result_dtype is not None:
+            gemm_result.type = ir.TensorType(result_dtype)
+
         if need_flatten:
-            # If batch dims are static, keep concrete M; otherwise leave None
-            if "all_batch_static" in locals() and all_batch_static:
+            if all_batch_static:
                 m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
-                gemm_shape = ir.Shape((m_size, out_features))
+                gemm_dims: tuple[Optional[int], int] = (m_size, out_features)
             else:
-                gemm_shape = ir.Shape((None, out_features))
-            gemm_out = ir.Value(
-                name=ctx.fresh_name("gemm_output"),
-                type=x_val.type,
-                shape=gemm_shape,
-            )
-        else:
-            gemm_out = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-            out_aval_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+                gemm_dims = (None, out_features)
+            _stamp_type_and_shape(gemm_result, gemm_dims)
+            _ensure_value_info(ctx, gemm_result)
+
+        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+
+        if not need_flatten:
             y_meta = _linear_output_dims(
                 x_val,
                 x_shape,
-                gemm_out,
-                out_aval_shape,
+                gemm_result,
+                out_shape,
                 int(out_features),
             )
-            _stamp_type_and_shape(gemm_out, y_meta)
-            _ensure_value_info(ctx, gemm_out)
+            _stamp_type_and_shape(gemm_result, y_meta)
+            _ensure_value_info(ctx, gemm_result)
+            ctx.bind_value_for_var(out_var, gemm_result)
+            return
 
-        inputs = [gemm_in, k_val] + ([b_val] if use_bias else [])
-        gemm_node = ir.Node(
-            op_type="Gemm",
-            domain="",
-            inputs=inputs,
-            outputs=[gemm_out],
-            name=ctx.fresh_name("Gemm"),
+        if all_batch_static:
+            final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
+            final_shape_c = _const_i64(ctx, final_vals, name_hint="final_shape_c")
+            final_output = builder.Reshape(
+                gemm_result,
+                final_shape_c,
+                _outputs=[ctx.fresh_name("out")],
+            )
+            if result_dtype is not None:
+                final_output.type = ir.TensorType(result_dtype)
+            y_meta = _linear_output_dims(
+                x_val,
+                x_shape,
+                final_output,
+                out_shape,
+                int(out_features),
+            )
+            _stamp_type_and_shape(final_output, y_meta)
+            _ensure_value_info(ctx, final_output)
+            ctx.bind_value_for_var(out_var, final_output)
+            return
+
+        shp = builder.Shape(x_val, _outputs=[ctx.fresh_name("x_shape")])
+        shp.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shp, (len(x_shape),))
+        _ensure_value_info(ctx, shp)
+
+        starts = _const_i64(ctx, [0], name_hint="slice_starts")
+        ends = _const_i64(ctx, [len(x_shape) - 1], name_hint="slice_ends")
+        axes_val = _const_i64(ctx, [0], name_hint="slice_axes")
+        steps = _const_i64(ctx, [1], name_hint="slice_steps")
+
+        batch_dims = builder.Slice(
+            shp,
+            starts,
+            ends,
+            axes_val,
+            steps,
+            _outputs=[ctx.fresh_name("batch_dims")],
         )
-        ctx.add_node(gemm_node)
-        # _IRBuildContext doesn't declare set_node_attrs; narrow just for this call.
-        cast("_HasNodeAttrs", ctx).set_node_attrs(
-            gemm_node,
-            {
-                "alpha": 1.0,
-                # If there's no bias input, set beta=0.0 for strict ORT semantics.
-                "beta": 0.0 if not use_bias else 1.0,
-                "transA": 0,
-                "transB": 0,
-            },
+        batch_dims.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(batch_dims, (len(x_shape) - 1,))
+        _ensure_value_info(ctx, batch_dims)
+
+        of = _const_i64(ctx, [out_features], name_hint="out_features_c")
+        final_shape = builder.Concat(
+            batch_dims,
+            of,
+            axis=0,
+            _outputs=[ctx.fresh_name("final_shape")],
         )
+        final_shape.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(final_shape, (len(x_shape),))
+        _ensure_value_info(ctx, final_shape)
 
-        # Reshape back if needed: final_shape = x.shape[:-1] ++ [out_features]
-        if need_flatten:
-            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
-            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
-            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
-
-            if all_batch_static:
-                final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
-                final_shape_c = _const_i64(ctx, final_vals, name="final_shape_c")
-
-                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-                out_aval_shape = tuple(
-                    getattr(getattr(out_var, "aval", None), "shape", ())
-                )
-                y_meta = _linear_output_dims(
-                    x_val,
-                    x_shape,
-                    y_val,
-                    out_aval_shape,
-                    int(out_features),
-                )
-                _stamp_type_and_shape(y_val, y_meta)
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape_c],
-                        outputs=[y_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
-                )
-                _stamp_type_and_shape(y_val, y_meta)
-                _ensure_value_info(ctx, y_val)
-            else:
-                shp = ir.Value(
-                    name=ctx.fresh_name("x_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_shape),)),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Shape",
-                        domain="",
-                        inputs=[x_val],
-                        outputs=[shp],
-                        name=ctx.fresh_name("Shape"),
-                    )
-                )
-                starts = _const_i64(ctx, [0], name="slice_starts")
-                ends = _const_i64(ctx, [len(x_shape) - 1], name="slice_ends")
-                axes_val = _const_i64(ctx, [0], name="slice_axes")
-                # Missing output placeholder for Slice → define it before the node.
-                batch_dims = ir.Value(
-                    name=ctx.fresh_name("batch_dims"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_shape) - 1,)),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Slice",
-                        domain="",
-                        inputs=[shp, starts, ends, axes_val],
-                        outputs=[batch_dims],
-                        name=ctx.fresh_name("Slice"),
-                    )
-                )
-                of = _const_i64(ctx, [out_features], name="out_features_c")
-                final_shape = ir.Value(
-                    name=ctx.fresh_name("final_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_shape),)),
-                )
-                # Build Concat WITH axis attribute set at creation time.
-                # This avoids depending on late overrides for a required attribute.
-                try:
-                    concat_attrs = [_attr_i("axis", 0)]
-                except Exception:
-                    concat_attrs = []
-                concat_node = ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[batch_dims, of],
-                    outputs=[final_shape],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=concat_attrs,
-                )
-                ctx.add_node(concat_node)
-                # Keep scope-agnostic override path as a backstop (no harm if duplicate).
-                ctx.set_node_attrs(concat_node, {"axis": 0})
-
-                y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-                out_aval_shape = tuple(
-                    getattr(getattr(out_var, "aval", None), "shape", ())
-                )
-                y_meta = _linear_output_dims(
-                    x_val,
-                    x_shape,
-                    y_val,
-                    out_aval_shape,
-                    int(out_features),
-                )
-                _stamp_type_and_shape(y_val, y_meta)
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape],
-                        outputs=[y_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
-                )
-                _stamp_type_and_shape(y_val, y_meta)
-                _ensure_value_info(ctx, y_val)
+        final_output = builder.Reshape(
+            gemm_result,
+            final_shape,
+            _outputs=[ctx.fresh_name("out")],
+        )
+        if result_dtype is not None:
+            final_output.type = ir.TensorType(result_dtype)
+        y_meta = _linear_output_dims(
+            x_val,
+            x_shape,
+            final_output,
+            out_shape,
+            int(out_features),
+        )
+        _stamp_type_and_shape(final_output, y_meta)
+        _ensure_value_info(ctx, final_output)
+        ctx.bind_value_for_var(out_var, final_output)
 
     # ---------- monkey-patch helper (single, non-duplicated) ----------
     @staticmethod
