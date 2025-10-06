@@ -233,120 +233,97 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))  # ← NEW
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        if is_shape_all_unknown(getattr(x_val, "shape", None)):
-            if any(d is not None for d in x_shape):
-                _stamp_type_and_shape(x_val, x_shape)
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+
+        if is_shape_all_unknown(getattr(x_val, "shape", None)) and any(
+            d is not None for d in x_shape
+        ):
+            _stamp_type_and_shape(x_val, x_shape)
 
         rank = len(x_shape)
         need_layout_convert = rank > 2
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for AvgPool lowering"
+            )
+
+        def _label(idx: int):
+            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
 
         pool_in = x_val
+        perm = list(range(rank))
+        inv_perm = perm
         if need_layout_convert:
             perm = [0, rank - 1] + list(range(1, rank - 1))
+            inv_perm = [perm.index(i) for i in range(rank)]
             nchw_dims_in = (
-                _dim_label_from_value_or_aval(x_val, x_shape, 0),  # N
-                _dim_label_from_value_or_aval(x_val, x_shape, rank - 1),  # C
-                *[
-                    _dim_label_from_value_or_aval(x_val, x_shape, i)
-                    for i in range(1, rank - 1)
+                _label(0),
+                _label(rank - 1),
+                *[_label(i) for i in range(1, rank - 1)],
+            )
+            pool_in = builder.Transpose(
+                x_val,
+                _outputs=[ctx.fresh_name("avgpool_nchw_in")],
+                perm=tuple(perm),
+            )
+            pool_in.type = x_val.type
+            _stamp_type_and_shape(
+                pool_in, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)
+            )
+            _add_value_info(ctx, pool_in)
+
+        pool_result = builder.AveragePool(
+            pool_in,
+            _outputs=[ctx.fresh_name("AveragePool")],
+            kernel_shape=tuple(int(v) for v in window_shape),
+            strides=tuple(int(v) for v in actual_strides),
+            auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+            count_include_pad=1 if count_include_pad else 0,
+        )
+
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            pool_result.type = ir.TensorType(dtype)
+
+        n_label = _label(0) if rank else None
+        c_label = _label(rank - 1) if rank else None
+        if rank <= 2:
+            nhwc_dims = tuple(y_shape)
+        else:
+            nhwc_dims = (n_label, *y_shape[1:-1], c_label)
+
+        if need_layout_convert:
+            nchw_dims_out = (nhwc_dims[0], nhwc_dims[-1], *nhwc_dims[1:-1])
+            _stamp_type_and_shape(
+                pool_result, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
+            )
+            _add_value_info(ctx, pool_result)
+
+            final = builder.Transpose(
+                pool_result,
+                _outputs=[
+                    getattr(y_val, "name", None) or ctx.fresh_name("avgpool_transpose")
                 ],
+                perm=tuple(inv_perm),
             )
-            x_nchw = ir.Value(
-                name=ctx.fresh_name("pool_pre_transpose"),
-                type=x_val.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[x_val],
-                    outputs=[x_nchw],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[ir.Attr("perm", ir.AttributeType.INTS, tuple(perm))],
-                )
-            )
-            pool_in = x_nchw
-
-        # AveragePool
-        if need_layout_convert:
-            # NCHW shape derived from OUTPUT AVAL (NHWC → NCHW)
-            nchw_dims_out = (y_shape[0], y_shape[-1], *y_shape[1:-1])  # ← NEW
-            pool_out = ir.Value(
-                name=ctx.fresh_name("pool_nchw_out"),
-                type=x_val.type,
-                shape=ir.Shape(
-                    tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
-                ),  # ← NEW
-            )
+            if dtype is not None:
+                final.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(final, nhwc_dims)
+            _add_value_info(ctx, final)
         else:
-            pool_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+            final = pool_result
+            _stamp_type_and_shape(final, nhwc_dims[:rank])
+            _add_value_info(ctx, final)
 
-        auto_pad = "SAME_UPPER" if padding.upper() == "SAME" else "VALID"
-        attrs = [
-            ir.Attr("kernel_shape", ir.AttributeType.INTS, tuple(window_shape)),
-            ir.Attr("strides", ir.AttributeType.INTS, tuple(actual_strides)),
-            ir.Attr("auto_pad", ir.AttributeType.STRING, auto_pad),
-            ir.Attr(
-                "count_include_pad", ir.AttributeType.INT, 1 if count_include_pad else 0
-            ),
-        ]
-        ctx.add_node(
-            ir.Node(
-                op_type="AveragePool",
-                domain="",
-                inputs=[pool_in],
-                outputs=[pool_out],
-                name=ctx.fresh_name("AveragePool"),
-                attributes=attrs,
-            )
-        )
-
-        # ---- Stamp correct symbolic output dims (preserve B/C labels) ----
-        # y_aval gives the concrete/new spatial sizes; copy N & C labels from input.
-        y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
-        n_label = _dim_label_from_value_or_aval(x_val, x_shape, 0)
-        c_label = _dim_label_from_value_or_aval(x_val, x_shape, rank - 1)
-
-        # NHWC output dims with preserved labels
-        nhwc_out_dims = (
-            n_label,
-            *[y_aval_shape[i] for i in range(1, rank - 1)],
-            c_label,
-        )
-
-        if need_layout_convert:
-            # Also fix the NCHW intermediate to match the (labelled) NHWC result
-            nchw_dims_out = (nhwc_out_dims[0], nhwc_out_dims[-1], *nhwc_out_dims[1:-1])
-            pool_out.shape = ir.Shape(
-                tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
-            )
-
-            # Transpose back to NHWC and stamp final output shape
-            inv_perm = [0] + list(range(2, rank)) + [1]
-            y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[pool_out],
-                    outputs=[y_val],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[
-                        ir.Attr("perm", ir.AttributeType.INTS, tuple(inv_perm))
-                    ],
-                )
-            )
-            _stamp_type_and_shape(y_val, nhwc_out_dims)
-            _add_value_info(ctx, y_val)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, final)
         else:
-            # Rank <= 2 (rare for pooling), still preserve labels where applicable
-            y_val = pool_out
-            _stamp_type_and_shape(y_val, nhwc_out_dims[:rank])
-            _add_value_info(ctx, y_val)
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------------- eager impl (for tests) ----------------
     @staticmethod

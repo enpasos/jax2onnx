@@ -193,7 +193,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 
 - Thin wrapper no longer needed: `IRBuilder` directly instantiates `_tape.Builder` and mirrors its state. Remaining work focuses on migrating residual manual `ir.Node` usage to the builder APIs.
 - Incrementally migrate high-traffic plugins (start with `jax/lax` arithmetic ops, then Flax NNX linear layers) to the canonical builder helpers, adding focused pytest cases per primitive to verify op sequencing.
-- Harden attribute helper modules (`plugins/flax/nnx/linear.py`, `plugins/flax/nnx/conv.py`) by routing through shared builder utilities once the wrapper is in place; add regression tests ensuring dtype/shape stamping survives conversion.
+- Harden attribute/helper modules (`plugins/flax/nnx/linear.py`, `plugins/flax/nnx/conv.py`) by routing through shared builder utilities once the wrapper is in place; conv now issues Transpose/Reshape/Conv via the builder. Add regression tests ensuring dtype/shape stamping survives conversion.
 - Introduce integration tests that serialize representative graphs to protobuf via `ir.to_proto` only at the very edge, confirming converter/plugins remain protobuf-free.
 - After each refactor batch, refresh the migration snapshot in this note and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
 - Implement the Step 4 validation hooks: land the expanded policy test, add `tests/extra_tests/framework/test_ir_builder_contracts.py`, and wire `scripts/check_ir_builder_usage.py` into CI (pre-commit/Ruff) so regressions are caught automatically.
@@ -211,7 +211,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
 | LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
 | Control-flow scaffolding and complex lowers (`conv`, `scan`, `while_loop`, `batch_norm`, etc.) | ⏳ mixed/manual | Large rewrites; track separately in the next refactor batch. |
-| Flax NNX activations / pooling / conv | ⏳ mixed | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid` migrated to builder helpers; remaining activations/pooling still manual. |
+| Flax NNX activations / pooling / conv | ⏳ mixed | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` migrated; convolutions/norms pending. |
 | Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed | Builder used for params; wiring still manual in places. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
 | IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |

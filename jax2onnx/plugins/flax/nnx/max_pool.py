@@ -176,80 +176,72 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
 
         nchw_dims_in = tuple(_label(i) for i in perm)
 
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for MaxPool lowering"
+            )
+
         pool_in = x_val
         if need_layout_convert:
-            pool_in = ir.Value(
-                name=ctx.fresh_name("mp_nchw_in"),
-                type=x_val.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)),
+            pool_in = builder.Transpose(
+                x_val,
+                _outputs=[ctx.fresh_name("mp_nchw_in")],
+                perm=tuple(perm),
             )
-            transpose_in = ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[x_val],
-                outputs=[pool_in],
-                name=ctx.fresh_name("Transpose"),
+            pool_in.type = x_val.type
+            _stamp_type_and_shape(
+                pool_in, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)
             )
-            ctx.add_node(transpose_in)
-            _set_attrs(ctx, transpose_in, {"perm": tuple(perm)})
-            _stamp_type_and_shape(pool_in, nchw_dims_in)
+            _add_value_info(ctx, pool_in)
 
-        if need_layout_convert:
-            nchw_out_dims = (
-                _label(0),
-                _label(rank - 1),
-                *y_aval_shape[1:-1],
-            )
-            pool_out = ir.Value(
-                name=ctx.fresh_name("mp_nchw_out"),
-                type=pool_in.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_out_dims)),
-            )
-        else:
-            pool_out = y_val
-
-        node = ir.Node(
-            op_type="MaxPool",
-            domain="",
-            inputs=[pool_in],
-            outputs=[pool_out],
-            name=ctx.fresh_name("MaxPool"),
-        )
-        ctx.add_node(node)
-        _set_attrs(
-            ctx,
-            node,
-            {
-                "kernel_shape": tuple(int(v) for v in window_shape),
-                "strides": tuple(int(v) for v in strides),
-                "auto_pad": "SAME_UPPER" if padding.upper() == "SAME" else "VALID",
-            },
+        pool_result = builder.MaxPool(
+            pool_in,
+            _outputs=[ctx.fresh_name("MaxPool")],
+            kernel_shape=tuple(int(v) for v in window_shape),
+            strides=tuple(int(v) for v in strides),
+            auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
         )
 
-        if need_layout_convert:
-            _stamp_type_and_shape(pool_out, nchw_out_dims)
-
-        if need_layout_convert:
-            inv_perm_tuple = tuple(inv_perm)
-            transpose_out = ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[pool_out],
-                outputs=[y_val],
-                name=ctx.fresh_name("Transpose"),
-            )
-            ctx.add_node(transpose_out)
-            _set_attrs(ctx, transpose_out, {"perm": inv_perm_tuple})
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            pool_result.type = ir.TensorType(dtype)
 
         n_label = _label(0) if rank else None
         c_label = _label(rank - 1) if rank else None
         if rank <= 2:
             nhwc_dims = tuple(y_aval_shape)
         else:
-            middle_dims = y_aval_shape[1:-1]
-            nhwc_dims = (n_label, *middle_dims, c_label)
-        _stamp_type_and_shape(y_val, nhwc_dims)
-        _add_value_info(ctx, y_val)
+            nhwc_dims = (n_label, *y_aval_shape[1:-1], c_label)
+
+        if need_layout_convert:
+            nchw_dims_out = (nhwc_dims[0], nhwc_dims[-1], *nhwc_dims[1:-1])
+            _stamp_type_and_shape(
+                pool_result, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
+            )
+            _add_value_info(ctx, pool_result)
+
+            final = builder.Transpose(
+                pool_result,
+                _outputs=[
+                    getattr(y_val, "name", None) or ctx.fresh_name("maxpool_transpose")
+                ],
+                perm=tuple(inv_perm),
+            )
+            if dtype is not None:
+                final.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(final, nhwc_dims)
+            _add_value_info(ctx, final)
+        else:
+            final = pool_result
+            _stamp_type_and_shape(final, nhwc_dims[:rank])
+            _add_value_info(ctx, final)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, final)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------------- monkey patch & binding ----------------
     @classmethod

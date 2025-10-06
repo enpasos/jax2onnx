@@ -1,7 +1,16 @@
 # jax2onnx/plugins/flax/nnx/conv.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable, Sequence, Tuple, Any, overload
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Callable,
+    Sequence,
+    Tuple,
+    Any,
+    overload,
+    cast,
+)
 import logging
 
 import numpy as np
@@ -29,6 +38,7 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_info as _register_value_info,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from functools import reduce
 from operator import mul
 
@@ -208,75 +218,56 @@ def _ir_dtype_from_numpy(dt):
 
 
 def _const_from_array(ctx, arr: np.ndarray, name: str | None = None) -> ir.Value:
-    v = ir.Value(
-        name=ctx.fresh_name(name or "const"),
-        type=ir.TensorType(_ir_dtype_from_numpy(arr.dtype)),
-        shape=ir.Shape(arr.shape),
-        const_value=ir.tensor(arr),
+    builder = getattr(ctx, "builder", None)
+    base_name = name or "const"
+    name_hint = ctx.fresh_name(base_name) if hasattr(ctx, "fresh_name") else base_name
+    np_arr = np.asarray(arr)
+
+    builder_mode = (
+        bool(getattr(builder, "_function_mode", False))
+        if builder is not None
+        else False
     )
-    ctx._initializers.append(v)
-    return v
+    inside_function = bool(
+        getattr(ctx, "_inside_function_scope", False)
+        or getattr(ctx, "_function_mode", False)
+    )
 
+    if builder is not None and not inside_function and not builder_mode:
+        add_initializer = getattr(builder, "add_initializer_from_array", None)
+        if callable(add_initializer):
+            return add_initializer(name_hint, np_arr)
 
-def _bind_outvar(ctx, var, value: ir.Value) -> None:
-    """
-    Ensure the lowered Value is bound to the jaxpr outvar so the driver
-    can wire it to the model outputs.  Prefer public APIs; fall back to
-    known legacy/private hooks if needed.
-    """
-    if hasattr(ctx, "set_value_for_var"):
-        ctx.set_value_for_var(var, value)
-        return
-    if hasattr(ctx, "bind_var_value"):
-        ctx.bind_var_value(var, value)  # legacy name in some builds
-        return
-    # Last resort (kept for maximal compatibility)
-    if hasattr(ctx, "_var_values") and isinstance(ctx._var_values, dict):
-        ctx._var_values[var] = value
+    value = ir.Value(
+        name=name_hint,
+        type=ir.TensorType(_ir_dtype_from_numpy(np_arr.dtype)),
+        shape=ir.Shape(tuple(int(d) for d in np_arr.shape)),
+        const_value=ir.tensor(np_arr),
+    )
 
+    handler = getattr(ctx, "_handle_initializer_append", None)
+    if callable(handler):
+        handler(value)
+        return value
 
-def _attach_output(ctx, var, value: ir.Value) -> ir.Value:
-    """
-    Ensure a graph Value exists with the canonical output name (out_0, out_1, …)
-    and bind it to the jaxpr outvar. No extra node is inserted.
-    """
-    # If the context can tell us the expected output name, use it.
-    out_name = None
-    if hasattr(ctx, "name_for_var"):
-        try:
-            out_name = ctx.name_for_var(var)
-        except Exception:
-            out_name = None
+    init_list = getattr(ctx, "_initializers", None)
+    if init_list is not None and hasattr(init_list, "append"):
+        init_list.append(value)
+        return value
 
-    # Fallback: maintain a private counter → out_0, out_1, …
-    if not out_name:
-        idx = getattr(ctx, "_j2o_out_idx", 0)
-        out_name = f"out_{idx}"
-        setattr(ctx, "_j2o_out_idx", idx + 1)
-
-    # Rename the IR value in-place so the graph actually contains that name.
-    try:
-        value.name = out_name
-    except Exception:
-        # Some IRs put the name on the producer's output object.
-        try:
-            prod = getattr(value, "producer", None)
-            if prod is not None and getattr(prod, "outputs", None):
-                prod.outputs[0].name = out_name
-        except Exception:
-            pass
-
-    # Bind var → value for the driver.
-    _bind_outvar(ctx, var, value)
-
-    # Some contexts also want explicit registration (noop if not supported).
-    if hasattr(ctx, "register_output"):
-        try:
-            ctx.register_output(value)
-        except Exception:
-            pass
+    if builder is not None:
+        builder_inits = getattr(builder, "initializers", None)
+        if isinstance(builder_inits, list):
+            builder_inits.append(value)
 
     return value
+
+
+def _require_builder(ctx):
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+    return builder
 
 
 def _to_numpy(tensor_obj) -> np.ndarray | None:
@@ -316,70 +307,6 @@ def _maybe_fold_param_transpose(
     return _const_from_array(ctx, arr_t, name)
 
 
-# put near the top of conv.py
-def _as_attrs(d: dict[str, Any]):
-    """
-    Convert a {name: value} mapping into onnx_ir Attr objects.
-    Works with IRs that provide typed classmethods (Attr.ints/i/f/s)
-    and with IRs that require an enum-based constructor.
-    """
-    Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-    if Attr is None:
-        raise RuntimeError("onnx_ir.Attr / onnx_ir.Attribute not found")
-
-    AttrType = getattr(ir, "AttrType", getattr(ir, "AttributeType", None))
-
-    def _ints(name: str, val):
-        vals = tuple(
-            int(v) for v in (val.tolist() if isinstance(val, np.ndarray) else val)
-        )
-        if hasattr(Attr, "ints"):
-            return Attr.ints(name, vals)
-        if AttrType is not None:
-            return Attr(name, AttrType.INTS, vals)
-        raise RuntimeError("This onnx_ir lacks support for INT(S) attributes")
-
-    def _int(name: str, val):
-        iv = int(val)
-        if hasattr(Attr, "i"):
-            return Attr.i(name, iv)
-        if AttrType is not None:
-            return Attr(name, AttrType.INT, iv)
-        raise RuntimeError("This onnx_ir lacks support for INT attributes")
-
-    def _float(name: str, val):
-        fv = float(val)
-        if hasattr(Attr, "f"):
-            return Attr.f(name, fv)
-        if AttrType is not None:
-            return Attr(name, AttrType.FLOAT, fv)
-        raise RuntimeError("This onnx_ir lacks support for FLOAT attributes")
-
-    def _string(name: str, val: str):
-        if hasattr(Attr, "s"):
-            return Attr.s(name, val)
-        if AttrType is not None:
-            return Attr(name, AttrType.STRING, val)
-        raise RuntimeError("This onnx_ir lacks support for STRING attributes")
-
-    out = []
-    for name, value in d.items():
-        if isinstance(value, (list, tuple, np.ndarray)):
-            out.append(_ints(name, value))
-        elif isinstance(value, (np.integer, int, np.bool_)):
-            out.append(_int(name, value))
-        elif isinstance(value, (np.floating, float)):
-            out.append(_float(name, value))
-        elif isinstance(value, str):
-            out.append(_string(name, value))
-        elif AttrType is not None and isinstance(value, Attr):
-            # already an Attr (rare)
-            out.append(value)
-        else:
-            raise TypeError(f"Unsupported attribute type for '{name}': {type(value)}")
-    return tuple(out)
-
-
 # ---------- typing helpers ----------
 @overload
 def _to_int_tuple(x: int | np.integer, rank: int) -> Tuple[int, ...]: ...
@@ -392,54 +319,28 @@ def _to_int_tuple(x, rank):
     return tuple(int(v) for v in x)
 
 
-def _emit1(ctx, node: ir.Node | ir.Value) -> ir.Value:
-    """Add a node and return its single output Value; if already a Value, return as-is."""
-    if isinstance(node, ir.Value):
-        return node
-    n = ctx.add_node(node)
-    # ctx.add_node returns a Node (new-world); get its first output Value
-    return n.outputs[0]
-
-
-def _const_i64(
-    ctx, data: np.ndarray | list[int] | int, name: str | None = None
-) -> ir.Value:
-    arr = np.asarray(data, dtype=np.int64)
-    v = ir.Value(
-        name=ctx.fresh_name(name or "const_i64"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(arr.shape),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(v)
-    return v
-
-
 def _shape_of(ctx, x: ir.Value) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Shape",
-            domain="",
-            inputs=[x],
-            name=ctx.fresh_name("Shape"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    result = builder.Shape(
+        x,
+        _outputs=[ctx.fresh_name("Shape")],
     )
+    result.type = ir.TensorType(ir.DataType.INT64)
+    return result
 
 
 def _gather(ctx, data: ir.Value, indices: ir.Value, axis: int = 0) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Gather",
-            domain="",
-            inputs=[data, indices],
-            attributes=_as_attrs({"axis": axis}),
-            name=ctx.fresh_name("Gather"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    result = builder.Gather(
+        data,
+        indices,
+        axis=int(axis),
+        _outputs=[ctx.fresh_name("Gather")],
     )
+    dtype = getattr(getattr(data, "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 def _unsqueeze(ctx, x: ir.Value, axes: Sequence[int]) -> ir.Value:
@@ -447,18 +348,18 @@ def _unsqueeze(ctx, x: ir.Value, axes: Sequence[int]) -> ir.Value:
     ONNX Unsqueeze (opset >= 13): axes is a second input (INT64 1-D), not an attribute.
     """
     axes_v = _const_i64(
-        ctx, np.asarray([int(a) for a in axes], dtype=np.int64), "unsq_axes"
+        ctx, np.asarray([int(a) for a in axes], dtype=np.int64), name_hint="unsq_axes"
     )
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Unsqueeze",
-            domain="",
-            inputs=[x, axes_v],
-            name=ctx.fresh_name("Unsqueeze"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    result = builder.Unsqueeze(
+        x,
+        axes_v,
+        _outputs=[ctx.fresh_name("Unsqueeze")],
     )
+    dtype = getattr(getattr(x, "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 def _concat0(ctx, parts: Sequence[ir.Value]) -> ir.Value:
@@ -466,92 +367,79 @@ def _concat0(ctx, parts: Sequence[ir.Value]) -> ir.Value:
     _parts = [p for p in parts if p is not None]
     if len(_parts) == 0:
         # Explicit empty int64 vector (rare but safe fallback)
-        return _const_i64(ctx, np.asarray([], dtype=np.int64), "empty_i64")
+        return _const_i64(ctx, np.asarray([], dtype=np.int64), name_hint="empty_i64")
     if len(_parts) == 1:
         # Do not emit a 1-input Concat (it shows up as a spurious node in the graph)
         return _parts[0]
 
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Concat",
-            domain="",
-            inputs=list(_parts),
-            attributes=_as_attrs({"axis": 0}),
-            name=ctx.fresh_name("Concat"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    result = builder.Concat(
+        *_parts,
+        axis=0,
+        _outputs=[ctx.fresh_name("Concat")],
     )
+    dtype = getattr(getattr(_parts[0], "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 def _transpose(ctx, x: ir.Value, perm: Sequence[int]) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Transpose",
-            domain="",
-            inputs=[x],
-            attributes=_as_attrs({"perm": tuple(int(p) for p in perm)}),
-            name=ctx.fresh_name("Transpose"),
-            num_outputs=1,
-        ),
+    perm_tuple = tuple(int(p) for p in perm)
+    builder = _require_builder(ctx)
+    result = builder.Transpose(
+        x,
+        _outputs=[ctx.fresh_name("Transpose")],
+        perm=perm_tuple,
     )
+    dtype = getattr(getattr(x, "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 def _reshape(ctx, x: ir.Value, shape: ir.Value) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Reshape",
-            domain="",
-            inputs=[x, shape],
-            name=ctx.fresh_name("Reshape"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    result = builder.Reshape(
+        x,
+        shape,
+        _outputs=[ctx.fresh_name("Reshape")],
     )
+    dtype = getattr(getattr(x, "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 def _conv(
     ctx, x: ir.Value, w: ir.Value, b: ir.Value | None, attrs: dict[str, Any]
 ) -> ir.Value:
     inputs = [x, w] + ([b] if b is not None else [])
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Conv",
-            domain="",
-            inputs=inputs,
-            attributes=_as_attrs(attrs),
-            name=ctx.fresh_name("Conv"),
-            num_outputs=1,
-        ),
+    builder = _require_builder(ctx)
+    kwargs: dict[str, Any] = {}
+    for key, value in attrs.items():
+        if isinstance(value, np.ndarray):
+            kwargs[key] = tuple(int(v) for v in value.tolist())
+        elif isinstance(value, (list, tuple)):
+            if key in {"auto_pad"}:
+                kwargs[key] = value
+            else:
+                kwargs[key] = tuple(int(v) for v in value)
+        elif isinstance(value, np.integer):
+            kwargs[key] = int(value)
+        elif isinstance(value, np.floating):
+            kwargs[key] = float(value)
+        else:
+            kwargs[key] = value
+    result = builder.Conv(
+        *inputs,
+        _outputs=[ctx.fresh_name("Conv")],
+        **kwargs,
     )
-
-
-def _add(ctx, a: ir.Value, b: ir.Value) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="Add",
-            domain="",
-            inputs=[a, b],
-            name=ctx.fresh_name("Add"),
-            num_outputs=1,
-        ),
-    )
-
-
-def _castlike(ctx, x: ir.Value, like: ir.Value) -> ir.Value:
-    return _emit1(
-        ctx,
-        ir.Node(
-            op_type="CastLike",
-            domain="",
-            inputs=[x, like],
-            name=ctx.fresh_name("CastLike"),
-            num_outputs=1,
-        ),
-    )
+    dtype = getattr(getattr(x, "type", None), "dtype", None)
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    return result
 
 
 @register_primitive(
@@ -1566,6 +1454,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 
+        builder = _require_builder(ctx)
+
         params = eqn.params
         use_bias = bool(params.get("use_bias", True))
         strides_param = params.get("strides", 1)
@@ -1575,6 +1465,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
+        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()) or ())
+        len(y_shape)
         x_dtype_np = _np_dtype_of(x_var)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
@@ -1605,15 +1497,15 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if _is_concrete_shape(x_shape):
                 # STATIC reshape shape at convert-time:
                 # x: (N, extra..., part..., C) -> (N*prod(extra...), part..., C)
-                n_flat = int(np.prod([int(d) for d in x_shape[: 1 + extra]]))
+                n_flat_static = int(np.prod([int(d) for d in x_shape[: 1 + extra]]))
                 part_dims = [
                     int(d) for d in x_shape[1 + extra : 1 + extra + conv_spatial]
                 ]
                 ch = int(x_shape[-1])
                 reshape_in = _const_i64(
                     ctx,
-                    np.asarray([n_flat, *part_dims, ch], dtype=np.int64),
-                    "reshape_in_static",
+                    np.asarray([n_flat_static, *part_dims, ch], dtype=np.int64),
+                    name_hint="reshape_in_static",
                 )
                 x_pre = _reshape(ctx, x_val, reshape_in)
             else:
@@ -1622,34 +1514,38 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 sh_x = _shape_of(ctx, x_val)
                 # indices for N and "extra" dims
                 idx_nextra = _const_i64(
-                    ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra"
+                    ctx,
+                    np.arange(0, 1 + extra, dtype=np.int64),
+                    name_hint="idx_nextra",
                 )
                 ne_dims = _gather(ctx, sh_x, idx_nextra, axis=0)  # 1+extra
                 # opset >=13: 'axes' is an input (not an attribute). Reduce over all axes; keepdims=0.
-                n_flat = _emit1(
-                    ctx,
-                    ir.Node(  # scalar
-                        op_type="ReduceProd",
-                        domain="",
-                        inputs=[ne_dims],
-                        attributes=_as_attrs({"keepdims": 0}),
-                        name=ctx.fresh_name("ReduceProd"),
-                        num_outputs=1,
+                n_flat_val: ir.Value = cast(
+                    ir.Value,
+                    builder.ReduceProd(
+                        ne_dims,
+                        keepdims=0,
+                        _outputs=[ctx.fresh_name("ReduceProd")],
                     ),
                 )
-                n_flat_1d = _unsqueeze(ctx, n_flat, [0])  # [1]
+                n_flat_val.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(n_flat_val, ())
+                _register_value_info(ctx, n_flat_val)
+                n_flat_1d = _unsqueeze(ctx, n_flat_val, [0])  # [1]
 
                 # participating spatial dims (the last conv_spatial dims before channel)
                 idx_part = _const_i64(
                     ctx,
                     np.arange(1 + extra, 1 + extra + conv_spatial, dtype=np.int64),
-                    "idx_part",
+                    name_hint="idx_part",
                 )
                 part_dims = _gather(ctx, sh_x, idx_part, axis=0)  # [conv_spatial]
 
                 # channel dim (last)
                 idx_ch = _const_i64(
-                    ctx, np.array([len(x_shape) - 1], dtype=np.int64), "idx_ch"
+                    ctx,
+                    np.array([len(x_shape) - 1], dtype=np.int64),
+                    name_hint="idx_ch",
                 )
                 ch_dim = _gather(ctx, sh_x, idx_ch, axis=0)  # [1]
 
@@ -1772,64 +1668,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
         # Back to NH...C
         post_perm = (0, *range(2, x_spatial + 2), 1)  # (N,C,S...) -> (N,S...,C)
-        y_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        if need_flatten:
-            # Transpose into a TEMP first; final reshape will write to y_out
-            y_nhwc_tmp = ir.Value(
-                name=ctx.fresh_name("nhwc_tmp"),
-                type=y.type,
-                shape=None,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[y],
-                    outputs=[y_nhwc_tmp],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=_as_attrs({"perm": tuple(int(p) for p in post_perm)}),
-                )
-            )
-        else:
-            # No reshape afterwards: last op is the transpose → write straight to y_out
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[y],
-                    outputs=[y_out],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=_as_attrs({"perm": tuple(int(p) for p in post_perm)}),
-                )
-            )
-
-        if not need_flatten and x_shape and k_shape:
-            in_sp = x_shape[1 : 1 + conv_spatial]
-            k_sp = k_shape[:conv_spatial]
-            try:
-                in_sp_ints = [int(d) for d in in_sp]
-                k_sp_ints = [int(d) for d in k_sp]
-                strides_ints = [int(s) for s in strides]
-                dilations_ints = [int(d) for d in dilations]
-                out_sp = _calc_out_spatial(
-                    in_sp_ints, k_sp_ints, strides_ints, dilations_ints, padding_param
-                )
-            except Exception:
-                out_sp = None
-            if out_sp is not None:
-                batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
-                if batch_dim is None:
-                    batch_dim = x_shape[0]
-                _annotate_value(
-                    ctx,
-                    y_out,
-                    x_dtype_np,
-                    (batch_dim, *out_sp, int(k_shape[-1])),
-                )
+        final_value: ir.Value
 
         if need_flatten:
             # Prefer STATIC reshape back when concrete dims are available.
+            y_nhwc_tmp = _transpose(ctx, y, post_perm)
             if _is_concrete_shape(x_shape) and _is_concrete_shape(k_shape):
                 part_in_sp = x_shape[1 + extra : 1 + extra + conv_spatial]
                 out_sp = _calc_out_spatial(
@@ -1841,18 +1684,13 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 )
                 tgt_list = [*x_shape[: 1 + extra], *out_sp, int(k_shape[-1])]
                 tgt = _const_i64(
-                    ctx, np.asarray(tgt_list, dtype=np.int64), "reshape_out_static"
+                    ctx,
+                    np.asarray(tgt_list, dtype=np.int64),
+                    name_hint="reshape_out_static",
                 )
-                # Pattern A: reshape directly into the pre-allocated output
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[y_nhwc_tmp, tgt],
-                        outputs=[y_out],
-                        name=ctx.fresh_name("Reshape"),
-                    )
-                )
+                final_value = _reshape(ctx, y_nhwc_tmp, tgt)
+                _stamp_type_and_shape(final_value, tuple(tgt_list))
+                _register_value_info(ctx, final_value)
             else:
                 # Dynamic fallback: Recover (N, extra..., out_spatial..., C_out)
                 sh_x = _shape_of(ctx, x_val)  # [N, extra..., part..., C]
@@ -1860,39 +1698,68 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
                 # N and extra dims from original input
                 idx_nextra = _const_i64(
-                    ctx, np.arange(0, 1 + extra, dtype=np.int64), "idx_nextra_back"
+                    ctx,
+                    np.arange(0, 1 + extra, dtype=np.int64),
+                    name_hint="idx_nextra_back",
                 )
                 n_extras = _gather(ctx, sh_x, idx_nextra, axis=0)  # [1+extra]
 
                 # out spatial dims from y_nhwc (skip batch N')
                 idx_outsp = _const_i64(
-                    ctx, np.arange(1, 1 + conv_spatial, dtype=np.int64), "idx_outsp"
+                    ctx,
+                    np.arange(1, 1 + conv_spatial, dtype=np.int64),
+                    name_hint="idx_outsp",
                 )
                 out_sp_dyn = _gather(ctx, sh_y, idx_outsp, axis=0)  # [conv_spatial]
 
                 # output channel (last dim of y_nhwc) -> index is conv_spatial + 1
                 idx_outc = _const_i64(
-                    ctx, np.array([conv_spatial + 1], dtype=np.int64), "idx_outc"
+                    ctx,
+                    np.array([conv_spatial + 1], dtype=np.int64),
+                    name_hint="idx_outc",
                 )
                 out_c = _gather(ctx, sh_y, idx_outc, axis=0)  # [1]
 
                 tgt = _concat0(
                     ctx, [n_extras, out_sp_dyn, out_c]
                 )  # [1+extra + conv_spatial + 1]
-                # Pattern A: reshape directly into y_out
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[y_nhwc_tmp, tgt],
-                        outputs=[y_out],
-                        name=ctx.fresh_name("Reshape"),
+                final_value = _reshape(ctx, y_nhwc_tmp, tgt)
+                _register_value_info(ctx, final_value)
+        else:
+            final_value = _transpose(ctx, y, post_perm)
+            if x_shape and k_shape:
+                in_sp = x_shape[1 : 1 + conv_spatial]
+                k_sp = k_shape[:conv_spatial]
+                try:
+                    in_sp_ints = [int(d) for d in in_sp]
+                    k_sp_ints = [int(d) for d in k_sp]
+                    strides_ints = [int(s) for s in strides]
+                    dilations_ints = [int(d) for d in dilations]
+                    out_sp = _calc_out_spatial(
+                        in_sp_ints,
+                        k_sp_ints,
+                        strides_ints,
+                        dilations_ints,
+                        padding_param,
                     )
-                )
-        # else: already wrote transpose to y_out
+                except Exception:
+                    out_sp = None
+                if out_sp is not None:
+                    batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
+                    if batch_dim is None:
+                        batch_dim = x_shape[0]
+                    _annotate_value(
+                        ctx,
+                        final_value,
+                        x_dtype_np,
+                        (batch_dim, *out_sp, int(k_shape[-1])),
+                    )
 
-        # Pattern A complete: y_out is already the var-bound output; nothing to attach/rename
-        return y_out
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, final_value)
+        return final_value
 
     @classmethod
     def binding_specs(cls):

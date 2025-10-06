@@ -23,7 +23,6 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
     _dim_label_from_value_or_aval,
-    _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
     _as_ir_dim_label,
 )
@@ -41,6 +40,58 @@ def _label_from_meta(val: ir.Value, aval_shape: tuple, idx: int):
 
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+
+
+def _require_builder(ctx):
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+    return builder
+
+
+def _const_from_array(ctx, name_hint: str, arr: np.ndarray) -> ir.Value:
+    builder = getattr(ctx, "builder", None)
+    base_name = ctx.fresh_name(name_hint) if hasattr(ctx, "fresh_name") else name_hint
+    np_arr = np.asarray(arr)
+
+    builder_mode = (
+        bool(getattr(builder, "_function_mode", False))
+        if builder is not None
+        else False
+    )
+    inside_function = bool(
+        getattr(ctx, "_inside_function_scope", False)
+        or getattr(ctx, "_function_mode", False)
+    )
+
+    if builder is not None and not inside_function and not builder_mode:
+        add_initializer = getattr(builder, "add_initializer_from_array", None)
+        if callable(add_initializer):
+            return add_initializer(base_name, np_arr)
+
+    value = ir.Value(
+        name=base_name,
+        type=ir.TensorType(_ir_dtype_from_numpy(np_arr.dtype)),
+        shape=ir.Shape(tuple(int(d) for d in np_arr.shape)),
+        const_value=ir.tensor(np_arr),
+    )
+
+    handler = getattr(ctx, "_handle_initializer_append", None)
+    if callable(handler):
+        handler(value)
+        return value
+
+    init_list = getattr(ctx, "_initializers", None)
+    if init_list is not None and hasattr(init_list, "append"):
+        init_list.append(value)
+        return value
+
+    if builder is not None:
+        builder_inits = getattr(builder, "initializers", None)
+        if isinstance(builder_inits, list):
+            builder_inits.append(value)
+
+    return value
 
 
 # ------------------------------------------------------------------
@@ -229,6 +280,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
     # ---------------- lowering (IR) ----------------
     def lower(self, ctx: "IRBuildContext", eqn):
+        builder = _require_builder(ctx)
         x_var, scale_var, bias_var, mean_var, var_var = eqn.invars[:5]
         y_var = eqn.outvars[0]
         epsilon = eqn.params.get("epsilon", 1e-5)
@@ -257,26 +309,22 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         nf = int(nf if nf is not None else 1)
 
         if eqn.params.get("scale_is_default", False):
-            scale_val = ir.Value(
-                name=ctx.fresh_name("scale_c"),
-                type=ir.TensorType(ir.DataType.FLOAT),
-                shape=ir.Shape((nf,)),
-                const_value=ir.tensor(np.ones((nf,), dtype=x_np_dtype)),
+            scale_val = _const_from_array(
+                ctx,
+                "scale_c",
+                np.ones((nf,), dtype=x_np_dtype),
             )
-            ctx._initializers.append(scale_val)
         else:
             scale_val = ctx.get_value_for_var(
                 scale_var, name_hint=ctx.fresh_name("scale")
             )
 
         if eqn.params.get("bias_is_default", False):
-            bias_val = ir.Value(
-                name=ctx.fresh_name("bias_c"),
-                type=ir.TensorType(ir.DataType.FLOAT),
-                shape=ir.Shape((nf,)),
-                const_value=ir.tensor(np.zeros((nf,), dtype=x_np_dtype)),
+            bias_val = _const_from_array(
+                ctx,
+                "bias_c",
+                np.zeros((nf,), dtype=x_np_dtype),
             )
-            ctx._initializers.append(bias_val)
         else:
             bias_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
 
@@ -292,6 +340,9 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             if any(d is not None for d in x_shape):
                 _stamp_type_and_shape(x_val, x_shape)
 
+        x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        bn_dtype = x_dtype if x_dtype is not None else _ir_dtype_from_numpy(x_np_dtype)
+
         rank = len(x_shape)
         bn_in = x_val
         need_layout_convert = rank > 2
@@ -305,74 +356,55 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 _label_from_meta(x_val, x_shape, rank - 1),  # C
                 *[_label_from_meta(x_val, x_shape, i) for i in range(1, rank - 1)],
             )
-            x_nchw = ir.Value(
-                name=ctx.fresh_name("bn_pre_transpose"),
-                type=x_val.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims)),
+            x_nchw = builder.Transpose(
+                x_val,
+                perm=tuple(int(p) for p in perm),
+                _outputs=[ctx.fresh_name("bn_pre_transpose")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[x_val],
-                    outputs=[x_nchw],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[ir.Attr("perm", ir.AttributeType.INTS, tuple(perm))],
-                )
-            )
+            x_nchw.type = ir.TensorType(bn_dtype)
+            _stamp_type_and_shape(x_nchw, nchw_dims)
+            _add_value_info(ctx, x_nchw)
             bn_in = x_nchw
 
         # BatchNormalization node
-        if need_layout_convert:
-            bn_out = ir.Value(
-                name=ctx.fresh_name("bn_nchw_out"),
-                type=x_val.type,
-                shape=bn_in.shape,
-            )
-        else:
-            bn_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        ctx.add_node(
-            ir.Node(
-                op_type="BatchNormalization",
-                domain="",
-                inputs=[bn_in, scale_val, bias_val, mean_val, var_val],
-                outputs=[bn_out],
-                name=ctx.fresh_name("BatchNormalization"),
-                attributes=[
-                    ir.Attr("epsilon", ir.AttributeType.FLOAT, float(epsilon)),
-                    ir.Attr("momentum", ir.AttributeType.FLOAT, float(momentum)),
-                ],
-            )
+        bn_out = builder.BatchNormalization(
+            bn_in,
+            scale_val,
+            bias_val,
+            mean_val,
+            var_val,
+            epsilon=float(epsilon),
+            momentum=float(momentum),
+            _outputs=[ctx.fresh_name("BatchNormalization")],
         )
+        bn_out.type = ir.TensorType(bn_dtype)
 
         # NCHW -> NHWC to restore original layout; also stamp final output shape
         if need_layout_convert:
             inv_perm = [0] + list(range(2, rank)) + [1]
-            y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+            y_val = builder.Transpose(
+                bn_out,
+                perm=tuple(int(p) for p in inv_perm),
+                _outputs=[ctx.fresh_name("BatchNormOut")],
+            )
             nhwc_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
             # Stamp BOTH meta and TensorType so graph.output keeps symbols like 'B'
             _stamp_type_and_shape(y_val, nhwc_dims)
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[bn_out],
-                    outputs=[y_val],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[
-                        ir.Attr("perm", ir.AttributeType.INTS, tuple(inv_perm))
-                    ],
-                )
-            )
-            _stamp_type_and_shape(y_val, nhwc_dims)
+            y_val.type = ir.TensorType(bn_dtype)
             _add_value_info(ctx, y_val)
+            final_value = y_val
         else:
             # Direct BN output already targets y_var; (re)stamp shape/labels
-            y_val = bn_out
+            final_value = bn_out
             y_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
-            _stamp_type_and_shape(y_val, y_dims)
-            _add_value_info(ctx, y_val)
+            _stamp_type_and_shape(final_value, y_dims)
+            final_value.type = ir.TensorType(bn_dtype)
+            _add_value_info(ctx, final_value)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, final_value)
 
     # ---------------- direct bind for tests ----------------
     @staticmethod
@@ -502,3 +534,18 @@ def _impl(
     m = jnp.reshape(mean, param_shape).astype(x.dtype, copy=False)
     v = jnp.reshape(var, param_shape).astype(x.dtype, copy=False)
     return (x - m) * s / jnp.sqrt(v + epsilon) + b
+
+
+def _ir_dtype_from_numpy(dt: np.dtype) -> ir.DataType:
+    dt = np.dtype(dt)
+    if dt == np.dtype("float32"):
+        return ir.DataType.FLOAT
+    if dt == np.dtype("float64"):
+        return getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT)
+    if dt == np.dtype("int64"):
+        return ir.DataType.INT64
+    if dt == np.dtype("int32"):
+        return ir.DataType.INT32
+    if dt == np.dtype("bool"):
+        return getattr(ir.DataType, "BOOL", ir.DataType.INT32)
+    return ir.DataType.FLOAT

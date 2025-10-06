@@ -65,6 +65,9 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            # GeLU inside the function leverages erf which accumulates ~1e-3 FP32 noise
+            # across the nested calls. Relax the numeric tolerance accordingly.
+            "rtol": 2e-3,
         }
     ],
 )
