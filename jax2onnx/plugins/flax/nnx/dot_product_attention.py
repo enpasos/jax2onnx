@@ -301,8 +301,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _add_value_info(ctx, logits)
 
         scale = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("dpa_scale"),
-            np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
+            name=ctx.fresh_name("dpa_scale"),
+            value=np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
         )
 
         scaled = _make_tensor_value(
@@ -393,8 +393,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 _add_value_info(ctx, mask_val)
 
             fill_value = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_mask_fill"),
-                np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
+                name=ctx.fresh_name("dpa_mask_fill"),
+                value=np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
             )
 
             masked_logits = _make_tensor_value(
@@ -457,8 +457,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 )
             )
             ratio_val = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_dropout_ratio"),
-                np.asarray(dropout_rate, dtype=np.float32),
+                name=ctx.fresh_name("dpa_dropout_ratio"),
+                value=np.asarray(dropout_rate, dtype=np.float32),
             )
             dropped_weights = _make_tensor_value(
                 ctx,

@@ -30,7 +30,7 @@ def test_ir_builder_initializer_registration() -> None:
     builder = IRBuilder(opset=18, enable_double_precision=False)
 
     weight = builder.add_initializer_from_scalar(
-        "weight", np.array([1.0], dtype=np.float32)
+        name="weight", value=np.array([1.0], dtype=np.float32)
     )
 
     assert builder.initializers_by_name["weight"] is weight

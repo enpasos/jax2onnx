@@ -124,7 +124,8 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             getattr(out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32))
         )
         bias_val = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("dot_bias"), np.array(0, dtype=out_dtype)
+            name=ctx.fresh_name("dot_bias"),
+            value=np.array(0, dtype=out_dtype),
         )
 
         node = ir.Node(

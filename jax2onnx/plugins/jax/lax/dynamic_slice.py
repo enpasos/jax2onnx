@@ -4,9 +4,8 @@ from typing import TYPE_CHECKING, Any, Dict
 
 import jax
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -66,7 +65,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("dyn_slice_in")
         )
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("dyn_slice_out")
         )
 
@@ -78,20 +77,12 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             if shape_val is not None:
                 return shape_val
             rank = _infer_rank(src, axis)
-            shape_val = ir.Value(
-                name=ctx.fresh_name("dyn_slice_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((rank,)),
+            shape_val = ctx.builder.Shape(
+                src, _outputs=[ctx.fresh_name("dyn_slice_shape")]
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[src],
-                    outputs=[shape_val],
-                    name=ctx.fresh_name("Shape"),
-                )
-            )
+            shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(shape_val, (rank,))
+            _ensure_value_info(ctx, shape_val)
             shape_cache[src] = shape_val
             return shape_val
 
@@ -111,21 +102,13 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             axis = int(axis)
             shape_vec = _shape_vec_for(src_val, axis)
             gather_idx = _const_i64(ctx, [axis], f"dyn_slice_size_axis_{idx}")
-            gathered = ir.Value(
-                name=ctx.fresh_name("dyn_slice_size"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
+            gathered = ctx.builder.Gather(
+                shape_vec,
+                gather_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("dyn_slice_size")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[shape_vec, gather_idx],
-                    outputs=[gathered],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            gathered.type = ir.TensorType(ir.DataType.INT64)
             return gathered
 
         rank = len(getattr(operand_var.aval, "shape", ()))
@@ -143,37 +126,24 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             )
             cast_scalar = _cast_to_i64(ctx, start_val, "dyn_slice_start_i64")
 
-            unsqueezed = ir.Value(
-                name=ctx.fresh_name("dyn_slice_unsq"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
+            unsqueezed = ctx.builder.Unsqueeze(
+                cast_scalar,
+                axes_const,
+                _outputs=[ctx.fresh_name("dyn_slice_unsq")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[cast_scalar, axes_const],
-                    outputs=[unsqueezed],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
+            unsqueezed.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(unsqueezed, (1,))
+            _ensure_value_info(ctx, unsqueezed)
             starts_vec_parts.append(unsqueezed)
 
-        starts_concat = ir.Value(
-            name=ctx.fresh_name("dyn_slice_starts"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((rank,)),
+        starts_concat = ctx.builder.Concat(
+            *starts_vec_parts,
+            axis=0,
+            _outputs=[ctx.fresh_name("dyn_slice_starts")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Concat",
-                domain="",
-                inputs=starts_vec_parts,
-                outputs=[starts_concat],
-                name=ctx.fresh_name("Concat"),
-                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-            )
-        )
+        starts_concat.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(starts_concat, (rank,))
+        _ensure_value_info(ctx, starts_concat)
 
         slice_sizes = eqn.params.get("slice_sizes", ())
         try:
@@ -204,36 +174,23 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 if len(size_vectors) == 1 and len(slice_sizes) == 1:
                     slice_sizes_val = size_vectors[0]
                 else:
-                    slice_sizes_val = ir.Value(
-                        name=ctx.fresh_name("dyn_slice_sizes"),
-                        type=ir.TensorType(ir.DataType.INT64),
-                        shape=ir.Shape((len(slice_sizes),)),
+                    slice_sizes_val = ctx.builder.Concat(
+                        *size_vectors,
+                        axis=0,
+                        _outputs=[ctx.fresh_name("dyn_slice_sizes")],
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Concat",
-                            domain="",
-                            inputs=size_vectors,
-                            outputs=[slice_sizes_val],
-                            name=ctx.fresh_name("Concat"),
-                            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                        )
-                    )
+                    slice_sizes_val.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(slice_sizes_val, (len(slice_sizes),))
+                    _ensure_value_info(ctx, slice_sizes_val)
 
-        ends_val = ir.Value(
-            name=ctx.fresh_name("dyn_slice_ends"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((rank,)),
+        ends_val = ctx.builder.Add(
+            starts_concat,
+            slice_sizes_val,
+            _outputs=[ctx.fresh_name("dyn_slice_ends")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Add",
-                domain="",
-                inputs=[starts_concat, slice_sizes_val],
-                outputs=[ends_val],
-                name=ctx.fresh_name("Add"),
-            )
-        )
+        ends_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(ends_val, (rank,))
+        _ensure_value_info(ctx, ends_val)
 
         axes_val = _const_i64(ctx, list(range(rank)), "dyn_slice_axes")
 
@@ -242,14 +199,22 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         if strides:
             inputs.append(_const_i64(ctx, strides, "dyn_slice_strides"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Slice",
-                domain="",
-                inputs=inputs,
-                outputs=[out_val],
-                name=ctx.fresh_name("Slice"),
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Slice")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Slice")
+
+        result = ctx.builder.Slice(
+            *inputs,
+            _outputs=[desired_name],
         )
 
-        _stamp_type_and_shape(out_val, getattr(out_var.aval, "shape", ()))
+        output_shape = tuple(getattr(out_var.aval, "shape", ()))
+        _stamp_type_and_shape(result, output_shape)
+        result_dtype = getattr(getattr(operand_val, "type", None), "dtype", None)
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

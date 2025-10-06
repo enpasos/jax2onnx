@@ -221,7 +221,9 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         ) -> ir.Value:
             arr = np.asarray(value, dtype=np_dtype or x_np_dtype)
             if builder is not None and hasattr(builder, "add_initializer_from_array"):
-                return builder.add_initializer_from_array(ctx.fresh_name(name), arr)
+                return builder.add_initializer_from_array(
+                    name=ctx.fresh_name(name), array=arr
+                )
             val = ir.Value(
                 name=ctx.fresh_name(name),
                 type=ir.TensorType(ir_dtype or x_ir_dtype),

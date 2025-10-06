@@ -26,6 +26,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
   * Look up `PLUGIN_REGISTRY[eqn.primitive.name]`.
   * Give it the equation and a **lowering context**; it emits IR nodes/values.
   * Assert that **every** `eqn.outvars[i]` is bound to an IR value before moving on (generic guardrail).
+  * Converters/plugins emit new ops through `ctx.builder` so constants and `_outputs` stay consistent across ONNX IR variants (see [ONNX IR Builder Guide](dev_guides/onnx_ir_builder.md)).
 * **IR optimization (safe, structure-only).** Run small, local rewrites that don’t encode op semantics, e.g. folding redundant layout ping-pongs (see below).
 * **Finalize.** Add model inputs/outputs, stamp symbolic dim labels (e.g. `"B"`), prune dead nodes/initializers, serialize `ModelProto`.
 

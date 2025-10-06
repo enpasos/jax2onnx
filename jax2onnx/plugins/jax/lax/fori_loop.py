@@ -298,10 +298,12 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         body_graph = _build_body_graph(ctx, closed, state_vals)
 
         trip_val = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("fori_trip_count"), np.asarray(trip_count, dtype=np.int64)
+            name=ctx.fresh_name("fori_trip_count"),
+            value=np.asarray(trip_count, dtype=np.int64),
         )
         cond_val = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("fori_cond_init"), np.asarray(True, dtype=np.bool_)
+            name=ctx.fresh_name("fori_cond_init"),
+            value=np.asarray(True, dtype=np.bool_),
         )
 
         loop_inputs = [trip_val, cond_val, *state_vals]

@@ -15,6 +15,11 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
 Alias it to `EG` inside tests to keep callsites short.
 
+> **Builder reminder:** structural tests assume plugins emitted nodes via
+> `ctx.builder`. Review the [ONNX IR Builder Guide](dev_guides/onnx_ir_builder.md)
+> if `_outputs` naming or initializer wiring looks suspicious; policy tests now
+> enforce those contracts.
+
 ## Basic usage
 
 Pass a list of patterns to `expect_graph`. Each pattern is either a string or a

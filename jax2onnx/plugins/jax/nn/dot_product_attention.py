@@ -560,8 +560,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _add_value_info(ctx, logits)
 
         scale = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("dpa_scale"),
-            np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
+            name=ctx.fresh_name("dpa_scale"),
+            value=np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
         )
 
         scaled = _make_tensor_value(
@@ -599,11 +599,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 tril, (num_heads_static, q_len_static, k_len_static)
             ).reshape(1, num_heads_static, q_len_static, k_len_static)
             mask_const = ctx.builder.add_initializer_from_array(
-                ctx.fresh_name("dpa_causal_mask"), tril_broadcast
+                name=ctx.fresh_name("dpa_causal_mask"), array=tril_broadcast
             )
             neg_inf = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_neg_inf"),
-                np.asarray(-np.inf, dtype=np_dtype),
+                name=ctx.fresh_name("dpa_neg_inf"),
+                value=np.asarray(-np.inf, dtype=np_dtype),
             )
             masked = _make_tensor_value(
                 ctx,
@@ -637,8 +637,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
             q_idx_vec = _make_range_value(ctx, q_len_scalar, base="dpa_q_idx_vec")
             q_idx_shape = ctx.builder.add_initializer_from_array(
-                ctx.fresh_name("dpa_q_idx_shape"),
-                np.asarray([1, 1, -1, 1], dtype=np.int64),
+                name=ctx.fresh_name("dpa_q_idx_shape"),
+                array=np.asarray([1, 1, -1, 1], dtype=np.int64),
             )
             q_idx_broadcast = ir.Value(
                 name=ctx.fresh_name("dpa_q_idx"),
@@ -659,8 +659,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
             k_idx_vec = _make_range_value(ctx, k_len_scalar, base="dpa_k_idx_vec")
             k_idx_shape = ctx.builder.add_initializer_from_array(
-                ctx.fresh_name("dpa_k_idx_shape"),
-                np.asarray([1, 1, 1, -1], dtype=np.int64),
+                name=ctx.fresh_name("dpa_k_idx_shape"),
+                array=np.asarray([1, 1, 1, -1], dtype=np.int64),
             )
             k_idx_broadcast = ir.Value(
                 name=ctx.fresh_name("dpa_k_idx"),
@@ -688,8 +688,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     ctx, query_len_val, base="dpa_query_len_i64"
                 )
                 query_len_shape = ctx.builder.add_initializer_from_array(
-                    ctx.fresh_name("dpa_query_len_shape"),
-                    np.asarray([-1, 1, 1, 1], dtype=np.int64),
+                    name=ctx.fresh_name("dpa_query_len_shape"),
+                    array=np.asarray([-1, 1, 1, 1], dtype=np.int64),
                 )
                 query_len_broadcast = ir.Value(
                     name=ctx.fresh_name("dpa_query_len_bc"),
@@ -728,8 +728,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 )
                 key_len_val = _cast_to_int64(ctx, key_len_val, base="dpa_key_len_i64")
                 key_len_shape = ctx.builder.add_initializer_from_array(
-                    ctx.fresh_name("dpa_key_len_shape"),
-                    np.asarray([-1, 1, 1, 1], dtype=np.int64),
+                    name=ctx.fresh_name("dpa_key_len_shape"),
+                    array=np.asarray([-1, 1, 1, 1], dtype=np.int64),
                 )
                 key_len_broadcast = ir.Value(
                     name=ctx.fresh_name("dpa_key_len_bc"),
@@ -904,8 +904,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 base="dpa_weights_sum",
             )
             axes_tensor = ctx.builder.add_initializer_from_array(
-                ctx.fresh_name("dpa_weights_axes"),
-                np.asarray([3], dtype=np.int64),
+                name=ctx.fresh_name("dpa_weights_axes"),
+                array=np.asarray([3], dtype=np.int64),
             )
             ctx.add_node(
                 ir.Node(
@@ -923,8 +923,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _add_value_info(ctx, sum_weights)
 
             zero_scalar = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_zero"),
-                np.asarray(0.0, dtype=np_dtype),
+                name=ctx.fresh_name("dpa_zero"),
+                value=np.asarray(0.0, dtype=np_dtype),
             )
             denom_nonzero = ir.Value(
                 name=ctx.fresh_name("dpa_weights_sum_nz"),
@@ -950,8 +950,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _add_value_info(ctx, denom_nonzero)
 
             one_scalar = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_one"),
-                np.asarray(1.0, dtype=np_dtype),
+                name=ctx.fresh_name("dpa_one"),
+                value=np.asarray(1.0, dtype=np_dtype),
             )
             safe_denom = _make_tensor_value(
                 ctx,
@@ -993,8 +993,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
             nan_value = np.nan if np_dtype == np.float64 else 0.0
             nan_scalar = ctx.builder.add_initializer_from_scalar(
-                ctx.fresh_name("dpa_nan"),
-                np.asarray(nan_value, dtype=np_dtype),
+                name=ctx.fresh_name("dpa_nan"),
+                value=np.asarray(nan_value, dtype=np_dtype),
             )
             weights = _make_tensor_value(
                 ctx,

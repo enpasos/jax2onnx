@@ -23,7 +23,9 @@ def test_function_scope_constants_emit_constant_nodes() -> None:
     assert fn_inputs[0].name.startswith("f_in_")
 
     child_ctx = scope.ctx
-    constant_value = child_ctx.builder.add_initializer_from_scalar("const", 1.0)
+    constant_value = child_ctx.builder.add_initializer_from_scalar(
+        name="const", value=1.0
+    )
 
     assert not child_ctx.builder.initializers
     constant_nodes = [n for n in child_ctx.builder.nodes if n.op_type == "Constant"]

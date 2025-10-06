@@ -195,8 +195,11 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     1. Creating dynamic and concrete shape variants if "B" (batch dim) is present.
     2. For each of those, creating float32 (default) and float64 variants.
     """
+    has_callable = entry.get("callable") is not None
+    has_factory = entry.get("callable_factory") is not None
+
     # Accept either a ready function or a factory that builds it.
-    if ("callable" not in entry) and ("callable_factory" not in entry):
+    if not has_callable and not has_factory:
         logger.debug(
             f"Skipping entry, no callable/callable_factory: {entry.get('testcase', 'Unknown')}"
         )
@@ -204,11 +207,18 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
 
     entry = dict(entry)
 
+    callable_factory = entry.pop("callable_factory", None)
+    if callable_factory is not None:
+        raise AssertionError(
+            "Plugin metadata must expose callables via construct_and_call; "
+            "'callable_factory' entries are no longer supported."
+        )
+
+    callable_obj = entry.get("callable")
+
     factory_callable = None
-    if "callable_factory" in entry and entry["callable_factory"] is not None:
-        factory_callable = entry.pop("callable_factory")
-    elif "callable" in entry and getattr(
-        entry["callable"], "__jax2onnx_factory__", False
+    if callable_obj is not None and getattr(
+        callable_obj, "__jax2onnx_factory__", False
     ):
         factory_callable = entry["callable"]
 

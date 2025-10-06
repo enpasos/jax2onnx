@@ -1,6 +1,14 @@
-# How to Use the ONNX IR Builder
+# ONNX IR Builder Guide
 
-This note clarifies how projects such as XY should employ the internal `onnx_ir._tape.Builder` helper on top of the public tape API. The goal is to remove guesswork, especially around how nodes, attributes, and outputs are stitched together before the graph is finalized.
+This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: how to wire values, record initializers, and keep tests green now that the IR pipeline is builder-first.
+
+## Policy Checklist
+- Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py` verifies this.
+- `_outputs` must be a list/tuple (or alias that resolves to one); string literals are rejected by `tests/extra_tests/framework/test_ir_builder_contracts.py` and `scripts/check_ir_builder_usage.py`.
+- Keep converter/plugins IR-only—no `onnx` protobuf helpers—per the same policy suite.
+- Run `scripts/check_ir_builder_usage.py` before sending patches to catch the above heuristics quickly.
+
+Everything below expands on the why and how behind those rules.
 
 ## Prerequisites and Imports
 - The ONNX IR package ships with ONNX Script and is available as `onnx_ir`; install `onnx-script` or `onnx-ir` and ensure runtime dependencies (notably `numpy`) are available.

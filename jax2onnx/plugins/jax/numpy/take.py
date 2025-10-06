@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from flax import nnx
 from jax import core
 
@@ -66,21 +65,12 @@ def _as_int64(
         _ensure_value_info(ctx, value)
         return value
 
-    cast_val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=value.shape,
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+        to=int(ir.DataType.INT64.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))],
-        )
-    )
+    cast_val.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(cast_val, shape)
     _ensure_value_info(ctx, cast_val)
     return cast_val
@@ -167,25 +157,21 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
         indices_val = _as_int64(ctx, indices_val, indices_shape, "take_indices_int64")
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("take_out"))
-
         arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
         axis = _canonical_axis(int(axis_param), len(arr_shape))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Gather",
-                domain="",
-                inputs=[arr_val, indices_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Gather"),
-                attributes=[IRAttr("axis", IRAttrType.INT, int(axis))],
-            )
+        result = ctx.builder.Gather(
+            arr_val,
+            indices_val,
+            axis=int(axis),
+            _outputs=[ctx.fresh_name("Gather")],
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(getattr(arr_val.type, "dtype", ir.DataType.FLOAT))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 import jax
 
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 
 if TYPE_CHECKING:
     from jax2onnx.converter.ir_context import IRContext
@@ -31,28 +31,10 @@ def _shape_from_params(shape_param: Sequence[int]) -> tuple[int, ...]:
 
 
 def _scalar_constant(ctx: "IRContext", value: float) -> ir.Value:
-    from jax2onnx.converter.ir_context import IRContext  # local import to avoid cycle
-
-    if not isinstance(ctx, IRContext):  # pragma: no cover - defensive
-        raise TypeError("ctx must be an IRContext")
     arr = np.asarray(value, dtype=np.float32)
-    const = ir.Value(
-        name=ctx.fresh_name("const"),
-        type=ir.TensorType(ir.DataType.FLOAT),
-        shape=ir.Shape(()),
-        const_value=ir.tensor(arr),
+    return ctx.builder.add_initializer_from_scalar(
+        name=ctx.fresh_name("const"), value=arr
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Constant",
-            domain="",
-            inputs=[],
-            outputs=[const],
-            name=ctx.fresh_name("Constant"),
-            attributes=[IRAttr("value", IRAttrType.TENSOR, ir.tensor(arr))],
-        )
-    )
-    return const
 
 
 @register_primitive(
@@ -105,76 +87,39 @@ class RandomBitsPlugin(PrimitiveLeafPlugin):
         # Force materialisation of the key so upstream RNG nodes stay live.
         ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("rng_key"))
 
-        uniform_val = ir.Value(
-            name=ctx.fresh_name("rand_bits_uniform"),
-            type=ir.TensorType(ir.DataType.FLOAT),
-            shape=ir.Shape(shape),
+        uniform_val = ctx.builder.RandomUniform(
+            low=0.0,
+            high=1.0,
+            dtype=int(ir.DataType.FLOAT.value),
+            shape=shape,
+            _outputs=[ctx.fresh_name("rand_bits_uniform")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="RandomUniform",
-                domain="",
-                inputs=[],
-                outputs=[uniform_val],
-                name=ctx.fresh_name("RandomUniform"),
-                attributes=[
-                    IRAttr("low", IRAttrType.FLOAT, 0.0),
-                    IRAttr("high", IRAttrType.FLOAT, 1.0),
-                    IRAttr("dtype", IRAttrType.INT, int(ir.DataType.FLOAT.value)),
-                    IRAttr("shape", IRAttrType.INTS, shape),
-                ],
-            )
-        )
+        uniform_val.type = ir.TensorType(ir.DataType.FLOAT)
+        _stamp_type_and_shape(uniform_val, shape)
 
         scale = float(math.ldexp(1.0, bit_width))
         scale_const = _scalar_constant(ctx, scale)
-        scaled_val = ir.Value(
-            name=ctx.fresh_name("rand_bits_scaled"),
-            type=ir.TensorType(ir.DataType.FLOAT),
-            shape=ir.Shape(shape),
+        scaled_val = ctx.builder.Mul(
+            uniform_val,
+            scale_const,
+            _outputs=[ctx.fresh_name("rand_bits_scaled")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Mul",
-                domain="",
-                inputs=[uniform_val, scale_const],
-                outputs=[scaled_val],
-                name=ctx.fresh_name("Mul"),
-            )
-        )
+        scaled_val.type = ir.TensorType(ir.DataType.FLOAT)
+        _stamp_type_and_shape(scaled_val, shape)
 
-        floored_val = ir.Value(
-            name=ctx.fresh_name("rand_bits_floor"),
-            type=ir.TensorType(ir.DataType.FLOAT),
-            shape=ir.Shape(shape),
+        floored_val = ctx.builder.Floor(
+            scaled_val, _outputs=[ctx.fresh_name("rand_bits_floor")]
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Floor",
-                domain="",
-                inputs=[scaled_val],
-                outputs=[floored_val],
-                name=ctx.fresh_name("Floor"),
-            )
-        )
+        floored_val.type = ir.TensorType(ir.DataType.FLOAT)
+        _stamp_type_and_shape(floored_val, shape)
 
         target_dtype = ir.DataType.UINT32 if bit_width <= 32 else ir.DataType.UINT64
-        out_value = ir.Value(
-            name=ctx.fresh_name("rand_bits"),
-            type=ir.TensorType(target_dtype),
-            shape=ir.Shape(shape),
+        out_value = ctx.builder.Cast(
+            floored_val,
+            _outputs=[ctx.fresh_name("rand_bits")],
+            to=int(target_dtype.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[floored_val],
-                outputs=[out_value],
-                name=ctx.fresh_name("Cast"),
-                attributes=[
-                    IRAttr("to", IRAttrType.INT, int(target_dtype.value)),
-                ],
-            )
-        )
+        out_value.type = ir.TensorType(target_dtype)
+        _stamp_type_and_shape(out_value, shape)
 
         ctx.bind_value_for_var(out_var, out_value)

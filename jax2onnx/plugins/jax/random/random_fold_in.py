@@ -22,17 +22,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _identity(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
-    out = ir.Value(name=ctx.fresh_name(name_hint), type=value.type, shape=value.shape)
-    ctx.add_node(
-        ir.Node(
-            op_type="Identity",
-            domain="",
-            inputs=[value],
-            outputs=[out],
-            name=ctx.fresh_name("Identity"),
-        )
-    )
-    return out
+    result = ctx.builder.Identity(value, _outputs=[ctx.fresh_name(name_hint)])
+    if getattr(value, "type", None) is not None:
+        result.type = value.type
+    if getattr(value, "shape", None) is not None:
+        result.shape = value.shape
+    return result
 
 
 @register_primitive(

@@ -599,8 +599,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         )
 
         trip_count = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("while_trip_count"),
-            np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
+            name=ctx.fresh_name("while_trip_count"),
+            value=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
         )
 
         loop_inputs = (

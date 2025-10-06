@@ -61,20 +61,19 @@ To do next: work through Step 2 inventory.
 - `ir_optimizations.py` (plus `ir_postprocess.py`) intentionally works at the raw `ir.Node`/list level to rewrite existing graphs; nothing to change here, but every pass relies on `_set_nodes` keeping `graph.nodes`, `graph._nodes`, and `graph.node` in sync.
 - No `import onnx` statements exist under `converter/`, confirming IR-only policy compliance for the core pipeline.
 
-### Plugin landscape (generated via quick scan)
-- 13 lax plugins already rely exclusively on `ctx.builder.*` helpers (`bitcast_convert_type.py`, `clamp.py`, `copy.py`, `integer_pow.py`, etc.).
-- 29 modules mix builder calls with manual `ctx.add_node`/`ir.Node` construction—mostly higher-complexity lowers (`jax/lax/conv.py`, `jax/numpy/concatenate.py`, `jax/random/random_seed.py`, `flax/nnx/dot_product_attention.py`, `plugin_system.py`). These should be prioritized for incremental refactors.
-- 60 modules remain fully manual (no builder usage). The heaviest clusters are Flax NNX activations/pooling layers, JAX NN scalar activations, and array-shape utilities like `jax/numpy/reshape.py`, `jax/lax/gather.py`, `jax/lax/scatter_utils.py`.
+- 22 lax/random/jnp plugins already rely exclusively on `ctx.builder.*` helpers (arithmetic family, concatenate, stack, tile, gather, dynamic slice, dynamic update slice, take, random seed/fold-in/bits, etc.).
+- Mixed modules remain concentrated in complex lowers (`jax/lax/conv.py`, `jax/lax/scan.py`, `jax/lax/while_loop.py`, `flax/nnx/dot_product_attention.py`, `plugin_system.py`). These should be prioritized for incremental refactors.
+- The largest manual-only clusters are Flax NNX activations/pooling layers, JAX NN scalar activations, and indexing utilities such as `jax/lax/gather.py`, `jax/lax/scatter_utils.py`, `jax/numpy/take.py`.
 - None of the plugin files import `onnx` protobuf helpers; all proto references are limited to docstring URLs. Policy tests remain satisfied.
 
 **Conversion snapshot (Oct 2025)**
-- LAX arithmetic set (`add`, `mul`, `neg`, `integer_pow`, `convert_element_type`, etc.) → builder-only.
-- LAX control-flow / shape builders (`conv`, `scan`, `while_loop`, `broadcast_in_dim`, `concatenate`) → mixed builder + manual nodes.
-- LAX indexing utilities (`gather`, `dynamic_{slice,update_slice}`, `scatter_utils`, `transpose`) → manual-only.
+- LAX arithmetic + concat/stack/gather (`add`, `mul`, `neg`, `integer_pow`, `convert_element_type`, `concatenate`, `stack`, `tile`, `gather`, etc.) → builder-only.
+- LAX control-flow / shape builders (`conv`, `scan`, `while_loop`, `broadcast_in_dim`) → mixed builder + manual nodes.
+- LAX indexing utilities (`scatter_utils`, `transpose`) → manual-only.
 - Flax NNX layers (activations, pooling, linear/conv, norms) → manual-only.
 - Equinox EQX core (`linear`, `dropout`, `identity`) → mixed; builder used for inits, manual for wiring.
 - JAX NN activations (`relu`, `gelu`, `softmax`, etc.) → manual-only.
-- Random seeds/fold-in → mixed; initializer helpers use builder, remainder still manual.
+- Random seeds/fold-in/bits → builder-only.
 
 ### Follow-up flags
 - Manual-only plugins often duplicate constant/initializer plumbing (`_const_i64`, `ctx.add_node(ir.Node(...))`); we should identify shared helper entry points once Builder adoption begins.
@@ -198,12 +197,8 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 - Introduce integration tests that serialize representative graphs to protobuf via `ir.to_proto` only at the very edge, confirming converter/plugins remain protobuf-free.
 - After each refactor batch, regenerate `MigrationStatus.md` and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
 - Implement the Step 4 validation hooks: land the expanded policy test, add `tests/extra_tests/framework/test_ir_builder_contracts.py`, and wire `scripts/check_ir_builder_usage.py` into CI (pre-commit/Ruff) so regressions are caught automatically.
-- Next conversion batch (focused on concat/stack family):
-  1. `jax/lax/concatenate.py` – replace manual `ir.Node` assembly with builder-based `Concat` + helper casts.
-  2. `jax/numpy/concatenate.py` – mirror the lax changes and share utility functions where possible.
-  3. `jax/numpy/stack.py` – switch the temporary reshape/concat scaffolding to builder APIs.
-  4. `jax/numpy/tile.py` – reuse the dynamic shape builder helpers introduced above.
-  5. `jax/random/random_seed.py` – cleanup mixed builder/manual usage once concat helpers exist.
+- Next conversion batch (indexing + scatter suite):
+  1. `jax/lax/scatter_utils.py` – centralize builder-based concat/index construction.
 
 ---
 

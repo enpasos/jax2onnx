@@ -196,6 +196,7 @@ We warmly welcome contributions!
 
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins): 
 a custom primitive or an example. See the [plugin quickstart](docs/design.md#roles--responsibilities) for architecture details and lowering patterns.
+- **Follow builder conventions:** The [ONNX IR Builder Guide](docs/dev_guides/onnx_ir_builder.md) covers required `_outputs`/initializer naming rules and the helper script/tests that enforce them.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
 ---
@@ -242,5 +243,4 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ---
 
 **Happy converting! 🎉**
-
 

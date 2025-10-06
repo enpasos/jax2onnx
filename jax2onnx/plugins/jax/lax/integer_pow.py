@@ -53,7 +53,8 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
 
         target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
         exp_const = ctx.builder.add_initializer_from_scalar(
-            ctx.fresh_name("ipow_exp"), np.array(exponent, dtype=target_dtype)
+            name=ctx.fresh_name("ipow_exp"),
+            value=np.array(exponent, dtype=target_dtype),
         )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pow")

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
@@ -17,53 +16,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _add_binary_scalar(
-    ctx: "IRContext", op_type: str, lhs: ir.Value, rhs: ir.Value, name_hint: str
+def _binary_scalar(
+    ctx: "IRContext", op: str, lhs: ir.Value, rhs: ir.Value, name_hint: str
 ) -> ir.Value:
-    out = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(lhs.type.dtype),
-        shape=ir.Shape(()),
+    result = getattr(ctx.builder, op)(
+        lhs,
+        rhs,
+        _outputs=[ctx.fresh_name(name_hint)],
     )
-    ctx.add_node(
-        ir.Node(
-            op_type=op_type,
-            domain="",
-            inputs=[lhs, rhs],
-            outputs=[out],
-            name=ctx.fresh_name(op_type),
-        )
-    )
-    _stamp_type_and_shape(out, ())
-    _ensure_value_info(ctx, out)
-    return out
-
-
-def _add_elementwise(
-    ctx: "IRContext",
-    op_type: str,
-    inputs: list[ir.Value],
-    shape_dims: tuple[int | None, ...],
-    dtype: ir.DataType,
-    name_hint: str,
-) -> ir.Value:
-    out = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(dtype),
-        shape=ir.Shape(shape_dims),
-    )
-    ctx.add_node(
-        ir.Node(
-            op_type=op_type,
-            domain="",
-            inputs=inputs,
-            outputs=[out],
-            name=ctx.fresh_name(op_type),
-        )
-    )
-    _stamp_type_and_shape(out, shape_dims)
-    _ensure_value_info(ctx, out)
-    return out
+    result.type = ir.TensorType(getattr(lhs.type, "dtype", ir.DataType.INT64))
+    _stamp_type_and_shape(result, ())
+    _ensure_value_info(ctx, result)
+    return result
 
 
 @register_primitive(
@@ -144,7 +108,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
 
         ref_val = ctx.get_value_for_var(ref_var, name_hint=ctx.fresh_name("dus_ref"))
         upd_val = ctx.get_value_for_var(upd_var, name_hint=ctx.fresh_name("dus_update"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dus_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dus_out"))
 
         rank = len(getattr(ref_var.aval, "shape", ()))
         if rank != len(start_vars):
@@ -155,38 +119,18 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         zero_i64 = _scalar_i64(ctx, 0, "dus_zero")
         one_i64 = _scalar_i64(ctx, 1, "dus_one")
 
-        ref_shape = ir.Value(
-            name=ctx.fresh_name("dus_ref_shape"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((rank,)),
+        ref_shape = ctx.builder.Shape(
+            ref_val, _outputs=[ctx.fresh_name("dus_ref_shape")]
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Shape",
-                domain="",
-                inputs=[ref_val],
-                outputs=[ref_shape],
-                name=ctx.fresh_name("Shape"),
-            )
-        )
-        _stamp_type_and_shape(ref_shape, tuple([rank]))
+        ref_shape.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(ref_shape, (rank,))
         _ensure_value_info(ctx, ref_shape)
 
-        upd_shape = ir.Value(
-            name=ctx.fresh_name("dus_upd_shape"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((rank,)),
+        upd_shape = ctx.builder.Shape(
+            upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Shape",
-                domain="",
-                inputs=[upd_val],
-                outputs=[upd_shape],
-                name=ctx.fresh_name("Shape"),
-            )
-        )
-        _stamp_type_and_shape(upd_shape, tuple([rank]))
+        upd_shape.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(upd_shape, (rank,))
         _ensure_value_info(ctx, upd_shape)
 
         # Prepare per-axis metadata
@@ -203,107 +147,65 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                 ctx, np.asarray(axis, dtype=np.int64), f"dus_axis_{axis}"
             )
 
-            upd_dim = ir.Value(
-                name=ctx.fresh_name("dus_upd_dim"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
+            upd_dim = ctx.builder.Gather(
+                upd_shape,
+                axis_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("dus_upd_dim")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[upd_shape, axis_idx],
-                    outputs=[upd_dim],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            upd_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(upd_dim, ())
             _ensure_value_info(ctx, upd_dim)
             upd_dims.append(upd_dim)
 
-            ref_dim = ir.Value(
-                name=ctx.fresh_name("dus_ref_dim"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
+            ref_dim = ctx.builder.Gather(
+                ref_shape,
+                axis_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("dus_ref_dim")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[ref_shape, axis_idx],
-                    outputs=[ref_dim],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            ref_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(ref_dim, ())
             _ensure_value_info(ctx, ref_dim)
 
-            cond_neg = ir.Value(
-                name=ctx.fresh_name("dus_start_neg"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=ir.Shape(()),
+            cond_neg = ctx.builder.Less(
+                start_i64,
+                zero_i64,
+                _outputs=[ctx.fresh_name("dus_start_neg")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Less",
-                    domain="",
-                    inputs=[start_i64, zero_i64],
-                    outputs=[cond_neg],
-                    name=ctx.fresh_name("Less"),
-                )
-            )
+            cond_neg.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(cond_neg, ())
             _ensure_value_info(ctx, cond_neg)
 
-            start_plus_ref = _add_binary_scalar(
+            start_plus_ref = _binary_scalar(
                 ctx, "Add", start_i64, ref_dim, "dus_start_plus_ref"
             )
-            start_norm = ir.Value(
-                name=ctx.fresh_name("dus_start_norm"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
+            start_norm = ctx.builder.Where(
+                cond_neg,
+                start_plus_ref,
+                start_i64,
+                _outputs=[ctx.fresh_name("dus_start_norm")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Where",
-                    domain="",
-                    inputs=[cond_neg, start_plus_ref, start_i64],
-                    outputs=[start_norm],
-                    name=ctx.fresh_name("Where"),
-                )
-            )
+            start_norm.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_norm, ())
             _ensure_value_info(ctx, start_norm)
 
-            max_start = _add_binary_scalar(
-                ctx, "Sub", ref_dim, upd_dim, "dus_max_start"
-            )
-            start_ge0 = _add_binary_scalar(
+            max_start = _binary_scalar(ctx, "Sub", ref_dim, upd_dim, "dus_max_start")
+            start_ge0 = _binary_scalar(
                 ctx, "Max", start_norm, zero_i64, "dus_start_ge0"
             )
-            clamped = _add_binary_scalar(
+            clamped = _binary_scalar(
                 ctx, "Min", start_ge0, max_start, "dus_start_clamped"
             )
             start_clamped.append(clamped)
 
         # Total number of update elements: ReduceProd(upd_shape)
-        numel_upd = ir.Value(
-            name=ctx.fresh_name("dus_numel"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(()),
+        numel_upd = ctx.builder.ReduceProd(
+            upd_shape,
+            keepdims=0,
+            _outputs=[ctx.fresh_name("dus_numel")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="ReduceProd",
-                domain="",
-                inputs=[upd_shape],
-                outputs=[numel_upd],
-                name=ctx.fresh_name("ReduceProd"),
-                attributes=[IRAttr("keepdims", IRAttrType.INT, 0)],
-            )
-        )
+        numel_upd.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(numel_upd, ())
         _ensure_value_info(ctx, numel_upd)
 
@@ -313,20 +215,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         for axis in range(rank):
             dim = upd_dims[axis]
 
-            range_out = ir.Value(
-                name=ctx.fresh_name("dus_range"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((None,)),
+            range_out = ctx.builder.Range(
+                zero_i64,
+                dim,
+                one_i64,
+                _outputs=[ctx.fresh_name("dus_range")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Range",
-                    domain="",
-                    inputs=[zero_i64, dim, one_i64],
-                    outputs=[range_out],
-                    name=ctx.fresh_name("Range"),
-                )
-            )
+            range_out.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(range_out, (None,))
             _ensure_value_info(ctx, range_out)
 
             axes_unsq = [ax for ax in range(rank) if ax != axis]
@@ -334,222 +230,140 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                 axes_tensor = _const_i64(
                     ctx, np.asarray(axes_unsq, dtype=np.int64), f"dus_unsq_axes_{axis}"
                 )
-                range_unsq = ir.Value(
-                    name=ctx.fresh_name("dus_range_unsq"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape(
-                        tuple([1] * axis + [None] + [1] * (rank - axis - 1))
-                    ),
+                range_unsq = ctx.builder.Unsqueeze(
+                    range_out,
+                    axes_tensor,
+                    _outputs=[ctx.fresh_name("dus_range_unsq")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Unsqueeze",
-                        domain="",
-                        inputs=[range_out, axes_tensor],
-                        outputs=[range_unsq],
-                        name=ctx.fresh_name("Unsqueeze"),
-                    )
-                )
+                range_unsq.type = ir.TensorType(ir.DataType.INT64)
+                unsq_shape = tuple([1] * axis + [None] + [1] * (rank - axis - 1))
+                _stamp_type_and_shape(range_unsq, unsq_shape)
                 _ensure_value_info(ctx, range_unsq)
             else:
                 range_unsq = range_out
 
-            range_exp = ir.Value(
-                name=ctx.fresh_name("dus_range_exp"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(rank_shape),
+            range_exp = ctx.builder.Expand(
+                range_unsq,
+                upd_shape,
+                _outputs=[ctx.fresh_name("dus_range_exp")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Expand",
-                    domain="",
-                    inputs=[range_unsq, upd_shape],
-                    outputs=[range_exp],
-                    name=ctx.fresh_name("Expand"),
-                )
-            )
+            range_exp.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(range_exp, rank_shape)
             _ensure_value_info(ctx, range_exp)
 
-            start_b = ir.Value(
-                name=ctx.fresh_name("dus_start_b"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(rank_shape),
+            start_b = ctx.builder.Expand(
+                start_clamped[axis],
+                upd_shape,
+                _outputs=[ctx.fresh_name("dus_start_b")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Expand",
-                    domain="",
-                    inputs=[start_clamped[axis], upd_shape],
-                    outputs=[start_b],
-                    name=ctx.fresh_name("Expand"),
-                )
-            )
+            start_b.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(start_b, rank_shape)
             _ensure_value_info(ctx, start_b)
 
-            idx_axis = ir.Value(
-                name=ctx.fresh_name("dus_idx_axis"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(rank_shape),
+            idx_axis = ctx.builder.Add(
+                start_b,
+                range_exp,
+                _outputs=[ctx.fresh_name("dus_idx_axis")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Add",
-                    domain="",
-                    inputs=[start_b, range_exp],
-                    outputs=[idx_axis],
-                    name=ctx.fresh_name("Add"),
-                )
-            )
+            idx_axis.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(idx_axis, rank_shape)
             _ensure_value_info(ctx, idx_axis)
 
             axes_last = _const_i64(
                 ctx, np.asarray(rank, dtype=np.int64), f"dus_axes_last_{axis}"
             )
-            idx_unsq = ir.Value(
-                name=ctx.fresh_name("dus_idx_unsq"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(tuple([None] * rank + [1])),
+            idx_unsq = ctx.builder.Unsqueeze(
+                idx_axis,
+                axes_last,
+                _outputs=[ctx.fresh_name("dus_idx_unsq")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[idx_axis, axes_last],
-                    outputs=[idx_unsq],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
+            idx_unsq.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(idx_unsq, tuple([None] * rank + [1]))
             _ensure_value_info(ctx, idx_unsq)
             idx_components.append(idx_unsq)
 
-        indices_nd = ir.Value(
-            name=ctx.fresh_name("dus_indices_nd"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(tuple([None] * rank + [rank])),
+        indices_nd = ctx.builder.Concat(
+            *idx_components,
+            axis=rank,
+            _outputs=[ctx.fresh_name("dus_indices_nd")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Concat",
-                domain="",
-                inputs=idx_components,
-                outputs=[indices_nd],
-                name=ctx.fresh_name("Concat"),
-                attributes=[IRAttr("axis", IRAttrType.INT, rank)],
-            )
-        )
+        indices_nd.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(indices_nd, tuple([None] * rank + [rank]))
         _ensure_value_info(ctx, indices_nd)
 
         axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "dus_axes0")
-        numel_vec = ir.Value(
-            name=ctx.fresh_name("dus_numel_vec"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((1,)),
+        numel_vec = ctx.builder.Unsqueeze(
+            numel_upd,
+            axes0,
+            _outputs=[ctx.fresh_name("dus_numel_vec")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Unsqueeze",
-                domain="",
-                inputs=[numel_upd, axes0],
-                outputs=[numel_vec],
-                name=ctx.fresh_name("Unsqueeze"),
-            )
-        )
+        numel_vec.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(numel_vec, (1,))
         _ensure_value_info(ctx, numel_vec)
 
         rank_const = _scalar_i64(ctx, rank, "dus_rank_scalar")
-        rank_vec = ir.Value(
-            name=ctx.fresh_name("dus_rank_vec"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((1,)),
+        rank_vec = ctx.builder.Unsqueeze(
+            rank_const,
+            axes0,
+            _outputs=[ctx.fresh_name("dus_rank_vec")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Unsqueeze",
-                domain="",
-                inputs=[rank_const, axes0],
-                outputs=[rank_vec],
-                name=ctx.fresh_name("Unsqueeze"),
-            )
-        )
+        rank_vec.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(rank_vec, (1,))
         _ensure_value_info(ctx, rank_vec)
 
-        shape_2d = ir.Value(
-            name=ctx.fresh_name("dus_shape2d"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((2,)),
+        shape_2d = ctx.builder.Concat(
+            numel_vec,
+            rank_vec,
+            axis=0,
+            _outputs=[ctx.fresh_name("dus_shape2d")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Concat",
-                domain="",
-                inputs=[numel_vec, rank_vec],
-                outputs=[shape_2d],
-                name=ctx.fresh_name("Concat"),
-                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-            )
-        )
+        shape_2d.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shape_2d, (2,))
         _ensure_value_info(ctx, shape_2d)
 
-        indices_2d = ir.Value(
-            name=ctx.fresh_name("dus_indices_2d"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((None, rank)),
+        indices_2d = ctx.builder.Reshape(
+            indices_nd,
+            shape_2d,
+            _outputs=[ctx.fresh_name("dus_indices_2d")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[indices_nd, shape_2d],
-                outputs=[indices_2d],
-                name=ctx.fresh_name("Reshape"),
-            )
-        )
+        indices_2d.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(indices_2d, (None, rank))
         _ensure_value_info(ctx, indices_2d)
 
-        updates_shape_1d = ir.Value(
-            name=ctx.fresh_name("dus_updates_shape1d"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((1,)),
+        updates_shape_1d = ctx.builder.Unsqueeze(
+            numel_upd,
+            axes0,
+            _outputs=[ctx.fresh_name("dus_updates_shape1d")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Unsqueeze",
-                domain="",
-                inputs=[numel_upd, axes0],
-                outputs=[updates_shape_1d],
-                name=ctx.fresh_name("Unsqueeze"),
-            )
-        )
+        updates_shape_1d.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(updates_shape_1d, (1,))
         _ensure_value_info(ctx, updates_shape_1d)
 
-        upd_flat = ir.Value(
-            name=ctx.fresh_name("dus_upd_flat"),
-            type=ir.TensorType(ref_val.type.dtype),
-            shape=ir.Shape((None,)),
+        upd_flat = ctx.builder.Reshape(
+            upd_val,
+            updates_shape_1d,
+            _outputs=[ctx.fresh_name("dus_upd_flat")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[upd_val, updates_shape_1d],
-                outputs=[upd_flat],
-                name=ctx.fresh_name("Reshape"),
-            )
-        )
+        upd_flat.type = ir.TensorType(getattr(ref_val.type, "dtype", ir.DataType.FLOAT))
+        _stamp_type_and_shape(upd_flat, (None,))
         _ensure_value_info(ctx, upd_flat)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="ScatterND",
-                domain="",
-                inputs=[ref_val, indices_2d, upd_flat],
-                outputs=[out_val],
-                name=ctx.fresh_name("ScatterND"),
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ScatterND")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("ScatterND")
+
+        result = ctx.builder.ScatterND(
+            ref_val,
+            indices_2d,
+            upd_flat,
+            _outputs=[desired_name],
         )
 
         target_shape = tuple(getattr(ref_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, target_shape)
-        out_val.type = ir.TensorType(ref_val.type.dtype)
-        out_val.dtype = ref_val.type.dtype
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, target_shape)
+        result_dtype = getattr(getattr(ref_val, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

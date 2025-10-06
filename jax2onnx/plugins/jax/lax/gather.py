@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _append_initializer
@@ -147,7 +146,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         data_val = ctx.get_value_for_var(
             data_var, name_hint=ctx.fresh_name("gather_data")
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gather_out"))
+        ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gather_out"))
 
         data_shape = tuple(getattr(data_var.aval, "shape", ()))
         indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
@@ -165,77 +164,44 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
         if is_simple_index_zero and dynamic_batch:
             # Build indices shaped (B, 1) with all zeros, where B is the dynamic batch dim.
-            data_shape_val = ir.Value(
-                name=ctx.fresh_name("gather_data_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(data_shape),)),
+            data_shape_val = ctx.builder.Shape(
+                data_val, _outputs=[ctx.fresh_name("gather_data_shape")]
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[data_val],
-                    outputs=[data_shape_val],
-                    name=ctx.fresh_name("Shape"),
-                )
-            )
+            data_shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(data_shape_val, (len(data_shape),))
             _ensure_value_info(ctx, data_shape_val)
 
             zero_idx = _const_i64(
                 ctx, np.asarray(0, dtype=np.int64), "gather_batch_idx"
             )
-            batch_dim = ir.Value(
-                name=ctx.fresh_name("gather_batch_dim"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[data_shape_val, zero_idx],
-                    outputs=[batch_dim],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
+            batch_dim = ctx.builder.Gather(
+                data_shape_val,
+                zero_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("gather_batch_dim")],
             )
             _stamp_type_and_shape(batch_dim, ())
+            batch_dim.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_info(ctx, batch_dim)
 
             axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "gather_axes0")
-            batch_vec = ir.Value(
-                name=ctx.fresh_name("gather_batch_vec"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
+            batch_vec = ctx.builder.Unsqueeze(
+                batch_dim,
+                axes0,
+                _outputs=[ctx.fresh_name("gather_batch_vec")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[batch_dim, axes0],
-                    outputs=[batch_vec],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
+            batch_vec.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_info(ctx, batch_vec)
 
             one_vec = _const_i64(ctx, np.asarray([1], dtype=np.int64), "gather_one_vec")
 
-            target_shape = ir.Value(
-                name=ctx.fresh_name("gather_target_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((2,)),
+            target_shape = ctx.builder.Concat(
+                batch_vec,
+                one_vec,
+                axis=0,
+                _outputs=[ctx.fresh_name("gather_target_shape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[batch_vec, one_vec],
-                    outputs=[target_shape],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            target_shape.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_info(ctx, target_shape)
 
             base_index = ir.Value(
@@ -246,61 +212,52 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
             _append_initializer(ctx, base_index)
 
-            indices_val = ir.Value(
-                name=ctx.fresh_name("gather_indices"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((None, 1)),
+            indices_val = ctx.builder.Expand(
+                base_index,
+                target_shape,
+                _outputs=[ctx.fresh_name("gather_indices")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Expand",
-                    domain="",
-                    inputs=[base_index, target_shape],
-                    outputs=[indices_val],
-                    name=ctx.fresh_name("Expand"),
-                )
-            )
+            indices_val.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_info(ctx, indices_val)
             batch_dims = 1
         else:
             indices_val_in = ctx.get_value_for_var(
                 indices_var, name_hint=ctx.fresh_name("gather_indices_in")
             )
-            indices_val = ir.Value(
-                name=ctx.fresh_name("gather_indices"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(tuple(indices_shape)),
+            indices_val = ctx.builder.Cast(
+                indices_val_in,
+                _outputs=[ctx.fresh_name("gather_indices")],
+                to=int(ir.DataType.INT64.value),
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[indices_val_in],
-                    outputs=[indices_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[
-                        IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))
-                    ],
-                )
-            )
+            indices_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(indices_val, tuple(indices_shape))
             _ensure_value_info(ctx, indices_val)
             batch_dims = 0
 
-        gather_node = ir.Node(
-            op_type="GatherND",
-            domain="",
-            inputs=[data_val, indices_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("GatherND"),
-            attributes=[IRAttr("batch_dims", IRAttrType.INT, batch_dims)],
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("gather_out")
         )
-        ctx.add_node(gather_node)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("GatherND")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("GatherND")
+
+        result = ctx.builder.GatherND(
+            data_val,
+            indices_val,
+            batch_dims=batch_dims,
+            _outputs=[desired_name],
+        )
 
         output_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, output_shape)
-        out_val.type = ir.TensorType(data_val.type.dtype)
-        out_val.dtype = data_val.type.dtype
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, output_shape)
+        result_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
 
 def _masked_gather_trig_local(data, indices):
