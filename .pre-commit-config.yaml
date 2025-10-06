@@ -25,3 +25,9 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: check-ir-builder-usage
+        name: Enforce IR builder usage policies
+        entry: python3 scripts/check_ir_builder_usage.py
+        language: system
+        types: [python]
+        pass_filenames: false

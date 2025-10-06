@@ -6,7 +6,18 @@ This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: ho
 - Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py` verifies this.
 - `_outputs` must be a list/tuple (or alias that resolves to one); string literals are rejected by `tests/extra_tests/framework/test_ir_builder_contracts.py` and `scripts/check_ir_builder_usage.py`.
 - Keep converter/plugins IR-only—no `onnx` protobuf helpers—per the same policy suite.
-- Run `scripts/check_ir_builder_usage.py` before sending patches to catch the above heuristics quickly.
+- Run `scripts/check_ir_builder_usage.py` before sending patches (it is also wired into the pre-commit stack).
+
+## Plugin Metadata Requirements
+- Construct callable metadata with `construct_and_call(...)` so the test harness can rebuild modules for each dtype. Pair it with `with_requested_dtype()` and `with_rng_seed(...)`/`with_prng_key(...)` helpers instead of inlining lambdas or seeding at import time.
+- Avoid `callable_factory`. The test generator now raises if metadata still relies on factories—`callable` entries must be concrete `construct_and_call(...)` results.
+- When you need constants inside plugin lowers, prefer shared helpers (for example, `_const_i64`) that delegate to `ctx.builder` so they participate in initializer bookkeeping.
+- Respect the single-use RNG rule: split keys per consumer and never cache module instances inside traced calls—`construct_and_call(...).with_dtype(...)` already handles per-dtype reuse.
+
+## Validation Hooks
+- `tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py` enforces both the "no protobuf" policy and initializer naming for every builder call.
+- `tests/extra_tests/framework/test_ir_builder_contracts.py` walks the AST to guarantee `_outputs=` uses sequence types.
+- `scripts/check_ir_builder_usage.py` wraps the same heuristics for local iteration and runs as a pre-commit hook. Invoke it manually with `poetry run python scripts/check_ir_builder_usage.py` when editing converter/plugins code.
 
 Everything below expands on the why and how behind those rules.
 
