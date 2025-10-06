@@ -35,14 +35,21 @@ def _ir_dtype_from_numpy(dtype: np.dtype) -> ir.DataType:
 
 def _const_tensor(ctx, array, *, name: str) -> ir.Value:
     arr = np.asarray(array)
+    builder = getattr(ctx, "builder", None)
+    init_name = ctx.fresh_name(name)
+    if builder is not None:
+        if arr.ndim == 0:
+            value = builder.add_initializer_from_scalar(name=init_name, value=arr)
+        else:
+            value = builder.add_initializer_from_array(name=init_name, array=arr)
+        _stamp_type_and_shape(value, arr.shape if arr.shape else ())
+        return value
+
     dtype = _ir_dtype_from_numpy(arr.dtype)
     shape = arr.shape if arr.shape else ()
-    if hasattr(ir, "tensor"):
-        tensor_obj = ir.tensor(arr)
-    else:
-        tensor_obj = arr
+    tensor_obj = ir.tensor(arr) if hasattr(ir, "tensor") else arr
     value = ir.Value(
-        name=ctx.fresh_name(name),
+        name=init_name,
         type=ir.TensorType(dtype),
         shape=ir.Shape(shape),
         const_value=tensor_obj if hasattr(ir.Value, "const_value") else None,
@@ -213,6 +220,12 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         return ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Eqx Dropout lowering"
+            )
+
         x_var, inference_var = eqn.invars
         out_var = eqn.outvars[0]
         rate = float(eqn.params.get("p", 0.5))
@@ -224,6 +237,18 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         inference_bool = _extract_python_bool(inference_var)
         call_params = getattr(ctx, "_call_input_param_names", set())
         param_name = "inference"
+
+        def _materialize_not(value: ir.Value) -> ir.Value:
+            not_val = builder.Not(
+                value,
+                _outputs=[ctx.fresh_name("training_not")],
+            )
+            if getattr(not_val, "type", None) is None:
+                not_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(not_val, ())
+            _ensure_value_info(ctx, not_val)
+            return not_val
+
         if call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
             if param_name not in call_params and inference_bool is not None:
@@ -239,21 +264,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     )
                 else:
                     det_val = _ensure_scalar_bool_input(ctx, param_name)
-            training_val = ir.Value(
-                name=ctx.fresh_name("training"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=ir.Shape(()),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Not",
-                    domain="",
-                    inputs=[det_val],
-                    outputs=[training_val],
-                    name=ctx.fresh_name("Not"),
-                    num_outputs=1,
-                )
-            )
+            training_val = _materialize_not(det_val)
         else:
             if inference_bool is not None:
                 training_val = _const_tensor(
@@ -263,37 +274,34 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 det_val = ctx.get_value_for_var(
                     inference_var, name_hint=ctx.fresh_name("inference")
                 )
-                training_val = ir.Value(
-                    name=ctx.fresh_name("training"),
-                    type=ir.TensorType(ir.DataType.BOOL),
-                    shape=ir.Shape(()),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Not",
-                        domain="",
-                        inputs=[det_val],
-                        outputs=[training_val],
-                        name=ctx.fresh_name("Not"),
-                        num_outputs=1,
-                    )
-                )
+                training_val = _materialize_not(det_val)
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("drop_out"))
-        ctx.add_node(
-            ir.Node(
-                op_type="Dropout",
-                domain="",
-                inputs=[x_val, ratio_val, training_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Dropout"),
-                num_outputs=1,
-            )
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("drop_out"))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("drop_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("drop_out")
+
+        dropout_val = builder.Dropout(
+            x_val,
+            ratio_val,
+            training_val,
+            _outputs=[desired_name],
         )
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        if x_shape:
-            _stamp_type_and_shape(out_val, x_shape)
-        _ensure_value_info(ctx, out_val)
+
+        if getattr(out_spec, "type", None) is not None:
+            dropout_val.type = out_spec.type
+        elif getattr(x_val, "type", None) is not None:
+            dropout_val.type = x_val.type
+
+        if getattr(out_spec, "shape", None) is not None:
+            dropout_val.shape = out_spec.shape
+        else:
+            x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+            if x_shape:
+                _stamp_type_and_shape(dropout_val, x_shape)
+        _ensure_value_info(ctx, dropout_val)
+        ctx.bind_value_for_var(out_var, dropout_val)
 
     @classmethod
     def binding_specs(cls):

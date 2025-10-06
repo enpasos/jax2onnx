@@ -306,6 +306,12 @@ class LinearPlugin(PrimitiveLeafPlugin):
         return ShapedArray(out_shape, x.dtype)
 
     def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Eqx Linear lowering"
+            )
+
         x_var, weight_var, bias_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -323,6 +329,9 @@ class LinearPlugin(PrimitiveLeafPlugin):
         b_val = _inline_scalar_bias(ctx, b_val, out_features)
 
         need_flatten = len(x_shape) != 2
+        flat_dim_label = None
+        gemm_input = x_val
+
         if need_flatten:
             flat_dim_label = _flatten_leading_dim_label(x_val, x_shape)
             reshape_first_dim = -1
@@ -335,149 +344,141 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 [reshape_first_dim, in_features],
                 name="linear_in_shape",
             )
-            flat_val = ir.Value(
-                name=ctx.fresh_name("linear_flat"),
-                type=x_val.type,
-                shape=ir.Shape((None, in_features)),
+            gemm_input = builder.Reshape(
+                x_val,
+                reshape_shape,
+                _outputs=[ctx.fresh_name("linear_flat")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[x_val, reshape_shape],
-                    outputs=[flat_val],
-                    name=ctx.fresh_name("Reshape"),
-                )
+            if getattr(x_val, "type", None) is not None:
+                gemm_input.type = x_val.type
+            reshape_dims = (
+                flat_dim_label if flat_dim_label is not None else None,
+                in_features,
             )
-            if flat_dim_label is not None:
-                _stamp_type_and_shape(flat_val, (flat_dim_label, in_features))
-            gemm_input = flat_val
-        else:
-            gemm_input = x_val
+            _stamp_type_and_shape(gemm_input, reshape_dims)
+            _ensure_value_info(ctx, gemm_input)
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("linear_out"))
-        if need_flatten:
-            gemm_out = ir.Value(
-                name=ctx.fresh_name("linear_gemm"),
-                type=x_val.type,
-                shape=ir.Shape((None, out_features)),
-            )
-        else:
-            gemm_out = out_val
-
-        inputs = [gemm_input, w_val, b_val]
-        gemm_node = ir.Node(
-            op_type="Gemm",
-            domain="",
-            inputs=inputs,
-            outputs=[gemm_out],
-            name=ctx.fresh_name("Gemm"),
+        gemm_output_name = ctx.fresh_name(
+            "linear_gemm" if need_flatten else "linear_out"
         )
-        ctx.add_node(gemm_node)
-        ctx.set_node_attrs(
-            gemm_node,
-            {"alpha": 1.0, "beta": 1.0, "transA": 0, "transB": 1},
+        gemm_inputs = [gemm_input, w_val]
+        if b_val is not None:
+            gemm_inputs.append(b_val)
+
+        beta_attr = 1.0 if b_val is not None else 0.0
+        gemm_result = builder.Gemm(
+            *gemm_inputs,
+            alpha=1.0,
+            beta=beta_attr,
+            transA=0,
+            transB=1,
+            _outputs=[gemm_output_name],
         )
 
-        if need_flatten:
-            batch_dims = x_shape[:-1]
-            all_static = all(_is_static_int(d) for d in batch_dims)
-            flat_dim_label = _flatten_leading_dim_label(x_val, x_shape)
-            if flat_dim_label is not None:
-                _stamp_type_and_shape(gemm_out, (flat_dim_label, out_features))
-            if all_static:
-                final_vals = [_ensure_static_int(d) for d in batch_dims] + [
-                    out_features
-                ]
-                final_shape = _const_i64(ctx, final_vals, name_hint="linear_out_shape")
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape],
-                        outputs=[out_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
-                )
-                _stamp_type_and_shape(out_val, tuple(final_vals))
-            else:
-                rank = len(x_shape)
-                shape_val = ir.Value(
-                    name=ctx.fresh_name("linear_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((rank,)),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Shape",
-                        domain="",
-                        inputs=[x_val],
-                        outputs=[shape_val],
-                        name=ctx.fresh_name("Shape"),
-                    )
-                )
-                starts = _const_i64(ctx, [0], name_hint="linear_slice_start")
-                ends = _const_i64(ctx, [max(rank - 1, 0)], name_hint="linear_slice_end")
-                axes = _const_i64(ctx, [0], name_hint="linear_slice_axes")
-                batch_dims_val = ir.Value(
-                    name=ctx.fresh_name("linear_batch_dims"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((max(rank - 1, 0),)),
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Slice",
-                        domain="",
-                        inputs=[shape_val, starts, ends, axes],
-                        outputs=[batch_dims_val],
-                        name=ctx.fresh_name("Slice"),
-                    )
-                )
-                out_feat = _const_i64(
-                    ctx, [out_features], name_hint="linear_out_feature"
-                )
-                final_shape = ir.Value(
-                    name=ctx.fresh_name("linear_final_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((rank if rank else 1,)),
-                )
-                concat_node = ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=[batch_dims_val, out_feat],
-                    outputs=[final_shape],
-                    name=ctx.fresh_name("Concat"),
-                )
-                ctx.add_node(concat_node)
-                ctx.set_node_attrs(concat_node, {"axis": 0})
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape],
-                        outputs=[out_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
-                )
-                target_dims = []
-                for idx in range(max(len(x_shape) - 1, 0)):
-                    target_dims.append(
-                        _dim_label_from_value_or_aval(x_val, x_shape, idx)
-                    )
-                target_dims.append(out_features)
-                _stamp_type_and_shape(out_val, tuple(target_dims))
-            _ensure_value_info(ctx, out_val)
-        else:
+        result_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if result_dtype is not None:
+            gemm_result.type = ir.TensorType(result_dtype)
+
+        if not need_flatten:
+            out_dims: list[object] = []
             if x_shape:
-                out_dims = []
                 for idx in range(len(x_shape) - 1):
                     label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
-                    out_dims.append(label if label is not None else x_shape[idx])
-                out_dims.append(out_features)
-                _stamp_type_and_shape(out_val, tuple(out_dims))
-            else:
-                _stamp_type_and_shape(out_val, (out_features,))
-            _ensure_value_info(ctx, out_val)
+                    if label is None:
+                        dim = x_shape[idx]
+                        if _is_static_int(dim):
+                            label = _ensure_static_int(dim)
+                        else:
+                            label = dim
+                    out_dims.append(label)
+            out_dims.append(out_features)
+            _stamp_type_and_shape(gemm_result, tuple(out_dims))
+            _ensure_value_info(ctx, gemm_result)
+            ctx.bind_value_for_var(out_var, gemm_result)
+            return
+
+        leading_dim = flat_dim_label if flat_dim_label is not None else None
+        _stamp_type_and_shape(gemm_result, (leading_dim, out_features))
+        _ensure_value_info(ctx, gemm_result)
+
+        batch_dims = x_shape[:-1]
+        all_static = all(_is_static_int(d) for d in batch_dims)
+
+        if all_static:
+            final_vals = [_ensure_static_int(d) for d in batch_dims] + [out_features]
+            final_shape = _const_i64(ctx, final_vals, name_hint="linear_out_shape")
+            final_output = builder.Reshape(
+                gemm_result,
+                final_shape,
+                _outputs=[ctx.fresh_name("linear_out")],
+            )
+            if result_dtype is not None:
+                final_output.type = ir.TensorType(result_dtype)
+            _stamp_type_and_shape(final_output, tuple(final_vals))
+            _ensure_value_info(ctx, final_output)
+            ctx.bind_value_for_var(out_var, final_output)
+            return
+
+        rank = len(x_shape)
+        shape_val = builder.Shape(
+            x_val,
+            _outputs=[ctx.fresh_name("linear_shape")],
+        )
+        shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shape_val, (rank if rank else 1,))
+        _ensure_value_info(ctx, shape_val)
+
+        starts = _const_i64(ctx, [0], name_hint="linear_slice_start")
+        ends = _const_i64(ctx, [max(rank - 1, 0)], name_hint="linear_slice_end")
+        axes = _const_i64(ctx, [0], name_hint="linear_slice_axes")
+        steps = _const_i64(ctx, [1], name_hint="linear_slice_steps")
+
+        batch_dims_val = builder.Slice(
+            shape_val,
+            starts,
+            ends,
+            axes,
+            steps,
+            _outputs=[ctx.fresh_name("linear_batch_dims")],
+        )
+        batch_dims_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(batch_dims_val, (max(rank - 1, 0),))
+        _ensure_value_info(ctx, batch_dims_val)
+
+        out_feat = _const_i64(ctx, [out_features], name_hint="linear_out_feature")
+        final_shape = builder.Concat(
+            batch_dims_val,
+            out_feat,
+            axis=0,
+            _outputs=[ctx.fresh_name("linear_final_shape")],
+        )
+        final_shape.type = ir.TensorType(ir.DataType.INT64)
+        final_rank = max(rank - 1, 0) + 1
+        _stamp_type_and_shape(final_shape, (final_rank,))
+        _ensure_value_info(ctx, final_shape)
+
+        final_output = builder.Reshape(
+            gemm_result,
+            final_shape,
+            _outputs=[ctx.fresh_name("linear_out")],
+        )
+        if result_dtype is not None:
+            final_output.type = ir.TensorType(result_dtype)
+
+        target_dims: list[object] = []
+        for idx in range(max(len(x_shape) - 1, 0)):
+            label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            if label is None:
+                dim = x_shape[idx]
+                if _is_static_int(dim):
+                    label = _ensure_static_int(dim)
+                else:
+                    label = dim
+            target_dims.append(label)
+        target_dims.append(out_features)
+        _stamp_type_and_shape(final_output, tuple(target_dims))
+        _ensure_value_info(ctx, final_output)
+        ctx.bind_value_for_var(out_var, final_output)
 
     @classmethod
     def binding_specs(cls):
