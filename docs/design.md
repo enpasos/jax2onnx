@@ -108,7 +108,21 @@ When lowering, always **reuse the IRValue pre-allocated for each equation outvar
 
 Avoid producing temporary outputs and “attaching” them afterwards; that pattern bypasses the var→value map and leads to orphaned tensors. Keeping the contract tight here means downstream equations always receive the correct tensor without extra bookkeeping.
 
-The plugin uses *IR*, not a high-level “builder” that might vary. That keeps plugins robust: they create nodes with `(op_type, inputs, outputs, attributes)` and let the core do the rest.
+### Builder vs. Tape
+
+Every lowering runs against the same IR backend but plugins are expected to work through
+`ctx.builder` whenever possible:
+
+* The builder records nodes/initializers in one place and mirrors `_tape.Builder`
+  semantics across converters, plugins, and tests. The policy suite (`tests/extra_tests/framework/test_ir_builder_contracts.py`
+  and `scripts/check_ir_builder_usage.py`) assumes `_outputs`/initializer calls flow through
+  the builder helpers.
+* Drop down to `onnx_ir.tape.Tape` (or construct `ir.Node` manually) only when you need features
+  the builder cannot express—overload selection, custom output reuse, or metadata props. When you do,
+  restore dtype/shape metadata manually and write back to all graph mirrors (`graph.nodes`, `_nodes`, etc.).
+* The [ONNX IR Builder Guide](dev_guides/onnx_ir_builder.md) collects the concrete guardrails and
+  example snippets. Treat it as the source of truth for `_outputs`, initializer naming, and RNG/dtype
+  conventions referenced by the policy tests.
 
 ### Functions (converter-owned call boundaries)
 

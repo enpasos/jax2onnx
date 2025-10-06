@@ -22,7 +22,6 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -64,6 +63,72 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
     setter = getattr(ctx, "set_node_attrs", None)
     if callable(setter):
         setter(node, attrs)
+
+
+def _require_builder(ctx: Any):
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+    return builder
+
+
+def _ir_dtype_from_numpy(dt: np.dtype) -> ir.DataType:
+    dt = np.dtype(dt)
+    if dt == np.dtype("float32"):
+        return ir.DataType.FLOAT
+    if dt == np.dtype("float64"):
+        return getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT)
+    if dt == np.dtype("int64"):
+        return ir.DataType.INT64
+    if dt == np.dtype("int32"):
+        return ir.DataType.INT32
+    if dt == np.dtype("bool"):
+        return getattr(ir.DataType, "BOOL", ir.DataType.INT32)
+    return ir.DataType.FLOAT
+
+
+def _const_from_array(ctx: Any, name_hint: str, arr: np.ndarray) -> ir.Value:
+    builder = getattr(ctx, "builder", None)
+    base_name = ctx.fresh_name(name_hint) if hasattr(ctx, "fresh_name") else name_hint
+    np_arr = np.asarray(arr)
+
+    inside_function = bool(
+        getattr(ctx, "_inside_function_scope", False)
+        or getattr(ctx, "_function_mode", False)
+    )
+    builder_mode = (
+        bool(getattr(builder, "_function_mode", False))
+        if builder is not None
+        else False
+    )
+
+    if builder is not None and not inside_function and not builder_mode:
+        add_init = getattr(builder, "add_initializer_from_array", None)
+        if callable(add_init):
+            return add_init(base_name, np_arr)
+
+    value = ir.Value(
+        name=base_name,
+        type=ir.TensorType(_ir_dtype_from_numpy(np_arr.dtype)),
+        shape=ir.Shape(tuple(int(d) for d in np_arr.shape)),
+        const_value=ir.tensor(np_arr),
+    )
+
+    handler = getattr(ctx, "_handle_initializer_append", None)
+    if callable(handler):
+        handler(value)
+        return value
+
+    init_list = getattr(ctx, "_initializers", None)
+    if init_list is not None and hasattr(init_list, "append"):
+        init_list.append(value)
+        return value
+
+    if builder is not None:
+        builder_inits = getattr(builder, "initializers", None)
+        if isinstance(builder_inits, list):
+            builder_inits.append(value)
+    return value
 
 
 @register_primitive(
@@ -158,7 +223,6 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         scale_val = ctx.get_value_for_var(scale_var, name_hint=ctx.fresh_name("scale"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
         scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="rms_scale_cast")
 
@@ -171,7 +235,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         if axis < 0 or axis >= rank:
             raise ValueError("axis out of range for RMSNorm")
 
-        builder = getattr(ctx, "builder", None)
+        builder = _require_builder(ctx)
         opset = None
         if builder is not None:
             opset = getattr(builder, "opset", None)
@@ -187,150 +251,94 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             _dim_label_from_value_or_aval(x_val, x_shape, i) for i in range(rank)
         )
 
-        if opset >= 23:
-            rms = ir.Node(
-                op_type="RMSNormalization",
-                domain="",
-                inputs=[x_val, scale_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("RMSNorm"),
-            )
-            ctx.add_node(rms)
-            _set_attrs(
-                ctx,
-                rms,
-                {"axis": int(axis), "epsilon": float(epsilon)},
-            )
-            _stamp_type_and_shape(y_val, dims)
-            _add_value_info(ctx, y_val)
-            return
-
         x_np_dtype = np.dtype(
             getattr(getattr(x_var, "aval", None), "dtype", np.float32)
         )
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
-        builder = getattr(ctx, "builder", None)
-
-        def _const(
-            name: str,
-            value: np.ndarray,
-            *,
-            np_dtype: np.dtype | None = None,
-            ir_dtype=None,
-        ) -> ir.Value:
-            arr = np.asarray(value, dtype=np_dtype or x_np_dtype)
-            if builder is not None and hasattr(builder, "add_initializer_from_array"):
-                return builder.add_initializer_from_array(
-                    name=ctx.fresh_name(name), array=arr
-                )
-            val = ir.Value(
-                name=ctx.fresh_name(name),
-                type=ir.TensorType(ir_dtype or x_ir_dtype),
-                shape=ir.Shape(tuple(int(d) for d in arr.shape)),
-                const_value=ir.tensor(arr),
+        if opset >= 23 and hasattr(builder, "RMSNormalization"):
+            y_val = builder.RMSNormalization(
+                x_val,
+                scale_val,
+                axis=int(axis),
+                epsilon=float(epsilon),
+                _outputs=[ctx.fresh_name("RMSNorm")],
             )
-            ctx._initializers.append(val)
-            return val
+            x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+            if x_dtype is not None:
+                y_val.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(y_val, dims)
+            _add_value_info(ctx, y_val)
+            bind_value = getattr(ctx, "bind_value_for_var", None)
+            if not callable(bind_value):
+                raise AttributeError("IR build context missing bind_value_for_var")
+            bind_value(y_var, y_val)
+            return
 
-        two_const = _const("two", np.array(2.0, dtype=x_np_dtype))
-        eps_const = _const("eps", np.array(epsilon, dtype=x_np_dtype))
-        axes_const = _const(
-            "axes",
-            np.array([int(axis)], dtype=np.int64),
-            np_dtype=np.int64,
-            ir_dtype=ir.DataType.INT64,
+        two_const = _const_from_array(ctx, "two", np.asarray(2.0, dtype=x_np_dtype))
+        eps_const = _const_from_array(ctx, "eps", np.asarray(epsilon, dtype=x_np_dtype))
+        axes_const = _const_from_array(
+            ctx, "axes", np.asarray([int(axis)], dtype=np.int64)
         )
 
-        pow_out = ir.Value(
-            name=ctx.fresh_name("rms_pow"),
-            type=x_val.type,
-            shape=x_val.shape,
+        pow_out = builder.Pow(
+            x_val,
+            two_const,
+            _outputs=[ctx.fresh_name("rms_pow")],
         )
-        pow_node = ir.Node(
-            op_type="Pow",
-            domain="",
-            inputs=[x_val, two_const],
-            outputs=[pow_out],
-            name=ctx.fresh_name("Pow"),
-        )
-        ctx.add_node(pow_node)
+        pow_out.type = ir.TensorType(x_ir_dtype)
+        _stamp_type_and_shape(pow_out, dims)
 
         mean_shape = list(x_shape)
         if axis < len(mean_shape):
             mean_shape[axis] = 1
         mean_dims = tuple(mean_shape)
-        mean_out = ir.Value(
-            name=ctx.fresh_name("rms_mean"),
-            type=x_val.type,
-            shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in mean_dims)),
+
+        mean_out = builder.ReduceMean(
+            pow_out,
+            axes_const,
+            keepdims=1,
+            _outputs=[ctx.fresh_name("rms_mean")],
         )
-        mean_node = ir.Node(
-            op_type="ReduceMean",
-            domain="",
-            inputs=[pow_out, axes_const],
-            outputs=[mean_out],
-            name=ctx.fresh_name("ReduceMean"),
-        )
-        ctx.add_node(mean_node)
-        _set_attrs(ctx, mean_node, {"keepdims": 1})
+        mean_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(mean_out, mean_dims)
 
-        add_out = ir.Value(
-            name=ctx.fresh_name("rms_add"),
-            type=mean_out.type,
-            shape=mean_out.shape,
+        add_out = builder.Add(
+            mean_out,
+            eps_const,
+            _outputs=[ctx.fresh_name("rms_add")],
         )
-        add_node = ir.Node(
-            op_type="Add",
-            domain="",
-            inputs=[mean_out, eps_const],
-            outputs=[add_out],
-            name=ctx.fresh_name("Add"),
-        )
-        ctx.add_node(add_node)
+        add_out.type = ir.TensorType(x_ir_dtype)
+        _stamp_type_and_shape(add_out, mean_dims)
 
-        sqrt_out = ir.Value(
-            name=ctx.fresh_name("rms_sqrt"),
-            type=mean_out.type,
-            shape=mean_out.shape,
+        sqrt_out = builder.Sqrt(
+            add_out,
+            _outputs=[ctx.fresh_name("rms_sqrt")],
         )
-        sqrt_node = ir.Node(
-            op_type="Sqrt",
-            domain="",
-            inputs=[add_out],
-            outputs=[sqrt_out],
-            name=ctx.fresh_name("Sqrt"),
-        )
-        ctx.add_node(sqrt_node)
+        sqrt_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(sqrt_out, mean_dims)
 
-        div_out = ir.Value(
-            name=ctx.fresh_name("rms_div"),
-            type=x_val.type,
-            shape=x_val.shape,
+        div_out = builder.Div(
+            x_val,
+            sqrt_out,
+            _outputs=[ctx.fresh_name("rms_div")],
         )
-        div_node = ir.Node(
-            op_type="Div",
-            domain="",
-            inputs=[x_val, sqrt_out],
-            outputs=[div_out],
-            name=ctx.fresh_name("Div"),
-        )
-        ctx.add_node(div_node)
+        div_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(div_out, dims)
 
-        mul_node = ir.Node(
-            op_type="Mul",
-            domain="",
-            inputs=[div_out, scale_val],
-            outputs=[y_val],
-            name=ctx.fresh_name("Mul"),
+        y_val = builder.Mul(
+            div_out,
+            scale_val,
+            _outputs=[ctx.fresh_name("rms_out")],
         )
-        ctx.add_node(mul_node)
-
+        y_val.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(y_val, dims)
         _add_value_info(ctx, y_val)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, y_val)
 
     # ---------------- monkey patch & binding ----------------
     @classmethod

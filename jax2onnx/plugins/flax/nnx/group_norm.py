@@ -21,7 +21,6 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _to_ir_dim_for_shape,
     _ensure_value_info as _add_value_info,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -67,6 +66,13 @@ def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
     setter = getattr(ctx, "set_node_attrs", None)
     if callable(setter):
         setter(node, attrs)
+
+
+def _require_builder(ctx: Any):
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+    return builder
 
 
 @register_primitive(
@@ -241,10 +247,11 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         num_groups = int(params.get("num_groups", 1))
         channel_axis = int(params.get("channel_axis", -1))
 
+        builder = _require_builder(ctx)
+
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         scale_val = ctx.get_value_for_var(scale_var, name_hint=ctx.fresh_name("scale"))
         bias_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
         scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="gn_scale_cast")
         bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="gn_bias_cast")
@@ -273,70 +280,67 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         def _label(idx: int):
             return _dim_label_from_value_or_aval(x_val, x_shape, idx)
 
-        nchw_dims = tuple(_label(i) for i in perm)
-        nhwc_dims = tuple(_label(i) for i in range(rank))
+        def _dims_for(indices: Sequence[int]):
+            dims: list[Any] = []
+            for idx in indices:
+                label = _label(idx)
+                if label is not None:
+                    dims.append(label)
+                elif 0 <= idx < len(x_shape):
+                    dims.append(x_shape[idx])
+                else:
+                    dims.append(None)
+            return tuple(dims)
+
+        nchw_dims = _dims_for(perm)
+        nhwc_dims = _dims_for(range(rank))
+
+        x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
 
         gn_input = x_val
         if need_layout_convert:
-            gn_input = ir.Value(
-                name=ctx.fresh_name("gn_nchw_in"),
-                type=x_val.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims)),
+            gn_input = builder.Transpose(
+                x_val,
+                perm=tuple(int(p) for p in perm),
+                _outputs=[ctx.fresh_name("gn_nchw_in")],
             )
-            transpose_in = ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[x_val],
-                outputs=[gn_input],
-                name=ctx.fresh_name("Transpose"),
-            )
-            ctx.add_node(transpose_in)
-            _set_attrs(ctx, transpose_in, {"perm": tuple(perm)})
+            if x_ir_dtype is not None:
+                gn_input.type = ir.TensorType(x_ir_dtype)
             _stamp_type_and_shape(gn_input, nchw_dims)
+            _add_value_info(ctx, gn_input)
 
-        gn_out = (
-            y_val
-            if not need_layout_convert
-            else ir.Value(
-                name=ctx.fresh_name("gn_nchw_out"),
-                type=gn_input.type,
-                shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in nchw_dims)),
-            )
+        gn_out = builder.GroupNormalization(
+            gn_input,
+            scale_val,
+            bias_val,
+            epsilon=float(epsilon),
+            num_groups=int(num_groups),
+            _outputs=[ctx.fresh_name("GroupNorm")],
         )
-
-        gn_node = ir.Node(
-            op_type="GroupNormalization",
-            domain="",
-            inputs=[gn_input, scale_val, bias_val],
-            outputs=[gn_out],
-            name=ctx.fresh_name("GroupNorm"),
-        )
-        ctx.add_node(gn_node)
-        _set_attrs(
-            ctx,
-            gn_node,
-            {
-                "epsilon": float(epsilon),
-                "num_groups": int(num_groups),
-            },
-        )
+        if x_ir_dtype is not None:
+            gn_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(gn_out, nchw_dims if need_layout_convert else nhwc_dims)
+        _add_value_info(ctx, gn_out)
 
         if need_layout_convert:
-            transpose_out = ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[gn_out],
-                outputs=[y_val],
-                name=ctx.fresh_name("Transpose"),
+            final_val = builder.Transpose(
+                gn_out,
+                perm=tuple(int(p) for p in inv_perm),
+                _outputs=[ctx.fresh_name("gn_out")],
             )
-            ctx.add_node(transpose_out)
-            _set_attrs(ctx, transpose_out, {"perm": tuple(inv_perm)})
-            _stamp_type_and_shape(y_val, nhwc_dims)
+            if x_ir_dtype is not None:
+                final_val.type = ir.TensorType(x_ir_dtype)
+            _stamp_type_and_shape(final_val, nhwc_dims)
+            _add_value_info(ctx, final_val)
         else:
-            _stamp_type_and_shape(y_val, nhwc_dims)
+            final_val = gn_out
+            _stamp_type_and_shape(final_val, nhwc_dims)
+            _add_value_info(ctx, final_val)
 
-        _add_value_info(ctx, y_val)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, final_val)
 
     # ---------------- monkey patch & binding ----------------
     @classmethod

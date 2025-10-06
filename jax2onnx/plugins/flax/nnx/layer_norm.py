@@ -20,6 +20,11 @@ from jax2onnx.plugins.plugin_system import (
 # Cast helper that inserts CastLike only when needed; no-op if dtypes already match
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _stamp_type_and_shape,
+    _ensure_value_info as _add_value_info,
+)
 
 
 def _attr_value(node: Any, name: str) -> Optional[Any]:
@@ -336,19 +341,11 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         scale_v = cast_param_like(ctx, scale_v, x_v, name_hint="ln_scale_cast")
         bias_v = cast_param_like(ctx, bias_v, x_v, name_hint="ln_bias_cast")
 
-        y_v = ctx.get_value_for_var(eqn.outvars[0])
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder")
 
-        ln = ir.Node(
-            op_type="LayerNormalization",
-            domain="",
-            inputs=[x_v, scale_v, bias_v],
-            outputs=[y_v],
-            name=ctx.builder.fresh_name("LayerNorm"),
-        )
-        ctx.add_node(ln)
-
-        # Read axis/epsilon from JAXPR params and delegate attribute materialization
-        # (function body vs. top-level) to the IRContext helper.
+        # Read axis/epsilon from JAXPR params so the builder attaches them directly.
         p = params or getattr(eqn, "params", {}) or {}
         in_shape = tuple(getattr(eqn.invars[0].aval, "shape", ()))
         rank = len(in_shape)
@@ -356,7 +353,33 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         if axis < 0:
             axis += rank
         eps = float(p.get("epsilon", 1e-5))
-        ctx.set_node_attrs(ln, {"axis": int(axis), "epsilon": float(eps)})
+
+        y_val = builder.LayerNormalization(
+            x_v,
+            scale_v,
+            bias_v,
+            axis=int(axis),
+            epsilon=float(eps),
+            _outputs=[ctx.fresh_name("LayerNorm")],
+        )
+
+        x_dtype = getattr(getattr(x_v, "type", None), "dtype", None)
+        if x_dtype is not None:
+            y_val.type = ir.TensorType(x_dtype)
+
+        out_aval_shape = tuple(getattr(eqn.outvars[0].aval, "shape", ()))
+        if out_aval_shape:
+            dims: list[Any] = []
+            for idx in range(len(out_aval_shape)):
+                label = _dim_label_from_value_or_aval(x_v, in_shape, idx)
+                dims.append(label if label is not None else out_aval_shape[idx])
+            _stamp_type_and_shape(y_val, tuple(dims))
+        _add_value_info(ctx, y_val)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(eqn.outvars[0], y_val)
 
     # ---- patch nnx.LayerNorm.__call__ to bind our primitive ----------------
     @classmethod
