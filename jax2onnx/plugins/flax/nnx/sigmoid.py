@@ -3,7 +3,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, ClassVar, List, Union
 
-import numpy as np
 import jax
 from jax.extend.core import Primitive
 from flax import nnx
@@ -67,26 +66,33 @@ class SigmoidPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Sigmoid",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Sigmoid"),
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Sigmoid lowering"
             )
-        )
+
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Sigmoid")
+        result = builder.Sigmoid(x_val, _outputs=[out_name])
+
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        final_dims: List[Union[int, str]] = []
-        for i, d in enumerate(x_shape):
-            if isinstance(d, (int, np.integer)):
-                final_dims.append(int(d))
-            else:
-                final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
+        if x_shape:
+            dims: List[Union[int, str]] = [
+                _dim_label_from_value_or_aval(x_val, x_shape, i)
+                for i in range(len(x_shape))
+            ]
+            _stamp_type_and_shape(result, tuple(dims))
+        _add_value_info(ctx, result)
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod

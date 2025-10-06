@@ -211,7 +211,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
 | LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
 | Control-flow scaffolding and complex lowers (`conv`, `scan`, `while_loop`, `batch_norm`, etc.) | ⏳ mixed/manual | Large rewrites; track separately in the next refactor batch. |
-| Flax NNX activations / pooling / conv | ⏳ mixed | `relu`/`gelu`/`elu`/`tanh` migrated to builder helpers; remaining activations/pooling still manual. |
+| Flax NNX activations / pooling / conv | ⏳ mixed | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid` migrated to builder helpers; remaining activations/pooling still manual. |
 | Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed | Builder used for params; wiring still manual in places. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
 | IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
