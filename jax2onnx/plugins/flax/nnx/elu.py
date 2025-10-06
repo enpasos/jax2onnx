@@ -22,18 +22,6 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-def _make_float_attr(name: str, value: float):
-    Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-    if Attr is None:
-        return None
-    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-    if hasattr(Attr, "f"):
-        return Attr.f(name, float(value))
-    if AttrType is not None:
-        return Attr(name, AttrType.FLOAT, float(value))
-    return Attr(name, float(value))
-
-
 def _alpha_attr_equals(model, expected: float) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "Elu"), None
@@ -127,24 +115,15 @@ class EluPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        attrs = []
-        attr_obj = _make_float_attr("alpha", alpha)
-        if attr_obj is not None and not np.isclose(alpha, 1.0):
-            attrs.append(attr_obj)
-        elif attr_obj is None and not np.isclose(alpha, 1.0):
-            # fallback in absence of Attr helper - rely on context setter if available
-            pass
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Elu lowering")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Elu",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Elu"),
-                attributes=attrs,
-            )
-        )
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Elu")
+        kwargs = {}
+        if not np.isclose(alpha, 1.0):
+            kwargs["alpha"] = float(alpha)
+        result = builder.Elu(x_val, _outputs=[out_name], **kwargs)
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         final_dims: List[Union[int, str]] = []
@@ -154,14 +133,18 @@ class EluPlugin(PrimitiveLeafPlugin):
             else:
                 final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
 
-        # If attr helpers unavailable and alpha != 1, try context attr setter
-        if attr_obj is None and not np.isclose(alpha, 1.0):
-            maybe_set_attrs = getattr(ctx, "set_node_attrs", None)
-            if callable(maybe_set_attrs):
-                maybe_set_attrs({"alpha": float(alpha)})
+        _stamp_type_and_shape(result, tuple(final_dims))
+        _add_value_info(ctx, result)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod

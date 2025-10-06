@@ -127,34 +127,30 @@ class GeluPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(y_val, y_meta)
 
-        # Build attributes for ONNX Gelu.
-        # Set approximate="tanh" when requested; use "none" otherwise to keep tests explicit.
-        attrs = []
-        Attr = getattr(ir, "Attr", None)
-        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Gelu lowering")
+
         approx_str = "tanh" if approximate else "none"
-        if Attr is not None:
-            # Prefer typed classmethods if available; fallback to enum-ctor; final fallback: (name, value)
-            if hasattr(Attr, "s"):
-                attrs = [Attr.s("approximate", approx_str)]
-            elif AttrType is not None:
-                attrs = [Attr("approximate", AttrType.STRING, approx_str)]
-            else:
-                attrs = [Attr("approximate", approx_str)]
-
-        gelu_node = ir.Node(
-            op_type="Gelu",
-            domain="",
-            inputs=[x_val],
-            outputs=[y_val],
-            name=ctx.fresh_name("Gelu"),
-            attributes=attrs,
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Gelu")
+        result = builder.Gelu(
+            x_val,
+            _outputs=[out_name],
+            approximate=approx_str,
         )
-        ctx.add_node(gelu_node)
 
-        # Re-assert for value_info readability
-        _stamp_type_and_shape(y_val, y_meta)
-        _add_value_info(ctx, y_val)
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
+
+        _stamp_type_and_shape(result, y_meta)
+        _add_value_info(ctx, result)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------- runtime impl (eager) ----------
     @staticmethod

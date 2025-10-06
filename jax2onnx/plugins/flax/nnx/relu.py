@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/relu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union, Any
 
 import numpy as np
 from jax.extend.core import Primitive as JaxPrimitive
@@ -88,15 +88,11 @@ class ReluPlugin(PrimitiveLeafPlugin):
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
         # Emit ONNX Relu
-        ctx.add_node(
-            ir.Node(
-                op_type="Relu",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Relu"),
-            )
-        )
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Relu")
+        builder: Any = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Relu lowering")
+        result = builder.Relu(x_val, _outputs=[out_name])
 
         # Stamp output type/shape (preserve symbolic labels from input)
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
@@ -107,8 +103,17 @@ class ReluPlugin(PrimitiveLeafPlugin):
             else:
                 final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
+
+        _stamp_type_and_shape(result, tuple(final_dims))
+        _add_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------------- monkey patch binding ----------------
     @staticmethod

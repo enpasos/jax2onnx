@@ -36,56 +36,35 @@ def _builder_op(
     attributes: Dict[str, Any] | None = None,
     output: ir.Value | None = None,
 ) -> ir.Value:
-    if output is None:
-        output = ir.Value(
-            name=ctx.fresh_name(name_hint),
-            type=ir.TensorType(dtype) if dtype is not None else None,
-            shape=ir.Shape(tuple(shape)) if shape is not None else None,
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+
+    attrs = dict(attributes or {})
+    method = getattr(builder, op_type, None)
+
+    if output is not None:
+        if not getattr(output, "name", None):
+            output.name = ctx.fresh_name(name_hint)
+        result = builder.op(
+            op_type,
+            list(inputs),
+            attrs,
+            output=output,
+            name=output.name,
         )
     else:
-        if dtype is not None:
-            output.type = ir.TensorType(dtype)
-        if shape is not None:
-            output.shape = ir.Shape(tuple(shape))
-    result = ctx.builder.op(
-        op_type,
-        list(inputs),
-        attributes or {},
-        output=output,
-        name=output.name,
-    )
+        out_name = ctx.fresh_name(name_hint)
+        if callable(method):
+            result = method(*inputs, _outputs=[out_name], **attrs)
+        else:
+            result = builder.op(op_type, list(inputs), attrs, name=out_name)
     if dtype is not None:
         result.type = ir.TensorType(dtype)
     if shape is not None:
         _stamp_type_and_shape(result, tuple(shape))
     _ensure_value_info(ctx, result)
     return result
-
-
-def _emit_into(
-    ctx: Any,
-    op_type: str,
-    inputs: Sequence[ir.Value | None],
-    *,
-    output: ir.Value,
-    attributes: Dict[str, Any] | None = None,
-) -> ir.Value:
-    dtype = getattr(getattr(output, "type", None), "dtype", None)
-    shape_obj = getattr(output, "shape", None)
-    shape = None
-    if shape_obj is not None and hasattr(shape_obj, "dims"):
-        dims = tuple(shape_obj.dims)
-        shape = dims
-    return _builder_op(
-        ctx,
-        op_type,
-        inputs,
-        name_hint=output.name,
-        dtype=dtype,
-        shape=shape,
-        attributes=attributes,
-        output=output,
-    )
 
 
 @dataclass(frozen=True)
@@ -495,12 +474,7 @@ def _flatten_updates_after_permute(
 ) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
     """Reshape permuted updates tensor to ``(N, window_total)`` and flatten."""
 
-    reshape_updates_shape = ir.Value(
-        name=ctx.fresh_name("scatter_updates_reshape_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((2,)),
-    )
-    _builder_op(
+    reshape_updates_shape = _builder_op(
         ctx,
         "Concat",
         [num_updates_vec, window_total_vec],
@@ -508,34 +482,20 @@ def _flatten_updates_after_permute(
         dtype=ir.DataType.INT64,
         shape=(2,),
         attributes={"axis": 0},
-        output=reshape_updates_shape,
     )
-    _ensure_value_info(ctx, reshape_updates_shape)
 
-    updates_2d = ir.Value(
-        name=ctx.fresh_name("scatter_updates_2d"),
-        type=ir.TensorType(updates_perm_val.type.dtype),
-        shape=ir.Shape((None, None)),
-    )
     upd_dtype = getattr(getattr(updates_perm_val, "type", None), "dtype", None)
-    _builder_op(
+    updates_2d = _builder_op(
         ctx,
         "Reshape",
         [updates_perm_val, reshape_updates_shape],
         name_hint="scatter_updates_2d",
         dtype=upd_dtype,
         shape=(None, None),
-        output=updates_2d,
     )
-    _ensure_value_info(ctx, updates_2d)
 
     if gather_idx is not None:
-        updates_2d_filtered = ir.Value(
-            name=ctx.fresh_name("scatter_updates_valid"),
-            type=ir.TensorType(updates_perm_val.type.dtype),
-            shape=ir.Shape((None, None)),
-        )
-        _builder_op(
+        updates_2d = _builder_op(
             ctx,
             "Gather",
             [updates_2d, gather_idx],
@@ -543,10 +503,7 @@ def _flatten_updates_after_permute(
             dtype=upd_dtype,
             shape=(None, None),
             attributes={"axis": 0},
-            output=updates_2d_filtered,
         )
-        _ensure_value_info(ctx, updates_2d_filtered)
-        updates_2d = updates_2d_filtered
 
     total_updates = _mul_scalars(
         ctx, num_updates, window_total, "scatter_total_updates"
@@ -555,22 +512,15 @@ def _flatten_updates_after_permute(
         ctx, total_updates, 0, "scatter_total_updates_vec"
     )
 
-    updates_flat = ir.Value(
-        name=ctx.fresh_name("scatter_updates_flat"),
-        type=ir.TensorType(updates_perm_val.type.dtype),
-        shape=ir.Shape((None,)),
-    )
     upd_dtype = getattr(getattr(updates_perm_val, "type", None), "dtype", None)
-    _builder_op(
+    updates_flat = _builder_op(
         ctx,
         "Reshape",
         [updates_2d, total_updates_vec],
         name_hint="scatter_updates_flat",
         dtype=upd_dtype,
         shape=(None,),
-        output=updates_flat,
     )
-    _ensure_value_info(ctx, updates_flat)
 
     return updates_flat, updates_2d, total_updates, total_updates_vec
 
@@ -783,166 +733,121 @@ def _filter_fill_or_drop_updates(
         gather_idx = _const_i64(
             ctx, np.asarray([col_index], dtype=np.int64), f"scatter_fill_idx_{axis}"
         )
-        col_val = ir.Value(
-            name=ctx.fresh_name(f"scatter_base_col_{axis}"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((None, 1)),
-        )
-        _emit_into(
+        col_val = _builder_op(
             ctx,
             "Gather",
             [indices_2d, gather_idx],
-            output=col_val,
+            name_hint=f"scatter_base_col_{axis}",
+            dtype=ir.DataType.INT64,
+            shape=(None, 1),
             attributes={"axis": 1},
         )
-        _ensure_value_info(ctx, col_val)
 
-        ge_zero = ir.Value(
-            name=ctx.fresh_name(f"scatter_ge0_{axis}"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape((None, 1)),
-        )
-        _emit_into(
+        ge_zero = _builder_op(
             ctx,
             "GreaterOrEqual",
             [col_val, zero_scalar],
-            output=ge_zero,
+            name_hint=f"scatter_ge0_{axis}",
+            dtype=ir.DataType.BOOL,
+            shape=(None, 1),
         )
-        _ensure_value_info(ctx, ge_zero)
 
         dim_scalar = _gather_int_scalar(
             ctx, operand_shape_val, axis, f"scatter_dim_{axis}"
         )
-        limit_scalar = ir.Value(
-            name=ctx.fresh_name(f"scatter_limit_{axis}"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(()),
-        )
-        _emit_into(
+        limit_scalar = _builder_op(
             ctx,
             "Sub",
             [dim_scalar, size_scalars[axis]],
-            output=limit_scalar,
+            name_hint=f"scatter_limit_{axis}",
+            dtype=ir.DataType.INT64,
+            shape=(),
         )
-        _ensure_value_info(ctx, limit_scalar)
 
-        le_limit = ir.Value(
-            name=ctx.fresh_name(f"scatter_le_{axis}"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape((None, 1)),
-        )
-        _emit_into(
+        le_limit = _builder_op(
             ctx,
             "LessOrEqual",
             [col_val, limit_scalar],
-            output=le_limit,
+            name_hint=f"scatter_le_{axis}",
+            dtype=ir.DataType.BOOL,
+            shape=(None, 1),
         )
-        _ensure_value_info(ctx, le_limit)
 
-        axis_valid = ir.Value(
-            name=ctx.fresh_name(f"scatter_valid_axis_{axis}"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape((None, 1)),
-        )
-        _emit_into(
+        axis_valid = _builder_op(
             ctx,
             "And",
             [ge_zero, le_limit],
-            output=axis_valid,
+            name_hint=f"scatter_valid_axis_{axis}",
+            dtype=ir.DataType.BOOL,
+            shape=(None, 1),
         )
-        _ensure_value_info(ctx, axis_valid)
 
         if mask_val is None:
             mask_val = axis_valid
         else:
-            combined = ir.Value(
-                name=ctx.fresh_name("scatter_valid_mask"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=ir.Shape((None, 1)),
-            )
-            _emit_into(
+            mask_val = _builder_op(
                 ctx,
                 "And",
                 [mask_val, axis_valid],
-                output=combined,
+                name_hint="scatter_valid_mask",
+                dtype=ir.DataType.BOOL,
+                shape=(None, 1),
             )
-            _ensure_value_info(ctx, combined)
-            mask_val = combined
 
     if mask_val is None:
         return indices_2d, updates_perm_val, num_updates, None
 
-    mask_flat = ir.Value(
-        name=ctx.fresh_name("scatter_valid_flat"),
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape((None,)),
-    )
-    _emit_into(
+    mask_flat = _builder_op(
         ctx,
         "Squeeze",
         [mask_val, axes1],
-        output=mask_flat,
+        name_hint="scatter_valid_flat",
+        dtype=ir.DataType.BOOL,
+        shape=(None,),
     )
-    _ensure_value_info(ctx, mask_flat)
 
-    valid_idx = ir.Value(
-        name=ctx.fresh_name("scatter_valid_idx"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((1, None)),
-    )
-    _emit_into(
+    valid_idx = _builder_op(
         ctx,
         "NonZero",
         [mask_flat],
-        output=valid_idx,
+        name_hint="scatter_valid_idx",
+        dtype=ir.DataType.INT64,
+        shape=(1, None),
     )
-    _ensure_value_info(ctx, valid_idx)
 
-    valid_idx_t = ir.Value(
-        name=ctx.fresh_name("scatter_valid_idx_t"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, 1)),
-    )
-    _emit_into(
+    valid_idx_t = _builder_op(
         ctx,
         "Transpose",
         [valid_idx],
-        output=valid_idx_t,
+        name_hint="scatter_valid_idx_t",
+        dtype=ir.DataType.INT64,
+        shape=(None, 1),
         attributes={"perm": (1, 0)},
     )
-    _ensure_value_info(ctx, valid_idx_t)
 
-    valid_idx_flat = ir.Value(
-        name=ctx.fresh_name("scatter_valid_idx_flat"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None,)),
-    )
-    _emit_into(
+    valid_idx_flat = _builder_op(
         ctx,
         "Squeeze",
         [valid_idx_t, axes1],
-        output=valid_idx_flat,
+        name_hint="scatter_valid_idx_flat",
+        dtype=ir.DataType.INT64,
+        shape=(None,),
     )
-    _ensure_value_info(ctx, valid_idx_flat)
 
     valid_shape = _shape_of(ctx, valid_idx_flat, "scatter_valid_shape")
     num_valid = _gather_int_scalar(ctx, valid_shape, 0, "scatter_num_valid")
 
     depth = getattr(getattr(indices_2d.type, "shape", None), "dims", None)
     depth_dim = int(depth[1]) if depth and depth[1] is not None else None
-    indices_filtered = ir.Value(
-        name=ctx.fresh_name("scatter_indices_valid"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, depth_dim)),
-    )
-    _emit_into(
+    indices_filtered = _builder_op(
         ctx,
         "Gather",
         [indices_2d, valid_idx_flat],
-        output=indices_filtered,
+        name_hint="scatter_indices_valid",
+        dtype=ir.DataType.INT64,
+        shape=(None, depth_dim),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, indices_filtered)
 
     return indices_filtered, updates_perm_val, num_valid, valid_idx_flat
 
@@ -950,20 +855,16 @@ def _filter_fill_or_drop_updates(
 def _create_zero_column(
     ctx: Any, num_updates_vec: ir.Value, name_hint: str
 ) -> tuple[ir.Value, ir.Value]:
-    column_shape = ir.Value(
-        name=ctx.fresh_name(f"{name_hint}_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((2,)),
-    )
     one_const = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_one")
-    _emit_into(
+    column_shape = _builder_op(
         ctx,
         "Concat",
         [num_updates_vec, one_const],
-        output=column_shape,
+        name_hint=f"{name_hint}_shape",
+        dtype=ir.DataType.INT64,
+        shape=(2,),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, column_shape)
 
     zero_column = _make_constant_of_shape(
         ctx, column_shape, np.asarray([0], dtype=np.int64), name_hint
@@ -997,112 +898,83 @@ def _build_base_matrix(
             gather_idx = _const_i64(
                 ctx, np.asarray([col_pos], dtype=np.int64), f"scatter_base_idx_{axis}"
             )
-            col_val = ir.Value(
-                name=ctx.fresh_name(f"scatter_base_col_{axis}"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((None, 1)),
-            )
-            _emit_into(
+            col_val = _builder_op(
                 ctx,
                 "Gather",
                 [indices_2d, gather_idx],
-                output=col_val,
+                name_hint=f"scatter_base_col_{axis}",
+                dtype=ir.DataType.INT64,
+                shape=(None, 1),
                 attributes={"axis": 1},
             )
-            _ensure_value_info(ctx, col_val)
 
             if clip_mode:
                 operand_dim = _gather_int_scalar(
                     ctx, operand_shape_val, axis, f"scatter_operand_dim_{axis}"
                 )
                 window_extent = size_scalars[axis]
-                max_start = ir.Value(
-                    name=ctx.fresh_name(f"scatter_max_start_{axis}"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape(()),
-                )
-                _emit_into(
+                max_start = _builder_op(
                     ctx,
                     "Sub",
                     [operand_dim, window_extent],
-                    output=max_start,
+                    name_hint=f"scatter_max_start_{axis}",
+                    dtype=ir.DataType.INT64,
+                    shape=(),
                 )
-                _ensure_value_info(ctx, max_start)
 
-                max_start_nneg = ir.Value(
-                    name=ctx.fresh_name(f"scatter_max_start_nneg_{axis}"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape(()),
-                )
-                _emit_into(
+                max_start_nneg = _builder_op(
                     ctx,
                     "Max",
                     [max_start, zero_scalar],
-                    output=max_start_nneg,
+                    name_hint=f"scatter_max_start_nneg_{axis}",
+                    dtype=ir.DataType.INT64,
+                    shape=(),
                 )
-                _ensure_value_info(ctx, max_start_nneg)
 
                 max_start_vec = _unsqueeze_scalar(
                     ctx, max_start_nneg, 0, f"scatter_max_start_vec_{axis}"
                 )
 
-                max_broadcast = ir.Value(
-                    name=ctx.fresh_name(f"scatter_max_broadcast_{axis}"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((None, 1)),
-                )
-                _emit_into(
+                max_broadcast = _builder_op(
                     ctx,
                     "Expand",
                     [max_start_vec, column_shape],
-                    output=max_broadcast,
+                    name_hint=f"scatter_max_broadcast_{axis}",
+                    dtype=ir.DataType.INT64,
+                    shape=(None, 1),
                 )
-                _ensure_value_info(ctx, max_broadcast)
 
-                col_nonneg = ir.Value(
-                    name=ctx.fresh_name(f"scatter_base_ge0_{axis}"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((None, 1)),
-                )
-                _emit_into(
+                col_nonneg = _builder_op(
                     ctx,
                     "Max",
                     [col_val, zero_column],
-                    output=col_nonneg,
+                    name_hint=f"scatter_base_ge0_{axis}",
+                    dtype=ir.DataType.INT64,
+                    shape=(None, 1),
                 )
-                _ensure_value_info(ctx, col_nonneg)
 
-                col_clamped = ir.Value(
-                    name=ctx.fresh_name(f"scatter_base_clamped_{axis}"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((None, 1)),
-                )
-                _emit_into(
+                col_val = _builder_op(
                     ctx,
                     "Min",
                     [col_nonneg, max_broadcast],
-                    output=col_clamped,
+                    name_hint=f"scatter_base_clamped_{axis}",
+                    dtype=ir.DataType.INT64,
+                    shape=(None, 1),
                 )
-                _ensure_value_info(ctx, col_clamped)
-                col_val = col_clamped
 
             base_cols.append(col_val)
         else:
             base_cols.append(zero_column)
 
-    base_matrix = ir.Value(
-        name=ctx.fresh_name("scatter_base_matrix"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, operand_rank)),
-    )
-    _emit_into(
+    base_matrix = _builder_op(
         ctx,
         "Concat",
         base_cols,
-        output=base_matrix,
+        name_hint="scatter_base_matrix",
+        dtype=ir.DataType.INT64,
+        shape=(None, operand_rank),
         attributes={"axis": 1},
     )
-    _ensure_value_info(ctx, base_matrix)
     return base_matrix
 
 
@@ -1115,140 +987,105 @@ def _expand_indices_with_offsets(
     operand_rank: int,
     total_updates_vec: ir.Value,
 ) -> ir.Value:
-    reshape_base_shape = ir.Value(
-        name=ctx.fresh_name("scatter_base_reshape_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((3,)),
-    )
     one_vec = _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_one_vec")
     rank_vec = _const_i64(
         ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec"
     )
-    _emit_into(
+
+    reshape_base_shape = _builder_op(
         ctx,
         "Concat",
         [num_updates_vec, one_vec, rank_vec],
-        output=reshape_base_shape,
+        name_hint="scatter_base_reshape_shape",
+        dtype=ir.DataType.INT64,
+        shape=(3,),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, reshape_base_shape)
 
-    base_reshaped = ir.Value(
-        name=ctx.fresh_name("scatter_base_reshaped"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, None, operand_rank)),
-    )
-    _emit_into(
+    base_reshaped = _builder_op(
         ctx,
         "Reshape",
         [base_matrix, reshape_base_shape],
-        output=base_reshaped,
+        name_hint="scatter_base_reshaped",
+        dtype=ir.DataType.INT64,
+        shape=(None, None, operand_rank),
     )
-    _ensure_value_info(ctx, base_reshaped)
 
-    expand_shape = ir.Value(
-        name=ctx.fresh_name("scatter_expand_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((3,)),
-    )
     rank_vec2 = _const_i64(
         ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec2"
     )
-    _emit_into(
+    expand_shape = _builder_op(
         ctx,
         "Concat",
         [num_updates_vec, window_total_vec, rank_vec2],
-        output=expand_shape,
+        name_hint="scatter_expand_shape",
+        dtype=ir.DataType.INT64,
+        shape=(3,),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, expand_shape)
 
-    base_expanded = ir.Value(
-        name=ctx.fresh_name("scatter_base_expanded"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, None, operand_rank)),
-    )
-    _emit_into(
+    base_expanded = _builder_op(
         ctx,
         "Expand",
         [base_reshaped, expand_shape],
-        output=base_expanded,
+        name_hint="scatter_base_expanded",
+        dtype=ir.DataType.INT64,
+        shape=(None, None, operand_rank),
     )
-    _ensure_value_info(ctx, base_expanded)
 
-    reshape_offsets_shape = ir.Value(
-        name=ctx.fresh_name("scatter_offsets_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((3,)),
-    )
     one_vec2 = _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_one_vec2")
     rank_vec3 = _const_i64(
         ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec3"
     )
-    _emit_into(
+    reshape_offsets_shape = _builder_op(
         ctx,
         "Concat",
         [one_vec2, window_total_vec, rank_vec3],
-        output=reshape_offsets_shape,
+        name_hint="scatter_offsets_shape",
+        dtype=ir.DataType.INT64,
+        shape=(3,),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, reshape_offsets_shape)
 
-    offsets_reshaped = ir.Value(
-        name=ctx.fresh_name("scatter_offsets_reshaped"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((1, None, operand_rank)),
-    )
-    _emit_into(
+    offsets_reshaped = _builder_op(
         ctx,
         "Reshape",
         [window_offsets, reshape_offsets_shape],
-        output=offsets_reshaped,
+        name_hint="scatter_offsets_reshaped",
+        dtype=ir.DataType.INT64,
+        shape=(1, None, operand_rank),
     )
-    _ensure_value_info(ctx, offsets_reshaped)
 
-    indices_expanded = ir.Value(
-        name=ctx.fresh_name("scatter_indices_expanded"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, None, operand_rank)),
-    )
-    _emit_into(
+    indices_expanded = _builder_op(
         ctx,
         "Add",
         [base_expanded, offsets_reshaped],
-        output=indices_expanded,
+        name_hint="scatter_indices_expanded",
+        dtype=ir.DataType.INT64,
+        shape=(None, None, operand_rank),
     )
-    _ensure_value_info(ctx, indices_expanded)
 
-    final_shape = ir.Value(
-        name=ctx.fresh_name("scatter_indices_final_shape"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((2,)),
-    )
     rank_vec4 = _const_i64(
         ctx, np.asarray([operand_rank], dtype=np.int64), "scatter_rank_vec4"
     )
-    _emit_into(
+    final_shape = _builder_op(
         ctx,
         "Concat",
         [total_updates_vec, rank_vec4],
-        output=final_shape,
+        name_hint="scatter_indices_final_shape",
+        dtype=ir.DataType.INT64,
+        shape=(2,),
         attributes={"axis": 0},
     )
-    _ensure_value_info(ctx, final_shape)
 
-    indices_flat = ir.Value(
-        name=ctx.fresh_name("scatter_indices_flat"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((None, operand_rank)),
-    )
-    _emit_into(
+    indices_flat = _builder_op(
         ctx,
         "Reshape",
         [indices_expanded, final_shape],
-        output=indices_flat,
+        name_hint="scatter_indices_flat",
+        dtype=ir.DataType.INT64,
+        shape=(None, operand_rank),
     )
-    _ensure_value_info(ctx, indices_flat)
     return indices_flat
 
 
@@ -1335,19 +1172,16 @@ def _lower_scatter_window_full(
                 perm_shape_dims.append(updates_shape[idx])
             else:
                 perm_shape_dims.append(None)
-        updates_perm_val = ir.Value(
-            name=ctx.fresh_name("scatter_updates_perm"),
-            type=updates_val.type,
-            shape=ir.Shape(tuple(perm_shape_dims)),
-        )
-        _emit_into(
+        dtype = getattr(getattr(updates_val, "type", None), "dtype", None)
+        updates_perm_val = _builder_op(
             ctx,
             "Transpose",
             [updates_val],
-            output=updates_perm_val,
+            name_hint="scatter_updates_perm",
+            dtype=dtype,
+            shape=tuple(perm_shape_dims),
             attributes={"perm": tuple(perm)},
         )
-        _ensure_value_info(ctx, updates_perm_val)
 
     operand_shape_val = _shape_of(ctx, operand_val, "scatter_operand_shape")
     (

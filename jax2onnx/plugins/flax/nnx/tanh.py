@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/tanh.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable
+from typing import TYPE_CHECKING, ClassVar, Callable, List, Union
 import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
@@ -11,6 +11,11 @@ import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _stamp_type_and_shape,
+    _ensure_value_info as _add_value_info,
+)
 
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -59,15 +64,31 @@ class TanhPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Tanh",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("Tanh"),
-            )
-        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Tanh lowering")
+
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Tanh")
+        result = builder.Tanh(x_val, _outputs=[out_name])
+
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
+
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if x_shape:
+            dims: List[Union[int, str]] = [
+                _dim_label_from_value_or_aval(x_val, x_shape, i)
+                for i in range(len(x_shape))
+            ]
+            _stamp_type_and_shape(result, tuple(dims))
+        _add_value_info(ctx, result)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod

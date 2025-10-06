@@ -75,14 +75,10 @@ class SlicePlugin(PrimitiveLeafPlugin):
         if strides:
             steps_val = _const_i64(ctx, strides, "slice_steps")
             inputs.append(steps_val)
-
-        node = ir.Node(
-            op_type="Slice",
-            domain="",
-            inputs=inputs,
-            outputs=[out_val],
-            name=ctx.fresh_name("Slice"),
-        )
-        ctx.add_node(node)
-
-        _stamp_type_and_shape(out_val, getattr(out_var.aval, "shape", ()))
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        out_name = getattr(out_val, "name", None) or ctx.fresh_name("slice_out")
+        out_tensor = ctx.builder.Slice(*inputs, _outputs=[out_name])
+        if dtype is not None:
+            out_tensor.type = ir.TensorType(dtype)
+        _stamp_type_and_shape(out_tensor, getattr(out_var.aval, "shape", ()))
+        ctx.bind_value_for_var(out_var, out_tensor)

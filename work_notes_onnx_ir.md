@@ -17,7 +17,7 @@
    - Consider adding lightweight static checks (via Ruff plugin or custom script) for discouraged patterns (e.g., bare strings in `_outputs`).
 
 5. Update documentation and onboarding material
-   - Fold the distilled guardrails into developer docs (link from `docs/`, surface in `MigrationStatus.md` if relevant).
+   - Fold the distilled guardrails into developer docs (link from `docs/`, surface in the migration snapshot below when relevant).
    - Add cross-reference from plugin README/guide so contributors see the builder expectations early.
 
 6. Schedule follow-up actions
@@ -63,13 +63,13 @@ To do next: work through Step 2 inventory.
 
 - 22 lax/random/jnp plugins already rely exclusively on `ctx.builder.*` helpers (arithmetic family, concatenate, stack, tile, gather, dynamic slice, dynamic update slice, take, random seed/fold-in/bits, etc.).
 - Mixed modules remain concentrated in complex lowers (`jax/lax/conv.py`, `jax/lax/scan.py`, `jax/lax/while_loop.py`, `flax/nnx/dot_product_attention.py`, `plugin_system.py`). These should be prioritized for incremental refactors.
-- The largest manual-only clusters are Flax NNX activations/pooling layers, JAX NN scalar activations, and indexing utilities such as `jax/lax/gather.py`, `jax/lax/scatter_utils.py`, `jax/numpy/take.py`.
+- The largest manual-only clusters are Flax NNX activations/pooling layers, JAX NN scalar activations, and a few indexing utilities such as `jax/lax/transpose.py` and `jax/numpy/take.py`.
 - None of the plugin files import `onnx` protobuf helpers; all proto references are limited to docstring URLs. Policy tests remain satisfied.
 
 **Conversion snapshot (Oct 2025)**
 - LAX arithmetic + concat/stack/gather (`add`, `mul`, `neg`, `integer_pow`, `convert_element_type`, `concatenate`, `stack`, `tile`, `gather`, etc.) → builder-only.
 - LAX control-flow / shape builders (`conv`, `scan`, `while_loop`, `broadcast_in_dim`) → mixed builder + manual nodes.
-- LAX indexing utilities (`scatter_utils`, `transpose`) → manual-only.
+- LAX indexing utilities (`scatter_utils`, `slice`, `transpose`) → scatter/slice migrated to builder-only; `transpose` still manual-only.
 - Flax NNX layers (activations, pooling, linear/conv, norms) → manual-only.
 - Equinox EQX core (`linear`, `dropout`, `identity`) → mixed; builder used for inits, manual for wiring.
 - JAX NN activations (`relu`, `gelu`, `softmax`, etc.) → manual-only.
@@ -183,7 +183,7 @@ Next: plan doc updates and onboarding references (Step 5).
 
 - Update `docs/design.md` with a short subsection summarizing the builder vs. tape layering, linking to `how_to_use_onnx_ir.md` for full details.
 - Add a "Builder quick-reference" callout to `docs/expect_graph_reference.md` so structural test authors understand how values/nodes should be produced prior to assertions.
-- Create a new `docs/dev_guides/onnx_ir_builder.md` (or migrate the existing `how_to_use_onnx_ir.md` into that location) and reference it from `README.md` and `MigrationStatus.md`.
+- Create a new `docs/dev_guides/onnx_ir_builder.md` (or migrate the existing `how_to_use_onnx_ir.md` into that location) and reference it from `README.md` and the migration snapshot maintained here.
 - Surface RNG/dtype conventions in the plugin README (currently in `plugins/` root) to ensure new plugins mirror `construct_and_call` usage from day one.
 - Record the validation hooks (Step 4) and their intent in `CONTRIBUTING.md` to explain why certain lint/tests exist.
 
@@ -195,10 +195,26 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 - Incrementally migrate high-traffic plugins (start with `jax/lax` arithmetic ops, then Flax NNX linear layers) to the canonical builder helpers, adding focused pytest cases per primitive to verify op sequencing.
 - Harden attribute helper modules (`plugins/flax/nnx/linear.py`, `plugins/flax/nnx/conv.py`) by routing through shared builder utilities once the wrapper is in place; add regression tests ensuring dtype/shape stamping survives conversion.
 - Introduce integration tests that serialize representative graphs to protobuf via `ir.to_proto` only at the very edge, confirming converter/plugins remain protobuf-free.
-- After each refactor batch, regenerate `MigrationStatus.md` and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
+- After each refactor batch, refresh the migration snapshot in this note and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
 - Implement the Step 4 validation hooks: land the expanded policy test, add `tests/extra_tests/framework/test_ir_builder_contracts.py`, and wire `scripts/check_ir_builder_usage.py` into CI (pre-commit/Ruff) so regressions are caught automatically.
 - Next conversion batch (indexing + scatter suite):
-  1. `jax/lax/scatter_utils.py` – centralize builder-based concat/index construction.
+  1. `jax/lax/slice.py` and `jax/lax/scatter_utils.py` migrated to builder helpers (completed).
+  2. Bring remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
+
+### Migration Snapshot (track here)
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| LAX arithmetic / elementwise / shape ops | ✅ builder-only | Completed earlier migrations (Add/Mul/etc.). |
+| LAX indexing – gather | ✅ builder-only | `jax/lax/gather.py` already uses typed builder helpers. |
+| LAX indexing – scatter | ✅ builder-only | `scatter_utils.py` rewritten to typed builder APIs. |
+| LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
+| LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
+| Control-flow scaffolding and complex lowers (`conv`, `scan`, `while_loop`, `batch_norm`, etc.) | ⏳ mixed/manual | Large rewrites; track separately in the next refactor batch. |
+| Flax NNX activations / pooling / conv | ⏳ mixed | `relu`/`gelu`/`elu`/`tanh` migrated to builder helpers; remaining activations/pooling still manual. |
+| Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed | Builder used for params; wiring still manual in places. |
+| RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
+| IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
 
 ---
 
