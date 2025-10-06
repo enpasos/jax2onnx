@@ -853,21 +853,15 @@ class ScanPlugin(PrimitiveLeafPlugin):
             opset_imports={"": getattr(ctx.builder, "opset", 21)},
         )
 
-        trip_count = ir.Value(
+        trip_count = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_trip_count"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(()),
-            const_value=ir.tensor(np.asarray(int(length), dtype=np.int64)),
+            array=np.asarray(int(length), dtype=np.int64),
         )
-        ctx.builder.initializers.append(trip_count)
 
-        cond_init = ir.Value(
+        cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
-            const_value=ir.tensor(np.asarray(True, dtype=np.bool_)),
+            array=np.asarray(True, dtype=np.bool_),
         )
-        ctx.builder.initializers.append(cond_init)
 
         node_inputs = [trip_count, cond_init]
         inbound_vals: list[ir.Value] = []
@@ -1005,15 +999,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             else:
                 node_outputs.append(top_val)
 
-        loop_node = ir.Node(
-            op_type="Loop",
-            domain="",
+        ctx.builder.add_node(
+            "Loop",
             inputs=node_inputs,
             outputs=node_outputs,
-            name=ctx.fresh_name("Loop"),
             attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+            name=ctx.fresh_name("Loop"),
         )
-        ctx.add_node(loop_node)
 
         return node_outputs
 
@@ -1292,13 +1284,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         )
 
         if trip_count_int is not None:
-            trip_count_val = ir.Value(
+            trip_count_val = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("scan_trip_count"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-                const_value=ir.tensor(np.asarray(trip_count_int, dtype=np.int64)),
+                array=np.asarray(trip_count_int, dtype=np.int64),
             )
-            ctx.builder.initializers.append(trip_count_val)
         else:
             first_seq_val = ctx.get_value_for_var(seq_invars[0])
             shape_val = ir.Value(
@@ -1315,13 +1304,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     name=ctx.fresh_name("Shape"),
                 )
             )
-            zero_idx = ir.Value(
+            zero_idx = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("scan_len_idx"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-                const_value=ir.tensor(np.asarray(0, dtype=np.int64)),
+                array=np.asarray(0, dtype=np.int64),
             )
-            ctx.builder.initializers.append(zero_idx)
             trip_count_val = ir.Value(
                 name=ctx.fresh_name("scan_trip_dynamic"),
                 type=ir.TensorType(ir.DataType.INT64),
@@ -1338,13 +1324,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 )
             )
 
-        cond_init = ir.Value(
+        cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
-            const_value=ir.tensor(np.asarray(True, dtype=np.bool_)),
+            array=np.asarray(True, dtype=np.bool_),
         )
-        ctx.builder.initializers.append(cond_init)
 
         node_inputs = [trip_count_val, cond_init]
         inbound_vals = []
@@ -1491,15 +1474,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             else:
                 node_outputs.append(top_val)
 
-        loop_node = ir.Node(
-            op_type="Loop",
-            domain="",
+        ctx.builder.add_node(
+            "Loop",
             inputs=node_inputs,
             outputs=node_outputs,
-            name=ctx.fresh_name("Loop"),
             attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+            name=ctx.fresh_name("Loop"),
         )
-        ctx.add_node(loop_node)
 
         return node_outputs
 

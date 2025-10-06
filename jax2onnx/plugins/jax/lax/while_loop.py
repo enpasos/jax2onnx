@@ -598,9 +598,9 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             state_template=state_vals,
         )
 
-        trip_count = ctx.builder.add_initializer_from_scalar(
+        trip_count = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("while_trip_count"),
-            value=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
+            array=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
         )
 
         loop_inputs = (
@@ -625,15 +625,13 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             _ensure_value_info(ctx, dummy)
             dummy_const_outputs.append(dummy)
 
-        loop_node = ir.Node(
-            op_type="Loop",
-            domain="",
+        ctx.builder.add_node(
+            "Loop",
             inputs=loop_inputs,
             outputs=dummy_const_outputs + out_vals,
-            name=ctx.fresh_name("Loop"),
             attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+            name=ctx.fresh_name("Loop"),
         )
-        ctx.add_node(loop_node)
 
         for var, val in zip(eqn.outvars, out_vals):
             aval = getattr(var, "aval", None)
