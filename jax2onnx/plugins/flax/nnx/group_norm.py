@@ -62,12 +62,6 @@ EXPECT_GROUP_NORM_TRANSPOSED = EG(
 )
 
 
-def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
-    setter = getattr(ctx, "set_node_attrs", None)
-    if callable(setter):
-        setter(node, attrs)
-
-
 def _require_builder(ctx: Any):
     builder = getattr(ctx, "builder", None)
     if builder is None:

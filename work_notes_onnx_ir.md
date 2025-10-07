@@ -69,12 +69,7 @@ These notes track outstanding work needed to bring the codebase in line with the
 
 ## 5. Tracking Table – Direct `ir.Node` Usage (needs triage)
 
-| File | Reason today | Next step |
-| --- | --- | --- |
-| `jax2onnx/plugins/flax/nnx/{group_norm,max_pool,rms_norm}.py` | Attribute shims | Schedule builder migration after verifying test coverage |
-| `jax2onnx/plugins/jax/nn/dot_product_attention.py` | Control-flow rewrites & graph inspection | Needs dedicated refactor plan (builder helpers + structural checks) |
-
-Use `rg "ir.Node" jax2onnx/plugins` periodically to keep this table accurate.
+All plugin lowers now rely on builder helpers. Keep spot-checking periodically (\`rg "ir.Node" jax2onnx/plugins\`) when new primitives land.
 
 ---
 

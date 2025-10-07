@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/max_pool.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Sequence, Tuple
 
 import numpy as np
 import jax
@@ -42,12 +42,6 @@ EXPECT_T_MP_T = EG(
 
 MAX_POOL_PRIM = Primitive("nnx.max_pool")
 MAX_POOL_PRIM.multiple_results = False
-
-
-def _set_attrs(ctx: Any, node: ir.Node, attrs: dict[str, object]) -> None:
-    setter = getattr(ctx, "set_node_attrs", None)
-    if callable(setter):
-        setter(node, attrs)
 
 
 @register_primitive(
