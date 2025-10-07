@@ -28,20 +28,18 @@ def cast_param_like(
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
 
-    out = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(l_dt),
-        shape=param.shape,
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        return ctx.cast_like(param, exemplar=like, name_hint=name_hint)
+
+    cast_name = ctx.fresh_name(name_hint)
+    out = builder.CastLike(
+        param,
+        like,
+        _outputs=[cast_name],
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="CastLike",
-            domain="",
-            inputs=[param, like],  # cast `param` to dtype of `like`
-            outputs=[out],
-            name=ctx.fresh_name("CastLike"),
-        )
-    )
+    out.type = ir.TensorType(l_dt)
+    out.shape = param.shape
     return out
 
 

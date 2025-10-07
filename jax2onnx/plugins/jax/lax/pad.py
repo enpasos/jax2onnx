@@ -8,11 +8,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -154,27 +152,10 @@ class PadPlugin(PrimitiveLeafPlugin):
         begins = _flatten(lo for (lo, _, _) in padding_config)
         ends = _flatten(hi for (_, hi, _) in padding_config)
         pads_vec = np.asarray(begins + ends, dtype=np.int64)
-        inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
-        if inside_fn:
-            pads_val = ir.Value(
-                name=ctx.fresh_name("pad_pads"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((pads_vec.size,)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Constant",
-                    domain="",
-                    inputs=[],
-                    outputs=[pads_val],
-                    name=ctx.fresh_name("Constant"),
-                    attributes=[
-                        IRAttr("value", IRAttrType.TENSOR, ir.tensor(pads_vec))
-                    ],
-                )
-            )
-        else:
-            pads_val = _const_i64(ctx, pads_vec, "pad_pads")
+        pads_name = ctx.fresh_name("pad_pads")
+        pads_val = ctx.builder.add_initializer_from_array(
+            name=pads_name, array=pads_vec
+        )
         _stamp_type_and_shape(pads_val, (pads_vec.size,))
         _ensure_value_info(ctx, pads_val)
 
