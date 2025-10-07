@@ -210,6 +210,13 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 - Next conversion batch (indexing + scatter suite):
   1. `jax/lax/slice.py` and `jax/lax/scatter_utils.py` migrated to builder helpers (completed).
   2. Bring remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
+- Remaining direct `ir.Node` call sites to migrate to builder helpers:
+  * Core primitives: `jax2onnx/plugins/jax/core/dim_as_value.py`.
+  * LAX primitives: `cumsum.py`, `device_put.py`, `dot_general.py`, `pad.py`, `rev.py`, `sort.py`, `split.py`, `reshape.py`, `conv.py`.
+  * NumPy facade: `arange.py`, `clip.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
+  * Plugin infrastructure: `plugins/plugin_system.py` (call wiring/helpers), `_utils.py`.
+  * NN(X)/Flax/EQX extras: `flax/nnx/*` (dropout, dot_product_attention, einsum, embed, group_norm, linear_general, log_softmax, max_pool, rms_norm, leaky_relu), `equinox/eqx/nn/{layer_norm,dropout}`.
+  * Misc helpers to audit after refactors (`jax2onnx/plugins/jax/numpy/split.py`, etc.).
 
 ### Migration Snapshot (track here)
 
@@ -224,7 +231,8 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
 | Equinox EQX core (`linear`, `dropout`, `identity`) | ✅ builder-only | Trio now routes entirely through builder helpers; RNG semantics preserved. |
 | LAX arg reducers (`argmax`, `argmin`) | ✅ builder-only | Shared `_arg_utils.lower_arg_reduction` now lowers ArgMax/ArgMin via builder with dtype casting + shape stamping. |
-| JAX/NN primitive plugins (`jax/nn/*`) | ⏳ mixed/manual | Unary activations route through `_builder_utils.lower_unary_elementwise`; `dot_product_attention` still stitches Reduce/Softmax/Gather via raw `ir.Node` and needs a dedicated builder rewrite. |
+| JAX/NN primitive plugins (`jax/nn/*`) | ✅ builder-only | Unary activations share `_builder_utils`, and `dot_product_attention` now lowers via builder ops for transpose/mask/softmax paths with no raw `ir.Node`. |
+| Residual direct `ir.Node` usage | ⏳ cleanup | Core/numpy/lax/NNX helpers still have bespoke `ir.Node`; see bullet list above for file inventory slated for builder migrations. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
 | IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
 
