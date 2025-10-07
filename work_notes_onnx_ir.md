@@ -223,7 +223,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ⏳ mixed/manual | Builder covers entry scaffolds but body rewrites still drop raw `ir.Node` for Slice/Gather/Concat plumbing. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
 | Equinox EQX core (`linear`, `dropout`, `identity`) | ✅ builder-only | Trio now routes entirely through builder helpers; RNG semantics preserved. |
-| LAX arg reducers (`argmax`, `argmin`) | ⏳ mixed/manual | Still emit Reduce(Max/Min)+Gather via raw `ir.Node`; slated for a future builder rewrite. |
+| LAX arg reducers (`argmax`, `argmin`) | ✅ builder-only | Shared `_arg_utils.lower_arg_reduction` now lowers ArgMax/ArgMin via builder with dtype casting + shape stamping. |
 | JAX/NN primitive plugins (`jax/nn/*`) | ⏳ mixed/manual | Unary activations route through `_builder_utils.lower_unary_elementwise`; `dot_product_attention` still stitches Reduce/Softmax/Gather via raw `ir.Node` and needs a dedicated builder rewrite. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
 | IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
