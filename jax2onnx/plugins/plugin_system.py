@@ -22,7 +22,6 @@ import numpy as np
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-import onnx_ir as ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 
@@ -883,20 +882,16 @@ class FunctionPlugin(PrimitivePlugin):
                     if _value_used(child_val):
                         continue
                     sink_name = fscope.ctx.fresh_name(f"{entry['name']}_sink")
-                    sink_val = ir.Value(
-                        name=sink_name,
-                        type=getattr(child_val, "type", None),
-                        shape=getattr(child_val, "shape", None),
+                    sink_val = fscope.ctx.builder.Identity(
+                        child_val,
+                        _outputs=[sink_name],
                     )
-                    fscope.ctx.add_node(
-                        ir.Node(
-                            op_type="Identity",
-                            domain="",
-                            inputs=[child_val],
-                            outputs=[sink_val],
-                            name=fscope.ctx.fresh_name("Identity"),
-                        )
-                    )
+                    child_type = getattr(child_val, "type", None)
+                    child_shape = getattr(child_val, "shape", None)
+                    if child_type is not None:
+                        sink_val.type = child_type
+                    if child_shape is not None:
+                        sink_val.shape = child_shape
 
             # Explicit outputs from inner jaxpr
             child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
@@ -920,14 +915,14 @@ class FunctionPlugin(PrimitivePlugin):
         base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
         in_vals = base_inputs + param_values
         out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
-        call = ir.Node(
-            op_type=fdef.name,  # friendly name like 'SuperBlock_1'
-            domain=fdef.domain,  # default domain ""
-            inputs=in_vals,
+        ctx.builder.op_multi_out(
+            fdef.name,
+            in_vals,
+            None,
             outputs=out_vals,
+            domain=fdef.domain or "",
             name=ctx.builder.fresh_name(fdef.name),
         )
-        ctx.add_node(call)
 
 
 # ------------------------------------------------------------------------------

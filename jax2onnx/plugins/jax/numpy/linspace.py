@@ -89,34 +89,12 @@ def _maybe_cast(
     cur_dtype = getattr(cur_type, "dtype", None)
     if cur_dtype == target_enum:
         return value
-    builder = getattr(ctx, "builder", None)
     cast_name = ctx.fresh_name(name_hint)
-    if builder is not None:
-        cast_val = builder.Cast(
-            value,
-            _outputs=[cast_name],
-            to=int(target_enum.value),
-        )
-    else:
-        cast_val = ir.Value(
-            name=cast_name,
-            type=ir.TensorType(target_enum),
-            shape=value.shape,
-        )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[value],
-                outputs=[cast_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[
-                    ir.Attr("to", ir.AttributeType.INT, int(target_enum.value))
-                ],
-            )
-        )
-        cast_val.type = ir.TensorType(target_enum)
-
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[cast_name],
+        to=int(target_enum.value),
+    )
     cast_val.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)
     dims = None
@@ -324,7 +302,12 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         denom_i64 = _scalar_i64(ctx, denom, "linspace_denom_i64")
         _stamp_type_and_shape(denom_i64, ())
         _ensure_value_info(ctx, denom_i64)
-        denom_val = ctx.cast_like(denom_i64, indices_cast, name_hint="linspace_denom")
+        denom_val = builder.CastLike(
+            denom_i64,
+            indices_cast,
+            _outputs=[ctx.fresh_name("linspace_denom")],
+        )
+        denom_val.type = indices_cast.type
         _stamp_type_and_shape(denom_val, ())
         _ensure_value_info(ctx, denom_val)
 
