@@ -48,6 +48,15 @@ Each plugin describes one primitive (or one high-level function). It has three s
 
 That’s it. The contract is tiny and uniform across all primitives.
 
+### Plugin guardrails (must-follow)
+
+To keep conversions portable across `onnx_ir` variants, every plugin lowering must observe these project-wide rules:
+
+- **Builder-first**: emit ops via `ctx.builder` (see [ONNX IR Builder Guide](dev_guides/onnx_ir_builder.md)). `_outputs` must always be a sequence; constants come from `builder.initializer(...)` or `ctx.bind_const_for_var(...)`.
+- **Metadata stamping**: after every builder call, stamp dtype/shape on the produced value and register it with `_ensure_value_info(...)` so downstream eqns see consistent metadata.
+- **Single-use RNG / module construction**: never seed at import time. Expose stochastic callables with `construct_and_call(...).with_rng_seed(...)` / `.with_requested_dtype(...)` so the test harness can rebuild modules for both f32/f64 variants without clashes (see `AGENTS.md`).
+- **No protobuf in converters/plugins**: only the top-level adapters touch `onnx` (protobuf types). Policy tests under `tests/extra_tests` enforce this.
+
 ---
 
 # Data flow end-to-end

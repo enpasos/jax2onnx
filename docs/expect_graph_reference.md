@@ -7,6 +7,11 @@ IR/ONNX graph without dumping the full model. This document captures the
 conventions we rely on when writing or reviewing `post_check_onnx_graph`
 expectations.
 
+> **Test metadata reminder:** when wiring new examples/tests, construct callables
+> via `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` so the
+> harness can rebuild deterministic f32/f64 variants. See the builder guide for the
+> full randomness and dtype rules.
+
 ## Import
 
 ```python

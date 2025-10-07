@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 from pathlib import Path
+import subprocess
 import sys
 
 DEFAULT_TARGETS = ("jax2onnx/converter", "jax2onnx/plugins")
@@ -89,6 +90,30 @@ def _iter_pyfiles(targets: list[str]) -> list[Path]:
     return pyfiles
 
 
+def _diff_pyfiles(selector: str | None) -> list[Path]:
+    cmd = ["git", "diff", "--name-only"]
+    if selector and selector != "--cached":
+        cmd.append(selector)
+    elif selector == "--cached":
+        cmd.append("--cached")
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, encoding="utf-8"
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        print(f"Unable to read git diff ({exc}).", file=sys.stderr)
+        return []
+    files: list[Path] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or not line.endswith(".py"):
+            continue
+        path = Path(line)
+        if path.exists():
+            files.append(path)
+    return sorted(dict.fromkeys(files))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check IR builder usage conventions.")
     parser.add_argument(
@@ -97,9 +122,25 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_TARGETS,
         help="Directories or files to scan (defaults to converter+plugins)",
     )
+    parser.add_argument(
+        "--diff",
+        nargs="?",
+        const="--cached",
+        help=(
+            "Only scan Python files reported by git diff. "
+            "With no value, uses staged changes (git diff --cached). "
+            "Provide a ref/range to diff against, e.g. --diff HEAD~1."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    pyfiles = _iter_pyfiles(list(dict.fromkeys(args.paths)))
+    if args.diff is not None:
+        pyfiles = _diff_pyfiles(args.diff)
+        if not pyfiles:
+            return 0
+    else:
+        pyfiles = _iter_pyfiles(list(dict.fromkeys(args.paths)))
+
     issues: list[str] = []
     for pyfile in pyfiles:
         if pyfile.name.endswith("_pb2.py"):

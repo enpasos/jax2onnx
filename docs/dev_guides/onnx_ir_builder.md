@@ -8,6 +8,13 @@ This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: ho
 - Keep converter/plugins IR-only—no `onnx` protobuf helpers—per the same policy suite.
 - Run `scripts/check_ir_builder_usage.py` before sending patches (it is also wired into the pre-commit stack).
 
+## Quick Checklist
+- Emit ops through `ctx.builder` (or `_tape.Builder`) rather than constructing `ir.Node` manually. Fall back only in function-mode/legacy paths where the builder cannot express the behaviour.
+- After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and register the value via `_ensure_value_info(...)` so later eqns see consistent metadata.
+- Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
+- When defining plugin metadata, use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` to honour the single-use RNG policy and keep tests deterministic across f32/f64 runs.
+- Run the validation hooks listed below (Ruff, builder usage checker, pytest) before landing a change; the pre-commit stack invokes them automatically.
+
 ## Plugin Metadata Requirements
 - Construct callable metadata with `construct_and_call(...)` so the test harness can rebuild modules for each dtype. Pair it with `with_requested_dtype()` and `with_rng_seed(...)`/`with_prng_key(...)` helpers instead of inlining lambdas or seeding at import time.
 - Avoid `callable_factory`. The test generator now raises if metadata still relies on factories—`callable` entries must be concrete `construct_and_call(...)` results.
@@ -173,3 +180,9 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 - Perform optional validation such as `ir.to_proto(model)`, ONNX checker runs, or `onnx_ir.load` round-trips if XY integrates them.
 
 Keeping these conventions in one place ensures the "builder" layer stays predictable for Codex agents and humans alike, reducing churn when the upstream library evolves.
+
+## Validation Routine
+1. `poetry run python scripts/check_ir_builder_usage.py --diff` (lints only staged files; drop `--diff` to scan the whole tree).
+2. `poetry run ruff check .` followed by `poetry run ruff format --check .` (or let the pre-commit hooks fix issues automatically).
+3. `poetry run pytest -q` plus any focused suites you touched (for example `tests/primitives/test_jnp.py::Test_linspace`).
+4. For builder-heavy refactors, run the structural policy tests directly: `poetry run pytest -q tests/extra_tests/framework/test_ir_builder_contracts.py`.
