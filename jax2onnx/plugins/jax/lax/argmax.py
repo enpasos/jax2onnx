@@ -8,13 +8,15 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
-
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_info,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
+)
+from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -99,73 +101,44 @@ class ArgMaxPlugin(PrimitiveLeafPlugin):
 
         input_for_argmax = operand_val
         if operand_dtype == np.bool_:
-            cast_dtype = _dtype_to_ir(
-                np.dtype(np.int64), ctx.builder.enable_double_precision
+            input_for_argmax = builder_cast(
+                ctx,
+                operand_val,
+                _dtype_to_ir(np.dtype(np.int64), ctx.builder.enable_double_precision),
+                name_hint="argmax_cast",
             )
-            cast_val = ir.Value(
-                name=ctx.fresh_name("argmax_cast"),
-                type=ir.TensorType(cast_dtype),
-                shape=operand_val.shape,
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[operand_val],
-                    outputs=[cast_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(cast_dtype.value))],
-                )
-            )
-            _stamp_type_and_shape(cast_val, operand_shape)
-            _ensure_value_info(ctx, cast_val)
-            input_for_argmax = cast_val
+            _stamp_type_and_shape(input_for_argmax, operand_shape)
+            _ensure_value_info(ctx, input_for_argmax)
 
-        tmp_out = ir.Value(
-            name=ctx.fresh_name("argmax_tmp"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in out_var.aval.shape)),
+        tmp_out = ctx.builder.ArgMax(
+            input_for_argmax,
+            axis=int(axis),
+            keepdims=0,
+            select_last_index=select_last,
+            _outputs=[ctx.fresh_name("argmax_tmp")],
         )
-        node = ir.Node(
-            op_type="ArgMax",
-            domain="",
-            inputs=[input_for_argmax],
-            outputs=[tmp_out],
-            name=ctx.fresh_name("ArgMax"),
-            attributes=[
-                IRAttr("axis", IRAttrType.INT, axis),
-                IRAttr("keepdims", IRAttrType.INT, 0),
-                IRAttr("select_last_index", IRAttrType.INT, select_last),
-            ],
+        tmp_out.type = ir.TensorType(ir.DataType.INT64)
+        tmp_out.shape = ir.Shape(
+            tuple(_to_ir_dim_for_shape(d) for d in getattr(out_var.aval, "shape", ()))
         )
-        ctx.add_node(node)
-        _stamp_type_and_shape(tmp_out, tuple(getattr(out_var.aval, "shape", ())))
         _ensure_value_info(ctx, tmp_out)
 
         target_enum = _dtype_to_ir(index_dtype, ctx.builder.enable_double_precision)
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("argmax_out"))
-        if target_enum != ir.DataType.INT64:
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[tmp_out],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
-                )
+        if target_enum == ir.DataType.INT64:
+            out_val = builder_identity(
+                ctx,
+                tmp_out,
+                name_hint="argmax_out",
             )
         else:
-            ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[tmp_out],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Identity"),
-                )
+            out_val = builder_cast(
+                ctx,
+                tmp_out,
+                target_enum,
+                name_hint="argmax_out",
             )
 
-        out_val.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(out_val, tuple(getattr(out_var.aval, "shape", ())))
         _ensure_value_info(ctx, out_val)
+        out_val.type = ir.TensorType(target_enum)
+        ctx.bind_value_for_var(out_var, out_val)

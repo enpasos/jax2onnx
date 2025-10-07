@@ -20,8 +20,6 @@ except ImportError:  # pragma: no cover - private API moved
     jax_core_internal = None
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
-
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
@@ -29,6 +27,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
+    builder_loop,
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
@@ -617,23 +616,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         if ctx.builder.enable_double_precision
                         else ir.DataType.INT32
                     )
-                    cast_val = ir.Value(
-                        name=ctx.fresh_name("scan_out_cast"),
-                        type=ir.TensorType(target_enum),
-                        shape=val.shape,
+                    cast_val = builder_cast(
+                        ctx,
+                        val,
+                        target_enum,
+                        name_hint="scan_out_cast",
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Cast",
-                            domain="",
-                            inputs=[val],
-                            outputs=[cast_val],
-                            name=ctx.fresh_name("Cast"),
-                            attributes=[
-                                IRAttr("to", IRAttrType.INT, int(target_enum.value))
-                            ],
-                        )
-                    )
+                    _ensure_value_info(ctx, cast_val)
                     node_outputs[out_idx] = cast_val
                     try:
                         ctx.builder._var2val[var] = cast_val
@@ -872,29 +861,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     and top_dtype is not None
                     and expected_enum != top_dtype
                 ):
-                    cast_val = ir.Value(
-                        name=ctx.fresh_name("scan_state_cast"),
-                        type=ir.TensorType(expected_enum),
-                        shape=top_val.shape,
+                    top_val = builder_cast(
+                        ctx,
+                        top_val,
+                        expected_enum,
+                        name_hint="scan_state_cast",
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Cast",
-                            domain="",
-                            inputs=[top_val],
-                            outputs=[cast_val],
-                            name=ctx.fresh_name("Cast"),
-                            attributes=[
-                                IRAttr(
-                                    "to",
-                                    IRAttrType.INT,
-                                    int(expected_enum.value),
-                                )
-                            ],
-                        )
-                    )
-                    _ensure_value_info(ctx, cast_val)
-                    top_val = cast_val
+                    _ensure_value_info(ctx, top_val)
             inbound_vals.append(top_val)
         node_inputs.extend(inbound_vals)
 
@@ -975,15 +948,51 @@ class ScanPlugin(PrimitiveLeafPlugin):
             else:
                 node_outputs.append(top_val)
 
-        ctx.builder.add_node(
-            "Loop",
-            inputs=node_inputs,
-            outputs=node_outputs,
-            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
-            name=ctx.fresh_name("Loop"),
+        output_names = [
+            getattr(val, "name", None) or ctx.fresh_name("scan_out")
+            for val in node_outputs
+        ]
+
+        loop_results = builder_loop(
+            ctx,
+            *node_inputs,
+            body=body_graph,
+            output_names=output_names,
         )
 
-        return node_outputs
+        if not isinstance(loop_results, tuple):
+            loop_results = (loop_results,)
+
+        for template, produced in zip(node_outputs, loop_results):
+            tmpl_type = getattr(template, "type", None)
+            if tmpl_type is not None:
+                produced.type = tmpl_type
+            tmpl_shape = getattr(template, "shape", None)
+            if tmpl_shape is not None:
+                produced.shape = tmpl_shape
+            _ensure_value_info(ctx, produced)
+
+        const_count = len(const_body_outs)
+        carry_count = num_carry
+        seq_count = 0
+
+        carry_results = loop_results[const_count : const_count + carry_count]
+        value_results = loop_results[const_count + carry_count + seq_count :]
+
+        for idx, res in enumerate(carry_results):
+            if idx >= len(eqn.outvars):
+                break
+            out_var = eqn.outvars[idx]
+            if _is_dropvar(out_var):
+                continue
+            ctx.bind_value_for_var(out_var, res)
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            if rel_idx >= len(value_results):
+                break
+            ctx.bind_value_for_var(out_var, value_results[rel_idx])
+
+        return list(loop_results)
 
     def _lower_with_scan_inputs(
         self,
@@ -1116,16 +1125,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             per_step_val = loop_ctx.get_value_for_var(
                 per_step_var, name_hint=loop_ctx.fresh_name("scan_elem")
             )
-            loop_ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[seq_state, iter_in],
-                    outputs=[per_step_val],
-                    name=loop_ctx.fresh_name("GatherScanInput"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
+            per_step_val = loop_ctx.builder.Gather(
+                seq_state,
+                iter_in,
+                axis=0,
+                _outputs=[loop_ctx.fresh_name("GatherScanInput")],
             )
+            loop_ctx.bind_value_for_var(per_step_var, per_step_val)
             aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
             if aval_dtype is not None:
                 try:
@@ -1240,38 +1246,19 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
         else:
             first_seq_val = ctx.get_value_for_var(seq_invars[0])
-            shape_val = ir.Value(
-                name=ctx.fresh_name("scan_seq_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((None,)),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[first_seq_val],
-                    outputs=[shape_val],
-                    name=ctx.fresh_name("Shape"),
-                )
+            shape_val = ctx.builder.Shape(
+                first_seq_val,
+                _outputs=[ctx.fresh_name("scan_seq_shape")],
             )
             zero_idx = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("scan_len_idx"),
                 array=np.asarray(0, dtype=np.int64),
             )
-            trip_count_val = ir.Value(
-                name=ctx.fresh_name("scan_trip_dynamic"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-            )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[shape_val, zero_idx],
-                    outputs=[trip_count_val],
-                    name=ctx.fresh_name("GatherTripCount"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
+            trip_count_val = ctx.builder.Gather(
+                shape_val,
+                zero_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("scan_trip_dynamic")],
             )
 
         cond_init = ctx.builder.add_initializer_from_array(
@@ -1313,28 +1300,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     and top_dtype is not None
                     and expected_enum != top_dtype
                 ):
-                    cast_val = ir.Value(
-                        name=ctx.fresh_name("scan_state_cast"),
-                        type=ir.TensorType(expected_enum),
-                        shape=top_val.shape,
+                    top_val = builder_cast(
+                        ctx,
+                        top_val,
+                        expected_enum,
+                        name_hint="scan_state_cast",
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Cast",
-                            domain="",
-                            inputs=[top_val],
-                            outputs=[cast_val],
-                            name=ctx.fresh_name("Cast"),
-                            attributes=[
-                                IRAttr(
-                                    "to",
-                                    IRAttrType.INT,
-                                    int(expected_enum.value),
-                                )
-                            ],
-                        )
-                    )
-                    top_val = cast_val
+                    _ensure_value_info(ctx, top_val)
             inbound_vals.append(top_val)
         node_inputs.extend(inbound_vals)
 
@@ -1424,15 +1396,51 @@ class ScanPlugin(PrimitiveLeafPlugin):
             else:
                 node_outputs.append(top_val)
 
-        ctx.builder.add_node(
-            "Loop",
-            inputs=node_inputs,
-            outputs=node_outputs,
-            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
-            name=ctx.fresh_name("Loop"),
+        output_names = [
+            getattr(val, "name", None) or ctx.fresh_name("scan_out")
+            for val in node_outputs
+        ]
+
+        loop_results = builder_loop(
+            ctx,
+            *node_inputs,
+            body=body_graph,
+            output_names=output_names,
         )
 
-        return node_outputs
+        if not isinstance(loop_results, tuple):
+            loop_results = (loop_results,)
+
+        for template, produced in zip(node_outputs, loop_results):
+            tmpl_type = getattr(template, "type", None)
+            if tmpl_type is not None:
+                produced.type = tmpl_type
+            tmpl_shape = getattr(template, "shape", None)
+            if tmpl_shape is not None:
+                produced.shape = tmpl_shape
+            _ensure_value_info(ctx, produced)
+
+        const_count = len(const_body_outs)
+        carry_count = num_carry
+        seq_count = num_scan
+
+        carry_results = loop_results[const_count : const_count + carry_count]
+        value_results = loop_results[const_count + carry_count + seq_count :]
+
+        for idx, res in enumerate(carry_results):
+            if idx >= len(eqn.outvars):
+                break
+            out_var = eqn.outvars[idx]
+            if _is_dropvar(out_var):
+                continue
+            ctx.bind_value_for_var(out_var, res)
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            if rel_idx >= len(value_results):
+                break
+            ctx.bind_value_for_var(out_var, value_results[rel_idx])
+
+        return list(loop_results)
 
 
 _DYNAMIC_DIM_SENTINEL = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"

@@ -193,8 +193,8 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 
 - Thin wrapper no longer needed: `IRBuilder` directly instantiates `_tape.Builder` and mirrors its state. Remaining work focuses on migrating residual manual `ir.Node` usage to the builder APIs.
 - Eqx linear/dropout/identity now emit through builder helpers; focus shifts to control-flow/ad hoc attention rewrites next.
-- `lax.select_n`, `broadcast_in_dim`, `cond`, `fori_loop`, and the top-level `scan`/`while_loop` Loop emission now route through builder helpers; remaining work focuses on cleaning up per-step dtype helpers and nested subgraph plumbing in `scan`.
-- `jax/lax/argmax.py` and `jax/lax/argmin.py` still construct `ir.Node` manually for ReduceMax/ReduceMin, tieing into the legacy arg reducer shim. Track these for a future builder pass after EQX cleanups.
+- `lax.select_n`, `broadcast_in_dim`, `cond`, `fori_loop`, and the top-level `scan`/`while_loop` Loop emission now route through builder helpers; scan per-step casting and while_loop nested evals now share the common builder utilities. Arg reducers (`argmax`/`argmin`) are builder-backed as well. Remaining work focuses on refactoring the scan-specific scatter helpers.
+- `jax/lax/argmax.py` and `jax/lax/argmin.py` now lower via builder helpers; no more manual Reduce* shims.
 - LAX control-flow (scan/while_loop) still has manual `ir.Node` construction sprinkled throughout; rung these up as medium-depth refactors once the remaining loop scaffolds are migrated.
 - **Upcoming plan**
   1. Introduce builder-first helpers in `_control_flow_utils` (capture identities, Cast helpers, Loop output rebinding) so scan/while reuse the same primitives without falling back to raw nodes.
