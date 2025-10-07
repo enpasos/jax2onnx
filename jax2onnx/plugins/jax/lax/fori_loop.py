@@ -19,6 +19,9 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
+    builder_loop,
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
@@ -91,12 +94,12 @@ def _build_body_graph(
     iter_enum = _dtype_to_ir(iter_dtype, builder.enable_double_precision)
     iter_value = iter_input
     if iter_enum != ir.DataType.INT64:
-        cast_iter = builder.Cast(
+        cast_iter = builder_cast(
+            body_ctx,
             iter_input,
-            _outputs=[body_ctx.fresh_name("loop_iter_cast")],
-            to=int(iter_enum.value),
+            iter_enum,
+            name_hint="loop_iter_cast",
         )
-        cast_iter.type = ir.TensorType(iter_enum)
         _stamp_type_and_shape(cast_iter, ())
         _ensure_value_info(body_ctx, cast_iter)
         iter_value = cast_iter
@@ -153,9 +156,10 @@ def _build_body_graph(
         loop_outputs.append(out_val)
 
     # Propagate the loop condition unchanged (fixed-trip Loop).
-    cond_out = builder.Identity(
+    cond_out = builder_identity(
+        body_ctx,
         cond_input,
-        _outputs=[body_ctx.fresh_name("loop_cond_out")],
+        name_hint="loop_cond_out",
     )
     cond_out.type = ir.TensorType(ir.DataType.BOOL)
     _stamp_type_and_shape(cond_out, ())
@@ -293,10 +297,11 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         loop_inputs = [trip_val, cond_val, *state_vals]
 
         output_names = [ctx.fresh_name("fori_out") for _ in eqn.outvars]
-        loop_outputs = ctx.builder.Loop(
+        loop_outputs = builder_loop(
+            ctx,
             *loop_inputs,
             body=body_graph,
-            _outputs=output_names,
+            output_names=output_names,
         )
 
         if not isinstance(loop_outputs, tuple):

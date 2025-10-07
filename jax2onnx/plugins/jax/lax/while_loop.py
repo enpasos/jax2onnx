@@ -8,11 +8,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType, Shape as IRShape
+from onnx_ir import Shape as IRShape
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
+    builder_loop,
     lower_jaxpr_eqns,
     make_subgraph_context,
 )
@@ -192,20 +195,11 @@ def _ensure_bool_value(
     if dtype == ir.DataType.BOOL:
         return value
     shape_obj = getattr(value, "shape", IRShape(()))
-    bool_val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=shape_obj,
-    )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[bool_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))],
-        )
+    bool_val = builder_cast(
+        ctx,
+        value,
+        ir.DataType.BOOL,
+        name_hint=name_hint,
     )
     dims = getattr(shape_obj, "dims", None)
     if dims is None:
@@ -330,20 +324,10 @@ def _build_loop_body_graph(
 
     const_outputs: list[ir.Value] = []
     for tmpl_in, tmpl_val in zip(const_inputs, body_const_template):
-        passthrough = ir.Value(
-            name=body_ctx.fresh_name("loop_const_out"),
-            type=tmpl_in.type,
-            shape=tmpl_in.shape,
-        )
-        body_ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[tmpl_in],
-                outputs=[passthrough],
-                name=body_ctx.fresh_name("Identity"),
-                attributes=[],
-            )
+        passthrough = builder_identity(
+            body_ctx,
+            tmpl_in,
+            name_hint="loop_const_out",
         )
         dims = getattr(getattr(tmpl_val, "shape", IRShape(())), "dims", None)
         tuple_dims = tuple(dims) if dims is not None else tuple()
@@ -607,33 +591,29 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             [trip_count, cond_init_val] + list(body_const_vals) + list(state_vals)
         )
 
-        out_vals = [
-            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("while_out"))
-            for var in eqn.outvars
-        ]
+        output_names = [ctx.fresh_name("while_const_out") for _ in body_const_vals]
+        output_names.extend(ctx.fresh_name("while_out") for _ in eqn.outvars)
 
-        dummy_const_outputs: list[ir.Value] = []
-        for const_val in body_const_vals:
-            dummy = ir.Value(
-                name=ctx.fresh_name("while_const_out"),
-                type=const_val.type,
-                shape=const_val.shape,
-            )
-            dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
-            tuple_dims = tuple(dims) if dims is not None else tuple()
-            _stamp_type_and_shape(dummy, tuple_dims)
-            _ensure_value_info(ctx, dummy)
-            dummy_const_outputs.append(dummy)
-
-        ctx.builder.add_node(
-            "Loop",
-            inputs=loop_inputs,
-            outputs=dummy_const_outputs + out_vals,
-            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
-            name=ctx.fresh_name("Loop"),
+        loop_outputs = builder_loop(
+            ctx,
+            *loop_inputs,
+            body=body_graph,
+            output_names=output_names,
         )
 
-        for var, val in zip(eqn.outvars, out_vals):
+        if not isinstance(loop_outputs, tuple):
+            loop_outputs = (loop_outputs,)
+
+        const_outputs = loop_outputs[: len(body_const_vals)]
+        value_outputs = loop_outputs[len(body_const_vals) :]
+
+        for const_val, const_out in zip(body_const_vals, const_outputs):
+            dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
+            tuple_dims = tuple(dims) if dims is not None else tuple()
+            _stamp_type_and_shape(const_out, tuple_dims)
+            _ensure_value_info(ctx, const_out)
+
+        for var, val in zip(eqn.outvars, value_outputs):
             aval = getattr(var, "aval", None)
             if aval is None:
                 continue
@@ -645,6 +625,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             val.type = ir.TensorType(dtype)
             _stamp_type_and_shape(val, shape)
             _ensure_value_info(ctx, val)
+            ctx.bind_value_for_var(var, val)
 
         if eqn.invars and all(_is_literal(v) for v in eqn.invars):
             for var in eqn.outvars:
@@ -662,22 +643,11 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     == ir.DataType.INT64
                 ):
                     continue
-                promoted = ir.Value(
-                    name=ctx.fresh_name("while_int64"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=current_val.shape,
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Cast",
-                        domain="",
-                        inputs=[current_val],
-                        outputs=[promoted],
-                        name=ctx.fresh_name("Cast"),
-                        attributes=[
-                            IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))
-                        ],
-                    )
+                promoted = builder_cast(
+                    ctx,
+                    current_val,
+                    ir.DataType.INT64,
+                    name_hint="while_int64",
                 )
                 _stamp_type_and_shape(promoted, tuple(getattr(aval, "shape", ())))
                 _ensure_value_info(ctx, promoted)

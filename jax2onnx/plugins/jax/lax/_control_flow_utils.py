@@ -12,6 +12,64 @@ import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
+def _get_builder(ctx: Any):
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError(
+            "IR context missing builder; control-flow lowering requires builder support"
+        )
+    return builder
+
+
+def builder_identity(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
+    builder = _get_builder(ctx)
+    out = builder.Identity(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+    )
+    orig_type = getattr(value, "type", None)
+    if orig_type is not None:
+        out.type = orig_type
+    shape_obj = getattr(value, "shape", None)
+    if shape_obj is not None:
+        out.shape = shape_obj
+    return out
+
+
+def builder_cast(
+    ctx: Any,
+    value: ir.Value,
+    target_enum: ir.DataType,
+    *,
+    name_hint: str,
+) -> ir.Value:
+    builder = _get_builder(ctx)
+    casted = builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+        to=int(target_enum.value),
+    )
+    casted.type = ir.TensorType(target_enum)
+    shape_obj = getattr(value, "shape", None)
+    if shape_obj is not None:
+        casted.shape = shape_obj
+    return casted
+
+
+def builder_loop(
+    ctx: Any,
+    *inputs: ir.Value,
+    body: ir.Graph,
+    output_names: list[str],
+) -> tuple[ir.Value, ...] | ir.Value:
+    builder = _get_builder(ctx)
+    return builder.Loop(
+        *inputs,
+        body=body,
+        _outputs=output_names,
+    )
+
+
 def _call_plugin_lower(plugin: Any, ctx: Any, eqn: Any) -> None:
     """Invoke a plugin's lowering helper, forwarding params when supported."""
     lower_fn = getattr(plugin, "lower", None)

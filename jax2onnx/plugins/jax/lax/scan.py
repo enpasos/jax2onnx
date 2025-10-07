@@ -27,6 +27,8 @@ from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
@@ -78,20 +80,11 @@ def _maybe_cast_value(
     current_enum = getattr(getattr(value, "type", None), "dtype", None)
     if not force and (current_enum is None or current_enum == target_enum):
         return value
-    cast_val = ir.Value(
-        name=ctx.fresh_name("scan_dtype_fix"),
-        type=ir.TensorType(target_enum),
-        shape=value.shape,
-    )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
-        )
+    cast_val = builder_cast(
+        ctx,
+        value,
+        target_enum,
+        name_hint="scan_dtype_fix",
     )
     _ensure_value_info(ctx, cast_val)
     return cast_val
@@ -748,37 +741,20 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         body_outputs: list[ir.Value] = []
 
-        cond_out = ir.Value(
-            name=loop_ctx.fresh_name("loop_cond_out"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
+        cond_out = builder_identity(
+            loop_ctx,
+            cond_in,
+            name_hint="loop_cond_out",
         )
-        loop_ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[cond_in],
-                outputs=[cond_out],
-                name=loop_ctx.fresh_name("Identity"),
-            )
-        )
+        cond_out.type = ir.TensorType(ir.DataType.BOOL)
         body_outputs.append(cond_out)
 
         for i in range(num_consts):
             inp_val = state_inputs[i]
-            out_val = ir.Value(
-                name=loop_ctx.fresh_name("loop_const_out"),
-                type=inp_val.type,
-                shape=inp_val.shape,
-            )
-            loop_ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[inp_val],
-                    outputs=[out_val],
-                    name=loop_ctx.fresh_name("Identity"),
-                )
+            out_val = builder_identity(
+                loop_ctx,
+                inp_val,
+                name_hint="loop_const_out",
             )
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
@@ -1168,37 +1144,20 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         body_outputs: list[ir.Value] = []
 
-        cond_out = ir.Value(
-            name=loop_ctx.fresh_name("loop_cond_out"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
+        cond_out = builder_identity(
+            loop_ctx,
+            cond_in,
+            name_hint="loop_cond_out",
         )
-        loop_ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[cond_in],
-                outputs=[cond_out],
-                name=loop_ctx.fresh_name("Identity"),
-            )
-        )
+        cond_out.type = ir.TensorType(ir.DataType.BOOL)
         body_outputs.append(cond_out)
 
         for i in range(num_consts):
             inp_val = state_inputs[i]
-            out_val = ir.Value(
-                name=loop_ctx.fresh_name("loop_const_out"),
-                type=inp_val.type,
-                shape=inp_val.shape,
-            )
-            loop_ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[inp_val],
-                    outputs=[out_val],
-                    name=loop_ctx.fresh_name("Identity"),
-                )
+            out_val = builder_identity(
+                loop_ctx,
+                inp_val,
+                name_hint="loop_const_out",
             )
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
@@ -1227,19 +1186,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 loop_ctx.bind_value_for_var(out_var, casted)
 
         for seq_state in sequence_states:
-            seq_passthrough = ir.Value(
-                name=loop_ctx.fresh_name("loop_seq_out"),
-                type=seq_state.type,
-                shape=seq_state.shape,
-            )
-            loop_ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[seq_state],
-                    outputs=[seq_passthrough],
-                    name=loop_ctx.fresh_name("Identity"),
-                )
+            seq_passthrough = builder_identity(
+                loop_ctx,
+                seq_state,
+                name_hint="loop_seq_out",
             )
             body_outputs.append(seq_passthrough)
 

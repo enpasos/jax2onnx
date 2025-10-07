@@ -193,7 +193,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 
 - Thin wrapper no longer needed: `IRBuilder` directly instantiates `_tape.Builder` and mirrors its state. Remaining work focuses on migrating residual manual `ir.Node` usage to the builder APIs.
 - Eqx linear/dropout/identity now emit through builder helpers; focus shifts to control-flow/ad hoc attention rewrites next.
-- `lax.select_n`, `broadcast_in_dim`, `cond`, and `fori_loop` now route through builder-backed shape/control-flow construction; remaining priority is the `scan`/`while_loop` scaffolds.
+- `lax.select_n`, `broadcast_in_dim`, `cond`, `fori_loop`, and the top-level `scan`/`while_loop` Loop emission now route through builder helpers; remaining work focuses on cleaning up per-step dtype helpers and nested subgraph plumbing in `scan`.
 - `jax/lax/argmax.py` and `jax/lax/argmin.py` still construct `ir.Node` manually for ReduceMax/ReduceMin, tieing into the legacy arg reducer shim. Track these for a future builder pass after EQX cleanups.
 - LAX control-flow (scan/while_loop) still has manual `ir.Node` construction sprinkled throughout; rung these up as medium-depth refactors once the remaining loop scaffolds are migrated.
 - **Upcoming plan**
