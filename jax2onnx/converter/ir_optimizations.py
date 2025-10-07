@@ -10,6 +10,7 @@ import numpy as np
 
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
+from onnx_ir import convenience as ir_convenience
 
 # ---------------- Config ----------------
 
@@ -439,6 +440,13 @@ def _replace_everywhere(
     old_name: Optional[str],
     new_v: "ir.Value",
 ) -> None:
+    if old_v is not None:
+        try:
+            ir_convenience.replace_all_uses_with(old_v, new_v)
+            return
+        except Exception:
+            # Fall back to manual path (legacy IR objects or pure-proto case)
+            pass
     for m in nodes:
         ins = _node_inputs(m)
         changed = False
@@ -480,6 +488,13 @@ def _replace_everywhere(
 def _replace_in_graph_outputs(
     graph, old_v: Optional["ir.Value"], old_name: Optional[str], new_v: "ir.Value"
 ) -> None:
+    # Best-effort: try IR convenience first (may not update Graph.outputs). Then
+    # explicitly fix Graph.outputs below to preserve expected output wiring/names.
+    if old_v is not None:
+        try:
+            ir_convenience.replace_all_uses_with(old_v, new_v)
+        except Exception:
+            pass
     for attr in ("outputs", "output"):
         outs = getattr(graph, attr, None)
         if outs is None:
