@@ -6,26 +6,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - import is only for type hints
     from jax2onnx.converter.ir_context import IRContext
-
-
-def _const_i64(ctx, values, name_hint):
-    arr = np.asarray(values, dtype=np.int64)
-    shape = () if arr.ndim == 0 else (arr.size,)
-    val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(shape),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(val)
-    return val
 
 
 def _infer_rank(value: ir.Value, axis: int) -> int:
@@ -94,7 +81,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
 class DimAsValuePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: IRContext, eqn):  # type: ignore[name-defined]
         out_var = eqn.outvars[0]
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("dim_as_value_out")
         )
 
@@ -112,80 +99,62 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         axis = int(axis)
         src_rank = _infer_rank(src_val, axis)
 
-        shape_vec = ir.Value(
-            name=ctx.fresh_name("dim_as_value_shape"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((src_rank,)),
+        shape_vec = ctx.builder.Shape(
+            src_val,
+            _outputs=[ctx.fresh_name("dim_as_value_shape")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Shape",
-                domain="",
-                inputs=[src_val],
-                outputs=[shape_vec],
-                name=ctx.fresh_name("Shape"),
-            )
+        shape_vec.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shape_vec, (src_rank,))
+
+        gather_idx = _const_i64(
+            ctx, np.asarray([axis], dtype=np.int64), "dim_as_value_axis"
+        )
+        gathered_dim = ctx.builder.Gather(
+            shape_vec,
+            gather_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name("dim_as_value_gather")],
+        )
+        gathered_dim.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(gathered_dim, (1,))
+
+        reshape_shape = _const_i64(
+            ctx, np.asarray([], dtype=np.int64), "dim_as_value_scalar_shape"
         )
 
-        gather_idx = _const_i64(ctx, [axis], "dim_as_value_axis")
-        gathered_dim = ir.Value(
-            name=ctx.fresh_name("dim_as_value_gather"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((1,)),
-        )
-        ctx.add_node(
-            ir.Node(
-                op_type="Gather",
-                domain="",
-                inputs=[shape_vec, gather_idx],
-                outputs=[gathered_dim],
-                name=ctx.fresh_name("Gather"),
-                attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-            )
-        )
-
-        reshape_shape = _const_i64(ctx, [], "dim_as_value_scalar_shape")
-
-        target_dtype = getattr(getattr(out_val, "type", None), "dtype", None)
+        target_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
         needs_cast = target_dtype is not None and target_dtype != ir.DataType.INT64
 
-        reshape_output = (
-            out_val
+        reshape_name = (
+            getattr(out_spec, "name", None)
             if not needs_cast
-            else ir.Value(
-                name=ctx.fresh_name("dim_as_value_scalar"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
-            )
+            else ctx.fresh_name("dim_as_value_scalar")
         )
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[gathered_dim, reshape_shape],
-                outputs=[reshape_output],
-                name=ctx.fresh_name("Reshape"),
-            )
+        reshape_result = ctx.builder.Reshape(
+            gathered_dim,
+            reshape_shape,
+            _outputs=[reshape_name or ctx.fresh_name("dim_as_value_scalar")],
         )
+        reshape_result.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(reshape_result, ())
 
+        final_val = reshape_result
         if needs_cast and target_dtype is not None:
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[reshape_output],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(target_dtype.value))],
-                )
+            cast_result = ctx.builder.Cast(
+                reshape_result,
+                _outputs=[
+                    getattr(out_spec, "name", None)
+                    or ctx.fresh_name("dim_as_value_cast")
+                ],
+                to=int(target_dtype.value),
             )
-            scalar_shape = ir.Shape(())
-            out_val.dtype = target_dtype
-            try:
-                out_val.type = ir.TensorType(target_dtype, scalar_shape)
-            except TypeError:
-                # onnx_ir older builds expect shape optional; retry without.
-                out_val.type = ir.TensorType(target_dtype)
+            cast_result.type = ir.TensorType(target_dtype)
+            _stamp_type_and_shape(cast_result, ())
+            final_val = cast_result
+        else:
+            if target_dtype is not None:
+                reshape_result.type = ir.TensorType(target_dtype)
 
-        _stamp_type_and_shape(out_val, ())
+        _stamp_type_and_shape(final_val, ())
+        ctx.bind_value_for_var(out_var, final_val)

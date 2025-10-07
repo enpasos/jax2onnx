@@ -18,68 +18,33 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _ir_dtype_from_numpy(dtype: np.dtype) -> ir.DataType:
-    dt = np.dtype(dtype)
-    if dt == np.float64:
-        return getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT)
-    if dt == np.float32:
-        return ir.DataType.FLOAT
-    if dt == np.bool_ or dt == np.dtype(bool):
-        return ir.DataType.BOOL
-    if dt == np.int64:
-        return ir.DataType.INT64
-    if dt == np.int32:
-        return ir.DataType.INT32
-    return ir.DataType.FLOAT
-
-
 def _const_tensor(ctx, array, *, name: str) -> ir.Value:
     arr = np.asarray(array)
     builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for constant tensor")
     init_name = ctx.fresh_name(name)
-    if builder is not None:
-        if arr.ndim == 0:
-            value = builder.add_initializer_from_scalar(name=init_name, value=arr)
-        else:
-            value = builder.add_initializer_from_array(name=init_name, array=arr)
-        _stamp_type_and_shape(value, arr.shape if arr.shape else ())
-        return value
+    if arr.ndim == 0:
+        value = builder.add_initializer_from_scalar(name=init_name, value=arr)
+    else:
+        value = builder.add_initializer_from_array(name=init_name, array=arr)
+    _stamp_type_and_shape(value, arr.shape if arr.shape else ())
+    return value
 
-    dtype = _ir_dtype_from_numpy(arr.dtype)
-    shape = arr.shape if arr.shape else ()
-    tensor_obj = ir.tensor(arr) if hasattr(ir, "tensor") else arr
+
+def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for dropout input")
+    for vi in getattr(builder, "inputs", []):
+        if getattr(vi, "name", "") == name:
+            return vi
     value = ir.Value(
-        name=init_name,
-        type=ir.TensorType(dtype),
-        shape=ir.Shape(shape),
-        const_value=tensor_obj if hasattr(ir.Value, "const_value") else None,
+        name=name,
+        type=ir.TensorType(ir.DataType.BOOL),
+        shape=ir.Shape(()),
     )
-    try:
-        ctx._initializers.append(value)
-    except Exception:
-        attrs = []
-        Attr = getattr(ir, "Attr", None)
-        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-        if Attr is not None:
-            try:
-                if hasattr(Attr, "t"):
-                    attrs = [Attr.t("value", tensor_obj)]
-                elif AttrType is not None:
-                    attrs = [Attr("value", AttrType.TENSOR, tensor_obj)]
-                else:
-                    attrs = [Attr("value", tensor_obj)]
-            except Exception:
-                attrs = []
-        node = ir.Node(
-            op_type="Constant",
-            domain="",
-            inputs=[],
-            outputs=[value],
-            name=ctx.fresh_name("Constant"),
-            attributes=attrs,
-            num_outputs=1,
-        )
-        ctx.add_node(node)
+    builder.inputs.append(value)
     return value
 
 
@@ -95,31 +60,6 @@ def _extract_python_bool(var) -> Optional[bool]:
         if isinstance(val, (bool, np.bool_)):
             return bool(val)
     return None
-
-
-def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
-    inputs = getattr(ctx.builder, "inputs", None)
-    if inputs is None:
-        inputs = []
-        try:
-            ctx.builder.inputs = inputs
-        except Exception:
-            pass
-    for vi in inputs:
-        if getattr(vi, "name", "") == name:
-            return vi
-    value = ir.Value(
-        name=name,
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-    )
-    inputs.append(value)
-    if getattr(ctx.builder, "inputs", None) is not inputs:
-        try:
-            ctx.builder.inputs = inputs
-        except Exception:
-            pass
-    return value
 
 
 @register_primitive(

@@ -96,29 +96,36 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="ln_scale_cast")
         bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="ln_bias_cast")
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ln_out"))
-        node = ir.Node(
-            op_type="LayerNormalization",
-            domain="",
-            inputs=[x_val, scale_val, bias_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("LayerNorm"),
-        )
-        ctx.add_node(node)
-
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ln_out"))
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         scale_shape = tuple(getattr(getattr(scale_var, "aval", None), "shape", ()))
         axis = max(len(x_shape) - len(scale_shape), 0)
         epsilon = float(eqn.params.get("epsilon", 1e-5))
-        ctx.set_node_attrs(node, {"axis": int(axis), "epsilon": epsilon})
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("LayerNorm")
+        result = ctx.builder.LayerNormalization(
+            x_val,
+            scale_val,
+            bias_val,
+            axis=int(axis),
+            epsilon=epsilon,
+            _outputs=[desired_name],
+        )
 
         if x_shape:
             stamped_dims = []
             for idx, dim in enumerate(x_shape):
                 label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
                 stamped_dims.append(label if label is not None else dim)
-            _stamp_type_and_shape(out_val, tuple(stamped_dims))
-        _ensure_value_info(ctx, out_val)
+            _stamp_type_and_shape(result, tuple(stamped_dims))
+        else:
+            _stamp_type_and_shape(result, ())
+
+        x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if x_dtype is not None:
+            result.type = ir.TensorType(x_dtype)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

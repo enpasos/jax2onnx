@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -52,24 +51,14 @@ def _cast_value(
         return src_val
 
     dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-    cast_val = ir.Value(
-        name=ctx.fresh_name(f"clip_{tag}_cast"),
-        type=ir.TensorType(dtype_enum),
-        shape=src_val.shape,
+    cast_val = ctx.builder.Cast(
+        src_val,
+        _outputs=[ctx.fresh_name(f"clip_{tag}_cast")],
+        to=int(dtype_enum.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[src_val],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(dtype_enum.value))],
-        )
-    )
-    _stamp_type_and_shape(
-        cast_val, tuple(getattr(getattr(src_var, "aval", None), "shape", ()))
-    )
+    cast_val.type = ir.TensorType(dtype_enum)
+    cast_shape = tuple(getattr(getattr(src_var, "aval", None), "shape", ()))
+    _stamp_type_and_shape(cast_val, cast_shape)
     _ensure_value_info(ctx, cast_val)
     return cast_val
 
@@ -145,7 +134,7 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("clip_x"))
         lo_val = ctx.get_value_for_var(lo_var, name_hint=ctx.fresh_name("clip_lo"))
         hi_val = ctx.get_value_for_var(hi_var, name_hint=ctx.fresh_name("clip_hi"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clip_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clip_out"))
 
         x_dtype = _np_dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
         dtype_enum = _dtype_to_ir(x_dtype, ctx.builder.enable_double_precision)
@@ -153,39 +142,27 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         lo_input = _cast_value(ctx, lo_val, lo_var, x_dtype, "lo")
         hi_input = _cast_value(ctx, hi_val, hi_var, x_dtype, "hi")
 
-        max_val = ir.Value(
-            name=ctx.fresh_name("clip_max_tmp"),
-            type=ir.TensorType(dtype_enum),
-            shape=x_val.shape,
+        max_val = ctx.builder.Max(
+            x_val,
+            lo_input,
+            _outputs=[ctx.fresh_name("clip_max_tmp")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Max",
-                domain="",
-                inputs=[x_val, lo_input],
-                outputs=[max_val],
-                name=ctx.fresh_name("Max"),
-            )
-        )
-        _stamp_type_and_shape(
-            max_val, tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        )
+        max_val.type = ir.TensorType(dtype_enum)
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        _stamp_type_and_shape(max_val, x_shape)
         _ensure_value_info(ctx, max_val)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Min",
-                domain="",
-                inputs=[max_val, hi_input],
-                outputs=[out_val],
-                name=ctx.fresh_name("Min"),
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("clip_out")
+        result = ctx.builder.Min(
+            max_val,
+            hi_input,
+            _outputs=[desired_name],
         )
-        out_val.type = ir.TensorType(dtype_enum)
-        _stamp_type_and_shape(
-            out_val, tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
-        )
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(dtype_enum)
+        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

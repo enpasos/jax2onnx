@@ -211,11 +211,10 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
   1. `jax/lax/slice.py` and `jax/lax/scatter_utils.py` migrated to builder helpers (completed).
   2. Bring remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
 - Remaining direct `ir.Node` call sites to migrate to builder helpers:
-  * Core primitives: `jax2onnx/plugins/jax/core/dim_as_value.py`.
   * LAX primitives: `reshape.py`.
-  * NumPy facade: `arange.py`, `clip.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
+  * NumPy facade: `arange.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
   * Plugin infrastructure: `plugins/plugin_system.py` (call wiring/helpers), `_utils.py`.
-  * NN(X)/Flax/EQX extras: `flax/nnx/*` (dropout, dot_product_attention, einsum, embed, group_norm, linear_general, log_softmax, max_pool, rms_norm, leaky_relu), `equinox/eqx/nn/{layer_norm,dropout}`.
+  * NN(X)/Flax/EQX extras: `flax/nnx/*` (dropout, dot_product_attention, einsum, embed, group_norm, linear_general, log_softmax, max_pool, rms_norm, leaky_relu).
   * Misc helpers to audit after refactors (`jax2onnx/plugins/jax/numpy/split.py`, etc.).
 
 ### Migration Snapshot (track here)
@@ -237,7 +236,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX padding | ✅ builder-only | `lax.pad` now sources pads via builder initializers; no manual Constant nodes. |
 | Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ✅ builder-only | Shared helpers clone subgraph inputs, loop headers, and bool casts so body plumbing stays on builder APIs across scan/while/fori. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
-| Equinox EQX core (`linear`, `dropout`, `identity`) | ✅ builder-only | Trio now routes entirely through builder helpers; RNG semantics preserved. |
+| Equinox EQX core (`linear`, `dropout`, `identity`, `layer_norm`) | ✅ builder-only | Core EQX lowers now route entirely through builder helpers; RNG semantics preserved. |
 | LAX arg reducers (`argmax`, `argmin`) | ✅ builder-only | Shared `_arg_utils.lower_arg_reduction` now lowers ArgMax/ArgMin via builder with dtype casting + shape stamping. |
 | JAX/NN primitive plugins (`jax/nn/*`) | ✅ builder-only | Unary activations share `_builder_utils`, and `dot_product_attention` now lowers via builder ops for transpose/mask/softmax paths with no raw `ir.Node`. |
 | Residual direct `ir.Node` usage | ⏳ cleanup | Core/numpy/lax/NNX helpers still have bespoke `ir.Node`; see bullet list above for file inventory slated for builder migrations. |
