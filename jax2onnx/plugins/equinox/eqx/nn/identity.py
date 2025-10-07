@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import ClassVar
 
 import equinox as eqx
-import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
@@ -52,24 +51,42 @@ class IdentityPlugin(PrimitiveLeafPlugin):
         return x
 
     def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Eqx Identity lowering"
+            )
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("identity_in"))
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("identity_out")
         )
-        node = ir.Node(
-            op_type="Identity",
-            domain="",
-            inputs=[x_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Identity"),
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Identity")
+
+        identity_val = builder.Identity(
+            x_val,
+            _outputs=[desired_name],
         )
-        ctx.add_node(node)
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        if x_shape:
-            _stamp_type_and_shape(out_val, x_shape)
-        _ensure_value_info(ctx, out_val)
+
+        if getattr(out_spec, "type", None) is not None:
+            identity_val.type = out_spec.type
+        elif getattr(x_val, "type", None) is not None:
+            identity_val.type = x_val.type
+
+        if getattr(out_spec, "shape", None) is not None:
+            identity_val.shape = out_spec.shape
+        else:
+            x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+            if x_shape:
+                _stamp_type_and_shape(identity_val, x_shape)
+        _ensure_value_info(ctx, identity_val)
+        ctx.bind_value_for_var(out_var, identity_val)
 
     @classmethod
     def binding_specs(cls):

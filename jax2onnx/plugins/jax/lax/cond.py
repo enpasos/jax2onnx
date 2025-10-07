@@ -8,9 +8,9 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
@@ -176,11 +176,15 @@ class CondPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         cond_var, *operand_vars = eqn.invars
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for lax.cond lowering"
+            )
+
         cond_val = ctx.get_value_for_var(
             cond_var, name_hint=ctx.fresh_name("cond_pred")
         )
-
-        cond_shape = getattr(cond_val, "shape", ir.Shape(()))
         needs_cast = True
         aval_dtype = getattr(getattr(cond_var, "aval", None), "dtype", None)
         if aval_dtype is not None and np.issubdtype(np.dtype(aval_dtype), np.bool_):
@@ -192,27 +196,16 @@ class CondPlugin(PrimitiveLeafPlugin):
             needs_cast = False
 
         if needs_cast:
-            bool_val = ir.Value(
-                name=ctx.fresh_name("cond_pred_bool"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=cond_shape,
+            cond_val = builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("cond_pred_bool")],
+                to=int(ir.DataType.BOOL.value),
             )
-            cast_attr = IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[cond_val],
-                    outputs=[bool_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[cast_attr],
-                )
-            )
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(
-                bool_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
+                cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
             )
-            _ensure_value_info(ctx, bool_val)
-            cond_val = bool_val
+            _ensure_value_info(ctx, cond_val)
         else:
             _stamp_type_and_shape(
                 cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
@@ -248,27 +241,33 @@ class CondPlugin(PrimitiveLeafPlugin):
             prefix="cond_else",
         )
 
-        out_vals = [
-            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("cond_out"))
-            for var in eqn.outvars
-        ]
-
-        if_node = ir.Node(
-            op_type="If",
-            domain="",
-            inputs=[cond_val],
-            outputs=out_vals,
-            name=ctx.fresh_name("If"),
-            attributes=[
-                IRAttr("then_branch", IRAttrType.GRAPH, then_graph),
-                IRAttr("else_branch", IRAttrType.GRAPH, else_graph),
-            ],
+        output_names = [ctx.fresh_name("cond_out") for _ in eqn.outvars]
+        if_outputs = builder.If(
+            cond_val,
+            then_branch=then_graph,
+            else_branch=else_graph,
+            _outputs=output_names,
         )
-        ctx.add_node(if_node)
 
-        for var, val in zip(eqn.outvars, out_vals):
-            _stamp_type_and_shape(val, tuple(getattr(var.aval, "shape", ())))
-            _ensure_value_info(ctx, val)
+        if not isinstance(if_outputs, tuple):
+            if_outputs = (if_outputs,)
+
+        enable_dp = getattr(builder, "enable_double_precision", False)
+        for var, out_val in zip(eqn.outvars, if_outputs):
+            aval = getattr(var, "aval", None)
+            dtype_enum = None
+            if aval is not None:
+                aval_dtype = getattr(aval, "dtype", None)
+                if aval_dtype is not None:
+                    try:
+                        dtype_enum = _dtype_to_ir(np.dtype(aval_dtype), enable_dp)
+                    except TypeError:
+                        dtype_enum = None
+            if dtype_enum is not None:
+                out_val.type = ir.TensorType(dtype_enum)
+            _stamp_type_and_shape(out_val, tuple(getattr(aval, "shape", ()) or ()))
+            _ensure_value_info(ctx, out_val)
+            ctx.bind_value_for_var(var, out_val)
 
     def _build_branch_graph(
         self,
@@ -285,22 +284,19 @@ class CondPlugin(PrimitiveLeafPlugin):
         for const_var, const_value in zip(branch_jaxpr.constvars, consts):
             branch_ctx.bind_const_for_var(const_var, np.asarray(const_value))
 
+        builder = getattr(branch_ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("Branch context missing builder for lax.cond")
+
         branch_inputs: list[ir.Value] = []
         for outer_val, inner_var in zip(operand_vals, branch_jaxpr.invars):
-            capture = ir.Value(
-                name=branch_ctx.fresh_name("cond_capture"),
-                type=outer_val.type,
-                shape=outer_val.shape,
+            capture = builder.Identity(
+                outer_val,
+                _outputs=[branch_ctx.fresh_name("cond_capture")],
             )
-            branch_ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[outer_val],
-                    outputs=[capture],
-                    name=branch_ctx.fresh_name("Identity"),
-                )
-            )
+            orig_type = getattr(outer_val, "type", None)
+            if orig_type is not None:
+                capture.type = orig_type
             _stamp_type_and_shape(
                 capture, tuple(getattr(getattr(inner_var, "aval", None), "shape", ()))
             )
@@ -315,21 +311,13 @@ class CondPlugin(PrimitiveLeafPlugin):
         for out_var in branch_jaxpr.outvars:
             val = branch_ctx.get_value_for_var(out_var)
             if val.name in input_names:
-                new_val = ir.Value(
-                    name=branch_ctx.fresh_name(f"{val.name}_identity"),
-                    type=val.type,
-                    shape=val.shape,
+                orig_type = getattr(val, "type", None)
+                val = builder.Identity(
+                    val,
+                    _outputs=[branch_ctx.fresh_name(f"{val.name}_identity")],
                 )
-                branch_ctx.add_node(
-                    ir.Node(
-                        op_type="Identity",
-                        domain="",
-                        inputs=[val],
-                        outputs=[new_val],
-                        name=branch_ctx.fresh_name("Identity"),
-                    )
-                )
-                val = new_val
+                if orig_type is not None:
+                    val.type = orig_type
             branch_outputs.append(val)
             _stamp_type_and_shape(val, tuple(getattr(out_var.aval, "shape", ())))
             _ensure_value_info(branch_ctx, val)

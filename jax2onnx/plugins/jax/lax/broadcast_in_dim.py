@@ -9,10 +9,8 @@ import onnx_ir as ir
 
 # from onnx_ir import Attribute as IRAttr  # NEW: proper Attr objects
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from onnx_ir import (
-    Attr as IRAttr,
-    AttributeType as IRAttrType,
-)  # FIX: correct attr types
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 
@@ -286,6 +284,12 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     """
 
     def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for broadcast_in_dim lowering"
+            )
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         shape = tuple(eqn.params["shape"])
@@ -313,9 +317,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
-        # We'll keep a reference tensor with the *desired* float dtype (usually from the
-        # origin of a symbolic dim like 'B') so we can CastLike the operand if needed.
-        like_ref_val: ir.Value | None = None
         for axis, d in enumerate(shape):
             if allow_hints and hints and axis not in bdims:
                 override_val = _peek_scatter_hint(axis)
@@ -323,14 +324,13 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     dim_pieces.append(override_val)
                     continue
             if isinstance(d, (int, np.integer)):
-                c = ir.Value(
-                    name=ctx.fresh_name("bcast_dim_c"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([int(d)], dtype=np.int64)),
+                dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([int(d)], dtype=np.int64),
+                        ctx.fresh_name("bcast_dim_c"),
+                    )
                 )
-                ctx._initializers.append(c)
-                dim_pieces.append(c)
             else:
                 # Dynamic/symbolic dimension: fetch from its recorded origin.
                 origin = getattr(ctx, "get_symbolic_dim_origin", None)
@@ -344,65 +344,40 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         f"no origin recorded for symbolic dim '{d}'"
                     )
                 src_val, axis = src
-                # Save the first available tensor as a dtype reference.
-                if like_ref_val is None:
-                    like_ref_val = src_val
                 # Shape(src) → Gather(…, [axis]) → length-1 vector
                 src_rank = len(
                     getattr(getattr(src_val, "shape", None), "dims", ()) or ()
                 )
-                shp = ir.Value(
-                    name=ctx.fresh_name("bcast_src_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((src_rank,)),
+                shp = builder.Shape(
+                    src_val,
+                    _outputs=[ctx.fresh_name("bcast_src_shape")],
                 )
-                shape_node = ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[src_val],
-                    outputs=[shp],
-                    name=ctx.fresh_name("Shape"),
-                )
-                ctx.add_node(shape_node)
+                _stamp_type_and_shape(shp, (src_rank,))
+                _ensure_value_info(ctx, shp)
 
-                idx = ir.Value(
-                    name=ctx.fresh_name("bcast_idx"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([int(axis)], dtype=np.int64)),
+                idx = _const_i64(
+                    ctx,
+                    np.asarray([int(axis)], dtype=np.int64),
+                    ctx.fresh_name("bcast_idx"),
                 )
-                ctx._initializers.append(idx)
 
-                dim1 = ir.Value(
-                    name=ctx.fresh_name("bcast_dim_dyn"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
+                dim1 = builder.Gather(
+                    shp,
+                    idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("bcast_dim_dyn")],
                 )
-                gather_node = ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[shp, idx],
-                    outputs=[dim1],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],  # FIX
-                )
-                ctx.add_node(gather_node)
+                _stamp_type_and_shape(dim1, (1,))
+                _ensure_value_info(ctx, dim1)
                 dim_pieces.append(dim1)
 
-        tgt_shape_val = ir.Value(
-            name=ctx.fresh_name("bcast_target_shape"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((len(shape),)),
+        tgt_shape_val = builder.Concat(
+            *dim_pieces,
+            axis=0,
+            _outputs=[ctx.fresh_name("bcast_target_shape")],
         )
-        concat_node = ir.Node(
-            op_type="Concat",
-            domain="",
-            inputs=dim_pieces,
-            outputs=[tgt_shape_val],
-            name=ctx.fresh_name("Concat"),
-            attributes=[IRAttr("axis", IRAttrType.INT, 0)],  # FIX
-        )
-        ctx.add_node(concat_node)
+        _stamp_type_and_shape(tgt_shape_val, (len(shape),))
+        _ensure_value_info(ctx, tgt_shape_val)
 
         # If operand is a scalar, we can skip the Reshape and go straight to Expand.
         need_reshape = len(op_shape) > 0 and len(shape) != len(op_shape)
@@ -428,119 +403,69 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue
-                const_val = ir.Value(
-                    name=ctx.fresh_name("bcast_reshape_dim"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.asarray([int(dim)], dtype=np.int64)),
+                reshape_dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([int(dim)], dtype=np.int64),
+                        ctx.fresh_name("bcast_reshape_dim"),
+                    )
                 )
-                ctx._initializers.append(const_val)
-                reshape_dim_pieces.append(const_val)
 
-            rs_val = ir.Value(
-                name=ctx.fresh_name("bcast_reshape_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((rrank,)),
+            rs_val = builder.Concat(
+                *reshape_dim_pieces,
+                axis=0,
+                _outputs=[ctx.fresh_name("bcast_reshape_shape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=reshape_dim_pieces,
-                    outputs=[rs_val],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            _stamp_type_and_shape(rs_val, (rrank,))
+            _ensure_value_info(ctx, rs_val)
 
-            reshaped_val = ir.Value(
-                name=ctx.fresh_name("bcast_reshape_out"),
-                type=x_val.type,  # same dtype
-                shape=ir.Shape(tuple(reshape_dims)),  # rank == result rank
+            reshaped_val = builder.Reshape(
+                x_val,
+                rs_val,
+                _outputs=[ctx.fresh_name("bcast_reshape_out")],
             )
-            reshape_node = ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[x_val, rs_val],
-                outputs=[reshaped_val],
-                name=ctx.fresh_name("Reshape"),
-            )
-            ctx.add_node(reshape_node)
+            _stamp_type_and_shape(reshaped_val, tuple(reshape_dims))
+            if getattr(x_val, "type", None) is not None:
+                reshaped_val.type = x_val.type
+            _ensure_value_info(ctx, reshaped_val)
             expand_input = reshaped_val
         else:
             expand_input = x_val  # scalar or already aligned
 
-        # Final expanded tensor should match the outvar's jax aval; let ctx create it.
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
-        # onnx_ir refuses to assign a new producer to a Value that already
-        # belongs to another node. When the same JAX var is materialised via
-        # multiple broadcast ops (common inside nnx.Sequential), rebinding the
-        # cached Value avoids "producer already set" errors.
-        if (
-            callable(getattr(out_val, "producer", None))
-            and out_val.producer() is not None
-        ):
-            out_val = ir.Value(
-                name=ctx.fresh_name("bcast_out"),
-                type=out_val.type,
-                shape=out_val.shape,
-            )
-            ctx.builder._var2val[out_var] = out_val
+        # Final expanded tensor should match the outvar's jax aval.
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
 
-        # --- DTYPE UNIFICATION --------------------------------------------------
-        # If the operand (possibly a Python float literal → fp64) doesn't match the
-        # expected output dtype (usually fp32 in x32 mode), cast it before Expand.
         in_dt = getattr(getattr(expand_input, "type", None), "dtype", None)
-        out_dt = getattr(getattr(out_val, "type", None), "dtype", None)
-        if (in_dt is not None) and (out_dt is not None) and (in_dt != out_dt):
-            # Use a "like" tensor ONLY if it already matches the target dtype.
-            like_for_cast = None
-            lr_dt = getattr(getattr(like_ref_val, "type", None), "dtype", None)
-            if like_ref_val is not None and lr_dt == out_dt:
-                like_for_cast = like_ref_val
+        if in_dt is not None and out_dtype is not None and in_dt != out_dtype:
+            casted = builder.Cast(
+                expand_input,
+                _outputs=[ctx.fresh_name("bcast_in_cast")],
+                to=int(out_dtype.value),
+            )
+            expand_input_shape = tuple(
+                getattr(getattr(expand_input, "shape", None), "dims", ()) or out_shape
+            )
+            _stamp_type_and_shape(casted, expand_input_shape)
+            _ensure_value_info(ctx, casted)
+            expand_input = casted
 
-            # Otherwise synthesize a tiny constant with the target dtype.
-            if like_for_cast is None:
-                _np_dt = {
-                    ir.DataType.FLOAT: np.float32,
-                    ir.DataType.DOUBLE: np.float64,
-                    # (extend here if you ever hit other types)
-                }.get(out_dt, None)
-                if _np_dt is None:
-                    # If we can't materialize a "like", skip the cast safely.
-                    # (Shouldn't happen in these tests.)
-                    pass
-                else:
-                    like_for_cast = ir.Value(
-                        name=ctx.fresh_name("bcast_like_c"),
-                        type=ir.TensorType(out_dt),
-                        shape=ir.Shape((1,)),
-                        const_value=ir.tensor(np.zeros((1,), dtype=_np_dt)),
-                    )
-                    ctx._initializers.append(like_for_cast)
-            if like_for_cast is not None:
-                casted = ir.Value(
-                    name=ctx.fresh_name("bcast_in_cast"),
-                    type=ir.TensorType(out_dt),
-                    shape=expand_input.shape,
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="CastLike",
-                        domain="",
-                        inputs=[expand_input, like_for_cast],
-                        outputs=[casted],
-                        name=ctx.fresh_name("CastLike"),
-                    )
-                )
-                expand_input = casted
-        # -----------------------------------------------------------------------
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Expand")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Expand")
 
-        expand_node = ir.Node(
-            op_type="Expand",
-            domain="",
-            inputs=[expand_input, tgt_shape_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Expand"),
+        expanded_out = builder.Expand(
+            expand_input,
+            tgt_shape_val,
+            _outputs=[desired_name],
         )
-        ctx.add_node(expand_node)
+        final_dtype = out_dtype or getattr(
+            getattr(expand_input, "type", None), "dtype", None
+        )
+        if final_dtype is not None:
+            expanded_out.type = ir.TensorType(final_dtype)
+        _stamp_type_and_shape(expanded_out, out_shape)
+        _ensure_value_info(ctx, expanded_out)
+        ctx.bind_value_for_var(out_var, expanded_out)

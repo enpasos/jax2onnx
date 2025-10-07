@@ -10,7 +10,6 @@ import numpy as np
 import onnx_ir as ir
 from jax import tree_util
 from jax.extend.core import Primitive
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -62,6 +61,9 @@ def _build_body_graph(
     state_prototypes: "Sequence[ir.Value]",
 ) -> ir.Graph:
     body_ctx = make_subgraph_context(parent_ctx, prefix="fori_body")
+    builder = getattr(body_ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("Subgraph context missing builder for fori_loop body")
 
     iter_input = ir.Value(
         name=body_ctx.fresh_name("loop_iter"),
@@ -86,24 +88,15 @@ def _build_body_graph(
     # Bind the iteration index, casting to the requested dtype when needed.
     iter_var = jaxpr.invars[0]
     iter_dtype = np.dtype(getattr(iter_var.aval, "dtype", np.int64))
-    iter_enum = _dtype_to_ir(iter_dtype, body_ctx.builder.enable_double_precision)
+    iter_enum = _dtype_to_ir(iter_dtype, builder.enable_double_precision)
     iter_value = iter_input
     if iter_enum != ir.DataType.INT64:
-        cast_iter = ir.Value(
-            name=body_ctx.fresh_name("loop_iter_cast"),
-            type=ir.TensorType(iter_enum),
-            shape=ir.Shape(()),
+        cast_iter = builder.Cast(
+            iter_input,
+            _outputs=[body_ctx.fresh_name("loop_iter_cast")],
+            to=int(iter_enum.value),
         )
-        body_ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[iter_input],
-                outputs=[cast_iter],
-                name=body_ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(iter_enum.value))],
-            )
-        )
+        cast_iter.type = ir.TensorType(iter_enum)
         _stamp_type_and_shape(cast_iter, ())
         _ensure_value_info(body_ctx, cast_iter)
         iter_value = cast_iter
@@ -114,7 +107,7 @@ def _build_body_graph(
         aval = getattr(inner_var, "aval", None)
         dtype_enum = _dtype_to_ir(
             np.dtype(getattr(aval, "dtype", getattr(prototype.type, "dtype", None))),
-            body_ctx.builder.enable_double_precision,
+            builder.enable_double_precision,
         )
         shape_tuple = tuple(getattr(aval, "shape", ()))
         shape_dims = tuple(_to_ir_dim_for_shape(dim) for dim in shape_tuple)
@@ -151,7 +144,7 @@ def _build_body_graph(
             out_shape = tuple(getattr(aval, "shape", ()))
             out_dtype = _dtype_to_ir(
                 np.dtype(getattr(aval, "dtype", np.float32)),
-                body_ctx.builder.enable_double_precision,
+                builder.enable_double_precision,
             )
             out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, out_shape)
@@ -160,20 +153,11 @@ def _build_body_graph(
         loop_outputs.append(out_val)
 
     # Propagate the loop condition unchanged (fixed-trip Loop).
-    cond_out = ir.Value(
-        name=body_ctx.fresh_name("loop_cond_out"),
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
+    cond_out = builder.Identity(
+        cond_input,
+        _outputs=[body_ctx.fresh_name("loop_cond_out")],
     )
-    body_ctx.add_node(
-        ir.Node(
-            op_type="Identity",
-            domain="",
-            inputs=[cond_input],
-            outputs=[cond_out],
-            name=body_ctx.fresh_name("Identity"),
-        )
-    )
+    cond_out.type = ir.TensorType(ir.DataType.BOOL)
     _stamp_type_and_shape(cond_out, ())
     _ensure_value_info(body_ctx, cond_out)
 
@@ -308,20 +292,15 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
 
         loop_inputs = [trip_val, cond_val, *state_vals]
 
-        loop_outputs = [
-            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("fori_out"))
-            for var in eqn.outvars
-        ]
-
-        loop_node = ir.Node(
-            op_type="Loop",
-            domain="",
-            inputs=loop_inputs,
-            outputs=loop_outputs,
-            name=ctx.fresh_name("Loop"),
-            attributes=[IRAttr("body", IRAttrType.GRAPH, body_graph)],
+        output_names = [ctx.fresh_name("fori_out") for _ in eqn.outvars]
+        loop_outputs = ctx.builder.Loop(
+            *loop_inputs,
+            body=body_graph,
+            _outputs=output_names,
         )
-        ctx.add_node(loop_node)
+
+        if not isinstance(loop_outputs, tuple):
+            loop_outputs = (loop_outputs,)
 
         for var, val in zip(eqn.outvars, loop_outputs):
             aval = getattr(var, "aval", None)
@@ -335,6 +314,7 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(val, out_shape)
             _ensure_value_info(ctx, val)
+            ctx.bind_value_for_var(var, val)
 
     @classmethod
     def _fori_loop_binding(cls, lower, upper, body_fun, init_val):

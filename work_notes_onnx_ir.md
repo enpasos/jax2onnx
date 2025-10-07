@@ -192,9 +192,15 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 ## Step 6 – Follow-up Refactors & Regression Coverage
 
 - Thin wrapper no longer needed: `IRBuilder` directly instantiates `_tape.Builder` and mirrors its state. Remaining work focuses on migrating residual manual `ir.Node` usage to the builder APIs.
-- Eqx linear/dropout now emit Reshape/Gemm/Dropout via the builder; only Eqx identity still relies on manual node wiring.
+- Eqx linear/dropout/identity now emit through builder helpers; focus shifts to control-flow/ad hoc attention rewrites next.
+- `lax.select_n`, `broadcast_in_dim`, `cond`, and `fori_loop` now route through builder-backed shape/control-flow construction; remaining priority is the `scan`/`while_loop` scaffolds.
 - `jax/lax/argmax.py` and `jax/lax/argmin.py` still construct `ir.Node` manually for ReduceMax/ReduceMin, tieing into the legacy arg reducer shim. Track these for a future builder pass after EQX cleanups.
-- LAX control-flow (scan/cond/while/fori) and shape builders (iota/select_n/broadcast_in_dim) still have manual `ir.Node` construction sprinkled throughout; rung these up as medium-depth refactors once the EQX/JAX NN attention migrations settle.
+- LAX control-flow (scan/while_loop) still has manual `ir.Node` construction sprinkled throughout; rung these up as medium-depth refactors once the remaining loop scaffolds are migrated.
+- **Upcoming plan**
+  1. Introduce builder-first helpers in `_control_flow_utils` (capture identities, Cast helpers, Loop output rebinding) so scan/while reuse the same primitives without falling back to raw nodes.
+  2. Migrate `scan` body construction: start with the no-`xs` path, replace Cast/Identity/Concat plumbing with builder ops, then extend to the general path and verify scatter helpers still work.
+  3. Port `while_loop` to builder Loop creation (condition/iteration captures, body outputs) leveraging the shared helpers from (1).
+  4. Once builder migrations land, prune redundant utilities like `_maybe_cast_value` and align dtype handling across control-flow plugins; add focused regression tests around nested loops to guard future edits.
 - Incrementally migrate high-traffic plugins (start with `jax/lax` arithmetic ops, then Flax NNX linear layers) to the canonical builder helpers, adding focused pytest cases per primitive to verify op sequencing.
 - Introduced `plugins/jax/nn/_builder_utils.lower_unary_elementwise`; migrated the unary activations to it so builder wiring/shapes stay consistent. Consider generalising for binary reductions before tackling the remaining EQX rewrites.
 - Harden attribute/helper modules (`plugins/flax/nnx/linear.py`, `plugins/flax/nnx/conv.py`) by routing through shared builder utilities once the wrapper is in place; conv now issues Transpose/Reshape/Conv via the builder. Add regression tests ensuring dtype/shape stamping survives conversion.
@@ -216,7 +222,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
 | Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ⏳ mixed/manual | Builder covers entry scaffolds but body rewrites still drop raw `ir.Node` for Slice/Gather/Concat plumbing. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
-| Equinox EQX core (`linear`, `dropout`, `identity`) | ⏳ mixed/manual | `linear`/`dropout` now use builder helpers; `identity` still awaits a cleanup to remove raw `ir.Node` wiring. |
+| Equinox EQX core (`linear`, `dropout`, `identity`) | ✅ builder-only | Trio now routes entirely through builder helpers; RNG semantics preserved. |
 | LAX arg reducers (`argmax`, `argmin`) | ⏳ mixed/manual | Still emit Reduce(Max/Min)+Gather via raw `ir.Node`; slated for a future builder rewrite. |
 | JAX/NN primitive plugins (`jax/nn/*`) | ⏳ mixed/manual | Unary activations route through `_builder_utils.lower_unary_elementwise`; `dot_product_attention` still stitches Reduce/Softmax/Gather via raw `ir.Node` and needs a dedicated builder rewrite. |
 | RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
