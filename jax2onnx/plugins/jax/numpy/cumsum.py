@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -116,21 +115,12 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
             target_enum = _dtype_to_ir(
                 target_dtype, ctx.builder.enable_double_precision
             )
-            cast_val = ir.Value(
-                name=ctx.fresh_name("jnp_cumsum_cast"),
-                type=ir.TensorType(target_enum),
-                shape=operand_val.shape,
+            cast_val = ctx.builder.Cast(
+                operand_val,
+                _outputs=[ctx.fresh_name("jnp_cumsum_cast")],
+                to=int(target_enum.value),
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[operand_val],
-                    outputs=[cast_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
-                )
-            )
+            cast_val.type = ir.TensorType(target_enum)
             _stamp_type_and_shape(cast_val, operand_shape)
             _ensure_value_info(ctx, cast_val)
             input_for_cumsum = cast_val
@@ -140,25 +130,26 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
             )
 
         axis_val = _const_i64(ctx, np.asarray(axis, dtype=np.int64), "cumsum_axis")
+        _stamp_type_and_shape(axis_val, ())
+        _ensure_value_info(ctx, axis_val)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="CumSum",
-                domain="",
-                inputs=[input_for_cumsum, axis_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("CumSum"),
-                attributes=[
-                    IRAttr("exclusive", IRAttrType.INT, 1 if exclusive else 0),
-                    IRAttr("reverse", IRAttrType.INT, 1 if reverse else 0),
-                ],
-            )
+        desired_name = getattr(out_val, "name", None) or ctx.fresh_name("CumSum")
+        producer = getattr(out_val, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("CumSum")
+
+        result = ctx.builder.CumSum(
+            input_for_cumsum,
+            axis_val,
+            _outputs=[desired_name],
+            exclusive=int(bool(exclusive)),
+            reverse=int(bool(reverse)),
         )
-
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_val.type = ir.TensorType(target_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(target_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

@@ -19,7 +19,11 @@ from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_info as _add_value_info,
 )
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _const_i64,
+    _gather_int_scalar,
+    _shape_of,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
 if TYPE_CHECKING:
@@ -230,14 +234,14 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # Helpers to make INT64 constants
         def const_i64_vec(vals: np.ndarray) -> ir.Value:
-            return _const_i64(
-                ctx, vals.astype(np.int64, copy=False), ctx.fresh_name("shape_const")
-            )
-
-        def const_i64_scalar(val: int) -> ir.Value:
-            return _const_i64(
-                ctx, np.asarray(val, dtype=np.int64), ctx.fresh_name("i64")
-            )
+            arr = vals.astype(np.int64, copy=False)
+            value = _const_i64(ctx, arr, ctx.fresh_name("shape_const"))
+            # Ensure downstream ops see accurate metadata even when the builder
+            # returns a bare initializer handle.
+            vec_shape = arr.shape if arr.ndim > 0 else ()
+            _stamp_type_and_shape(value, vec_shape)
+            _add_value_info(ctx, value)
+            return value
 
         def unsqueeze_to_len1(src: ir.Value) -> ir.Value:
             axes = const_i64_vec(np.array([0], dtype=np.int64))
@@ -353,37 +357,14 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 # Copy that input axis dynamically
                 all_const = False
                 if shape_of_x is None:
-                    shape_of_x = ir.Value(
-                        name=ctx.fresh_name("shape_of_x"),
-                        type=ir.TensorType(ir.DataType.INT64),
-                        shape=None,
-                    )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Shape",
-                            domain="",
-                            inputs=[x_val],
-                            outputs=[shape_of_x],
-                            name=ctx.fresh_name("Shape"),
-                        )
-                    )
-                idx_const = const_i64_scalar(axis_idx)
-                gathered = ir.Value(
-                    name=ctx.fresh_name("gather_dim"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape(()),
+                    shape_of_x = _shape_of(ctx, x_val, "reshape_shape_of_x")
+                    if len(x_shape):
+                        _stamp_type_and_shape(shape_of_x, (len(x_shape),))
+                    _add_value_info(ctx, shape_of_x)
+                gathered_scalar = _gather_int_scalar(
+                    ctx, shape_of_x, axis_idx, "reshape_dim"
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Gather",
-                        domain="",
-                        inputs=[shape_of_x, idx_const],
-                        outputs=[gathered],
-                        name=ctx.fresh_name("Gather"),
-                        attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-                    )
-                )
-                shape_parts.append(unsqueeze_to_len1(gathered))
+                shape_parts.append(unsqueeze_to_len1(gathered_scalar))
                 if debug:
                     print("    dynamic gather from input axis", axis_idx)
             elif hasattr(dim, "dtype") and np.issubdtype(
@@ -408,33 +389,31 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             elif len(shape_parts) == 1:
                 shape_tensor = shape_parts[0]
             else:
-                shape_tensor = ir.Value(
-                    name=ctx.fresh_name("shape_tensor"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=None,
+                shape_tensor = ctx.builder.Concat(
+                    *shape_parts,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("reshape_shape_tensor")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Concat",
-                        domain="",
-                        inputs=shape_parts,
-                        outputs=[shape_tensor],
-                        name=ctx.fresh_name("Concat"),
-                        attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-                    )
-                )
+                _stamp_type_and_shape(shape_tensor, (len(shape_parts),))
+                _add_value_info(ctx, shape_tensor)
 
         # --------- emit the single Reshape node ----------
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-        ctx.add_node(
-            ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[x_val, shape_tensor],
-                outputs=[y_val],
-                name=ctx.fresh_name("Reshape"),
-            )
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("reshape_out"))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Reshape")
+        reshape_val = ctx.builder.Reshape(
+            x_val,
+            shape_tensor,
+            _outputs=[desired_name],
         )
+        output_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if output_dtype is None:
+            output_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if output_dtype is not None:
+            reshape_val.type = ir.TensorType(output_dtype)
+        ctx.bind_value_for_var(y_var, reshape_val)
 
         # ---- Stamp symbolic output dims (reuse input labels; fresh for derived) ----
         y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
@@ -455,5 +434,5 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 # derived symbolic (e.g., B*4): give it a fresh name
                 final_dims.append(ctx.fresh_name("dim"))
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
+        _stamp_type_and_shape(reshape_val, tuple(final_dims))
+        _add_value_info(ctx, reshape_val)

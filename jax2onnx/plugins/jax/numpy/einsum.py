@@ -9,8 +9,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
-
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -138,12 +136,14 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
         params = getattr(eqn, "params", {})
         equation = params["equation"]
 
-        input_vals = [
-            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("einsum_in"))
-            for var in eqn.invars
-        ]
+        input_vals = []
+        for var in eqn.invars:
+            val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("einsum_in"))
+            input_vals.append(val)
         out_var = eqn.outvars[0]
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("einsum_out"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("einsum_out")
+        )
 
         lhs, rhs = equation.split("->")
         in_specs = lhs.split(",")
@@ -178,21 +178,20 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                 pad = max_ellipsis_rank - er
                 if pad > 0:
                     axes = np.arange(pad, dtype=np.int64)
-                    axes_const = _const_i64(ctx, axes, "einsum_pad_axes")
+                    axes_const = _const_i64(
+                        ctx, axes, ctx.fresh_name("einsum_pad_axes")
+                    )
+                    _stamp_type_and_shape(axes_const, tuple(axes.shape))
+                    _ensure_value_info(ctx, axes_const)
                     padded_shape = tuple([1] * pad + list(shape))
-                    padded_val = ir.Value(
-                        name=ctx.fresh_name("einsum_pad"),
-                        type=ir.TensorType(val.type.dtype),
+                    padded_val = ctx.builder.Unsqueeze(
+                        val,
+                        axes_const,
+                        _outputs=[ctx.fresh_name("einsum_pad")],
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Unsqueeze",
-                            domain="",
-                            inputs=[val, axes_const],
-                            outputs=[padded_val],
-                            name=ctx.fresh_name("Unsqueeze"),
-                        )
-                    )
+                    val_dtype = getattr(getattr(val, "type", None), "dtype", None)
+                    if val_dtype is not None:
+                        padded_val.type = ir.TensorType(val_dtype)
                     _stamp_type_and_shape(padded_val, padded_shape)
                     _ensure_value_info(ctx, padded_val)
                     adjusted_inputs.append(padded_val)
@@ -201,19 +200,34 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
         adjusted_equation = ",".join(adjusted_specs) + "->" + rhs
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Einsum",
-                domain="",
-                inputs=adjusted_inputs,
-                outputs=[out_val],
-                name=ctx.fresh_name("Einsum"),
-                attributes=[IRAttr("equation", IRAttrType.STRING, adjusted_equation)],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("einsum_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("einsum_out")
+
+        result = ctx.builder.Einsum(
+            *adjusted_inputs,
+            equation=adjusted_equation,
+            _outputs=[desired_name],
         )
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            inferred_dtype = next(
+                (
+                    getattr(getattr(v, "type", None), "dtype", None)
+                    for v in adjusted_inputs
+                    if getattr(getattr(v, "type", None), "dtype", None) is not None
+                ),
+                None,
+            )
+            if inferred_dtype is not None:
+                result.type = ir.TensorType(inferred_dtype)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

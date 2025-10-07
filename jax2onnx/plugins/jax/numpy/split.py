@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, ClassVar, Sequence
 
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -150,28 +148,48 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             sizes = _split_sizes(dim, indices_seq)
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("split_in"))
-        split_val = _const_i64(ctx, np.asarray(sizes, dtype=np.int64), "split_sizes")
-        out_vals = [
+        split_val = _const_i64(
+            ctx, np.asarray(sizes, dtype=np.int64), ctx.fresh_name("split_sizes")
+        )
+        _stamp_type_and_shape(split_val, (len(sizes),))
+        _ensure_value_info(ctx, split_val)
+
+        out_specs = [
             ctx.get_value_for_var(v, name_hint=ctx.fresh_name("split_out"))
             for v in out_vars
         ]
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Split",
-                domain="",
-                inputs=[arr_val, split_val],
-                outputs=out_vals,
-                name=ctx.fresh_name("Split"),
-                attributes=[IRAttr("axis", IRAttrType.INT, int(axis))],
-            )
-        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for split lowering")
 
-        for v, sz, out_var in zip(out_vals, sizes, out_vars):
+        output_names = []
+        for spec in out_specs:
+            name = getattr(spec, "name", None)
+            if not name:
+                name = ctx.fresh_name("split_out")
+            output_names.append(name)
+
+        split_outputs = builder.Split(
+            arr_val,
+            split_val,
+            axis=int(axis),
+            _outputs=output_names,
+        )
+        if not isinstance(split_outputs, (tuple, list)):
+            split_outputs = [split_outputs]
+
+        for result, spec, sz, out_var in zip(split_outputs, out_specs, sizes, out_vars):
+            spec_type = getattr(spec, "type", None)
+            if spec_type is not None:
+                result.type = spec_type
+            elif getattr(arr_val, "type", None) is not None:
+                result.type = arr_val.type
             out_shape = list(arr_shape)
             out_shape[axis] = sz
-            _stamp_type_and_shape(v, tuple(out_shape))
-            _ensure_value_info(ctx, v)
+            _stamp_type_and_shape(result, tuple(out_shape))
+            _ensure_value_info(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

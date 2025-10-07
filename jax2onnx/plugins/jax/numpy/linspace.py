@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -90,21 +89,35 @@ def _maybe_cast(
     cur_dtype = getattr(cur_type, "dtype", None)
     if cur_dtype == target_enum:
         return value
-    cast_val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(target_enum),
-        shape=value.shape,
-    )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast_val],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
+    builder = getattr(ctx, "builder", None)
+    cast_name = ctx.fresh_name(name_hint)
+    if builder is not None:
+        cast_val = builder.Cast(
+            value,
+            _outputs=[cast_name],
+            to=int(target_enum.value),
         )
-    )
+    else:
+        cast_val = ir.Value(
+            name=cast_name,
+            type=ir.TensorType(target_enum),
+            shape=value.shape,
+        )
+        ctx.add_node(
+            ir.Node(
+                op_type="Cast",
+                domain="",
+                inputs=[value],
+                outputs=[cast_val],
+                name=ctx.fresh_name("Cast"),
+                attributes=[
+                    ir.Attr("to", ir.AttributeType.INT, int(target_enum.value))
+                ],
+            )
+        )
+        cast_val.type = ir.TensorType(target_enum)
+
+    cast_val.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)
     dims = None
     if shape_obj is not None:
@@ -266,10 +279,17 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
 
         start_val = _maybe_cast(ctx, start_val, work_enum, "linspace_start_cast")
         stop_val = _maybe_cast(ctx, stop_val, work_enum, "linspace_stop_cast")
+        _stamp_type_and_shape(start_val, ())
+        _stamp_type_and_shape(stop_val, ())
+        _ensure_value_info(ctx, start_val)
+        _ensure_value_info(ctx, stop_val)
 
         idx_start = _scalar_i64(ctx, 0, "linspace_idx_start")
         idx_limit = _scalar_i64(ctx, num, "linspace_idx_limit")
         idx_delta = _scalar_i64(ctx, 1, "linspace_idx_step")
+        for scalar_val in (idx_start, idx_limit, idx_delta):
+            _stamp_type_and_shape(scalar_val, ())
+            _ensure_value_info(ctx, scalar_val)
         indices = builder.Range(
             idx_start,
             idx_limit,
@@ -302,7 +322,11 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         if denom <= 0:
             denom = 1
         denom_i64 = _scalar_i64(ctx, denom, "linspace_denom_i64")
+        _stamp_type_and_shape(denom_i64, ())
+        _ensure_value_info(ctx, denom_i64)
         denom_val = ctx.cast_like(denom_i64, indices_cast, name_hint="linspace_denom")
+        _stamp_type_and_shape(denom_val, ())
+        _ensure_value_info(ctx, denom_val)
 
         step = builder.Div(
             diff,

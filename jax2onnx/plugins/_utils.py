@@ -9,6 +9,29 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
+_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype] = {}
+_dtype_pairs = [
+    ("DOUBLE", np.float64),
+    ("FLOAT", np.float32),
+    ("FLOAT16", np.float16),
+    ("INT64", np.int64),
+    ("INT32", np.int32),
+    ("INT16", np.int16),
+    ("INT8", np.int8),
+    ("UINT64", np.uint64),
+    ("UINT32", np.uint32),
+    ("UINT16", np.uint16),
+    ("UINT8", np.uint8),
+    ("BOOL", np.bool_),
+]
+for name, np_dt in _dtype_pairs:
+    enum = getattr(ir.DataType, name, None)
+    if enum is None or np_dt is None:
+        continue
+    _IR_TO_NP_DTYPE[enum] = np.dtype(np_dt)
+del name, np_dt, enum
+
+
 def cast_param_like(
     ctx: "IRBuildContext",
     param: ir.Value,
@@ -27,6 +50,22 @@ def cast_param_like(
     l_dt = getattr(l_ty, "dtype", None)
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
+
+    const_tensor = getattr(param, "const_value", None)
+    if const_tensor is not None:
+        try:
+            np_arr = const_tensor.numpy()
+        except Exception:
+            np_arr = None
+        target_np = _IR_TO_NP_DTYPE.get(l_dt)
+        if np_arr is not None and target_np is not None:
+            if np_arr.dtype != target_np:
+                np_arr = np_arr.astype(target_np, copy=False)
+                param.const_value = ir.tensor(np_arr)
+            param.type = ir.TensorType(l_dt)
+            if getattr(param, "shape", None) is None and hasattr(np_arr, "shape"):
+                param.shape = ir.Shape(tuple(int(d) for d in np_arr.shape))
+            return param
 
     builder = getattr(ctx, "builder", None)
     if builder is None:

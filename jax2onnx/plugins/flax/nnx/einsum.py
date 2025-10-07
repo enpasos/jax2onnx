@@ -177,6 +177,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         kernel_val = cast_param_like(
             ctx, kernel_val, x_val, name_hint="einsum_kernel_cast"
         )
+        kernel_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
+        _stamp_type_and_shape(kernel_val, kernel_shape)
+        _add_value_info(ctx, kernel_val)
 
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("einsum_out")
@@ -208,6 +211,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             bias_val = cast_param_like(
                 ctx, bias_val, x_val, name_hint="einsum_bias_cast"
             )
+            bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+            _stamp_type_and_shape(bias_val, bias_shape)
+            _add_value_info(ctx, bias_val)
             result = builder.Add(
                 einsum_out,
                 bias_val,
@@ -215,6 +221,8 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             )
             if spec_type is not None:
                 result.type = spec_type
+            elif getattr(einsum_out, "type", None) is not None:
+                result.type = einsum_out.type
             _stamp_type_and_shape(result, out_shape)
             _add_value_info(ctx, result)
             ctx.bind_value_for_var(out_var, result)

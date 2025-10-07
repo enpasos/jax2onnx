@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Iterable, Sequence
 
 import jax.numpy as jnp
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -129,26 +127,34 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
         arr_val = ctx.get_value_for_var(
             arr_var, name_hint=ctx.fresh_name("transpose_in")
         )
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("transpose_out")
         )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for transpose")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[arr_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[
-                    IRAttr("perm", IRAttrType.INTS, list(map(int, axes_tuple)))
-                ],
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
+            "transpose_out"
         )
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("transpose_out")
 
+        result = builder.Transpose(
+            arr_val,
+            _outputs=[desired_name],
+            perm=list(map(int, axes_tuple)),
+        )
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        elif getattr(arr_val, "type", None) is not None:
+            result.type = arr_val.type
         out_shape = tuple(arr_shape[i] for i in axes_tuple)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):
