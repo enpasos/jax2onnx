@@ -28,6 +28,8 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
     builder_loop,
+    clone_value_for_subgraph,
+    create_loop_header_inputs,
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
@@ -681,19 +683,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
             loop_ctx.bind_const_for_var(cv, np_c)
 
-        iter_in = ir.Value(
-            name=loop_ctx.fresh_name("loop_iter"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(()),
+        iter_in, cond_in = create_loop_header_inputs(
+            loop_ctx,
+            prefix="scan_loop",
         )
-        cond_in = ir.Value(
-            name=loop_ctx.fresh_name("loop_cond_in"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
-        )
-        loop_ctx.builder.inputs.extend([iter_in, cond_in])
-        _stamp_type_and_shape(iter_in, ())
-        _stamp_type_and_shape(cond_in, ())
 
         function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
         allow_double_consts = (
@@ -878,10 +871,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         const_body_outs = body_outputs[1 : 1 + num_consts]
         for body_out in const_body_outs:
             node_outputs.append(
-                ir.Value(
-                    name=ctx.fresh_name("loop_const_unused"),
-                    type=body_out.type,
-                    shape=body_out.shape,
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_const_unused",
                 )
             )
 
@@ -912,10 +905,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     node_outputs.append(top_val)
             else:
                 node_outputs.append(
-                    ir.Value(
-                        name=ctx.fresh_name("loop_state_unused"),
-                        type=body_out.type,
-                        shape=body_out.shape,
+                    clone_value_for_subgraph(
+                        ctx,
+                        body_out,
+                        name_hint="loop_state_unused",
                     )
                 )
 
@@ -1060,19 +1053,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
             loop_ctx.bind_const_for_var(cv, np_c)
 
-        iter_in = ir.Value(
-            name=loop_ctx.fresh_name("loop_iter"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape(()),
+        iter_in, cond_in = create_loop_header_inputs(
+            loop_ctx,
+            prefix="scan_loop",
         )
-        cond_in = ir.Value(
-            name=loop_ctx.fresh_name("loop_cond_in"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=ir.Shape(()),
-        )
-        loop_ctx.builder.inputs.extend([iter_in, cond_in])
-        _stamp_type_and_shape(iter_in, ())
-        _stamp_type_and_shape(cond_in, ())
 
         function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
         allow_double_consts = (
@@ -1110,10 +1094,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         sequence_states: list[ir.Value] = []
         for i, seq_eqn_var in enumerate(seq_invars):
             outer_seq_val = ctx.get_value_for_var(seq_eqn_var)
-            seq_state = ir.Value(
-                name=loop_ctx.fresh_name("scan_seq_state"),
-                type=outer_seq_val.type,
-                shape=outer_seq_val.shape,
+            seq_state = clone_value_for_subgraph(
+                loop_ctx,
+                outer_seq_val,
+                name_hint="scan_seq_state",
             )
             loop_ctx.builder.inputs.append(seq_state)
             sequence_states.append(seq_state)
@@ -1302,10 +1286,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         const_body_outs = body_outputs[1 : 1 + num_consts]
         for body_out in const_body_outs:
             node_outputs.append(
-                ir.Value(
-                    name=ctx.fresh_name("loop_const_unused"),
-                    type=body_out.type,
-                    shape=body_out.shape,
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_const_unused",
                 )
             )
 
@@ -1339,10 +1323,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     node_outputs.append(top_val)
             else:
                 node_outputs.append(
-                    ir.Value(
-                        name=ctx.fresh_name("loop_state_unused"),
-                        type=body_out.type,
-                        shape=body_out.shape,
+                    clone_value_for_subgraph(
+                        ctx,
+                        body_out,
+                        name_hint="loop_state_unused",
                     )
                 )
 
@@ -1350,10 +1334,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for seq_idx in range(num_scan):
             body_out = body_outputs[seq_body_start + seq_idx]
             node_outputs.append(
-                ir.Value(
-                    name=ctx.fresh_name("loop_seq_unused"),
-                    type=body_out.type,
-                    shape=body_out.shape,
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_seq_unused",
                 )
             )
 

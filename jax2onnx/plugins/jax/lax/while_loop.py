@@ -16,6 +16,9 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
     builder_loop,
+    clone_value_for_subgraph,
+    create_loop_header_inputs,
+    ensure_bool_value,
     lower_jaxpr_eqns,
     make_subgraph_context,
 )
@@ -177,39 +180,8 @@ def _no_loop_output_reuse(model) -> bool:
     return True
 
 
-def _clone_value_for_subgraph(v: ir.Value) -> ir.Value:
-    dtype = getattr(getattr(v, "type", None), "dtype", None)
-    shape = getattr(v, "shape", IRShape(()))
-    tensor_type = ir.TensorType(dtype) if dtype is not None else None
-    return ir.Value(name=v.name, type=tensor_type, shape=shape)
-
-
 def _is_literal(var) -> bool:
     return hasattr(var, "val")
-
-
-def _ensure_bool_value(
-    ctx: "IRContext", value: ir.Value, *, name_hint: str
-) -> ir.Value:
-    dtype = getattr(getattr(value, "type", None), "dtype", None)
-    if dtype == ir.DataType.BOOL:
-        return value
-    shape_obj = getattr(value, "shape", IRShape(()))
-    bool_val = builder_cast(
-        ctx,
-        value,
-        ir.DataType.BOOL,
-        name_hint=name_hint,
-    )
-    dims = getattr(shape_obj, "dims", None)
-    if dims is None:
-        try:
-            dims = list(shape_obj)
-        except Exception:
-            dims = ()
-    _stamp_type_and_shape(bool_val, tuple(dims or ()))
-    _ensure_value_info(ctx, bool_val)
-    return bool_val
 
 
 def _evaluate_closed_jaxpr(
@@ -247,17 +219,10 @@ def _build_loop_body_graph(
 ) -> ir.Graph:
     body_ctx = make_subgraph_context(ctx, prefix="while_body")
 
-    iter_input = ir.Value(
-        name=body_ctx.fresh_name("loop_iter"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=IRShape(()),
+    iter_input, cond_input = create_loop_header_inputs(
+        body_ctx,
+        prefix="while_body",
     )
-    cond_input = ir.Value(
-        name=body_ctx.fresh_name("loop_cond_in"),
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=IRShape(()),
-    )
-    body_ctx.builder.inputs.extend([iter_input, cond_input])
 
     body_jaxpr, body_consts = _unwrap_closed_jaxpr(body_cj)
     _bind_closed_jaxpr_consts(body_ctx, body_jaxpr, body_consts)
@@ -270,8 +235,11 @@ def _build_loop_body_graph(
     const_inputs: list[ir.Value] = []
     for tmpl_val in body_const_template:
         var = next(body_invars_iter)
-        cloned = _clone_value_for_subgraph(tmpl_val)
-        cloned.name = body_ctx.fresh_name("loop_const_in")
+        cloned = clone_value_for_subgraph(
+            body_ctx,
+            tmpl_val,
+            name_hint="loop_const_in",
+        )
         body_ctx.builder.inputs.append(cloned)
         body_ctx.bind_value_for_var(var, cloned)
         const_inputs.append(cloned)
@@ -279,8 +247,11 @@ def _build_loop_body_graph(
     state_inputs: list[ir.Value] = []
     for tmpl_val in state_template:
         var = next(body_invars_iter)
-        cloned = _clone_value_for_subgraph(tmpl_val)
-        cloned.name = body_ctx.fresh_name("loop_state_in")
+        cloned = clone_value_for_subgraph(
+            body_ctx,
+            tmpl_val,
+            name_hint="loop_state_in",
+        )
         body_ctx.builder.inputs.append(cloned)
         body_ctx.bind_value_for_var(var, cloned)
         state_inputs.append(cloned)
@@ -320,7 +291,7 @@ def _build_loop_body_graph(
     cond_out = body_ctx.get_value_for_var(
         cond_jaxpr.outvars[0], name_hint=body_ctx.fresh_name("loop_cond_out")
     )
-    cond_out = _ensure_bool_value(body_ctx, cond_out, name_hint="loop_cond_bool")
+    cond_out = ensure_bool_value(body_ctx, cond_out, name_hint="loop_cond_bool")
 
     const_outputs: list[ir.Value] = []
     for tmpl_in, tmpl_val in zip(const_inputs, body_const_template):
@@ -570,7 +541,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         )
         if not cond_init:
             raise RuntimeError("while_loop cond_jaxpr produced no outputs")
-        cond_init_val = _ensure_bool_value(
+        cond_init_val = ensure_bool_value(
             ctx, cond_init[0], name_hint="while_cond_bool"
         )
 

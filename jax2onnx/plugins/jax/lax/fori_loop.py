@@ -12,16 +12,14 @@ from jax import tree_util
 from jax.extend.core import Primitive
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import (
-    _ensure_value_info,
-    _stamp_type_and_shape,
-    _to_ir_dim_for_shape,
-)
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
     builder_loop,
+    clone_value_for_subgraph,
+    create_loop_header_inputs,
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
@@ -68,17 +66,10 @@ def _build_body_graph(
     if builder is None:
         raise AttributeError("Subgraph context missing builder for fori_loop body")
 
-    iter_input = ir.Value(
-        name=body_ctx.fresh_name("loop_iter"),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape(()),
+    iter_input, cond_input = create_loop_header_inputs(
+        body_ctx,
+        prefix="fori_loop",
     )
-    cond_input = ir.Value(
-        name=body_ctx.fresh_name("loop_cond_in"),
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-    )
-    body_ctx.builder.inputs.extend([iter_input, cond_input])
 
     jaxpr = closed_jaxpr.jaxpr
 
@@ -113,11 +104,10 @@ def _build_body_graph(
             builder.enable_double_precision,
         )
         shape_tuple = tuple(getattr(aval, "shape", ()))
-        shape_dims = tuple(_to_ir_dim_for_shape(dim) for dim in shape_tuple)
-        state_input = ir.Value(
-            name=body_ctx.fresh_name("loop_state_in"),
-            type=ir.TensorType(dtype_enum),
-            shape=ir.Shape(shape_dims),
+        state_input = clone_value_for_subgraph(
+            body_ctx,
+            prototype,
+            name_hint="loop_state_in",
         )
         body_ctx.builder.inputs.append(state_input)
         body_ctx.bind_value_for_var(inner_var, state_input)
@@ -129,6 +119,7 @@ def _build_body_graph(
             except TypeError:
                 pass
             body_ctx._sym_origin_str[str(dim)] = (state_input, axis)
+        state_input.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(state_input, shape_tuple)
         _ensure_value_info(body_ctx, state_input)
         relax_value_to_rank_only(state_input)

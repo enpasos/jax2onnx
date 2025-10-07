@@ -220,7 +220,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX indexing – scatter | ✅ builder-only | `scatter_utils.py` rewritten to typed builder APIs. |
 | LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
 | LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
-| Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ⏳ mixed/manual | Builder covers entry scaffolds but body rewrites still drop raw `ir.Node` for Slice/Gather/Concat plumbing. |
+| Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ✅ builder-only | Shared helpers clone subgraph inputs, loop headers, and bool casts so body plumbing stays on builder APIs across scan/while/fori. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
 | Equinox EQX core (`linear`, `dropout`, `identity`) | ✅ builder-only | Trio now routes entirely through builder helpers; RNG semantics preserved. |
 | LAX arg reducers (`argmax`, `argmin`) | ✅ builder-only | Shared `_arg_utils.lower_arg_reduction` now lowers ArgMax/ArgMin via builder with dtype casting + shape stamping. |

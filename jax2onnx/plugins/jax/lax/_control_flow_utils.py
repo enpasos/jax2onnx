@@ -8,7 +8,9 @@ from collections.abc import Iterable as IterableABC
 from typing import Any
 
 import onnx_ir as ir
+from onnx_ir import Shape as IRShape
 
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
@@ -188,3 +190,95 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
             val.type = ir.TensorType(dtype, rank_only)
         except Exception:
             val.type = ir.TensorType(dtype)
+
+
+def _extract_shape_dims(value: ir.Value | None) -> tuple[Any, ...] | None:
+    if value is None:
+        return None
+    shape_obj = getattr(value, "shape", None)
+    if shape_obj is None:
+        return None
+    dims = getattr(shape_obj, "dims", None)
+    if dims is not None:
+        return tuple(dims)
+    try:
+        return tuple(shape_obj)  # type: ignore[arg-type]
+    except Exception:
+        return None
+
+
+def create_loop_header_inputs(
+    ctx: Any,
+    *,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
+    """Create ``Loop`` iteration/condition inputs for a subgraph context."""
+
+    builder = _get_builder(ctx)
+    iter_input = ir.Value(
+        name=ctx.fresh_name(f"{prefix}_iter"),
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=IRShape(()),
+    )
+    cond_input = ir.Value(
+        name=ctx.fresh_name(f"{prefix}_cond_in"),
+        type=ir.TensorType(ir.DataType.BOOL),
+        shape=IRShape(()),
+    )
+    builder.inputs.extend([iter_input, cond_input])
+    _stamp_type_and_shape(iter_input, ())
+    _stamp_type_and_shape(cond_input, ())
+    _ensure_value_info(ctx, iter_input)
+    _ensure_value_info(ctx, cond_input)
+    return iter_input, cond_input
+
+
+def clone_value_for_subgraph(
+    ctx: Any,
+    template: ir.Value,
+    *,
+    name_hint: str,
+) -> ir.Value:
+    """Create a fresh ``ir.Value`` that mirrors ``template`` for subgraph inputs."""
+
+    dtype = getattr(getattr(template, "type", None), "dtype", None)
+    shape = getattr(template, "shape", None)
+    dims = _extract_shape_dims(template)
+
+    tensor_type = (
+        ir.TensorType(dtype) if dtype is not None else getattr(template, "type", None)
+    )
+
+    cloned = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=tensor_type,
+        shape=shape,
+    )
+
+    if dims is not None:
+        _stamp_type_and_shape(cloned, dims)
+    elif shape is not None:
+        cloned.shape = shape
+
+    _ensure_value_info(ctx, cloned)
+    return cloned
+
+
+def ensure_bool_value(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
+    """Cast ``value`` to BOOL when needed while preserving its shape."""
+
+    dtype = getattr(getattr(value, "type", None), "dtype", None)
+    if dtype == ir.DataType.BOOL:
+        return value
+
+    bool_val = builder_cast(
+        ctx,
+        value,
+        ir.DataType.BOOL,
+        name_hint=name_hint,
+    )
+    dims = _extract_shape_dims(value)
+    if dims is not None:
+        _stamp_type_and_shape(bool_val, dims)
+    _ensure_value_info(ctx, bool_val)
+    return bool_val
