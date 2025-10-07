@@ -212,7 +212,7 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
   2. Bring remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
 - Remaining direct `ir.Node` call sites to migrate to builder helpers:
   * Core primitives: `jax2onnx/plugins/jax/core/dim_as_value.py`.
-  * LAX primitives: `sort.py`, `split.py`, `reshape.py`, `conv.py`.
+  * LAX primitives: `reshape.py`.
   * NumPy facade: `arange.py`, `clip.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
   * Plugin infrastructure: `plugins/plugin_system.py` (call wiring/helpers), `_utils.py`.
   * NN(X)/Flax/EQX extras: `flax/nnx/*` (dropout, dot_product_attention, einsum, embed, group_norm, linear_general, log_softmax, max_pool, rms_norm, leaky_relu), `equinox/eqx/nn/{layer_norm,dropout}`.
@@ -231,6 +231,9 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 | LAX rev | ✅ builder-only | Reverse lowering uses builder Shape/Gather/Range helpers only. |
 | LAX device_put | ✅ builder-only | Identity lowering now goes through builder.Identity with dtype stamping. |
 | LAX cumsum | ✅ builder-only | CumSum lowering emits via builder with initializer-backed axis const. |
+| LAX conv | ✅ builder-only | Input/kernel/output layout shims and Conv node now use builder ops/attrs. |
+| LAX sort | ✅ builder-only | TopK + Identity emitted via builder with axis/k metadata. |
+| LAX split | ✅ builder-only | Split now uses builder.Split with bound outputs. |
 | LAX padding | ✅ builder-only | `lax.pad` now sources pads via builder initializers; no manual Constant nodes. |
 | Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ✅ builder-only | Shared helpers clone subgraph inputs, loop headers, and bool casts so body plumbing stays on builder APIs across scan/while/fori. |
 | Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |

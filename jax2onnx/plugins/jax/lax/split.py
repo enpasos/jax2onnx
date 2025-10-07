@@ -69,18 +69,22 @@ class SplitPlugin(PrimitiveLeafPlugin):
             for var in out_vars
         ]
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Split",
-                domain="",
-                inputs=[data_val, splits_val],
-                outputs=out_vals,
-                name=ctx.fresh_name("Split"),
-                attributes=[ir.Attr("axis", ir.AttributeType.INT, axis)],
-            )
+        out_names = [
+            getattr(val, "name", None) or ctx.fresh_name("split_out")
+            for val in out_vals
+        ]
+        split_results = ctx.builder.Split(
+            data_val,
+            splits_val,
+            _outputs=out_names,
+            axis=axis,
         )
 
-        for var, val in zip(out_vars, out_vals):
+        data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        for var, val, res in zip(out_vars, out_vals, split_results):
             out_shape = tuple(getattr(var.aval, "shape", ()))
-            _stamp_type_and_shape(val, out_shape)
-            _ensure_value_info(ctx, val)
+            if data_dtype is not None:
+                res.type = ir.TensorType(data_dtype)
+            _stamp_type_and_shape(res, out_shape)
+            _ensure_value_info(ctx, res)
+            ctx.bind_value_for_var(var, res)

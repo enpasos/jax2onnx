@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Sequence, cast
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -148,7 +147,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("conv_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("conv_rhs"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("conv_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("conv_out"))
 
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
@@ -157,21 +156,14 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         canonical_input = lhs_val
         if lhs_layout != "NCHW":
             perm = _perm(lhs_layout, "NCHW")
-            transposed = ir.Value(
-                name=ctx.fresh_name("conv_lhs_nchw"),
-                type=lhs_val.type,
-                shape=ir.Shape(tuple(lhs_shape[i] for i in perm)),
+            transposed = ctx.builder.Transpose(
+                lhs_val,
+                _outputs=[ctx.fresh_name("conv_lhs_nchw")],
+                perm=perm,
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[lhs_val],
-                    outputs=[transposed],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[IRAttr("perm", IRAttrType.INTS, perm)],
-                )
-            )
+            lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
+            if lhs_dtype is not None:
+                transposed.type = ir.TensorType(lhs_dtype)
             _stamp_type_and_shape(transposed, tuple(lhs_shape[i] for i in perm))
             _ensure_value_info(ctx, transposed)
             canonical_input = transposed
@@ -179,49 +171,34 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         canonical_kernel = rhs_val
         if rhs_layout != "OIHW":
             perm = _perm(rhs_layout, "OIHW")
-            transposed = ir.Value(
-                name=ctx.fresh_name("conv_rhs_oihw"),
-                type=rhs_val.type,
-                shape=ir.Shape(tuple(rhs_shape[i] for i in perm)),
+            transposed = ctx.builder.Transpose(
+                rhs_val,
+                _outputs=[ctx.fresh_name("conv_rhs_oihw")],
+                perm=perm,
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[rhs_val],
-                    outputs=[transposed],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[IRAttr("perm", IRAttrType.INTS, perm)],
-                )
-            )
+            rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
+            if rhs_dtype is not None:
+                transposed.type = ir.TensorType(rhs_dtype)
             _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
             _ensure_value_info(ctx, transposed)
             canonical_kernel = transposed
 
-        conv_outputs_intermediate = out_val
         need_output_transpose = out_layout != "NCHW"
-        perm_to_nchw: Sequence[int] | None = None
-        if need_output_transpose:
-            perm_to_nchw = _perm(out_layout, "NCHW")
-            conv_outputs_intermediate = ir.Value(
-                name=ctx.fresh_name("conv_out_nchw"),
-                type=ir.TensorType(canonical_input.type.dtype),
-                shape=ir.Shape(tuple(out_shape[i] for i in perm_to_nchw)),
-            )
-
-        conv_attrs: list[IRAttr] = []
-        strides = params.get("window_strides", (1, 1))
-        conv_attrs.append(
-            IRAttr("strides", IRAttrType.INTS, list(int(s) for s in strides))
+        perm_to_nchw: Sequence[int] | None = (
+            _perm(out_layout, "NCHW") if need_output_transpose else None
         )
+
+        conv_kwargs: dict[str, object] = {}
+        strides = params.get("window_strides", (1, 1))
+        conv_kwargs["strides"] = [int(s) for s in strides]
 
         padding = params.get("padding", "VALID")
         if isinstance(padding, str):
             pad_mode = padding.upper()
             if pad_mode in ("SAME", "SAME_UPPER"):
-                conv_attrs.append(IRAttr("auto_pad", IRAttrType.STRING, "SAME_UPPER"))
+                conv_kwargs["auto_pad"] = "SAME_UPPER"
             elif pad_mode == "VALID":
-                conv_attrs.append(IRAttr("pads", IRAttrType.INTS, [0, 0, 0, 0]))
+                conv_kwargs["pads"] = [0, 0, 0, 0]
             else:
                 raise NotImplementedError(f"Unsupported padding mode {padding}")
         else:
@@ -243,29 +220,27 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                             "Expected padding as sequence of (low, high) pairs"
                         )
                     pad_pairs = cast(Sequence[Sequence[int]], padding_seq)
-            conv_attrs.append(
-                IRAttr("pads", IRAttrType.INTS, _flatten_padding(pad_pairs))
-            )
+            conv_kwargs["pads"] = _flatten_padding(pad_pairs)
 
         rhs_dilation = params.get("rhs_dilation")
         if rhs_dilation:
-            conv_attrs.append(
-                IRAttr("dilations", IRAttrType.INTS, list(int(d) for d in rhs_dilation))
-            )
+            conv_kwargs["dilations"] = [int(d) for d in rhs_dilation]
 
         groups = params.get("feature_group_count", 1)
         if groups != 1:
-            conv_attrs.append(IRAttr("group", IRAttrType.INT, int(groups)))
+            conv_kwargs["group"] = int(groups)
 
-        conv_node = ir.Node(
-            op_type="Conv",
-            domain="",
-            inputs=[canonical_input, canonical_kernel],
-            outputs=[conv_outputs_intermediate],
-            name=ctx.fresh_name("Conv"),
-            attributes=conv_attrs,
+        conv_output_name = (
+            ctx.fresh_name("conv_out_nchw")
+            if need_output_transpose
+            else (getattr(out_spec, "name", None) or ctx.fresh_name("Conv"))
         )
-        ctx.add_node(conv_node)
+        conv_result = ctx.builder.Conv(
+            canonical_input,
+            canonical_kernel,
+            _outputs=[conv_output_name],
+            **conv_kwargs,
+        )
 
         conv_dtype_enum = _dtype_to_ir(
             np.dtype(
@@ -280,36 +255,21 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             conv_shape_intermediate = tuple(out_shape[i] for i in perm_to_nchw)
         else:
             conv_shape_intermediate = tuple(out_shape)
-        conv_outputs_intermediate.type = ir.TensorType(conv_dtype_enum)
-        _stamp_type_and_shape(conv_outputs_intermediate, conv_shape_intermediate)
-        _ensure_value_info(ctx, conv_outputs_intermediate)
+        conv_result.type = ir.TensorType(conv_dtype_enum)
+        _stamp_type_and_shape(conv_result, conv_shape_intermediate)
+        _ensure_value_info(ctx, conv_result)
 
         if need_output_transpose:
             perm_back = _perm("NCHW", out_layout)
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[conv_outputs_intermediate],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[IRAttr("perm", IRAttrType.INTS, perm_back)],
-                )
+            final_name = getattr(out_spec, "name", None) or ctx.fresh_name("conv_out")
+            final_val = ctx.builder.Transpose(
+                conv_result,
+                _outputs=[final_name],
+                perm=perm_back,
             )
-            out_val.type = ir.TensorType(conv_dtype_enum)
-            _stamp_type_and_shape(out_val, out_shape)
-            _ensure_value_info(ctx, out_val)
+            final_val.type = ir.TensorType(conv_dtype_enum)
+            _stamp_type_and_shape(final_val, out_shape)
+            _ensure_value_info(ctx, final_val)
+            ctx.bind_value_for_var(out_var, final_val)
         else:
-            if conv_outputs_intermediate is not out_val:
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Identity",
-                        domain="",
-                        inputs=[conv_outputs_intermediate],
-                        outputs=[out_val],
-                        name=ctx.fresh_name("Identity"),
-                    )
-                )
-            out_val.type = ir.TensorType(conv_dtype_enum)
-            _stamp_type_and_shape(out_val, out_shape)
-            _ensure_value_info(ctx, out_val)
+            ctx.bind_value_for_var(out_var, conv_result)

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -57,50 +56,39 @@ class SortPlugin(PrimitiveLeafPlugin):
                 raise ValueError("sort axis out of range")
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("sort_in"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
 
         axis_size = arr_shape[axis] if arr_shape else 1
         if not isinstance(axis_size, (int, np.integer)):
             raise TypeError("lax.sort currently requires static axis length")
 
         k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
-        values = ir.Value(
-            name=ctx.fresh_name("sort_values"),
-            type=arr_val.type,
-            shape=arr_val.shape,
+        values, _indices = ctx.builder.TopK(
+            arr_val,
+            k_val,
+            _outputs=[
+                ctx.fresh_name("sort_values"),
+                ctx.fresh_name("sort_indices"),
+            ],
+            axis=int(axis),
+            largest=0,
+            sorted=1,
         )
-        indices = ir.Value(
-            name=ctx.fresh_name("sort_indices"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=arr_val.shape,
-        )
-        ctx.add_node(
-            ir.Node(
-                op_type="TopK",
-                domain="",
-                inputs=[arr_val, k_val],
-                outputs=[values, indices],
-                name=ctx.fresh_name("TopK"),
-                attributes=[
-                    IRAttr("axis", IRAttrType.INT, int(axis)),
-                    IRAttr("largest", IRAttrType.INT, 0),
-                    IRAttr("sorted", IRAttrType.INT, 1),
-                ],
-            )
-        )
+        arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
+        if arr_dtype is not None:
+            values.type = ir.TensorType(arr_dtype)
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         _stamp_type_and_shape(values, out_shape)
         _ensure_value_info(ctx, values)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[values],
-                outputs=[out_val],
-                name=ctx.fresh_name("Identity"),
-            )
+        result_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
+        result = ctx.builder.Identity(
+            values,
+            _outputs=[result_name],
         )
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        if arr_dtype is not None:
+            result.type = ir.TensorType(arr_dtype)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
