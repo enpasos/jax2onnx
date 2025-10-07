@@ -35,6 +35,10 @@ def builder_identity(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
     shape_obj = getattr(value, "shape", None)
     if shape_obj is not None:
         out.shape = shape_obj
+    dims = _extract_shape_dims(value)
+    if dims is not None:
+        _stamp_type_and_shape(out, dims)
+    _ensure_value_info(ctx, out)
     return out
 
 
@@ -55,6 +59,10 @@ def builder_cast(
     shape_obj = getattr(value, "shape", None)
     if shape_obj is not None:
         casted.shape = shape_obj
+    dims = _extract_shape_dims(value)
+    if dims is not None:
+        _stamp_type_and_shape(casted, dims)
+    _ensure_value_info(ctx, casted)
     return casted
 
 
@@ -261,6 +269,20 @@ def clone_value_for_subgraph(
         cloned.shape = shape
 
     _ensure_value_info(ctx, cloned)
+    return cloned
+
+
+def clone_input_for_subgraph(
+    ctx: Any,
+    template: ir.Value,
+    *,
+    name_hint: str,
+) -> ir.Value:
+    """Clone ``template`` and append it to the subgraph builder inputs."""
+
+    cloned = clone_value_for_subgraph(ctx, template, name_hint=name_hint)
+    builder = _get_builder(ctx)
+    builder.inputs.append(cloned)
     return cloned
 
 

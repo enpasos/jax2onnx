@@ -9,7 +9,6 @@ from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
@@ -112,38 +111,37 @@ class EmbedPlugin(PrimitiveLeafPlugin):
             embedding_var, name_hint=ctx.fresh_name("embed_table")
         )
 
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Embed lowering")
+
         idx_dtype = getattr(getattr(indices_val, "type", None), "dtype", None)
         if idx_dtype not in (ir.DataType.INT64, None):
-            casted = ir.Value(
-                name=ctx.fresh_name("embed_idx_i64"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=indices_val.shape,
+            casted = builder.Cast(
+                indices_val,
+                _outputs=[ctx.fresh_name("embed_idx_i64")],
+                to=int(ir.DataType.INT64.value),
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[indices_val],
-                    outputs=[casted],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[
-                        IRAttr("to", IRAttrType.INT, int(ir.DataType.INT64.value))
-                    ],
-                )
+            casted.type = ir.TensorType(ir.DataType.INT64)
+            casted.shape = indices_val.shape
+            _stamp_type_and_shape(
+                casted, tuple(getattr(getattr(indices_var, "aval", None), "shape", ()))
             )
+            _add_value_info(ctx, casted)
             indices_val = casted
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("embed_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("embed_out"))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("embed_out")
 
-        gather = ir.Node(
-            op_type="Gather",
-            domain="",
-            inputs=[embedding_val, indices_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Gather"),
-            attributes=[IRAttr("axis", IRAttrType.INT, 0)],
+        result = builder.Gather(
+            embedding_val,
+            indices_val,
+            axis=0,
+            _outputs=[desired_name],
         )
-        ctx.add_node(gather)
+        embed_dtype = getattr(getattr(embedding_val, "type", None), "dtype", None)
+        if embed_dtype is not None:
+            result.type = ir.TensorType(embed_dtype)
 
         indices_shape = tuple(getattr(getattr(indices_var, "aval", None), "shape", ()))
         embedding_shape = tuple(
@@ -161,8 +159,9 @@ class EmbedPlugin(PrimitiveLeafPlugin):
             feat_dim = embedding_shape[-1] if embedding_shape else None
         out_dims.append(feat_dim)
 
-        _stamp_type_and_shape(out_val, tuple(out_dims))
-        _add_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, tuple(out_dims))
+        _add_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

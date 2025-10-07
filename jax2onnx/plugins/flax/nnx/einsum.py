@@ -10,8 +10,6 @@ import jax.numpy as jnp
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
-import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_info as _add_value_info,
@@ -180,29 +178,26 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             ctx, kernel_val, x_val, name_hint="einsum_kernel_cast"
         )
 
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("einsum_out"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("einsum_out")
+        )
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
 
-        einsum_out = (
-            out_val
-            if not use_bias
-            else ir.Value(
-                name=ctx.fresh_name("einsum_mid"),
-                type=out_val.type,
-                shape=out_val.shape,
-            )
-        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Einsum lowering")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Einsum",
-                domain="",
-                inputs=[x_val, kernel_val],
-                outputs=[einsum_out],
-                name=ctx.fresh_name("Einsum"),
-                attributes=[IRAttr("equation", IRAttrType.STRING, equation)],
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("einsum_out")
+        einsum_outputs = builder.Einsum(
+            x_val,
+            kernel_val,
+            _outputs=[ctx.fresh_name("einsum_mid") if use_bias else out_name],
+            equation=equation,
         )
+        einsum_out = einsum_outputs
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            einsum_out.type = spec_type
         _stamp_type_and_shape(einsum_out, out_shape)
         _add_value_info(ctx, einsum_out)
 
@@ -213,18 +208,22 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             bias_val = cast_param_like(
                 ctx, bias_val, x_val, name_hint="einsum_bias_cast"
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Add",
-                    domain="",
-                    inputs=[einsum_out, bias_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Add"),
-                )
+            result = builder.Add(
+                einsum_out,
+                bias_val,
+                _outputs=[out_name],
             )
-
-        _stamp_type_and_shape(out_val, out_shape)
-        _add_value_info(ctx, out_val)
+            if spec_type is not None:
+                result.type = spec_type
+            _stamp_type_and_shape(result, out_shape)
+            _add_value_info(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+        else:
+            if getattr(einsum_out, "name", None) != out_name:
+                einsum_out.name = out_name
+            if spec_type is not None:
+                einsum_out.type = spec_type
+            ctx.bind_value_for_var(out_var, einsum_out)
 
     @classmethod
     def binding_specs(cls):

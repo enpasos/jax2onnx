@@ -9,12 +9,10 @@ from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_info as _add_value_info,
     _stamp_type_and_shape,
-    _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -52,18 +50,6 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     if dtype is None:
         raise TypeError("Missing dtype on value; ensure inputs are typed.")
     return dtype
-
-
-def _make_tensor_value(
-    ctx: "IRContext", like: ir.Value, shape, *, base: str
-) -> ir.Value:
-    dtype = _dtype_enum_from_value(like)
-    dims = tuple(_to_ir_dim_for_shape(d) for d in shape)
-    return ir.Value(
-        name=ctx.fresh_name(base),
-        type=ir.TensorType(dtype),
-        shape=ir.Shape(dims),
-    )
 
 
 DPA_PRIM = Primitive("nnx.dot_product_attention")
@@ -225,7 +211,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         k_val = ctx.get_value_for_var(k_var, name_hint=ctx.fresh_name("dpa_k"))
         v_val = ctx.get_value_for_var(v_var, name_hint=ctx.fresh_name("dpa_v"))
         out_var = eqn.outvars[0]
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dpa_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dpa_out"))
+
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for attention lowering"
+            )
 
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
@@ -250,53 +242,30 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         q_len_i: DimLike = q_len_v
         k_len_i: DimLike = k_len_v
 
-        q_t = _make_tensor_value(
-            ctx, q_val, (batch_dim, num_heads, q_len, head_dim), base="dpa_qT"
+        q_t = builder.Transpose(
+            q_val,
+            _outputs=[ctx.fresh_name("dpa_qT")],
+            perm=[0, 2, 1, 3],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[q_val],
-                outputs=[q_t],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
-            )
-        )
+        q_t.type = ir.TensorType(_dtype_enum_from_value(q_val))
         _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
         _add_value_info(ctx, q_t)
 
-        k_t = _make_tensor_value(
-            ctx, k_val, (batch_dim, num_heads, head_dim, k_len), base="dpa_kT"
+        k_t = builder.Transpose(
+            k_val,
+            _outputs=[ctx.fresh_name("dpa_kT")],
+            perm=[0, 2, 3, 1],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[k_val],
-                outputs=[k_t],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 3, 1])],
-            )
-        )
+        k_t.type = ir.TensorType(_dtype_enum_from_value(k_val))
         _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_i, k_len_i))
         _add_value_info(ctx, k_t)
 
-        logits = _make_tensor_value(
-            ctx,
-            q_val,
-            (batch_dim, num_heads, q_len, k_len),
-            base="dpa_logits",
+        logits = builder.MatMul(
+            q_t,
+            k_t,
+            _outputs=[ctx.fresh_name("dpa_logits")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="MatMul",
-                domain="",
-                inputs=[q_t, k_t],
-                outputs=[logits],
-                name=ctx.fresh_name("MatMul"),
-            )
-        )
+        logits.type = ir.TensorType(_dtype_enum_from_value(q_val))
         _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _add_value_info(ctx, logits)
 
@@ -305,21 +274,12 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             value=np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
         )
 
-        scaled = _make_tensor_value(
-            ctx,
+        scaled = builder.Mul(
             logits,
-            (batch_dim, num_heads, q_len, k_len),
-            base="dpa_scaled",
+            scale,
+            _outputs=[ctx.fresh_name("dpa_scaled")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Mul",
-                domain="",
-                inputs=[logits, scale],
-                outputs=[scaled],
-                name=ctx.fresh_name("Mul"),
-            )
-        )
+        scaled.type = ir.TensorType(_dtype_enum_from_value(logits))
         _stamp_type_and_shape(scaled, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _add_value_info(ctx, scaled)
 
@@ -334,21 +294,12 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
             _stamp_type_and_shape(bias_val, bias_dims)
-            biased = _make_tensor_value(
-                ctx,
+            biased = builder.Add(
                 current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_bias_add",
+                bias_val,
+                _outputs=[ctx.fresh_name("dpa_bias_add")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Add",
-                    domain="",
-                    inputs=[current_logits, bias_val],
-                    outputs=[biased],
-                    name=ctx.fresh_name("Add"),
-                )
-            )
+            biased.type = ir.TensorType(_dtype_enum_from_value(current_logits))
             _stamp_type_and_shape(biased, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
             _add_value_info(ctx, biased)
             current_logits = biased
@@ -367,23 +318,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
             )
             if mask_dtype != np.bool_:
-                mask_bool = _make_tensor_value(
-                    ctx,
+                mask_bool = builder.Cast(
                     mask_val,
-                    mask_dims_tuple,
-                    base="dpa_mask_bool",
-                )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Cast",
-                        domain="",
-                        inputs=[mask_val],
-                        outputs=[mask_bool],
-                        name=ctx.fresh_name("Cast"),
-                        attributes=[
-                            IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))
-                        ],
-                    )
+                    _outputs=[ctx.fresh_name("dpa_mask_bool")],
+                    to=int(ir.DataType.BOOL.value),
                 )
                 mask_val = mask_bool
                 _stamp_type_and_shape(mask_val, mask_dims_tuple)
@@ -397,43 +335,25 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 value=np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
             )
 
-            masked_logits = _make_tensor_value(
-                ctx,
+            masked_logits = builder.Where(
+                mask_val,
                 current_logits,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_masked",
+                fill_value,
+                _outputs=[ctx.fresh_name("dpa_masked")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Where",
-                    domain="",
-                    inputs=[mask_val, current_logits, fill_value],
-                    outputs=[masked_logits],
-                    name=ctx.fresh_name("Where"),
-                )
-            )
+            masked_logits.type = ir.TensorType(_dtype_enum_from_value(current_logits))
             _stamp_type_and_shape(
                 masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
             )
             _add_value_info(ctx, masked_logits)
             current_logits = masked_logits
 
-        weights = _make_tensor_value(
-            ctx,
+        weights = builder.Softmax(
             current_logits,
-            (batch_dim, num_heads, q_len, k_len),
-            base="dpa_weights",
+            _outputs=[ctx.fresh_name("dpa_weights")],
+            axis=3,
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Softmax",
-                domain="",
-                inputs=[current_logits],
-                outputs=[weights],
-                name=ctx.fresh_name("Softmax"),
-                attributes=[IRAttr("axis", IRAttrType.INT, 3)],
-            )
-        )
+        weights.type = ir.TensorType(_dtype_enum_from_value(current_logits))
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _add_value_info(ctx, weights)
 
@@ -442,88 +362,58 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
         dropout_rate = float(params.get("dropout_rate", 0.0) or 0.0)
         if det_input is not None:
-            training_mode = ir.Value(
-                name=ctx.fresh_name("dpa_training_mode"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=ir.Shape(()),
+            training_mode = builder.Not(
+                det_input,
+                _outputs=[ctx.fresh_name("dpa_training_mode")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Not",
-                    domain="",
-                    inputs=[det_input],
-                    outputs=[training_mode],
-                    name=ctx.fresh_name("Not"),
-                )
-            )
+            training_mode.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(training_mode, ())
+            _add_value_info(ctx, training_mode)
             ratio_val = ctx.builder.add_initializer_from_scalar(
                 name=ctx.fresh_name("dpa_dropout_ratio"),
                 value=np.asarray(dropout_rate, dtype=np.float32),
             )
-            dropped_weights = _make_tensor_value(
-                ctx,
+            dropped_weights = builder.Dropout(
                 weights,
-                (batch_dim, num_heads, q_len, k_len),
-                base="dpa_dropout_weights",
+                ratio_val,
+                training_mode,
+                _outputs=[ctx.fresh_name("dpa_dropout_weights")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Dropout",
-                    domain="",
-                    inputs=[weights, ratio_val, training_mode],
-                    outputs=[dropped_weights],
-                    name=ctx.fresh_name("Dropout"),
-                )
-            )
+            dropped_weights.type = ir.TensorType(_dtype_enum_from_value(weights))
             _stamp_type_and_shape(
                 dropped_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
             )
             _add_value_info(ctx, dropped_weights)
             weights = dropped_weights
 
-        v_t = _make_tensor_value(
-            ctx, v_val, (batch_dim, num_heads, k_len, head_dim), base="dpa_vT"
+        v_t = builder.Transpose(
+            v_val,
+            _outputs=[ctx.fresh_name("dpa_vT")],
+            perm=[0, 2, 1, 3],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[v_val],
-                outputs=[v_t],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
-            )
-        )
+        v_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
         _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_i))
         _add_value_info(ctx, v_t)
 
-        out_t = _make_tensor_value(
-            ctx, v_val, (batch_dim, num_heads, q_len, head_dim), base="dpa_outT"
+        out_t = builder.MatMul(
+            weights,
+            v_t,
+            _outputs=[ctx.fresh_name("dpa_outT")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="MatMul",
-                domain="",
-                inputs=[weights, v_t],
-                outputs=[out_t],
-                name=ctx.fresh_name("MatMul"),
-            )
-        )
+        out_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
         _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
         _add_value_info(ctx, out_t)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Transpose",
-                domain="",
-                inputs=[out_t],
-                outputs=[out_val],
-                name=ctx.fresh_name("Transpose"),
-                attributes=[IRAttr("perm", IRAttrType.INTS, [0, 2, 1, 3])],
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
+        result = builder.Transpose(
+            out_t,
+            _outputs=[out_name],
+            perm=[0, 2, 1, 3],
         )
-        _stamp_type_and_shape(out_val, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
-        _add_value_info(ctx, out_val)
+        result.type = ir.TensorType(_dtype_enum_from_value(v_val))
+        _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
+        _add_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def binding_specs(cls):

@@ -197,9 +197,10 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 - `jax/lax/argmax.py` and `jax/lax/argmin.py` now lower via builder helpers; no more manual Reduce* shims.
 - LAX control-flow (scan/while_loop) still has manual `ir.Node` construction sprinkled throughout; rung these up as medium-depth refactors once the remaining loop scaffolds are migrated.
 - **Upcoming plan**
-  1. Introduce builder-first helpers in `_control_flow_utils` (capture identities, Cast helpers, Loop output rebinding) so scan/while reuse the same primitives without falling back to raw nodes.
-  2. Migrate `scan` body construction: start with the no-`xs` path, replace Cast/Identity/Concat plumbing with builder ops, then extend to the general path and verify scatter helpers still work.
-  3. Port `while_loop` to builder Loop creation (condition/iteration captures, body outputs) leveraging the shared helpers from (1).
+  * Next: migrate `scan` body construction
+    - start with the no-`xs` path using builder Cast/Identity/Concat helpers
+    - extend to the general path and confirm scatter helpers still work
+  * Next: port `while_loop` to builder Loop creation (condition/iteration captures, body outputs) leveraging the shared helpers from (1).
   4. Once builder migrations land, prune redundant utilities like `_maybe_cast_value` and align dtype handling across control-flow plugins; add focused regression tests around nested loops to guard future edits.
 - Incrementally migrate high-traffic plugins (start with `jax/lax` arithmetic ops, then Flax NNX linear layers) to the canonical builder helpers, adding focused pytest cases per primitive to verify op sequencing.
 - Introduced `plugins/jax/nn/_builder_utils.lower_unary_elementwise`; migrated the unary activations to it so builder wiring/shapes stay consistent. Consider generalising for binary reductions before tackling the remaining EQX rewrites.
@@ -208,40 +209,21 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
 - After each refactor batch, refresh the migration snapshot in this note and run `poetry run pytest -q` plus targeted policy tests to keep coverage green.
 - Implement the Step 4 validation hooks: land the expanded policy test, add `tests/extra_tests/framework/test_ir_builder_contracts.py`, and wire `scripts/check_ir_builder_usage.py` into CI (pre-commit/Ruff) so regressions are caught automatically.
 - Next conversion batch (indexing + scatter suite):
-  1. `jax/lax/slice.py` and `jax/lax/scatter_utils.py` migrated to builder helpers (completed).
-  2. Bring remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
+
+  * Next: bring the remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
 - Remaining direct `ir.Node` call sites to migrate to builder helpers:
   * LAX primitives: `reshape.py`.
   * NumPy facade: `arange.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
   * Plugin infrastructure: `plugins/plugin_system.py` (call wiring/helpers), `_utils.py`.
-  * NN(X)/Flax/EQX extras: `flax/nnx/*` (dropout, dot_product_attention, einsum, embed, group_norm, linear_general, log_softmax, max_pool, rms_norm, leaky_relu).
+  * NNX extras: `flax/nnx/*` (linear_general, log_softmax, max_pool, rms_norm, leaky_relu).
   * Misc helpers to audit after refactors (`jax2onnx/plugins/jax/numpy/split.py`, etc.).
 
 ### Migration Snapshot (track here)
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| LAX arithmetic / elementwise / shape ops | ✅ builder-only | Completed earlier migrations (Add/Mul/etc.). |
-| LAX indexing – gather | ✅ builder-only | `jax/lax/gather.py` already uses typed builder helpers. |
-| LAX indexing – scatter | ✅ builder-only | `scatter_utils.py` rewritten to typed builder APIs. |
-| LAX indexing – slice | ✅ builder-only | `slice.py` now delegates to `ctx.builder.Slice`. |
-| LAX indexing – transpose / take | ✅ builder-only | Already using typed builder helpers. |
-| LAX dot_general | ✅ builder-only | Transpose + Gemm now routed through builder helpers with initializer bias. |
-| LAX rev | ✅ builder-only | Reverse lowering uses builder Shape/Gather/Range helpers only. |
-| LAX device_put | ✅ builder-only | Identity lowering now goes through builder.Identity with dtype stamping. |
-| LAX cumsum | ✅ builder-only | CumSum lowering emits via builder with initializer-backed axis const. |
-| LAX conv | ✅ builder-only | Input/kernel/output layout shims and Conv node now use builder ops/attrs. |
-| LAX sort | ✅ builder-only | TopK + Identity emitted via builder with axis/k metadata. |
-| LAX split | ✅ builder-only | Split now uses builder.Split with bound outputs. |
-| LAX padding | ✅ builder-only | `lax.pad` now sources pads via builder initializers; no manual Constant nodes. |
-| Control-flow scaffolding and complex lowers (`scan`, `while_loop`, `cond`, `fori_loop`) | ✅ builder-only | Shared helpers clone subgraph inputs, loop headers, and bool casts so body plumbing stays on builder APIs across scan/while/fori. |
-| Flax NNX activations / pooling / conv | ✅ builder-only | `relu`/`gelu`/`elu`/`tanh`/`softplus`/`softmax`/`sigmoid`/`avg_pool`/`max_pool` and conv + batch/layer/group/RMS norms are now fully builder-backed. |
-| Equinox EQX core (`linear`, `dropout`, `identity`, `layer_norm`) | ✅ builder-only | Core EQX lowers now route entirely through builder helpers; RNG semantics preserved. |
-| LAX arg reducers (`argmax`, `argmin`) | ✅ builder-only | Shared `_arg_utils.lower_arg_reduction` now lowers ArgMax/ArgMin via builder with dtype casting + shape stamping. |
-| JAX/NN primitive plugins (`jax/nn/*`) | ✅ builder-only | Unary activations share `_builder_utils`, and `dot_product_attention` now lowers via builder ops for transpose/mask/softmax paths with no raw `ir.Node`. |
 | Residual direct `ir.Node` usage | ⏳ cleanup | Core/numpy/lax/NNX helpers still have bespoke `ir.Node`; see bullet list above for file inventory slated for builder migrations. |
-| RNG/dtype metadata guards | ✅ | Policy tests and pre-commit hooks enforce conventions. |
-| IR serialization smoke test | ✅ | `tests/extra_tests/framework/test_ir_roundtrip.py` exercises `ir.to_proto`. |
+ 
 
 ---
 

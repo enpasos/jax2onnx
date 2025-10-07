@@ -187,24 +187,20 @@ def _ir_dtype_from_numpy(dt) -> "ir.DataType":
 
 
 def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
-    # Ensure the builder carries an input list we can append to
-    if not hasattr(ctx.builder, "inputs") or getattr(ctx.builder, "inputs") is None:
-        try:
-            ctx.builder.inputs = []
-        except Exception:
-            pass
-    inputs = getattr(ctx.builder, "inputs", None) or []
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for Dropout lowering")
+    inputs = getattr(builder, "inputs", None)
+    if inputs is None:
+        builder.inputs = []
+        inputs = builder.inputs
     for vi in inputs:
         if getattr(vi, "name", "") == name:
             return vi
     v = ir.Value(name=name, type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
-    try:
-        inputs.append(v)
-        # persist if inputs is a detached copy
-        if getattr(ctx.builder, "inputs", None) is not inputs:
-            ctx.builder.inputs = inputs
-    except Exception:
-        pass
+    inputs.append(v)
+    _stamp_type_and_shape(v, ())
+    _add_value_info(ctx, v)
     return v
 
 
@@ -216,94 +212,26 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
     Returns the produced ir.Value (always pre-typed/shaped).
     """
     arr = np.asarray(value)
-    val = ir.Value(
-        name=ctx.fresh_name(name),
-        type=ir.TensorType(_ir_dtype_from_numpy(arr.dtype)),
-        shape=ir.Shape(arr.shape if arr.shape else ()),
-        const_value=ir.tensor(arr),
-    )
-
-    # Helper: build a tensor-valued attribute robustly across onnx_ir variants
-    def _tensor_attr(key: str, np_arr: np.ndarray):
-        Attr = getattr(ir, "Attr", None)
-        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-        tens = ir.tensor(np_arr)
-        if Attr is None:
-            raise RuntimeError("onnx_ir.Attr not available")
-        if hasattr(Attr, "t"):
-            return Attr.t(key, tens)
-        if AttrType is not None and hasattr(AttrType, "TENSOR"):
-            return Attr(key, AttrType.TENSOR, tens)
-        if hasattr(Attr, "tensor"):
-            return Attr.tensor(key, tens)
-        return Attr(key, tens)
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for Dropout lowering")
 
     inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
     if inside_fn:
-        # Function body: must use Constant node (initializers don’t serialize into FunctionProto)
-        try:
-            cattr = _tensor_attr("value", arr)
-            node = ir.Node(
-                op_type="Constant",
-                domain="",
-                inputs=[],
-                outputs=[val],
-                name=ctx.fresh_name("Constant"),
-                attributes=[cattr],
-                num_outputs=1,
-            )
-            ctx.add_node(node)
-        except Exception:
-            # Best-effort fallback
-            node = ir.Node(
-                op_type="Constant",
-                domain="",
-                inputs=[],
-                outputs=[val],
-                name=ctx.fresh_name("Constant"),
-                attributes=[],
-                num_outputs=1,
-            )
-            ctx.add_node(node)
+        const_val = builder.Constant(
+            _outputs=[ctx.fresh_name(name)],
+            value=ir.tensor(arr),
+        )
     else:
-        # Top-level: prefer initializer to match tests/expectations
-        appended = False
-        # Ensure both context and builder keep initializer containers
-        for cont_owner, attr in (
-            (ctx, "_initializers"),
-            (getattr(ctx, "builder", None), "initializers"),
-        ):
-            if cont_owner is None:
-                continue
-            try:
-                cont = getattr(cont_owner, attr, None)
-                if cont is None:
-                    setattr(cont_owner, attr, [])
-                    cont = getattr(cont_owner, attr)
-                if isinstance(cont, list) and not any(
-                    getattr(v, "name", None) == val.name for v in cont
-                ):
-                    cont.append(val)
-                    appended = True
-            except Exception:
-                continue
-        if not appended:
-            # Fallback: Constant node if the builder doesn’t keep initializers
-            try:
-                cattr = _tensor_attr("value", arr)
-                node = ir.Node(
-                    op_type="Constant",
-                    domain="",
-                    inputs=[],
-                    outputs=[val],
-                    name=ctx.fresh_name("Constant"),
-                    attributes=[cattr],
-                    num_outputs=1,
-                )
-                ctx.add_node(node)
-            except Exception:
-                pass
-    return val
+        init_name = ctx.fresh_name(name)
+        if arr.ndim == 0:
+            const_val = builder.add_initializer_from_scalar(name=init_name, value=arr)
+        else:
+            const_val = builder.add_initializer_from_array(name=init_name, array=arr)
+    const_val.type = ir.TensorType(_ir_dtype_from_numpy(arr.dtype))
+    _stamp_type_and_shape(const_val, arr.shape if arr.shape else ())
+    _add_value_info(ctx, const_val)
+    return const_val
 
 
 def _extract_python_bool(var) -> Optional[bool]:
@@ -383,6 +311,11 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         x_var = invars[0]
         det_var = invars[1] if len(invars) > 1 else None
         out_var = eqn.outvars[0]
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Dropout lowering"
+            )
 
         # Params
         call_time = bool(eqn.params.get("call_time", False))
@@ -423,21 +356,13 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     )
                 else:
                     det_in = _ensure_scalar_bool_input(ctx, "deterministic")
-                not_out = ir.Value(
-                    name=ctx.fresh_name("not_det"),
-                    type=ir.TensorType(ir.DataType.BOOL),
-                    shape=ir.Shape(()),
+                not_out = builder.Not(
+                    det_in,
+                    _outputs=[ctx.fresh_name("not_det")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Not",
-                        domain="",
-                        inputs=[det_in],
-                        outputs=[not_out],
-                        name=ctx.fresh_name("Not"),
-                        num_outputs=1,
-                    )
-                )
+                not_out.type = ir.TensorType(ir.DataType.BOOL)
+                _stamp_type_and_shape(not_out, ())
+                _add_value_info(ctx, not_out)
                 train_v = not_out
         else:
             # Try to read deterministic as a Python literal.
@@ -456,33 +381,22 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     )
                 else:
                     det_in = _ensure_scalar_bool_input(ctx, "deterministic")
-                not_out = ir.Value(
-                    name=ctx.fresh_name("not_det"),
-                    type=ir.TensorType(ir.DataType.BOOL),
-                    shape=ir.Shape(()),
+                not_out = builder.Not(
+                    det_in,
+                    _outputs=[ctx.fresh_name("not_det")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Not",
-                        domain="",
-                        inputs=[det_in],
-                        outputs=[not_out],
-                        name=ctx.fresh_name("Not"),
-                        num_outputs=1,
-                    )
-                )
+                not_out.type = ir.TensorType(ir.DataType.BOOL)
+                _stamp_type_and_shape(not_out, ())
+                _add_value_info(ctx, not_out)
                 train_v = not_out
         # Dropout has optional 2nd/3rd outputs; we only wire the first (y)
-        y_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
-        ctx.add_node(
-            ir.Node(
-                op_type="Dropout",
-                domain="",
-                inputs=[x_val, ratio_v, train_v],
-                outputs=[y_val],
-                name=ctx.fresh_name("Dropout"),
-                num_outputs=1,
-            )
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("out")
+        dropout_res = builder.Dropout(
+            x_val,
+            ratio_v,
+            train_v,
+            _outputs=[out_name],
         )
         # annotate output: mirror input shape/dtype (preserve batch symbols)
         x_dims_meta = None
@@ -496,9 +410,17 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     x_dims_meta = None
         if not x_dims_meta:
             x_dims_meta = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        x_dtype_enum = getattr(getattr(x_val, "type", None), "dtype", None)
+        if x_dtype_enum is None:
+            aval_dtype = getattr(getattr(x_var, "aval", None), "dtype", None)
+            if aval_dtype is not None:
+                x_dtype_enum = _ir_dtype_from_numpy(aval_dtype)
+        if x_dtype_enum is not None:
+            dropout_res.type = ir.TensorType(x_dtype_enum)
         if x_dims_meta:
-            _stamp_type_and_shape(y_val, tuple(x_dims_meta))
-        _add_value_info(ctx, y_val)
+            _stamp_type_and_shape(dropout_res, tuple(x_dims_meta))
+        _add_value_info(ctx, dropout_res)
+        ctx.bind_value_for_var(out_var, dropout_res)
 
     @staticmethod
     def _dropout(x, deterministic, *, rate, call_time: bool):

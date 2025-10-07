@@ -29,6 +29,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_identity,
     builder_loop,
     clone_value_for_subgraph,
+    clone_input_for_subgraph,
     create_loop_header_inputs,
     lower_jaxpr_eqns,
     make_subgraph_context,
@@ -1092,14 +1093,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
 
         sequence_states: list[ir.Value] = []
-        for i, seq_eqn_var in enumerate(seq_invars):
+        for seq_eqn_var in seq_invars:
             outer_seq_val = ctx.get_value_for_var(seq_eqn_var)
-            seq_state = clone_value_for_subgraph(
+            seq_state = clone_input_for_subgraph(
                 loop_ctx,
                 outer_seq_val,
                 name_hint="scan_seq_state",
             )
-            loop_ctx.builder.inputs.append(seq_state)
             sequence_states.append(seq_state)
 
         scan_input_vars = jaxpr.invars[
