@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Dict, Sequence
 
 import numpy as np
 import onnx_ir as ir
@@ -135,9 +135,115 @@ def _infer_rank(value: ir.Value, axis_hint: int) -> int:
     return rank
 
 
+def _builder_op(
+    ctx: Any,
+    op_type: str,
+    inputs: Sequence[ir.Value | None],
+    *,
+    name_hint: str,
+    dtype: ir.DataType | None = None,
+    shape: Sequence[int | None] | None = None,
+    attributes: Dict[str, Any] | None = None,
+    output: ir.Value | None = None,
+) -> ir.Value:
+    """Invoke a builder op while preserving optional dtype/shape metadata."""
+
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder")
+
+    attrs = dict(attributes or {})
+    method = getattr(builder, op_type, None)
+
+    if output is not None:
+        if not getattr(output, "name", None):
+            output.name = ctx.fresh_name(name_hint)
+        result = builder.op(
+            op_type,
+            list(inputs),
+            attrs,
+            output=output,
+            name=output.name,
+        )
+    else:
+        out_name = ctx.fresh_name(name_hint)
+        if callable(method):
+            result = method(*inputs, _outputs=[out_name], **attrs)
+        else:
+            result = builder.op(op_type, list(inputs), attrs, name=out_name)
+
+    if dtype is not None:
+        result.type = ir.TensorType(dtype)
+    if shape is not None:
+        _stamp_type_and_shape(result, tuple(shape))
+    _ensure_value_info(ctx, result)
+    return result
+
+
+def _shape_of(ctx: Any, value: ir.Value, name_hint: str) -> ir.Value:
+    """Materialize ``Shape`` for ``value`` via the builder."""
+
+    return _builder_op(
+        ctx,
+        "Shape",
+        [value],
+        name_hint=name_hint,
+        dtype=ir.DataType.INT64,
+        shape=(None,),
+    )
+
+
+def _gather_int_scalar(
+    ctx: Any, shape_val: ir.Value, axis: int, name_hint: str
+) -> ir.Value:
+    """Gather a scalar INT64 entry from ``shape_val`` along ``axis``."""
+
+    indices = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_idx")
+    gathered = _builder_op(
+        ctx,
+        "Gather",
+        [shape_val, indices],
+        name_hint=name_hint,
+        dtype=ir.DataType.INT64,
+        shape=(1,),
+        attributes={"axis": 0},
+    )
+
+    axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name_hint}_sq")
+    scalar = _builder_op(
+        ctx,
+        "Squeeze",
+        [gathered, axes],
+        name_hint=f"{name_hint}_scalar",
+        dtype=ir.DataType.INT64,
+        shape=(),
+    )
+    return scalar
+
+
+def _unsqueeze_scalar(
+    ctx: Any, scalar: ir.Value, axis: int, name_hint: str
+) -> ir.Value:
+    """Unsqueeze ``scalar`` along ``axis`` (INT64 helper)."""
+
+    axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
+    return _builder_op(
+        ctx,
+        "Unsqueeze",
+        [scalar, axes],
+        name_hint=name_hint,
+        dtype=ir.DataType.INT64,
+        shape=(1,),
+    )
+
+
 __all__ = [
     "_const_i64",
     "_scalar_i64",
     "_cast_to_i64",
     "_infer_rank",
+    "_builder_op",
+    "_shape_of",
+    "_gather_int_scalar",
+    "_unsqueeze_scalar",
 ]

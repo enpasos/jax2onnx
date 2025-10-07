@@ -32,6 +32,11 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     make_subgraph_context,
     relax_value_to_rank_only,
 )
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _gather_int_scalar,
+    _scalar_i64,
+    _shape_of,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext
@@ -818,10 +823,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             opset_imports={"": getattr(ctx.builder, "opset", 21)},
         )
 
-        trip_count = ctx.builder.add_initializer_from_array(
-            name=ctx.fresh_name("scan_trip_count"),
-            array=np.asarray(int(length), dtype=np.int64),
-        )
+        trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
 
         cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),
@@ -1240,26 +1242,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
         )
 
         if trip_count_int is not None:
-            trip_count_val = ctx.builder.add_initializer_from_array(
-                name=ctx.fresh_name("scan_trip_count"),
-                array=np.asarray(trip_count_int, dtype=np.int64),
-            )
+            trip_count_val = _scalar_i64(ctx, trip_count_int, "scan_trip_count")
         else:
             first_seq_val = ctx.get_value_for_var(seq_invars[0])
-            shape_val = ctx.builder.Shape(
-                first_seq_val,
-                _outputs=[ctx.fresh_name("scan_seq_shape")],
-            )
-            zero_idx = ctx.builder.add_initializer_from_array(
-                name=ctx.fresh_name("scan_len_idx"),
-                array=np.asarray(0, dtype=np.int64),
-            )
-            trip_count_val = ctx.builder.Gather(
-                shape_val,
-                zero_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("scan_trip_dynamic")],
-            )
+            shape_val = _shape_of(ctx, first_seq_val, "scan_seq_shape")
+            trip_count_val = _gather_int_scalar(ctx, shape_val, 0, "scan_trip_dynamic")
 
         cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),
