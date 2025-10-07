@@ -134,25 +134,27 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         negative_slope = float(eqn.params.get("negative_slope", 0.01))
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        attrs = []
-        attr_obj = _make_float_attr("alpha", negative_slope)
-        if attr_obj is not None and not np.isclose(negative_slope, 0.01):
-            attrs.append(attr_obj)
-        elif attr_obj is None and not np.isclose(negative_slope, 0.01):
-            pass
-
-        ctx.add_node(
-            ir.Node(
-                op_type="LeakyRelu",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("LeakyRelu"),
-                attributes=attrs,
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for LeakyRelu lowering"
             )
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("LeakyRelu")
+        leaky = builder.LeakyRelu(
+            x_val,
+            _outputs=[out_name],
+            alpha=negative_slope,
         )
+
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            leaky.type = spec_type
+        else:
+            x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+            if x_dtype is not None:
+                leaky.type = ir.TensorType(x_dtype)
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         final_dims: List[Union[int, str]] = []
@@ -162,13 +164,12 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
             else:
                 final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
-
-        if attr_obj is None and not np.isclose(negative_slope, 0.01):
-            maybe_set_attrs = getattr(ctx, "set_node_attrs", None)
-            if callable(maybe_set_attrs):
-                maybe_set_attrs({"alpha": float(negative_slope)})
+        _stamp_type_and_shape(leaky, tuple(final_dims))
+        _add_value_info(ctx, leaky)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, leaky)
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod

@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 from jax.extend.core import Literal as JaxLiteral
 
@@ -142,21 +141,15 @@ def _maybe_cast_value(
     current_dtype = getattr(current_type, "dtype", None)
     if current_dtype == target_enum:
         return value
-    cast = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(target_enum),
-        shape=value.shape,
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for arange lowering")
+    cast = builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+        to=int(target_enum.value),
     )
-    ctx.add_node(
-        ir.Node(
-            op_type="Cast",
-            domain="",
-            inputs=[value],
-            outputs=[cast],
-            name=ctx.fresh_name("Cast"),
-            attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
-        )
-    )
+    cast.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)
     dims = None
     if shape_obj is not None:
@@ -389,23 +382,24 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         limit_val = _maybe_cast_value(ctx, limit_val, target_enum, "arange_limit")
         delta_val = _maybe_cast_value(ctx, delta_val, target_enum, "arange_delta")
 
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for arange lowering")
+
         out_var = eqn.outvars[0]
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var,
             name_hint=ctx.fresh_name("arange_out"),
             prefer_np_dtype=result_dtype,
         )
-        out_val.type = ir.TensorType(target_enum)
-
-        ctx.add_node(
-            ir.Node(
-                op_type="Range",
-                domain="",
-                inputs=[start_val, limit_val, delta_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Range"),
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("arange_out")
+        result = builder.Range(
+            start_val,
+            limit_val,
+            delta_val,
+            _outputs=[out_name],
         )
+        result.type = ir.TensorType(target_enum)
 
         length_hint = None
         if literal_args is not None:
@@ -420,8 +414,12 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             out_shape = tuple(getattr(out_var.aval, "shape", ()))
             final_shape = _with_ir_shape_dims(out_shape)
 
-        _stamp_type_and_shape(out_val, final_shape)
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, final_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
     @classmethod
     def binding_specs(cls):

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, ClassVar, Iterable, Sequence
 import jax
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 from jax import core
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
@@ -128,38 +127,48 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
             )
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("squeeze_in"))
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("squeeze_out")
         )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for squeeze lowering"
+            )
 
         if not axes:
             # nothing to squeeze
-            ctx.add_node(
-                ir.Node(
-                    op_type="Identity",
-                    domain="",
-                    inputs=[arr_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Identity"),
-                )
+            result = builder.Identity(
+                arr_val,
+                _outputs=[
+                    getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
+                ],
             )
-            _stamp_type_and_shape(out_val, tuple(arr_shape))
-            _ensure_value_info(ctx, out_val)
+            if getattr(arr_val, "type", None) is not None:
+                result.type = arr_val.type
+            _stamp_type_and_shape(result, tuple(arr_shape))
+            _ensure_value_info(ctx, result)
+            bind_value = getattr(ctx, "bind_value_for_var", None)
+            if not callable(bind_value):
+                raise AttributeError("IR build context missing bind_value_for_var")
+            bind_value(out_var, result)
             return
 
         axes_vals = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "squeeze_axes")
-        ctx.add_node(
-            ir.Node(
-                op_type="Squeeze",
-                domain="",
-                inputs=[arr_val, axes_vals],
-                outputs=[out_val],
-                name=ctx.fresh_name("Squeeze"),
-            )
+        result = builder.Squeeze(
+            arr_val,
+            axes_vals,
+            _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Squeeze")],
         )
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, target_shape)
-        _ensure_value_info(ctx, out_val)
+        if getattr(arr_val, "type", None) is not None:
+            result.type = arr_val.type
+        _stamp_type_and_shape(result, target_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
     @classmethod
     def binding_specs(cls):

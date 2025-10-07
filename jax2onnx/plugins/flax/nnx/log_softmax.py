@@ -118,28 +118,27 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
             axis_attr = axis % rank if axis < 0 else axis
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        attrs = []
-        attr_obj = _int_attr("axis", int(axis_attr))
-        if attr_obj is not None:
-            attrs.append(attr_obj)
-
-        ctx.add_node(
-            ir.Node(
-                op_type="LogSoftmax",
-                domain="",
-                inputs=[x_val],
-                outputs=[y_val],
-                name=ctx.fresh_name("LogSoftmax"),
-                attributes=attrs,
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for LogSoftmax lowering"
             )
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("LogSoftmax")
+        result = builder.LogSoftmax(
+            x_val,
+            axis=int(axis_attr),
+            _outputs=[out_name],
         )
 
-        if attr_obj is None:
-            maybe_set_attrs = getattr(ctx, "set_node_attrs", None)
-            if callable(maybe_set_attrs):
-                maybe_set_attrs({"axis": int(axis_attr)})
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+            if x_dtype is not None:
+                result.type = ir.TensorType(x_dtype)
 
         final_dims: List[Union[int, str]] = []
         for i, d in enumerate(x_shape):
@@ -148,8 +147,12 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
             else:
                 final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
 
-        _stamp_type_and_shape(y_val, tuple(final_dims))
-        _add_value_info(ctx, y_val)
+        _stamp_type_and_shape(result, tuple(final_dims))
+        _add_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(y_var, result)
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod

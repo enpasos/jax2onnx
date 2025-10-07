@@ -96,21 +96,35 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
 
         a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("matmul_a"))
         b_val = ctx.get_value_for_var(b_var, name_hint=ctx.fresh_name("matmul_b"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("matmul_out"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("matmul_out")
+        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for matmul lowering")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="MatMul",
-                domain="",
-                inputs=[a_val, b_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("MatMul"),
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
+        result = builder.MatMul(
+            a_val,
+            b_val,
+            _outputs=[out_name],
         )
 
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            a_dtype = getattr(getattr(a_val, "type", None), "dtype", None)
+            if a_dtype is not None:
+                result.type = ir.TensorType(a_dtype)
+
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
     @classmethod
     def binding_specs(cls):

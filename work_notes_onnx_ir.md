@@ -213,9 +213,9 @@ Next: enumerate refactor tasks and regression coverage (Step 6).
   * Next: bring the remaining indexing helpers (`jax/lax/transpose.py`, `jax/numpy/take.py`) onto the shared builder path and add an `ir.to_proto` smoke test to confirm IR-only serialization.
 - Remaining direct `ir.Node` call sites to migrate to builder helpers:
   * LAX primitives: `reshape.py`.
-  * NumPy facade: `arange.py`, `cumsum.py`, `einsum.py`, `linspace.py`, `matmul.py`, `reshape.py`, `select.py`, `shape.py`, `sort.py`, `squeeze.py`, `transpose.py`, `unstack.py`, `where.py`.
+  * NumPy facade: `cumsum.py`, `einsum.py`, `sort.py`, `transpose.py`.
   * Plugin infrastructure: `plugins/plugin_system.py` (call wiring/helpers), `_utils.py`.
-  * NNX extras: `flax/nnx/*` (linear_general, log_softmax, max_pool, rms_norm, leaky_relu).
+  * NNX extras: `flax/nnx/*` (max_pool, rms_norm).
   * Misc helpers to audit after refactors (`jax2onnx/plugins/jax/numpy/split.py`, etc.).
 
 ### Migration Snapshot (track here)

@@ -15,7 +15,6 @@ try:  # pragma: no cover - best effort import for shape polymorphism
 except Exception:  # pragma: no cover
     DimExpr = object  # type: ignore[misc,assignment]
 
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -160,9 +159,14 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         (out_var,) = eqn.outvars
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("reshape_in"))
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("reshape_out")
         )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for reshape lowering"
+            )
 
         input_shape = tuple(getattr(arr_var.aval, "shape", ()))
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
@@ -177,20 +181,11 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             nonlocal shape_value
             if shape_value is not None:
                 return shape_value
-            shape_value = ir.Value(
-                name=ctx.fresh_name("reshape_input_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((len(input_shape),)),
+            shape_value = builder.Shape(
+                arr_val,
+                _outputs=[ctx.fresh_name("reshape_input_shape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[arr_val],
-                    outputs=[shape_value],
-                    name=ctx.fresh_name("Shape"),
-                )
-            )
+            shape_value.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_value, (len(input_shape),))
             _ensure_value_info(ctx, shape_value)
             return shape_value
@@ -200,40 +195,24 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             axis_const = _const_i64(
                 ctx, np.asarray(idx, dtype=np.int64), "reshape_axis"
             )
-            gather_val = ir.Value(
-                name=ctx.fresh_name("reshape_dim"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(()),
+            gather_val = builder.Gather(
+                shape_val,
+                axis_const,
+                axis=0,
+                _outputs=[ctx.fresh_name("reshape_dim")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Gather",
-                    domain="",
-                    inputs=[shape_val, axis_const],
-                    outputs=[gather_val],
-                    name=ctx.fresh_name("Gather"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            gather_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(gather_val, ())
             _ensure_value_info(ctx, gather_val)
             axes_const = _const_i64(
                 ctx, np.asarray([0], dtype=np.int64), "reshape_unsq_axes"
             )
-            unsqueezed = ir.Value(
-                name=ctx.fresh_name("reshape_dim_unsq"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((1,)),
+            unsqueezed = builder.Unsqueeze(
+                gather_val,
+                axes_const,
+                _outputs=[ctx.fresh_name("reshape_dim_unsq")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Unsqueeze",
-                    domain="",
-                    inputs=[gather_val, axes_const],
-                    outputs=[unsqueezed],
-                    name=ctx.fresh_name("Unsqueeze"),
-                )
-            )
+            unsqueezed.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(unsqueezed, (1,))
             _ensure_value_info(ctx, unsqueezed)
             return unsqueezed
@@ -273,36 +252,31 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         elif len(shape_components) == 1:
             shape_tensor = shape_components[0]
         else:
-            shape_tensor = ir.Value(
-                name=ctx.fresh_name("reshape_target_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((shape_tensor_rank,)),
+            shape_tensor = builder.Concat(
+                *shape_components,
+                axis=0,
+                _outputs=[ctx.fresh_name("reshape_target_shape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Concat",
-                    domain="",
-                    inputs=shape_components,
-                    outputs=[shape_tensor],
-                    name=ctx.fresh_name("Concat"),
-                    attributes=[IRAttr("axis", IRAttrType.INT, 0)],
-                )
-            )
+            shape_tensor.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_tensor, (shape_tensor_rank,))
             _ensure_value_info(ctx, shape_tensor)
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Reshape",
-                domain="",
-                inputs=[arr_val, shape_tensor],
-                outputs=[out_val],
-                name=ctx.fresh_name("Reshape"),
-                attributes=[IRAttr("allowzero", IRAttrType.INT, 0)],
-            )
+        reshape_out = builder.Reshape(
+            arr_val,
+            shape_tensor,
+            allowzero=0,
+            _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")],
         )
-        _stamp_type_and_shape(out_val, target_shape)
-        _ensure_value_info(ctx, out_val)
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            reshape_out.type = spec_type
+        else:
+            arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
+            if arr_dtype is not None:
+                reshape_out.type = ir.TensorType(arr_dtype)
+        _stamp_type_and_shape(reshape_out, target_shape)
+        _ensure_value_info(ctx, reshape_out)
+        ctx.bind_value_for_var(out_var, reshape_out)
 
     @classmethod
     def binding_specs(cls):

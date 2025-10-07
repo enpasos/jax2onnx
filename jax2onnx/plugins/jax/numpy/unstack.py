@@ -6,9 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 from jax import core
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -112,6 +110,11 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
             raise TypeError("jnp.unstack requires static axis length for lowering")
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("unstack_in"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for unstack lowering"
+            )
 
         split_sizes = _const_i64(
             ctx, np.asarray([1] * int(size), dtype=np.int64), "unstack_split_sizes"
@@ -119,26 +122,16 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
 
         split_shape = list(arr_shape)
         split_shape[axis] = 1
-        split_values = [
-            ir.Value(
-                name=ctx.fresh_name("unstack_split_out"),
-                type=arr_val.type,
-                shape=ir.Shape(tuple(split_shape)),
-            )
-            for _ in range(int(size))
-        ]
-
-        ctx.add_node(
-            ir.Node(
-                op_type="Split",
-                domain="",
-                inputs=[arr_val, split_sizes],
-                outputs=split_values,
-                name=ctx.fresh_name("Split"),
-                attributes=[IRAttr("axis", IRAttrType.INT, int(axis))],
-            )
+        split_outputs = [ctx.fresh_name("unstack_split_out") for _ in range(int(size))]
+        split_values = builder.Split(
+            arr_val,
+            split_sizes,
+            _outputs=split_outputs,
+            axis=int(axis),
         )
         for split_val in split_values:
+            if getattr(arr_val, "type", None) is not None:
+                split_val.type = arr_val.type
             _stamp_type_and_shape(split_val, tuple(split_shape))
             _ensure_value_info(ctx, split_val)
 
@@ -146,22 +139,26 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
             ctx, np.asarray([axis], dtype=np.int64), "unstack_squeeze_axes"
         )
 
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+
         for split_val, out_var in zip(split_values, out_vars):
-            out_val = ctx.get_value_for_var(
+            out_spec = ctx.get_value_for_var(
                 out_var, name_hint=ctx.fresh_name("unstack_out")
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Squeeze",
-                    domain="",
-                    inputs=[split_val, axes_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Squeeze"),
-                )
+            out_name = getattr(out_spec, "name", None) or ctx.fresh_name("unstack_out")
+            squeezed = builder.Squeeze(
+                split_val,
+                axes_val,
+                _outputs=[out_name],
             )
+            if getattr(arr_val, "type", None) is not None:
+                squeezed.type = arr_val.type
             target_shape = tuple(getattr(out_var.aval, "shape", ()))
-            _stamp_type_and_shape(out_val, target_shape)
-            _ensure_value_info(ctx, out_val)
+            _stamp_type_and_shape(squeezed, target_shape)
+            _ensure_value_info(ctx, squeezed)
+            bind_value(out_var, squeezed)
 
     @classmethod
     def binding_specs(cls):

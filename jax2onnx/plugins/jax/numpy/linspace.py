@@ -258,6 +258,11 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("linspace_stop"),
             prefer_np_dtype=work_dtype,
         )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for linspace lowering"
+            )
 
         start_val = _maybe_cast(ctx, start_val, work_enum, "linspace_start_cast")
         stop_val = _maybe_cast(ctx, stop_val, work_enum, "linspace_stop_cast")
@@ -265,55 +270,31 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         idx_start = _scalar_i64(ctx, 0, "linspace_idx_start")
         idx_limit = _scalar_i64(ctx, num, "linspace_idx_limit")
         idx_delta = _scalar_i64(ctx, 1, "linspace_idx_step")
-        indices = ir.Value(
-            name=ctx.fresh_name("linspace_indices"),
-            type=ir.TensorType(ir.DataType.INT64),
-            shape=ir.Shape((num,)),
+        indices = builder.Range(
+            idx_start,
+            idx_limit,
+            idx_delta,
+            _outputs=[ctx.fresh_name("linspace_indices")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Range",
-                domain="",
-                inputs=[idx_start, idx_limit, idx_delta],
-                outputs=[indices],
-                name=ctx.fresh_name("Range"),
-            )
-        )
+        indices.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(indices, (num,))
         _ensure_value_info(ctx, indices)
 
-        indices_cast = ir.Value(
-            name=ctx.fresh_name("linspace_indices_cast"),
-            type=ir.TensorType(work_enum),
-            shape=indices.shape,
+        indices_cast = builder.Cast(
+            indices,
+            _outputs=[ctx.fresh_name("linspace_indices_cast")],
+            to=int(work_enum.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[indices],
-                outputs=[indices_cast],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(work_enum.value))],
-            )
-        )
+        indices_cast.type = ir.TensorType(work_enum)
         _stamp_type_and_shape(indices_cast, (num,))
         _ensure_value_info(ctx, indices_cast)
 
-        diff = ir.Value(
-            name=ctx.fresh_name("linspace_diff"),
-            type=ir.TensorType(work_enum),
-            shape=start_val.shape,
+        diff = builder.Sub(
+            stop_val,
+            start_val,
+            _outputs=[ctx.fresh_name("linspace_diff")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Sub",
-                domain="",
-                inputs=[stop_val, start_val],
-                outputs=[diff],
-                name=ctx.fresh_name("Sub"),
-            )
-        )
+        diff.type = ir.TensorType(work_enum)
         _stamp_type_and_shape(diff, ())
         _ensure_value_info(ctx, diff)
 
@@ -323,94 +304,52 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         denom_i64 = _scalar_i64(ctx, denom, "linspace_denom_i64")
         denom_val = ctx.cast_like(denom_i64, indices_cast, name_hint="linspace_denom")
 
-        step = ir.Value(
-            name=ctx.fresh_name("linspace_step"),
-            type=ir.TensorType(work_enum),
-            shape=diff.shape,
+        step = builder.Div(
+            diff,
+            denom_val,
+            _outputs=[ctx.fresh_name("linspace_step")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Div",
-                domain="",
-                inputs=[diff, denom_val],
-                outputs=[step],
-                name=ctx.fresh_name("Div"),
-            )
-        )
+        step.type = ir.TensorType(work_enum)
         _stamp_type_and_shape(step, ())
         _ensure_value_info(ctx, step)
 
-        scaled = ir.Value(
-            name=ctx.fresh_name("linspace_scaled"),
-            type=ir.TensorType(work_enum),
-            shape=indices_cast.shape,
+        scaled = builder.Mul(
+            indices_cast,
+            step,
+            _outputs=[ctx.fresh_name("linspace_scaled")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Mul",
-                domain="",
-                inputs=[indices_cast, step],
-                outputs=[scaled],
-                name=ctx.fresh_name("Mul"),
-            )
-        )
+        scaled.type = ir.TensorType(work_enum)
         _stamp_type_and_shape(scaled, (num,))
         _ensure_value_info(ctx, scaled)
 
-        linspace_vals = ir.Value(
-            name=ctx.fresh_name("linspace_vals"),
-            type=ir.TensorType(work_enum),
-            shape=scaled.shape,
+        linspace_vals = builder.Add(
+            scaled,
+            start_val,
+            _outputs=[ctx.fresh_name("linspace_vals")],
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Add",
-                domain="",
-                inputs=[scaled, start_val],
-                outputs=[linspace_vals],
-                name=ctx.fresh_name("Add"),
-            )
-        )
+        linspace_vals.type = ir.TensorType(work_enum)
         _stamp_type_and_shape(linspace_vals, (num,))
         _ensure_value_info(ctx, linspace_vals)
 
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("linspace_out"), prefer_np_dtype=out_dtype
         )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("linspace_out")
         if target_enum != work_enum:
-            cast_out = ir.Value(
-                name=ctx.fresh_name("linspace_out_cast"),
-                type=ir.TensorType(target_enum),
-                shape=linspace_vals.shape,
+            final_val = builder.Cast(
+                linspace_vals,
+                _outputs=[ctx.fresh_name("linspace_out_cast")],
+                to=int(target_enum.value),
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[linspace_vals],
-                    outputs=[cast_out],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[IRAttr("to", IRAttrType.INT, int(target_enum.value))],
-                )
-            )
-            _stamp_type_and_shape(cast_out, (num,))
-            _ensure_value_info(ctx, cast_out)
-            final_val = cast_out
+            final_val.type = ir.TensorType(target_enum)
+            _stamp_type_and_shape(final_val, (num,))
+            _ensure_value_info(ctx, final_val)
         else:
             final_val = linspace_vals
-
-        ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[final_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Identity"),
-            )
-        )
-        _stamp_type_and_shape(out_val, (num,))
-        out_val.type = ir.TensorType(target_enum)
-        _ensure_value_info(ctx, out_val)
+        final_val.name = out_name
+        _stamp_type_and_shape(final_val, (num,))
+        _ensure_value_info(ctx, final_val)
+        ctx.bind_value_for_var(out_var, final_val)
 
     @classmethod
     def binding_specs(cls):

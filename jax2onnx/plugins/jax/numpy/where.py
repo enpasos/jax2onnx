@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -171,30 +170,21 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         )
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("where_x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("where_y"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for where lowering")
 
         cond_dtype = np.dtype(getattr(cond_var.aval, "dtype", np.bool_))
         if cond_dtype != np.bool_:
-            cast_val = ir.Value(
-                name=ctx.fresh_name("where_cond_cast"),
-                type=ir.TensorType(ir.DataType.BOOL),
-                shape=cond_val.shape,
+            cond_val = builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("where_cond_cast")],
+                to=int(ir.DataType.BOOL.value),
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[cond_val],
-                    outputs=[cast_val],
-                    name=ctx.fresh_name("Cast"),
-                    attributes=[
-                        IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))
-                    ],
-                )
-            )
-            _stamp_type_and_shape(cast_val, tuple(getattr(cond_var.aval, "shape", ())))
-            _ensure_value_info(ctx, cast_val)
-            cond_val = cast_val
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
+            _ensure_value_info(ctx, cond_val)
 
         target_dtype = np.promote_types(
             np.dtype(getattr(x_var.aval, "dtype", np.float32)),
@@ -218,19 +208,20 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
         y_cast = self._maybe_cast(ctx, y_val, y_var, target_dtype, "y")
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Where",
-                domain="",
-                inputs=[cond_val, x_cast, y_cast],
-                outputs=[out_val],
-                name=ctx.fresh_name("Where"),
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
+        result = builder.Where(
+            cond_val,
+            x_cast,
+            y_cast,
+            _outputs=[out_name],
         )
-
-        out_val.type = ir.TensorType(dtype_enum)
-        _stamp_type_and_shape(out_val, tuple(getattr(out_var.aval, "shape", ())))
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(dtype_enum)
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
     @staticmethod
     def _maybe_cast(
@@ -257,21 +248,15 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                 return value
 
         dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-        cast_val = ir.Value(
-            name=ctx.fresh_name(f"where_{tag}_cast"),
-            type=ir.TensorType(dtype_enum),
-            shape=value.shape,
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for where lowering")
+        cast_val = builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(f"where_{tag}_cast")],
+            to=int(dtype_enum.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[value],
-                outputs=[cast_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(dtype_enum.value))],
-            )
-        )
+        cast_val.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
         _ensure_value_info(ctx, cast_val)
         return cast_val

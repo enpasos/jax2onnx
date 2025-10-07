@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 from jax import core
 
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
@@ -74,7 +73,10 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
         (out_var,) = eqn.outvars
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("shape_in"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shape_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shape_out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for shape lowering")
 
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
         target_dtype = getattr(getattr(out_var, "aval", None), "dtype", jnp.int32)
@@ -92,46 +94,31 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
         }
         desired = dtype_map.get(np_dtype, ir.DataType.INT32)
 
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("Shape")
         if desired == ir.DataType.INT64:
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[arr_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Shape"),
-                )
+            result = builder.Shape(
+                arr_val,
+                _outputs=[out_name],
             )
-            _stamp_type_and_shape(out_val, target_shape)
-            _ensure_value_info(ctx, out_val)
+            result.type = ir.TensorType(ir.DataType.INT64)
         else:
-            raw_out = ir.Value(
-                name=ctx.fresh_name("shape_raw"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape(target_shape),
+            raw_out = builder.Shape(
+                arr_val,
+                _outputs=[ctx.fresh_name("shape_raw")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Shape",
-                    domain="",
-                    inputs=[arr_val],
-                    outputs=[raw_out],
-                    name=ctx.fresh_name("Shape"),
-                )
+            raw_out.type = ir.TensorType(ir.DataType.INT64)
+            result = builder.Cast(
+                raw_out,
+                _outputs=[out_name],
+                to=int(desired.value),
             )
-
-            cast_node = ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[raw_out],
-                outputs=[out_val],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(desired.value))],
-            )
-            ctx.add_node(cast_node)
-
-            _stamp_type_and_shape(out_val, target_shape)
-            _ensure_value_info(ctx, out_val)
+            result.type = ir.TensorType(desired)
+        _stamp_type_and_shape(result, target_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
     @classmethod
     def binding_specs(cls):

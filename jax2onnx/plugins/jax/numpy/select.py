@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -106,6 +105,10 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         result_shape = tuple(getattr(out_var.aval, "shape", ()))
         result_dtype = getattr(out_var.aval, "dtype", np.float32)
 
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for select lowering")
+
         else_val = ctx.get_value_for_var(
             default_var, name_hint=ctx.fresh_name("select_default")
         )
@@ -122,59 +125,54 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
             )
             choice_val = self._ensure_dtype(ctx, choice_val, choice_var, result_dtype)
 
-            out_val = ir.Value(
-                name=ctx.fresh_name("select_out"),
-                type=ir.TensorType(choice_val.type.dtype),
-                shape=choice_val.shape,
+            out_val = builder.Where(
+                cond_val,
+                choice_val,
+                else_val,
+                _outputs=[ctx.fresh_name("select_out")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Where",
-                    domain="",
-                    inputs=[cond_val, choice_val, else_val],
-                    outputs=[out_val],
-                    name=ctx.fresh_name("Where"),
-                )
-            )
+            out_dtype = getattr(
+                getattr(choice_val, "type", None), "dtype", None
+            ) or getattr(getattr(else_val, "type", None), "dtype", None)
+            if out_dtype is not None:
+                out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, result_shape)
             _ensure_value_info(ctx, out_val)
             else_val = out_val
 
-        final_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("select_final")
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[else_val],
-                outputs=[final_val],
-                name=ctx.fresh_name("Identity"),
-            )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("select_final")
+        final_val = builder.Identity(
+            else_val,
+            _outputs=[out_name],
         )
+        final_dtype = getattr(
+            getattr(else_val, "type", None), "dtype", None
+        ) or _dtype_to_ir(np.dtype(result_dtype), ctx.builder.enable_double_precision)
+        final_val.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(final_val, result_shape)
         _ensure_value_info(ctx, final_val)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, final_val)
 
     @staticmethod
     def _ensure_bool(ctx: "IRContext", val: ir.Value, var) -> ir.Value:
         dtype = getattr(getattr(var, "aval", None), "dtype", np.bool_)
         if dtype == np.bool_:
             return val
-        cast = ir.Value(
-            name=ctx.fresh_name("select_cond_cast"),
-            type=ir.TensorType(ir.DataType.BOOL),
-            shape=val.shape,
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for select lowering")
+        cast = builder.Cast(
+            val,
+            _outputs=[ctx.fresh_name("select_cond_cast")],
+            to=int(ir.DataType.BOOL.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[val],
-                outputs=[cast],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(ir.DataType.BOOL.value))],
-            )
-        )
+        cast.type = ir.TensorType(ir.DataType.BOOL)
         _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
         _ensure_value_info(ctx, cast)
         return cast
@@ -187,21 +185,15 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         target_ir_dtype = _dtype_to_ir(
             np.dtype(target_dtype), ctx.builder.enable_double_precision
         )
-        cast = ir.Value(
-            name=ctx.fresh_name("select_cast"),
-            type=ir.TensorType(target_ir_dtype),
-            shape=val.shape,
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for select lowering")
+        cast = builder.Cast(
+            val,
+            _outputs=[ctx.fresh_name("select_cast")],
+            to=int(target_ir_dtype.value),
         )
-        ctx.add_node(
-            ir.Node(
-                op_type="Cast",
-                domain="",
-                inputs=[val],
-                outputs=[cast],
-                name=ctx.fresh_name("Cast"),
-                attributes=[IRAttr("to", IRAttrType.INT, int(target_ir_dtype.value))],
-            )
-        )
+        cast.type = ir.TensorType(target_ir_dtype)
         _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
         _ensure_value_info(ctx, cast)
         return cast

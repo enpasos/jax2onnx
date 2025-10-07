@@ -476,6 +476,13 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         # Values
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         k_val = ctx.get_value_for_var(k_var, name_hint=ctx.fresh_name("kernel"))
+        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("out")
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for LinearGeneral lowering"
+            )
 
         # ---------- ensure graph.input shows the original, unfused shape ----------
         # Preserve symbolic labels like "B" and the literal dims 8,4,16.
@@ -515,28 +522,19 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         k2d = inline_reshape_initializer(ctx, k_val, desired_k_shape, "kernel2d")
 
         if k2d is k_val:
-            # Not constant → keep a runtime Reshape (old-world compatible)
-            kshape_c = ir.Value(
+            kshape_c = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("kshape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((2,)),
-                const_value=ir.tensor(np.array(desired_k_shape, dtype=np.int64)),
+                array=np.asarray(desired_k_shape, dtype=np.int64),
             )
-            ctx._initializers.append(kshape_c)
-            k2d = ir.Value(
-                name=ctx.fresh_name("kernel2d"),
-                type=k_val.type,
-                shape=ir.Shape(desired_k_shape),
+            k2d = ctx.builder.Reshape(
+                k_val,
+                kshape_c,
+                _outputs=[ctx.fresh_name("kernel2d")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[k_val, kshape_c],
-                    outputs=[k2d],
-                    name=ctx.fresh_name("Reshape"),
-                )
-            )
+            if getattr(k_val, "type", None) is not None:
+                k2d.type = k_val.type
+            _stamp_type_and_shape(k2d, desired_k_shape)
+            _add_value_info(ctx, k2d)
 
         # IMPORTANT: cast *after* shaping so the Gemm input has the final dtype
         k2d = cast_param_like(ctx, k2d, x_val, "kernel_cast")
@@ -548,27 +546,19 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         gemm_in = x_val
         if need_flatten:
-            x2d_shape_c = ir.Value(
+            x2d_shape_c = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("x2d_shape"),
-                type=ir.TensorType(ir.DataType.INT64),
-                shape=ir.Shape((2,)),
-                const_value=ir.tensor(np.asarray([-1, int(K)], dtype=np.int64)),
+                array=np.asarray([-1, int(K)], dtype=np.int64),
             )
-            ctx._initializers.append(x2d_shape_c)
-            x2d = ir.Value(
-                name=ctx.fresh_name("input_reshape"),
-                type=x_val.type,
-                shape=ir.Shape((None, int(K))),
+            x2d = ctx.builder.Reshape(
+                x_val,
+                x2d_shape_c,
+                _outputs=[ctx.fresh_name("input_reshape")],
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Reshape",
-                    domain="",
-                    inputs=[x_val, x2d_shape_c],
-                    outputs=[x2d],
-                    name=ctx.fresh_name("Reshape"),
-                )
-            )
+            if getattr(x_val, "type", None) is not None:
+                x2d.type = x_val.type
+            _stamp_type_and_shape(x2d, (None, int(K)))
+            _add_value_info(ctx, x2d)
             gemm_in = x2d
         # Bias: ensure 1-D [Cout] for Gemm.C, preferring build-time inline reshape
         use_bias = (b_var is not None) and (getattr(b_var, "aval", None) is not None)
@@ -584,28 +574,19 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     ctx, b_val, desired_b_shape, "bias_vec"
                 )
                 if b_inline is b_val:
-                    # not constant → runtime Reshape
-                    bshape_c = ir.Value(
+                    bshape_c = ctx.builder.add_initializer_from_array(
                         name=ctx.fresh_name("bshape"),
-                        type=ir.TensorType(ir.DataType.INT64),
-                        shape=ir.Shape((1,)),
-                        const_value=ir.tensor(np.asarray([int(Cout)], dtype=np.int64)),
+                        array=np.asarray([int(Cout)], dtype=np.int64),
                     )
-                    ctx._initializers.append(bshape_c)
-                    b2d = ir.Value(
-                        name=ctx.fresh_name("bias2d"),
-                        type=b_val.type,
-                        shape=ir.Shape(desired_b_shape),
+                    b2d = ctx.builder.Reshape(
+                        b_val,
+                        bshape_c,
+                        _outputs=[ctx.fresh_name("bias2d")],
                     )
-                    ctx.add_node(
-                        ir.Node(
-                            op_type="Reshape",
-                            domain="",
-                            inputs=[b_val, bshape_c],
-                            outputs=[b2d],
-                            name=ctx.fresh_name("Reshape"),
-                        )
-                    )
+                    if getattr(b_val, "type", None) is not None:
+                        b2d.type = b_val.type
+                    _stamp_type_and_shape(b2d, desired_b_shape)
+                    _add_value_info(ctx, b2d)
                 else:
                     b2d = b_inline
 
@@ -615,15 +596,33 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             b2d = None
 
         # Gemm
-        if need_flatten:
-            gemm_out = ir.Value(
-                name=ctx.fresh_name("gemm_output"),
-                type=x_val.type,
-                shape=ir.Shape((None, int(Cout))),
+        gemm_output_name = ctx.fresh_name("gemm_output") if need_flatten else out_name
+        if use_bias:
+            inputs = [gemm_in, k2d, b2d]
+            gemm_out = builder.Gemm(
+                *inputs,
+                alpha=1.0,
+                beta=1.0,
+                transA=0,
+                transB=0,
+                _outputs=[gemm_output_name],
             )
         else:
-            gemm_out = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-            # Preserve symbolic batch labels directly on Gemm output when no flatten is needed.
+            gemm_out = builder.Gemm(
+                gemm_in,
+                k2d,
+                alpha=1.0,
+                beta=1.0,
+                transA=0,
+                transB=0,
+                _outputs=[gemm_output_name],
+            )
+        if getattr(x_val, "type", None) is not None:
+            gemm_out.type = x_val.type
+        if need_flatten:
+            _stamp_type_and_shape(gemm_out, (None, int(Cout)))
+            _add_value_info(ctx, gemm_out)
+        else:
             out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
             y_meta = _linear_general_output_dims(
                 x_val,
@@ -635,23 +634,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(gemm_out, y_meta)
             _add_value_info(ctx, gemm_out)
+            ctx.bind_value_for_var(y_var, gemm_out)
 
-        inputs = [gemm_in, k2d] + ([b2d] if use_bias else [])
-        ctx.add_node(
-            ir.Node(
-                op_type="Gemm",
-                domain="",
-                inputs=inputs,
-                outputs=[gemm_out],
-                name=ctx.fresh_name("Gemm"),
-                attributes=[
-                    ir.Attr("alpha", ir.AttributeType.FLOAT, 1.0),
-                    ir.Attr("beta", ir.AttributeType.FLOAT, 1.0),
-                    ir.Attr("transA", ir.AttributeType.INT, 0),
-                    ir.Attr("transB", ir.AttributeType.INT, 0),
-                ],
-            )
-        )
+        if not need_flatten:
+            return
         # Reshape back if needed
         if need_flatten:
             # If all batch dims are statically known, inline the final shape
@@ -665,16 +651,11 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 final_vals = [int(d) for d in batch_dim_vals] + [
                     int(v) for v in k_out_dims
                 ]
-                final_shape_c = ir.Value(
+                final_shape_c = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("final_shape_c"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(final_vals),)),
-                    const_value=ir.tensor(np.array(final_vals, dtype=np.int64)),
+                    array=np.asarray(final_vals, dtype=np.int64),
                 )
-                ctx._initializers.append(final_shape_c)
 
-                # Meta shape for graph.output (keep symbols if present on input)
-                y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
                 out_aval_shape = tuple(
                     getattr(getattr(y_var, "aval", None), "shape", ())
                 )
@@ -682,96 +663,66 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     x_val,
                     x_shape,
                     x_batch_idx,
-                    y_val,
+                    out_spec,
                     out_aval_shape,
                     [int(v) for v in k_out_dims],
                 )
-                # Stamp BOTH meta and TensorType so the graph.output keeps 'B'
-                _stamp_type_and_shape(y_val, y_meta)
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape_c],
-                        outputs=[y_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
+                final_val = ctx.builder.Reshape(
+                    gemm_out,
+                    final_shape_c,
+                    _outputs=[out_name],
                 )
-                # Re-assert shape and also force a value_info entry so the
-                # Reshape→out_0 node port renders B×… (not ?×…).
-                _stamp_type_and_shape(y_val, y_meta)
-                _add_value_info(ctx, y_val)
+                if getattr(out_spec, "type", None) is not None:
+                    final_val.type = out_spec.type
+                _stamp_type_and_shape(final_val, y_meta)
+                _add_value_info(ctx, final_val)
+                ctx.bind_value_for_var(y_var, final_val)
             else:
                 # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
-                shp = ir.Value(
-                    name=ctx.fresh_name("x_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_shape),)),
+                shp = ctx.builder.Shape(
+                    x_val,
+                    _outputs=[ctx.fresh_name("x_shape")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Shape",
-                        domain="",
-                        inputs=[x_val],
-                        outputs=[shp],
-                        name=ctx.fresh_name("Shape"),
-                    )
-                )
-                starts = ir.Value(
+                shp.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(shp, (len(x_shape),))
+                _add_value_info(ctx, shp)
+                starts = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("slice_starts"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(np.array([0], dtype=np.int64)),
+                    array=np.asarray([0], dtype=np.int64),
                 )
-                ends = ir.Value(
+                ends = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("slice_ends"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((1,)),
-                    const_value=ir.tensor(
-                        np.array([len(x_shape) - len(lhs_contract)], dtype=np.int64)
+                    array=np.asarray(
+                        [len(x_shape) - len(lhs_contract)], dtype=np.int64
                     ),
                 )
-                ctx._initializers.extend([starts, ends])
-                batch_dims = ir.Value(
-                    name=ctx.fresh_name("batch_dims"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_shape) - len(lhs_contract),)),
+                batch_dims = ctx.builder.Slice(
+                    shp,
+                    starts,
+                    ends,
+                    _outputs=[ctx.fresh_name("batch_dims")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Slice",
-                        domain="",
-                        inputs=[shp, starts, ends],
-                        outputs=[batch_dims],
-                        name=ctx.fresh_name("Slice"),
-                    )
-                )
-                of = ir.Value(
+                batch_dims.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(batch_dims, (len(x_shape) - len(lhs_contract),))
+                _add_value_info(ctx, batch_dims)
+                of = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("out_features_c"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(k_out_dims),)),
-                    const_value=ir.tensor(np.array(k_out_dims, dtype=np.int64)),
+                    array=np.asarray(k_out_dims, dtype=np.int64),
                 )
-                ctx._initializers.append(of)
                 # Dynamic path: just reuse the sliced batch vector directly.
                 # This matches the “old world” behavior and avoids extra Concat.
                 batch_mixed = batch_dims
-                final_shape = ir.Value(
-                    name=ctx.fresh_name("final_shape"),
-                    type=ir.TensorType(ir.DataType.INT64),
-                    shape=ir.Shape((len(x_batch_idx) + len(k_out_dims),)),
+                final_shape = ctx.builder.Concat(
+                    batch_mixed,
+                    of,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("final_shape")],
                 )
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Concat",
-                        domain="",
-                        inputs=[batch_mixed, of],
-                        outputs=[final_shape],
-                        name=ctx.fresh_name("Concat"),
-                        attributes=[ir.Attr("axis", ir.AttributeType.INT, 0)],
-                    )
+                final_shape.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(
+                    final_shape, (len(x_batch_idx) + len(k_out_dims),)
                 )
-                y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
+                _add_value_info(ctx, final_shape)
                 out_aval_shape = tuple(
                     getattr(getattr(y_var, "aval", None), "shape", ())
                 )
@@ -779,24 +730,20 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     x_val,
                     x_shape,
                     x_batch_idx,
-                    y_val,
+                    out_spec,
                     out_aval_shape,
                     [int(v) for v in k_out_dims],
                 )
-                _stamp_type_and_shape(y_val, y_meta)
-                ctx.add_node(
-                    ir.Node(
-                        op_type="Reshape",
-                        domain="",
-                        inputs=[gemm_out, final_shape],
-                        outputs=[y_val],
-                        name=ctx.fresh_name("Reshape"),
-                    )
+                final_val = ctx.builder.Reshape(
+                    gemm_out,
+                    final_shape,
+                    _outputs=[out_name],
                 )
-                # Re-assert shape and also force a value_info entry so the
-                # Reshape→out_0 node port renders B×… (not ?×…).
-                _stamp_type_and_shape(y_val, y_meta)
-                _add_value_info(ctx, y_val)
+                if getattr(out_spec, "type", None) is not None:
+                    final_val.type = out_spec.type
+                _stamp_type_and_shape(final_val, y_meta)
+                _add_value_info(ctx, final_val)
+                ctx.bind_value_for_var(y_var, final_val)
         # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 
     # ---------- explicit binding helper for a testcase ----------
