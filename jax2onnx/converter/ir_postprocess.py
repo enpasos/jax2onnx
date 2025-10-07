@@ -103,19 +103,7 @@ def _node_iter(graph: ir.Graph) -> Iterable[ir.Node]:
 
 
 def _attribute_iter(node: ir.Node) -> Iterable[object]:
-    attrs = getattr(node, "attributes", None)
-    if attrs is None:
-        return []
-    if isinstance(attrs, dict):
-        return list(attrs.values())
-    if hasattr(attrs, "values"):
-        try:
-            return list(attrs.values())
-        except Exception:
-            pass
-    if isinstance(attrs, Iterable):
-        return list(attrs)
-    return []
+    return node.attributes.values()
 
 
 def _loosen_graph_value_infos(
