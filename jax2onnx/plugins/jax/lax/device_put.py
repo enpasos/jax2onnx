@@ -49,20 +49,20 @@ class DevicePutPlugin(PrimitiveLeafPlugin):
         in_val = ctx.get_value_for_var(
             in_var, name_hint=ctx.fresh_name("device_put_in")
         )
-        out_val = ctx.get_value_for_var(
+        out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("device_put_out")
         )
 
-        ctx.add_node(
-            ir.Node(
-                op_type="Identity",
-                domain="",
-                inputs=[in_val],
-                outputs=[out_val],
-                name=ctx.fresh_name("Identity"),
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
+        result = ctx.builder.Identity(
+            in_val,
+            _outputs=[desired_name],
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        src_dtype = getattr(getattr(in_val, "type", None), "dtype", None)
+        if src_dtype is not None:
+            result.type = ir.TensorType(src_dtype)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

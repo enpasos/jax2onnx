@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -79,7 +78,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("dot_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("dot_rhs"))
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dot_out"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dot_out"))
 
         tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
@@ -101,22 +100,16 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         if transpose_rhs:
             perm = list(range(len(rhs_shape)))
             perm[-1], perm[-2] = perm[-2], perm[-1]
-            transposed = ir.Value(
-                name=ctx.fresh_name("dot_rhs_T"),
-                type=rhs_val.type,
-                shape=ir.Shape(tuple(rhs_shape[i] for i in perm)),
+            rhs_perm_shape = tuple(rhs_shape[i] for i in perm)
+            transposed = ctx.builder.Transpose(
+                rhs_val,
+                _outputs=[ctx.fresh_name("dot_rhs_T")],
+                perm=perm,
             )
-            ctx.add_node(
-                ir.Node(
-                    op_type="Transpose",
-                    domain="",
-                    inputs=[rhs_val],
-                    outputs=[transposed],
-                    name=ctx.fresh_name("Transpose"),
-                    attributes=[IRAttr("perm", IRAttrType.INTS, perm)],
-                )
-            )
-            _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
+            rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
+            if rhs_dtype is not None:
+                transposed.type = ir.TensorType(rhs_dtype)
+            _stamp_type_and_shape(transposed, rhs_perm_shape)
             _ensure_value_info(ctx, transposed)
             rhs_input = transposed
 
@@ -128,21 +121,19 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             value=np.array(0, dtype=out_dtype),
         )
 
-        node = ir.Node(
-            op_type="Gemm",
-            domain="",
-            inputs=[lhs_val, rhs_input, bias_val],
-            outputs=[out_val],
-            name=ctx.fresh_name("Gemm"),
-            attributes=[
-                IRAttr("alpha", IRAttrType.FLOAT, 1.0),
-                IRAttr("beta", IRAttrType.FLOAT, 0.0),
-            ],
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Gemm")
+        result = ctx.builder.Gemm(
+            lhs_val,
+            rhs_input,
+            bias_val,
+            alpha=1.0,
+            beta=0.0,
+            _outputs=[desired_name],
         )
-        ctx.add_node(node)
 
-        _stamp_type_and_shape(out_val, out_shape)
-        out_val.type = ir.TensorType(
+        _stamp_type_and_shape(result, out_shape)
+        result.type = ir.TensorType(
             _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
         )
-        _ensure_value_info(ctx, out_val)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

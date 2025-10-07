@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr as IRAttr, AttributeType as IRAttrType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -62,7 +61,9 @@ class CumSumPlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("cumsum_in")
         )
-        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("cumsum_out"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("cumsum_out")
+        )
 
         operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
         rank = len(operand_shape)
@@ -72,24 +73,21 @@ class CumSumPlugin(PrimitiveLeafPlugin):
 
         axis_const = _const_i64(ctx, np.asarray(axis, dtype=np.int64), "cumsum_axis")
 
-        node = ir.Node(
-            op_type="CumSum",
-            domain="",
-            inputs=[input_for_cumsum, axis_const],
-            outputs=[out_val],
-            name=ctx.fresh_name("CumSum"),
-            attributes=[
-                IRAttr("exclusive", IRAttrType.INT, 0),
-                IRAttr("reverse", IRAttrType.INT, 1 if reverse else 0),
-            ],
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("CumSum")
+        result = ctx.builder.CumSum(
+            input_for_cumsum,
+            axis_const,
+            exclusive=0,
+            reverse=1 if reverse else 0,
+            _outputs=[desired_name],
         )
-        ctx.add_node(node)
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         out_dtype_enum = _dtype_to_ir(
             np.dtype(getattr(out_var.aval, "dtype", operand_var.aval.dtype)),
             ctx.builder.enable_double_precision,
         )
-        out_val.type = ir.TensorType(out_dtype_enum)
-        _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(ctx, out_val)
+        result.type = ir.TensorType(out_dtype_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
