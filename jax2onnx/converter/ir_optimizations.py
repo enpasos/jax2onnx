@@ -99,12 +99,11 @@ def _get_perm_attr(node) -> Optional[List[int]]:
                 if getattr(att, "name", None) == "perm":
                     if hasattr(att, "ints"):
                         return list(getattr(att, "ints"))
-                    try:
-                        seq = list(att)
-                        if all(isinstance(x, int) for x in seq):
-                            return seq
-                    except Exception:
-                        pass
+
+                    seq = list(att)
+                    if all(isinstance(x, int) for x in seq):
+                        return seq
+
         return None
     # Attr object with .ints
     ints = getattr(a, "ints", None)
@@ -159,6 +158,12 @@ def _count_consumers(nodes: List[object], name: Optional[str], obj) -> int:
     """
     Count how many nodes consume the given value (by name or object).
     """
+    # Prefer IR API when available
+    if obj is not None and hasattr(obj, "consumers"):
+        cons = obj.consumers()
+        if isinstance(cons, (list, tuple)):
+            return len(cons)
+
     c = 0
     for n in nodes:
         if _has_input_name_or_obj(n, name, obj):
@@ -173,6 +178,15 @@ def _find_next_consumer_idx(
     Find the index of the next node (after start_idx) that consumes the given
     value (by name or object). Return None if not found.
     """
+    # Prefer the IR API when available, falling back to the legacy scan.
+    if obj is not None and hasattr(obj, "consumers"):
+        consumers = obj.consumers()
+        if isinstance(consumers, (list, tuple)):
+            node_index = {n: idx for idx, n in enumerate(nodes)}
+            for c in consumers:
+                idx = node_index.get(c)
+                if idx is not None and idx > start_idx:
+                    return idx
     for i in range(start_idx + 1, len(nodes)):
         if _has_input_name_or_obj(nodes[i], name, obj):
             return i
@@ -441,12 +455,8 @@ def _replace_everywhere(
     new_v: "ir.Value",
 ) -> None:
     if old_v is not None:
-        try:
-            ir_convenience.replace_all_uses_with(old_v, new_v)
-            return
-        except Exception:
-            # Fall back to manual path (legacy IR objects or pure-proto case)
-            pass
+        ir_convenience.replace_all_uses_with(old_v, new_v)
+        return
     for m in nodes:
         ins = _node_inputs(m)
         changed = False
@@ -491,10 +501,7 @@ def _replace_in_graph_outputs(
     # Best-effort: try IR convenience first (may not update Graph.outputs). Then
     # explicitly fix Graph.outputs below to preserve expected output wiring/names.
     if old_v is not None:
-        try:
-            ir_convenience.replace_all_uses_with(old_v, new_v)
-        except Exception:
-            pass
+        ir_convenience.replace_all_uses_with(old_v, new_v)
     for attr in ("outputs", "output"):
         outs = getattr(graph, attr, None)
         if outs is None:
@@ -1087,6 +1094,16 @@ def _find_producer_idx(
     """
     if val_or_name is None:
         return None
+    # Prefer IR API when available
+    if hasattr(val_or_name, "producer"):
+        try:
+            prod = val_or_name.producer()  # type: ignore[attr-defined]
+            if prod is not None:
+                for idx, n in enumerate(nodes):
+                    if n is prod:
+                        return idx
+        except Exception:
+            pass
     # Object identity match
     for idx, n in enumerate(nodes):
         for ov in _node_outputs(n):
