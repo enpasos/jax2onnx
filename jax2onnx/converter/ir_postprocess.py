@@ -102,7 +102,7 @@ def _node_iter(graph: ir.Graph) -> Iterable[ir.Node]:
     return []
 
 
-def _attribute_iter(node: ir.Node) -> Iterable[object]:
+def _attribute_iter(node: ir.Node) -> Iterable[ir.Attr]:
     return node.attributes.values()
 
 
