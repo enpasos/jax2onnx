@@ -346,6 +346,7 @@ def _shape_dims_key(shape) -> Optional[Tuple[str, ...]]:
 
 
 def _clone_shape_obj(shape):
+    return ir.Shape(shape)
     """Best-effort clone of an onnx_ir Shape object."""
     if shape is None:
         return None
