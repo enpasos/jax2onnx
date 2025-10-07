@@ -6,6 +6,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
+from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
 
@@ -42,7 +43,7 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> "ir.DataType
         return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
     name = _NP_TO_IR_BASE.get(key)
     if name:
-        return getattr(ir.DataType, name)
+        return ir.DataType[name]
     if np.issubdtype(key, np.integer):
         return ir.DataType.INT64
     raise TypeError(f"Unsupported dtype: {dtype}")
@@ -81,12 +82,12 @@ class IRBuilder:
         return f"{base}_{i}"
 
     def _sync_from_tape_builder(self) -> None:
-        tape_nodes = getattr(self._tape_builder, "nodes", ())
+        tape_nodes = self._tape_builder.nodes
         for node in tape_nodes[self._tape_node_index :]:
             self.nodes.append(node)
         self._tape_node_index = len(tape_nodes)
 
-        tape_initializers = getattr(self._tape_builder, "initializers", ())
+        tape_initializers = self._tape_builder.initializers
         for value in tape_initializers[self._tape_initializer_index :]:
             existing = self.initializers_by_name.get(value.name)
             if existing is not None:
@@ -117,7 +118,7 @@ class IRBuilder:
         if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
             arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
-        if getattr(self, "_function_mode", False):
+        if self._function_mode:
             v = ir.Value(
                 name=name,
                 shape=ir.Shape(arr.shape if arr.shape else ()),
@@ -126,19 +127,9 @@ class IRBuilder:
                 ),
                 const_value=tensor,
             )
-            Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-            AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-            attributes: list[Any] = []
-            if Attr is not None:
-                try:
-                    if hasattr(Attr, "t"):
-                        attributes.append(Attr.t("value", tensor))
-                    elif AttrType is not None:
-                        attributes.append(Attr("value", AttrType.TENSOR, tensor))
-                    else:
-                        attributes.append(Attr("value", tensor))
-                except Exception:
-                    pass
+            attributes = [
+                Attr("value", AttributeType.TENSOR, tensor),
+            ]
             node = ir.Node(
                 op_type="Constant",
                 domain="",
@@ -277,10 +268,4 @@ class IRBuilder:
             name=name or "jax2onnx_ir_graph",
             opset_imports={"": self.opset},
         )
-        if self.value_info:
-            vi = list(self.value_info)
-            if hasattr(graph, "value_info"):
-                graph.value_info = vi
-            elif hasattr(graph, "_value_info"):
-                graph._value_info = vi
         return ir.Model(graph, ir_version=ir_version)

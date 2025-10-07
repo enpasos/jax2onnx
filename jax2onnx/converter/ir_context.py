@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Sequence, Dict, Tuple, Optional
 import numpy as np
 import onnx_ir as ir
+from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
 
 from jax.extend import core as jcore_ext  # type: ignore
@@ -39,10 +40,32 @@ class _InitializerProxy:
         return getattr(self._storage, name)
 
 
+# ---- literal + dtype bookkeeping -------------------------------------------------
 _LITERAL_TYPES = (jcore_ext.Literal,)
+_FLOAT_TYPE_NAMES = ("FLOAT", "DOUBLE", "FLOAT16", "BFLOAT16")
+_FLOAT_DTYPES = {
+    ir.DataType.__members__[name]
+    for name in _FLOAT_TYPE_NAMES
+    if name in ir.DataType.__members__
+}
+_INT_TYPE_NAMES = (
+    "INT8",
+    "INT16",
+    "INT32",
+    "INT64",
+    "UINT8",
+    "UINT16",
+    "UINT32",
+    "UINT64",
+)
+_INT_DTYPES = {
+    ir.DataType.__members__[name]
+    for name in _INT_TYPE_NAMES
+    if name in ir.DataType.__members__
+}
 
 
-# ---- shape coercion: int stays int; otherwise stringify (safe for onnx_ir) ---
+# ---- shape coercion: int stays int; otherwise stringify (safe for onnx_ir) --------
 def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
     out: list[int | str] = []
     for d in dims:
@@ -57,38 +80,11 @@ def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
 
 
 def _is_float_dtype_enum(enum: ir.DataType) -> bool:
-    try:
-        float_enums = {
-            getattr(ir.DataType, "FLOAT", None),
-            getattr(ir.DataType, "DOUBLE", None),
-            getattr(ir.DataType, "FLOAT16", None),
-            getattr(ir.DataType, "BFLOAT16", None),
-        }
-    except Exception:
-        return False
-    float_enums.discard(None)
-    return enum in float_enums
+    return enum in _FLOAT_DTYPES
 
 
 def _is_int_dtype_enum(enum: ir.DataType) -> bool:
-    try:
-        int_enums = {
-            getattr(ir.DataType, name, None)
-            for name in (
-                "INT8",
-                "INT16",
-                "INT32",
-                "INT64",
-                "UINT8",
-                "UINT16",
-                "UINT32",
-                "UINT64",
-            )
-        }
-    except Exception:
-        return False
-    int_enums.discard(None)
-    return enum in int_enums
+    return enum in _INT_DTYPES
 
 
 class IRContext:
@@ -127,10 +123,11 @@ class IRContext:
         self._attr_overrides: Dict[str, Dict[str, Any]] = {}
         # Set by FunctionScope while emitting FunctionProto
         self._inside_function_scope: bool = False
+        self._keep_function_float32: bool = False
 
     def _promote_float_array(self, arr: np.ndarray) -> np.ndarray:
         if (
-            getattr(self.builder, "enable_double_precision", False)
+            self.builder.enable_double_precision
             and np.issubdtype(arr.dtype, np.floating)
             and arr.dtype != np.float64
         ):
@@ -162,24 +159,31 @@ class IRContext:
     # ------------------------------------------------------------------
     def set_node_attrs(self, node: Any, attrs: Dict[str, Any]) -> None:
         # make sure there is a stable name to key overrides
-        name = getattr(node, "name", None)
-        if not name:
-            prefix = getattr(node, "op_type", "node")
-            name = self.builder.fresh_name(prefix)
-            setattr(node, "name", name)
+        if isinstance(node, ir.Node):
+            name = node.name
+            if not name:
+                prefix = node.op_type or "node"
+                node.name = self.builder.fresh_name(prefix)
+                name = node.name
+        else:
+            name = getattr(node, "name", None)
+            if not name:
+                prefix = getattr(node, "op_type", "node")
+                name = self.builder.fresh_name(prefix)
+                setattr(node, "name", name)
         merged = dict(self._attr_overrides.get(name, {}))
         merged.update(attrs or {})
         self._attr_overrides[name] = merged
 
     def get_node_attrs(self, node: Any) -> Dict[str, Any]:
-        name = getattr(node, "name", "")
+        name = node.name if isinstance(node, ir.Node) else getattr(node, "name", "")
         return self._attr_overrides.get(name, {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
     def ensure_external_flag(self, name: str, var: Any):
         """Top-level: return/create a BOOL[] graph input `name`.
         Function body: return the Value for `var` (function input or literal)."""
-        if getattr(self, "_inside_function_scope", False):
+        if self._inside_function_scope:
             if var is None:
                 lookup = getattr(self, "_call_param_value_by_name", None)
                 if isinstance(lookup, dict) and name in lookup:
@@ -189,8 +193,8 @@ class IRContext:
                 )
             return self.get_value_for_var(var, name_hint=name)
         # top-level graph input (reuse if already present)
-        for vi in getattr(self.builder, "inputs", []):
-            if getattr(vi, "name", "") == name:
+        for vi in self.builder.inputs:
+            if (vi.name or "") == name:
                 return vi
         v = ir.Value(
             name=name, type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(())
@@ -207,7 +211,7 @@ class IRContext:
           (Top-level uses a single graph input named `flag_name`; function uses the local wire.)
         """
         # If we're inside a function body and the flag is a literal, fold now.
-        if getattr(self, "_inside_function_scope", False):
+        if self._inside_function_scope:
             lit_obj = getattr(var, "val", None)
             # accept native bool, np.bool_, scalar array etc.
             if lit_obj is not None:
@@ -235,18 +239,7 @@ class IRContext:
             outputs=[tm],
             name=self.builder.fresh_name("Not"),
         )
-        # Prefer ctx.add_node if present; otherwise builder.add_node
-        add = getattr(self, "add_node", None)
-        if callable(add):
-            add(node)
-        else:
-            self.builder.add_node(
-                op_type="Not",
-                inputs=[det_val],
-                outputs=[tm],
-                attributes=[],
-                name=node.name,
-            )
+        self.add_node(node)
         return tm
 
     def add_node(self, node: ir.Node, inputs=None, outputs=None):
@@ -256,10 +249,8 @@ class IRContext:
 
     # ---------- initializer management ----------
     def _handle_initializer_append(self, value: ir.Value) -> None:
-        if getattr(self, "_inside_function_scope", False) or getattr(
-            self, "_function_mode", False
-        ):
-            tensor = getattr(value, "const_value", None)
+        if self._inside_function_scope or self._function_mode:
+            tensor = value.const_value
             if tensor is None:
                 # Fallback: store as initializer to avoid data loss.
                 self.builder.initializers.append(value)
@@ -269,19 +260,7 @@ class IRContext:
         self.builder.initializers.append(value)
 
     def _materialize_constant_value(self, value: ir.Value, tensor) -> None:
-        Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-        AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-        attributes: list[Any] = []
-        if Attr is not None:
-            try:
-                if hasattr(Attr, "t"):
-                    attributes.append(Attr.t("value", tensor))
-                elif AttrType is not None:
-                    attributes.append(Attr("value", AttrType.TENSOR, tensor))
-                else:
-                    attributes.append(Attr("value", tensor))
-            except Exception:
-                pass
+        attributes = [Attr("value", AttributeType.TENSOR, tensor)]
         node = ir.Node(
             op_type="Constant",
             domain="",
@@ -312,11 +291,12 @@ class IRContext:
         return out
 
     def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
-        if not isinstance(np_array, np.ndarray):
-            np_array = np.asarray(np_array)
+        array = (
+            np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
+        )
         promote_flag = self.builder.enable_double_precision
-        keep_float32 = bool(getattr(self, "_keep_function_float32", False))
-        if getattr(self, "_function_mode", False):
+        keep_float32 = self._keep_function_float32
+        if self._function_mode:
             aval = getattr(var, "aval", None)
             aval_np_dtype: np.dtype | None = None
             if aval is not None and hasattr(aval, "dtype"):
@@ -330,57 +310,42 @@ class IRContext:
                 and np.issubdtype(aval_np_dtype, np.floating)
                 and aval_np_dtype != np.float64
             ):
-                if np_array.dtype != aval_np_dtype:
-                    np_array = np.asarray(np_array, dtype=aval_np_dtype)
+                if array.dtype != aval_np_dtype:
+                    array = np.asarray(array, dtype=aval_np_dtype)
                 promote_flag = False
             else:
-                np_array = self._promote_float_array(np_array)
+                array = self._promote_float_array(array)
         else:
-            np_array = self._promote_float_array(np_array)
-        if getattr(self, "_function_mode", False):
-            # In functions, use a Constant node (no model-level initializer)
-            # Ensure array is properly handled
-            # Create a Value with the tensor stored in const_value for later reference
-            v = ir.Value(
-                name=self.fresh_name("const_val"),
-                type=ir.TensorType(_dtype_to_ir(np_array.dtype, promote_flag)),
-                shape=_to_ir_shape(np_array.shape),
-                const_value=ir.tensor(
-                    np_array
-                ),  # Store tensor here for FunctionProto serialization
-            )
+            array = self._promote_float_array(array)
 
-            # Create the Constant node that will produce this value
-            const_attr = ir.Attr("value", ir.AttributeType.TENSOR, ir.tensor(np_array))
+        tensor = ir.tensor(array)
+        value_name = "const_val" if self._function_mode else "const"
+        value = ir.Value(
+            name=self.fresh_name(value_name),
+            type=ir.TensorType(_dtype_to_ir(array.dtype, promote_flag)),
+            shape=_to_ir_shape(array.shape),
+            const_value=tensor,
+        )
+
+        if self._function_mode:
             self.add_node(
                 ir.Node(
                     op_type="Constant",
                     domain="",
                     inputs=[],
-                    outputs=[v],
+                    outputs=[value],
                     name=self.fresh_name("Constant"),
-                    attributes=[const_attr],
+                    attributes=[Attr("value", AttributeType.TENSOR, tensor)],
                 )
             )
-            try:
-                self.builder._var2val[var] = v
-            except TypeError:
-                pass
-            return v
         else:
-            # normal path: initializer
-            v = ir.Value(
-                name=self.fresh_name("const"),
-                type=ir.TensorType(_dtype_to_ir(np_array.dtype, promote_flag)),
-                shape=_to_ir_shape(np_array.shape),
-                const_value=ir.tensor(np_array),
-            )
-            self.builder.initializers.append(v)
-            try:
-                self.builder._var2val[var] = v
-            except TypeError:
-                pass
-            return v
+            self.builder.initializers.append(value)
+
+        try:
+            self.builder._var2val[var] = value
+        except TypeError:
+            pass
+        return value
 
     # Bind an existing IR Value to a JAX var (no new Value created).
     # Used by FunctionPlugin to tie function-scope inputs to inner jaxpr invars.
@@ -397,8 +362,8 @@ class IRContext:
         aval_dtype = np.dtype(aval.dtype)
         promote_flag = self.builder.enable_double_precision
         if (
-            getattr(self, "_function_mode", False)
-            and getattr(self, "_keep_function_float32", False)
+            self._function_mode
+            and self._keep_function_float32
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.float64
         ):
@@ -463,15 +428,15 @@ class IRContext:
             raise TypeError(f"Unsupported var type: {type(var)}")
         aval_dtype = np.dtype(aval.dtype)
         if (
-            not getattr(self.builder, "enable_double_precision", False)
+            not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.dtype(self._default_float_dtype)
         ):
             aval_dtype = np.dtype(self._default_float_dtype)
         promote_flag = self.builder.enable_double_precision
         if (
-            getattr(self, "_function_mode", False)
-            and getattr(self, "_keep_function_float32", False)
+            self._function_mode
+            and self._keep_function_float32
             and promote_flag
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.float64
@@ -501,8 +466,10 @@ class IRContext:
                         target_enum = _dtype_to_ir(
                             np_dtype, self.builder.enable_double_precision
                         )
-            current_type = getattr(v, "type", None)
-            current_enum = getattr(current_type, "dtype", None)
+            current_type = v.type
+            current_enum = (
+                current_type.dtype if isinstance(current_type, ir.TensorType) else None
+            )
             if target_enum is not None and current_enum is not None:
                 if target_enum != current_enum:
                     promote_float = (
@@ -540,9 +507,9 @@ class IRContext:
                                 outputs=[cast_val],
                                 name=self.fresh_name("Cast"),
                                 attributes=[
-                                    ir.Attr(
+                                    Attr(
                                         "to",
-                                        ir.AttributeType.INT,
+                                        AttributeType.INT,
                                         int(target_enum.value),
                                     )
                                 ],
@@ -550,7 +517,7 @@ class IRContext:
                         )
                         v = cast_val
             elif target_enum is not None and current_enum is None:
-                v.type = ir.TensorType(target_enum, v.shape)
+                v.type = ir.TensorType(target_enum)
             self.builder.outputs.append(v)
 
     # Convenience: make sure the model declares an opset import for a domain
