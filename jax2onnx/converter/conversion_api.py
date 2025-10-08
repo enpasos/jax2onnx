@@ -508,8 +508,6 @@ def to_onnx(
             model_proto: ir.Model, ctx: IRContext
         ) -> None:
             graph = model_proto.graph
-            if not isinstance(graph, ir.Graph):
-                return
 
             def _collect_dims(values: Iterable[ir.Value]) -> Dict[str, Tuple]:
                 mapping: Dict[str, Tuple] = {}

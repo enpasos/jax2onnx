@@ -14,7 +14,9 @@
     - ✅ Further trimmed `conversion_api` dynamic paths: attr construction now leans on `onnx_ir.Attr`, function export uses `identifier()`, and value-info shape reconciliation prefers the typed IR context helpers (with proto fallbacks).
     - ✅ `_finalize_model_value_info_shapes` and attr override paths now operate on typed `ir.Value`/`ir.Graph` containers (no proto mirrors), and Concat axis defaults rely on native attribute assignment.
     - ✅ `ir_context` sheds remaining dynamic guards: name/op_type/aval reads now check `hasattr` once and use the typed attributes, with only the initializer proxy delegating via `__getattr__`.
-    - ✅ Began `ir_optimizations` cleanup: node input/output helpers now use `ir.Node.inputs/outputs`, graph node persistence runs through `graph._nodes`, and graph outputs rewrite via the typed container.
+    - ✅ Began `ir_optimizations` cleanup: node input/output helpers now use `ir.Node.inputs/outputs`, graph node persistence runs through `graph._nodes`, graph outputs rewrite via the typed container, and Dropout training-mode inlining no longer touches proto shims.
+    - ✅ Added `scripts/check_forbidden_reflection.py` + pre-commit hook to forbid `isinstance(..., ir.Graph)` and `getattr(..., 'node'/'output'/...)` patterns across the converter.
+    - ✅ `_collect_value_dtypes`, `_get_attr`, and `_replace_in_graph_outputs` favor the typed graph containers/attributes, keeping only thin fallbacks for legacy mirrors.
   - `scripts/audit_ir_dynamic_access.py` reports dynamic `getattr` usage; wire it into CI once the baseline shrinks to something manageable.
   - Drift guard: extend `tests/extra_tests/framework/test_onnx_ir_surface.py` (or equivalent) so it asserts the upstream package still exposes the attributes we depend on.
   - First cleanups landed in `converter/ir_pretty.py`, `converter/ir_postprocess.py`, `converter/ir_optimizations.py` (helpers + cast/transpose/dropout passes), and `plugins/_ir_shapes.py`; dynamic graph/value access now goes through typed properties/helpers.

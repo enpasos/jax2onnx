@@ -220,13 +220,8 @@ def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
     return None
 
 
-def _node_outputs(n) -> List["ir.Value"]:
-    if hasattr(n, "outputs"):
-        outputs = n.outputs  # type: ignore[attr-defined]
-        if outputs is not None:
-            return list(outputs)
-    legacy = getattr(n, "output", [])
-    return list(legacy)
+def _node_outputs(n: ir.Node) -> List["ir.Value"]:
+    return list(n.outputs)
 
 
 def _node_output(n) -> Optional["ir.Value"]:
@@ -234,44 +229,13 @@ def _node_output(n) -> Optional["ir.Value"]:
     return outs[0] if outs else None
 
 
-def _node_inputs(n) -> List["ir.Value"]:
-    if hasattr(n, "inputs"):
-        inputs = n.inputs  # type: ignore[attr-defined]
-        if inputs is not None:
-            return list(inputs)
-    legacy = getattr(n, "input", [])
-    return list(legacy)
+def _node_inputs(n: ir.Node) -> List["ir.Value"]:
+    return list(n.inputs)
 
 
 def _set_node_inputs(n, new_ins: List["ir.Value"]) -> None:
-    """
-    Robustly write a node's inputs across onnx_ir variants that use either
-    `.inputs` (Value objects) or `.input` (Value objects or names).
-    """
-    # 1) Try the canonical `inputs` attribute first
-    try:
-        n.inputs = tuple(new_ins)
-        return
-    except Exception:
-        pass
-    # 2) Fallback to legacy `.input` container (string names)
-    cur = getattr(n, "input", None)
-    if cur is None:
-        return
-    names: List[str] = []
-    for v in new_ins:
-        if isinstance(v, str):
-            names.append(v)
-        else:
-            nm = _v_name(v)
-            names.append("" if nm is None else nm)
-    try:
-        setattr(cast(Any, n), "input", tuple(names))
-    except Exception:
-        try:
-            setattr(cast(Any, n), "input", names)
-        except Exception:
-            pass
+    for idx, val in enumerate(new_ins):
+        n.replace_input_with(idx, val)
 
 
 def _rebuild_node_with_inputs(n: "ir.Node", new_ins: List["ir.Value"]) -> "ir.Node":
@@ -394,28 +358,7 @@ def _replace_everywhere(
                 ins[i] = new_name if new_name is not None else ""
                 changed = True
         if changed:
-            if hasattr(m, "replace_input_with"):
-                try:
-                    for idx, iv in enumerate(ins):
-                        if iv is new_v:
-                            m.replace_input_with(idx, new_v)
-                except Exception:
-                    pass
-            try:
-                _set_node_inputs(m, ins)
-            except Exception:
-                # Fallback for pure string inputs
-                names = []
-                for iv in ins:
-                    if isinstance(iv, str):
-                        names.append(iv)
-                    else:
-                        nm = _v_name(iv)
-                        names.append(nm if nm is not None else "")
-                try:
-                    m.input = tuple(names)
-                except Exception:
-                    m.input = list(names)
+            _set_node_inputs(m, ins)
 
 
 def _replace_in_graph_outputs(
@@ -426,20 +369,18 @@ def _replace_in_graph_outputs(
 ) -> None:
     if old_v is not None:
         ir_convenience.replace_all_uses_with(old_v, new_v)
-    changed = False
-    for idx, ov in enumerate(graph.outputs):
+
+    outputs = graph.outputs
+    replaced = False
+    for idx, ov in enumerate(outputs):
         if (old_v is not None and ov is old_v) or (
             old_name and _v_name(ov) == old_name
         ):
-            graph.outputs[idx] = new_v
-            changed = True
-    if changed:
-        # ensure output value name matches the replacement when necessary
-        if new_v.name:
-            new_name = new_v.name
-            for ov in graph.outputs:
-                if ov is new_v:
-                    ov.name = new_name
+            outputs[idx] = new_v
+            replaced = True
+
+    if not replaced:
+        return
 
 
 def _build_use_maps(nodes: List["ir.Node"]):
@@ -498,40 +439,20 @@ def _all_consumers(cons_by_obj, cons_by_name, v: Optional["ir.Value"]) -> Set[in
 # ---------------- Attr access ----------------
 
 
-def _get_attr(node, name: str):
-    """
-    Robustly fetch a node attribute 'name' across onnx_ir variants:
-      • dict-like or mapping containers (Attributes)
-      • sequences of Attrs
-      • direct attribute on the node
-    """
-    attrs = getattr(node, "attributes", None)
+def _get_attr(node: ir.Node, name: str) -> Optional[ir.Attr]:
+    attrs = node.attributes
     if isinstance(attrs, Mapping):
-        try:
-            attr = attrs.get(name)  # type: ignore[attr-defined]
-        except Exception:
-            attr = None
-        if attr is None:
-            try:
-                attr = attrs[name]  # type: ignore[index]
-            except Exception:
-                attr = None
-        if attr is not None:
-            return attr
+        return cast(Optional[ir.Attr], attrs.get(name))
     if isinstance(attrs, SequenceABC):
         for item in attrs:
-            key = getattr(item, "name", getattr(item, "key", None))
+            key = getattr(item, "name", None)
             if key == name:
-                return item
-    # Fallback: explicit sequence 'attribute'
-    seq = getattr(node, "attribute", None)
-    if isinstance(seq, (list, tuple)):
-        for a in seq:
+                return cast(ir.Attr, item)
+    attr_seq = getattr(node, "attribute", None)
+    if isinstance(attr_seq, (list, tuple)):
+        for a in attr_seq:
             if getattr(a, "name", None) == name:
-                return a
-    # Last resort: direct attribute
-    if hasattr(node, name):
-        return getattr(node, name)
+                return cast(ir.Attr, a)
     return None
 
 
@@ -576,7 +497,7 @@ def _attr_to_int(attr: Any) -> Optional[int]:
     return None
 
 
-def _collect_value_dtypes(graph, nodes: List["ir.Node"]) -> Dict[str, int]:
+def _collect_value_dtypes(graph: ir.Graph, nodes: List["ir.Node"]) -> Dict[str, int]:
     type_map: Dict[str, int] = {}
 
     def _record(val):
@@ -585,46 +506,17 @@ def _collect_value_dtypes(graph, nodes: List["ir.Node"]) -> Dict[str, int]:
         if name and code is not None:
             type_map.setdefault(name, code)
 
-    try:
-        for v in graph.inputs:  # type: ignore[attr-defined]
-            _record(v)
-    except Exception:
-        inputs = getattr(graph, "input", None)
-        if inputs is not None:
-            try:
-                for v in inputs:
-                    _record(v)
-            except Exception:
-                pass
-
-    try:
-        for v in graph.outputs:  # type: ignore[attr-defined]
-            _record(v)
-    except Exception:
-        outputs = getattr(graph, "output", None)
-        if outputs is not None:
-            try:
-                for v in outputs:
-                    _record(v)
-            except Exception:
-                pass
-
-    inits = getattr(graph, "initializers", None)
-    if inits is None:
-        inits = getattr(graph, "initializer", None)
-    if inits is not None:
-        iterable = inits.values() if hasattr(inits, "values") else inits
-        try:
-            for init in iterable:
-                if isinstance(init, ir.Value):
-                    _record(init)
-                else:
-                    name = getattr(init, "name", None)
-                    dtype = getattr(init, "data_type", None)
-                    if isinstance(name, str) and isinstance(dtype, (int, np.integer)):
-                        type_map.setdefault(name, int(dtype))
-        except Exception:
-            pass
+    for value in graph.inputs:
+        _record(value)
+    for value in graph.outputs:
+        _record(value)
+    init_container = graph.initializers
+    iterable = (
+        init_container.values() if hasattr(init_container, "values") else init_container
+    )
+    for init in iterable:
+        if isinstance(init, ir.Value):
+            _record(init)
 
     for node in nodes:
         for ov in _node_outputs(node):
@@ -1223,6 +1115,10 @@ def inline_dropout_training_mode_constants_ir(graph) -> None:
             if producer is not None and producer.op_type == "Not":
                 _dbg_tm("tm producer is Not @", pidx)
                 not_in = (_node_inputs(producer) or [None])[0]
+                if isinstance(not_in, ir.Value) and not_in.is_graph_input():
+                    _dbg_tm("Not input is dynamic graph input; skipping")
+                    _dbg_tm("Not input could not be proven True; nv=", None)
+                    continue
                 nv = _read_scalar_bool_from_value_or_constant(nodes, not_in)
                 if nv is not None and bool(nv) is True:
                     miss = _missing_bool_value()
@@ -1230,37 +1126,24 @@ def inline_dropout_training_mode_constants_ir(graph) -> None:
                     ins_new[2] = miss
                     old_not_out = _node_output(producer)
                     _replace_everywhere(nodes, old_not_out, _v_name(old_not_out), miss)
-                _replace_in_graph_outputs(
-                    graph, old_not_out, _v_name(old_not_out), miss
-                )
-                try:
+                    _replace_in_graph_outputs(
+                        graph, old_not_out, _v_name(old_not_out), miss
+                    )
                     _set_node_inputs(n, ins_new)
                     nodes[idx] = n
-                except Exception:
-                    nodes[idx] = _rebuild_node_with_inputs(n, ins_new)
-                changed = True
-                out_v = _node_output(producer)
-                out_name = _v_name(out_v)
-                if out_name:
-                    del_not_names.add(out_name)
-                del_not_idx.add(pidx)
-                continue
-            _dbg_tm("Not input could not be proven True; nv=", nv)
+                    changed = True
+                    out_v = _node_output(producer)
+                    out_name = _v_name(out_v)
+                    if out_name:
+                        del_not_names.add(out_name)
+                    del_not_idx.add(pidx)
+                    continue
+                _dbg_tm("Not input could not be proven True; nv=", nv)
 
-        # Case A: training_mode itself constant False (direct constant)
-        val = _read_scalar_bool_from_value_or_constant(nodes, tm)
-        if val is not None and bool(val) is False:
-            miss = _missing_bool_value()
-            ins_new = list(ins)
-            ins_new[2] = miss
-            try:
-                _set_node_inputs(n, ins_new)
-                nodes[idx] = n
-            except Exception:
-                nodes[idx] = _rebuild_node_with_inputs(n, ins_new)
-            changed = True
-            continue
+        # Case A removed: we only inline Not(True) patterns to preserve
+        # call-param wiring in inference graphs.
     if changed:
+        _dbg_tm("changed detected; del_not_idx=", sorted(del_not_idx))
         # Explicitly delete orphan Not producers we identified
         # Remove any Not nodes whose outputs have no remaining consumers
         if del_not_names:
@@ -1291,26 +1174,12 @@ def inline_dropout_training_mode_constants_ir(graph) -> None:
 # ---------------- Graph IO (for DCE/prune) ----------------
 
 
-def _graph_inputs_list(graph) -> List["ir.Value"]:
-    for attr in ("inputs", "input"):
-        ins = getattr(graph, attr, None)
-        if ins is not None:
-            try:
-                return list(ins)
-            except Exception:
-                pass
-    return []
+def _graph_inputs_list(graph: ir.Graph) -> List["ir.Value"]:
+    return list(graph.inputs)
 
 
-def _graph_outputs_list(graph) -> List["ir.Value"]:
-    for attr in ("outputs", "output"):
-        outs = getattr(graph, attr, None)
-        if outs is not None:
-            try:
-                return list(outs)
-            except Exception:
-                pass
-    return []
+def _graph_outputs_list(graph: ir.Graph) -> List["ir.Value"]:
+    return list(graph.outputs)
 
 
 # ---------------- DCE ----------------
@@ -1492,50 +1361,36 @@ def prune_unused_graph_inputs_ir(graph) -> None:
                 return True
         return False
 
-    for attr in ("inputs", "input"):
-        arr = getattr(graph, attr, None)
-        if arr is None:
+    inputs_container = graph.inputs
+    original_inputs = list(inputs_container)
+    keep: List[ir.Value] = []
+    removed: List[str] = []
+    for value in original_inputs:
+        name = _v_name(value)
+        if not name:
+            keep.append(value)
             continue
-        try:
-            lst = list(arr)
-        except Exception:
-            continue
-        keep = []
-        removed = []
-        for v in lst:
-            nm = _v_name(v)
-            if not nm:
-                keep.append(v)
-                continue
 
-            should_keep = False
-            if _should_always_keep(nm):
-                should_keep = True
-            elif nm in output_names:
-                should_keep = True
-            elif _count_consumers(nodes or [], nm, v) > 0:
-                should_keep = True
-            elif nm in used:
-                should_keep = True
+        should_keep = False
+        if _should_always_keep(name):
+            should_keep = True
+        elif name in output_names:
+            should_keep = True
+        elif _count_consumers(nodes or [], name, value) > 0:
+            should_keep = True
+        elif name in used:
+            should_keep = True
 
-            if should_keep:
-                keep.append(v)
-            else:
-                removed.append(nm)
-        if removed and DEBUG:
-            _dbg(f"prune_unused_graph_inputs_ir removed: {removed}")
-        try:
-            setattr(graph, attr, keep)
-        except Exception:
-            try:
-                arr[:] = keep
-            except Exception:
-                try:
-                    arr.clear()
-                    arr.extend(keep)
-                except Exception:
-                    pass
-        break
+        if should_keep:
+            keep.append(value)
+        else:
+            removed.append(name)
+
+    if removed and DEBUG:
+        _dbg(f"prune_unused_graph_inputs_ir removed: {removed}")
+
+    if keep != original_inputs:
+        inputs_container[:] = keep
 
 
 # ---------------------------------------------------------------------------
@@ -1546,44 +1401,39 @@ def prune_unused_graph_inputs_ir(graph) -> None:
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     # Top graph
     try:
-        gr = getattr(ir_model, "graph", None)
-        if gr is not None:
-            remove_redundant_casts_ir(gr)
-            remove_redundant_transpose_pairs_ir(gr)
-            remove_redundant_reshape_pairs_ir(gr)
-            # Constant-only: inline training_mode when provably false / Not(True)
-            inline_dropout_training_mode_constants_ir(gr)
-            propagate_unary_shapes_ir(gr)
-            remove_redundant_casts_ir(gr)
-            remove_dead_nodes_ir(gr)
-            prune_unused_graph_inputs_ir(gr)
+        gr = ir_model.graph
+        remove_redundant_casts_ir(gr)
+        remove_redundant_transpose_pairs_ir(gr)
+        remove_redundant_reshape_pairs_ir(gr)
+        inline_dropout_training_mode_constants_ir(gr)
+        propagate_unary_shapes_ir(gr)
+        remove_redundant_casts_ir(gr)
+        remove_dead_nodes_ir(gr)
+        prune_unused_graph_inputs_ir(gr)
     except Exception as _e:
         _dbg("optimize_graph: top-graph pass skipped:", _e)
 
     # Function bodies – do NOT prune function inputs (signature!)
     try:
-        funcs = getattr(ir_model, "functions", None) or getattr(
-            ir_model, "_functions", None
-        )
-        if isinstance(funcs, dict):
-            values: Iterable[Any] = funcs.values()
-        elif funcs is None:
+        funcs_container = ir_model.functions
+        if isinstance(funcs_container, dict):
+            values: Iterable[Any] = funcs_container.values()
+        elif funcs_container is None:
             values = ()
         else:
-            values = funcs
+            values = funcs_container
         for fn in values:
-            fgr = getattr(fn, "graph", None)
-            if fgr is not None:
-                try:
-                    remove_redundant_casts_ir(fgr)
-                    remove_redundant_transpose_pairs_ir(fgr)
-                    remove_redundant_reshape_pairs_ir(fgr)
-                    inline_dropout_training_mode_constants_ir(fgr)
-                    propagate_unary_shapes_ir(fgr)
-                    remove_redundant_casts_ir(fgr)
-                    remove_dead_nodes_ir(fgr)
-                except Exception as _fe:
-                    _dbg("optimize_graph: function pass skipped:", _fe)
+            fgr = fn.graph
+            try:
+                remove_redundant_casts_ir(fgr)
+                remove_redundant_transpose_pairs_ir(fgr)
+                remove_redundant_reshape_pairs_ir(fgr)
+                inline_dropout_training_mode_constants_ir(fgr)
+                propagate_unary_shapes_ir(fgr)
+                remove_redundant_casts_ir(fgr)
+                remove_dead_nodes_ir(fgr)
+            except Exception as _fe:
+                _dbg("optimize_graph: function pass skipped:", _fe)
     except Exception as _e:
         _dbg("optimize_graph: functions traversal skipped:", _e)
 
