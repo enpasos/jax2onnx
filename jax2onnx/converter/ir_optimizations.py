@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence as SequenceABC
-from typing import Dict, List, Optional, Tuple, Set, Iterable, Any, cast
+from typing import Dict, List, Optional, Tuple, Set, Iterable, Any, Callable, cast
 import copy
 import os
 import numpy as np
@@ -358,48 +358,17 @@ def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool
 
 
 def _get_node_seq_and_setter(
-    graph,
-) -> Tuple[List["ir.Node"], Optional[Tuple[object, str]]]:
-    """
-    Return (nodes_container, (parent, attr)) such that:
-      • If the underlying container is a mutable list, we return that **live** list
-        so in-place mutations persist immediately.
-      • Otherwise we return a Python list copy and the caller should call _set_nodes
-        to persist changes.
-    """
-    for attr in ("nodes", "_nodes", "node"):
-        if hasattr(graph, attr):
-            cont = getattr(graph, attr)
-            # If it's already a mutable Python list, use it directly (no copy).
-            if isinstance(cont, list):
-                return cont, (graph, attr)
-            # Else, fall back to a list copy with write-back responsibility.
-            try:
-                return list(cont), (graph, attr)
-            except Exception:
-                # As a last resort, expose an empty list with a setter; caller will set later.
-                return [], (graph, attr)
-    return [], None
+    graph: ir.Graph,
+) -> Tuple[List["ir.Node"], Callable[[List["ir.Node"]], None]]:
+    container = graph._nodes
+    snapshot = list(container)
 
+    def _persist(updated_nodes: List[ir.Node]) -> None:
+        for existing in list(container):
+            container.remove(existing)
+        container.extend(updated_nodes)
 
-def _set_nodes(store: Optional[Tuple[object, str]], nodes: List["ir.Node"]) -> None:
-    if store is None:
-        return
-    parent, _ = store
-    # Persist to ALL known containers to avoid copy-on-write / mirror mismatches.
-    for attr in ("nodes", "_nodes", "node"):
-        if hasattr(parent, attr):
-            try:
-                setattr(parent, attr, nodes)
-            except Exception:
-                # Try in-place replace if container is a mutable sequence
-                try:
-                    seq = getattr(parent, attr)
-                    if isinstance(seq, list):
-                        seq.clear()
-                        seq.extend(nodes)
-                except Exception:
-                    pass
+    return snapshot, _persist
 
 
 def _replace_everywhere(
@@ -450,54 +419,27 @@ def _replace_everywhere(
 
 
 def _replace_in_graph_outputs(
-    graph, old_v: Optional["ir.Value"], old_name: Optional[str], new_v: "ir.Value"
+    graph: ir.Graph,
+    old_v: Optional["ir.Value"],
+    old_name: Optional[str],
+    new_v: "ir.Value",
 ) -> None:
-    # Best-effort: try IR convenience first (may not update Graph.outputs). Then
-    # explicitly fix Graph.outputs below to preserve expected output wiring/names.
     if old_v is not None:
         ir_convenience.replace_all_uses_with(old_v, new_v)
-    targets: List[Tuple[str, List[ir.Value]]] = []
-    try:
-        outputs = [cast(ir.Value, v) for v in graph.outputs]  # type: ignore[attr-defined]
-        targets.append(("outputs", outputs))
-    except Exception:
-        pass
-    alt = getattr(graph, "output", None)
-    if alt is not None:
-        try:
-            legacy_outputs = [cast(ir.Value, v) for v in alt]
-            targets.append(("output", legacy_outputs))
-        except Exception:
-            pass
-    for attr, lst in targets:
-        changed = False
-        for idx, ov in enumerate(lst):
-            if (old_v is not None and ov is old_v) or (
-                old_name and _v_name(ov) == old_name
-            ):
-                lst[idx] = new_v
-                changed = True
-        if not changed:
-            continue
-        try:
-            setattr(graph, attr, tuple(lst))
-        except Exception:
-            try:
-                setattr(graph, attr, lst)
-            except Exception:
-                container = getattr(graph, attr, None)
-                if container is None:
-                    continue
-                try:
-                    for item in cast(Iterable[ir.Value], container):
-                        if (old_v is not None and item is old_v) or (
-                            old_name and _v_name(item) == old_name
-                        ):
-                            new_name = _v_name(new_v)
-                            if new_name:
-                                item.name = new_name
-                except Exception:
-                    continue
+    changed = False
+    for idx, ov in enumerate(graph.outputs):
+        if (old_v is not None and ov is old_v) or (
+            old_name and _v_name(ov) == old_name
+        ):
+            graph.outputs[idx] = new_v
+            changed = True
+    if changed:
+        # ensure output value name matches the replacement when necessary
+        if new_v.name:
+            new_name = new_v.name
+            for ov in graph.outputs:
+                if ov is new_v:
+                    ov.name = new_name
 
 
 def _build_use_maps(nodes: List["ir.Node"]):
@@ -698,7 +640,7 @@ def _collect_value_dtypes(graph, nodes: List["ir.Node"]) -> Dict[str, int]:
 
 
 def remove_redundant_casts_ir(graph) -> None:
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     changed = True
@@ -759,7 +701,7 @@ def remove_redundant_casts_ir(graph) -> None:
                                 kill = sorted([idx, consumer_idx], reverse=True)
                                 for k in kill:
                                     nodes.pop(k)
-                                _set_nodes(store, nodes)
+                                persist(nodes)
                                 changed = True
                                 break
                 if DEBUG:
@@ -776,10 +718,10 @@ def remove_redundant_casts_ir(graph) -> None:
             _replace_everywhere(nodes, out_val, _v_name(out_val), src_val)
             _replace_in_graph_outputs(graph, out_val, _v_name(out_val), src_val)
             nodes = nodes[:idx] + nodes[idx + 1 :]
-            _set_nodes(store, nodes)
+            persist(nodes)
             changed = True
             break
-    _set_nodes(store, nodes)
+    persist(nodes)
 
 
 # ---------------- Transpose folding ----------------
@@ -790,7 +732,7 @@ def _transpose_perm(node) -> Optional[List[int]]:
 
 
 def remove_redundant_transpose_pairs_ir(graph) -> None:
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     changed = True
@@ -870,17 +812,17 @@ def remove_redundant_transpose_pairs_ir(graph) -> None:
             _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
             kill = {i, T2_idx}
             nodes = [m for k, m in enumerate(nodes) if k not in kill]
-            _set_nodes(store, nodes)
+            persist(nodes)
             changed = True
             break
-    _set_nodes(store, nodes)
+    persist(nodes)
 
 
 # ---------------- Reshape folding ----------------
 
 
 def remove_redundant_reshape_pairs_ir(graph) -> None:
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
 
@@ -947,10 +889,10 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
             _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
             kill = {T1_idx, i}
             nodes = [m for k, m in enumerate(nodes) if k not in kill]
-            _set_nodes(store, nodes)
+            persist(nodes)
             changed = True
             break
-    _set_nodes(store, nodes)
+    persist(nodes)
 
 
 # ---------------- Shape propagation helpers ----------------
@@ -1017,7 +959,7 @@ def propagate_unary_shapes_ir(graph) -> None:
     when output metadata is missing/unknown. This helps preserve batch symbols across
     elementwise ops (e.g., BxN through Dropout/Gelu/etc.).
     """
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     changed = False
@@ -1036,7 +978,7 @@ def propagate_unary_shapes_ir(graph) -> None:
         if _copy_shape_dtype(outs[0], ins[0]):
             changed = True
     if changed:
-        _set_nodes(store, nodes)
+        persist(nodes)
 
 
 # ---------------- Dropout.training_mode constant inlining ----------------
@@ -1253,7 +1195,7 @@ def inline_dropout_training_mode_constants_ir(graph) -> None:
       - If training_mode is Not(True)        → drop it (make input #2 missing)
     This preserves dynamic (graph-input) cases: they are NOT inlined.
     """
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     changed = False
@@ -1343,7 +1285,7 @@ def inline_dropout_training_mode_constants_ir(graph) -> None:
                 continue
             new_nodes.append(m)
         nodes = new_nodes
-        _set_nodes(store, nodes)
+        persist(nodes)
 
 
 # ---------------- Graph IO (for DCE/prune) ----------------
@@ -1375,7 +1317,7 @@ def _graph_outputs_list(graph) -> List["ir.Value"]:
 
 
 def remove_dead_nodes_ir(graph) -> None:
-    nodes, store = _get_node_seq_and_setter(graph)
+    nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
     prod_obj, prod_name, _cbo, _cbn = _build_use_maps(nodes)
@@ -1416,7 +1358,7 @@ def remove_dead_nodes_ir(graph) -> None:
     if DCE_DEBUG:
         dropped = [n.op_type for i, n in enumerate(nodes) if i not in live_nodes]
         print("[dce] removed", len(nodes) - len(new_nodes), "nodes:", dropped)
-    _set_nodes(store, new_nodes)
+    persist(new_nodes)
 
 
 # ---------------- Prune unused graph inputs (top graph only) ----------------
