@@ -44,14 +44,12 @@ def cast_param_like(
 
     Safe to call when dtypes are unknown (no-op). Preserves shape.
     """
-    p_ty = getattr(param, "type", None)
-    l_ty = getattr(like, "type", None)
-    p_dt = getattr(p_ty, "dtype", None)
-    l_dt = getattr(l_ty, "dtype", None)
+    p_dt = param.dtype
+    l_dt = like.dtype
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
 
-    const_tensor = getattr(param, "const_value", None)
+    const_tensor = param.const_value
     if const_tensor is not None:
         try:
             np_arr = const_tensor.numpy()
@@ -63,7 +61,7 @@ def cast_param_like(
                 np_arr = np_arr.astype(target_np, copy=False)
                 param.const_value = ir.tensor(np_arr)
             param.type = ir.TensorType(l_dt)
-            if getattr(param, "shape", None) is None and hasattr(np_arr, "shape"):
+            if param.shape is None and hasattr(np_arr, "shape"):
                 param.shape = ir.Shape(tuple(int(d) for d in np_arr.shape))
             return param
 
@@ -90,7 +88,7 @@ def inline_reshape_initializer(
     If `val` is a constant initializer, create a new initializer with the data
     reshaped to `new_shape` and return it. Otherwise, return `val` unchanged.
     """
-    arr = getattr(val, "const_value", None)
+    arr = val.const_value
     if arr is None:
         return val  # not a constant → caller must insert a Reshape node
 

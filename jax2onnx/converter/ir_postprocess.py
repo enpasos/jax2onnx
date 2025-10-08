@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable as IterableABC, Sequence as SequenceABC
 from itertools import chain
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
+from typing import cast
+
+
+DimValue = int | ir.SymbolicDim | None
 
 
 def _value_name(value: ir.Value | None) -> str | None:
@@ -24,16 +29,19 @@ def _io_value_names(graph: ir.Graph) -> set[str]:
     }
 
 
-def _shape_dims(shape_obj: object) -> list[object] | None:
+def _shape_dims(shape_obj: object) -> list[DimValue] | None:
     if shape_obj is None:
         return None
     if isinstance(shape_obj, ir.Shape):
-        return list(shape_obj)
-    dims = getattr(shape_obj, "dims", None)
-    if dims is not None:
-        return list(dims)
-    if isinstance(shape_obj, (list, tuple)):
-        return list(shape_obj)
+        return [dim for dim in shape_obj.dims]
+    if isinstance(shape_obj, SequenceABC) and not isinstance(shape_obj, (str, bytes)):
+        dims: list[DimValue] = []
+        for dim in shape_obj:
+            if isinstance(dim, (int, ir.SymbolicDim)) or dim is None:
+                dims.append(dim)
+            else:
+                dims.append(ir.SymbolicDim(str(dim)))
+        return dims
     return None
 
 
@@ -42,41 +50,34 @@ def _dim_is_known(dim: object) -> bool:
         return False
     if isinstance(dim, (int, np.integer)):
         return True
+    if isinstance(dim, ir.SymbolicDim):
+        if dim.value is not None:
+            return True
+        text = str(dim)
+        return bool(text and text != "?")
     if isinstance(dim, str):
         return bool(dim)
-    for attr in ("param", "name", "symbol", "label", "value"):
-        try:
-            val = getattr(dim, attr)
-        except Exception:
-            continue
-        if isinstance(val, (int, np.integer)):
-            return True
-        if val:
-            return True
-    try:
-        text = str(dim)
-        if text and text.isidentifier():
-            return True
-        if "SymbolicDim" in text:
-            return True
-    except Exception:
-        pass
-    return False
+    text = str(dim)
+    return bool(text and text != "?")
 
 
-def _normalize_dim(dim: object) -> object:
+def _normalize_dim(dim: object) -> DimValue:
     if isinstance(dim, np.integer):
         return int(dim)
+    if isinstance(dim, int):
+        return dim
+    if isinstance(dim, ir.SymbolicDim):
+        return dim
     if isinstance(dim, str):
         return ir.SymbolicDim(dim)
-    return dim
+    return None
 
 
 def _unknown_shape_like(value: ir.Value, *, force_rank_only: bool) -> ir.Shape | None:
     dims = _shape_dims(value.shape)
     if not dims:
         return None
-    new_dims: list[object | None] = []
+    new_dims: list[DimValue] = []
     changed = False
     for dim in dims:
         if force_rank_only:
@@ -100,6 +101,13 @@ def _reset_tensor_type(value: ir.Value) -> None:
     value.type = ir.TensorType(dtype)
 
 
+def _iter_initializers(graph: ir.Graph) -> IterableABC[ir.Value]:
+    initializers_obj = graph.initializers
+    if hasattr(initializers_obj, "values"):
+        return cast(IterableABC[ir.Value], initializers_obj.values())
+    return cast(IterableABC[ir.Value], initializers_obj)
+
+
 def _loosen_graph_value_infos(
     graph: ir.Graph, *, force_rank_only: bool = False
 ) -> None:
@@ -107,8 +115,6 @@ def _loosen_graph_value_infos(
 
     for node in graph:
         for output in node.outputs:
-            if output is None:
-                continue
             name = _value_name(output)
             if name and name in io_names:
                 continue
@@ -124,10 +130,11 @@ def _tensor_to_numpy(tensor: object) -> np.ndarray | None:
         return None
     if isinstance(tensor, np.ndarray):
         return tensor
-    if isinstance(tensor, ir.Tensor):
-        return tensor.numpy()
     if hasattr(tensor, "numpy"):
-        result = tensor.numpy()
+        try:
+            result = tensor.numpy()
+        except Exception:
+            return None
         return result if isinstance(result, np.ndarray) else np.asarray(result)
     if isinstance(tensor, (list, tuple)):
         return np.asarray(tensor)
@@ -171,7 +178,7 @@ def _process_graph(
         _loosen_graph_value_infos(graph, force_rank_only=force_rank_only)
 
     if promote:
-        for initializer in graph.initializers.values():
+        for initializer in _iter_initializers(graph):
             _maybe_promote_value_to_double(initializer)
 
     for node in graph:
@@ -195,8 +202,7 @@ def _process_graph(
                         force_rank_only=child_force_rank_only,
                     )
             elif attr.type is AttributeType.GRAPHS:
-                sub_graphs = attr.as_graphs()
-                for sub_graph in sub_graphs:
+                for sub_graph in attr.as_graphs():
                     _process_graph(
                         sub_graph,
                         loosen=loosen,
@@ -206,7 +212,11 @@ def _process_graph(
 
 
 def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
-    for function in model.functions.values():
+    funcs = getattr(model, "functions", None)
+    if funcs is None:
+        return
+    iterable = funcs.values() if hasattr(funcs, "values") else funcs
+    for function in iterable:
         if loosen:
             _loosen_graph_value_infos(function, force_rank_only=False)
         _process_graph(function, loosen=loosen, promote=promote, force_rank_only=False)

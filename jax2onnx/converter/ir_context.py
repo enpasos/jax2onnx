@@ -1,13 +1,16 @@
 # jax2onnx/converter/ir_context.py
 
 from __future__ import annotations
-from typing import Any, Sequence, Dict, Tuple, Optional
+from typing import Any, Sequence, Dict, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
 
 from jax.extend import core as jcore_ext  # type: ignore
+
+if TYPE_CHECKING:
+    from .conversion_api import FunctionRegistry
 
 
 class _InitializerProxy:
@@ -118,12 +121,45 @@ class IRContext:
         # Using dict[str, int] since we only ever index by the base string.
         self._name_counters: dict[str, int] = {}
         self._function_mode: bool = False
-        self._function_registry = None  # filled by conversion_api
+        self._function_registry: Optional["FunctionRegistry"] = None
+        self._ir_functions: list[ir.Function] = []
         # name -> {attr_name: python_value or TensorProto}
         self._attr_overrides: Dict[str, Dict[str, Any]] = {}
         # Set by FunctionScope while emitting FunctionProto
         self._inside_function_scope: bool = False
         self._keep_function_float32: bool = False
+
+    @property
+    def opset(self) -> int:
+        return self.builder.opset
+
+    @property
+    def enable_double_precision(self) -> bool:
+        return self.builder.enable_double_precision
+
+    # ------------------------------- Function registry helpers ------------------
+
+    def get_function_registry(self) -> Optional["FunctionRegistry"]:
+        return self._function_registry
+
+    def set_function_registry(self, registry: "FunctionRegistry") -> None:
+        self._function_registry = registry
+
+    # ------------------------------- IR functions bucket ------------------------
+
+    @property
+    def ir_functions(self) -> list[ir.Function]:
+        return self._ir_functions
+
+    # ------------------------------- Attr overrides -----------------------------
+
+    @property
+    def attr_overrides(self) -> Dict[str, Dict[str, Any]]:
+        return self._attr_overrides
+
+    @property
+    def value_infos(self) -> Sequence[ir.Value]:
+        return self._value_info
 
     def _promote_float_array(self, arr: np.ndarray) -> np.ndarray:
         if (

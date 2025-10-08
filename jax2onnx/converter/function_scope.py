@@ -62,19 +62,9 @@ class FunctionScope:
         self.name = name
         self.domain = domain
 
-        # Be defensive: parent may not expose `opset` / `enable_double_precision`
-        parent_builder = getattr(parent, "builder", None)
-        parent_opset = getattr(parent, "opset", None)
-        if parent_opset is None and parent_builder is not None:
-            parent_opset = getattr(parent_builder, "opset", None)
-        if parent_opset is None:
-            parent_opset = 21  # safe default; tests set opset explicitly
-
-        parent_x64 = getattr(parent, "enable_double_precision", None)
-        if parent_x64 is None and parent_builder is not None:
-            parent_x64 = getattr(parent_builder, "enable_double_precision", False)
-        if parent_x64 is None:
-            parent_x64 = False
+        # Mirror parent converter settings so the function body behaves identically.
+        parent_opset = parent.opset
+        parent_x64 = parent.enable_double_precision
 
         # child context buffers
         self.ctx = IRContext(
@@ -88,22 +78,25 @@ class FunctionScope:
         self._outputs: List[ir.Value] = []
         self._sealed = False
         self._attr_overrides: Dict[str, Dict[str, object]] = {}
+        self._prev_inside: bool = False
 
         self.fn_def: Optional[FunctionDef] = None
 
     def begin(self, inputs: List[ir.Value]) -> List[ir.Value]:
         # Mark we are inside a function while building its body
-        self._prev_inside = getattr(self.ctx, "_inside_function_scope", False)
-        setattr(self.ctx, "_inside_function_scope", True)
-        if not hasattr(self, "fn_def") or self.fn_def is None:
+        self._prev_inside = self.ctx._inside_function_scope
+        self.ctx._inside_function_scope = True
+        if self.fn_def is None:
             self.fn_def = FunctionDef(
-                name=getattr(self, "name", "Function"),
-                domain=getattr(self, "domain", "custom"),
+                name=self.name,
+                domain=self.domain,
                 inputs=[],
                 outputs=[],
                 nodes=[],
             )
-        self.fn_def.inputs = []
+        fn_def = self.fn_def
+        fn_def.inputs = []
+        parent_origin = self.parent.get_symbolic_dim_origin
         for i, vin in enumerate(inputs):
             fin = ir.Value(
                 name=f"f_in_{i}",
@@ -112,48 +105,43 @@ class FunctionScope:
             )
             # Register as graph input in child
             self.ctx._inputs.append(fin)
-            self.fn_def.inputs.append(fin)
+            fn_def.inputs.append(fin)
 
-            parent_origin = getattr(self.parent, "get_symbolic_dim_origin", None)
-            if callable(parent_origin):
-                vin_shape = getattr(vin, "shape", None)
-                dims = (
-                    getattr(vin_shape, "dims", vin_shape)
-                    if vin_shape is not None
-                    else ()
-                )
-                for axis, dim in enumerate(dims):
-                    origin = parent_origin(dim)
-                    if origin is None and isinstance(dim, str):
-                        origin = parent_origin(str(dim))
-                    if origin is not None:
-                        sym_key = str(dim)
-                        self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
-                        try:
-                            if not isinstance(dim, (int, np.integer)):
-                                self.ctx._sym_origin[dim] = (fin, axis)
-                        except Exception:
-                            pass
-                        try:
-                            self.ctx._sym_origin_str[str(dim)] = (fin, axis)
-                        except Exception:
-                            pass
-        return self.fn_def.inputs
+            vin_shape = vin.shape
+            dims = tuple(vin_shape.dims) if vin_shape is not None else ()
+            for axis, dim in enumerate(dims):
+                origin = parent_origin(dim)
+                if origin is None and isinstance(dim, str):
+                    origin = parent_origin(str(dim))
+                if origin is not None:
+                    sym_key = str(dim)
+                    self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
+                    try:
+                        if not isinstance(dim, (int, np.integer)):
+                            self.ctx._sym_origin[dim] = (fin, axis)
+                    except Exception:
+                        pass
+                    try:
+                        self.ctx._sym_origin_str[str(dim)] = (fin, axis)
+                    except Exception:
+                        pass
+        return fn_def.inputs
 
     def end(self, outputs: List[ir.Value]) -> FunctionDef:
         if self._sealed:
             raise RuntimeError("FunctionScope already sealed.")
+        if self.fn_def is None:
+            raise RuntimeError("FunctionScope.begin() must be called before end().")
         self._sealed = True
         # Snapshot child inputs/outputs/nodes/overrides
-        inputs = list(getattr(self.fn_def, "inputs", []) or [])
+        fn_def = self.fn_def
+        inputs = list(fn_def.inputs)
         self._outputs = list(outputs)
-        nodes = list(getattr(self.ctx, "_nodes", []) or [])
-        overrides = dict(getattr(self.ctx, "_attr_overrides", {}) or {})
+        nodes = list(self.ctx._nodes)
+        overrides = dict(self.ctx._attr_overrides)
         self._attr_overrides = overrides
         # Restore previous scope flag
-        setattr(
-            self.ctx, "_inside_function_scope", getattr(self, "_prev_inside", False)
-        )
+        self.ctx._inside_function_scope = self._prev_inside
         return FunctionDef(
             name=self.name,
             domain=self.domain,
@@ -166,15 +154,12 @@ class FunctionScope:
     # NEW: materialize a native onnx_ir.Function from the child context
     def to_ir_function(self) -> ir.Function:
         # Pick an opset for the body; prefer parent/child builder opset
-        try:
-            body_opset = int(getattr(getattr(self.ctx, "builder", None), "opset", 21))
-        except Exception:
-            body_opset = 21
+        body_opset = int(self.ctx.builder.opset)
 
-        inputs = list(self.ctx.builder.inputs or [])
-        outputs = list(self._outputs or [])
-        nodes = list(self.ctx.builder.nodes or [])
-        initializers = list(self.ctx.builder.initializers or [])
+        inputs = list(self.ctx.builder.inputs)
+        outputs = list(self._outputs)
+        nodes = list(self.ctx.builder.nodes)
+        initializers = list(self.ctx.builder.initializers)
 
         # Ensure the function body declares every domain used by its nodes
         opset_imports: Dict[str, int] = {"": body_opset}
@@ -185,7 +170,7 @@ class FunctionScope:
             extra_domains.add(fn_domain)
 
         for node in nodes:
-            node_domain = (getattr(node, "domain", "") or "").strip()
+            node_domain = (node.domain or "").strip()
             if node_domain:
                 extra_domains.add(node_domain)
 
@@ -201,7 +186,7 @@ class FunctionScope:
             name=self.name,
             opset_imports=opset_imports,
         )
-        value_info = list(getattr(self.ctx.builder, "value_info", []) or [])
+        value_info = list(self.ctx.builder.value_info)
         if value_info:
             if hasattr(g, "value_info"):
                 g.value_info = value_info

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 from jax import export as jax_export
 import numpy as np
 import onnx_ir as ir
+from onnx_ir import Attr, AttributeType
 
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
@@ -210,12 +211,18 @@ class _IRBuildContext:
         aval = getattr(var, "aval", None)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
+        try:
+            aval_dtype = aval.dtype
+        except AttributeError:
+            aval_dtype = np.float32
+        try:
+            aval_shape = tuple(aval.shape)
+        except AttributeError:
+            aval_shape = ()
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(
-                _to_ir_dtype_from_np(getattr(aval, "dtype", np.float32))
-            ),
-            shape=_to_ir_shape(getattr(aval, "shape", ())),
+            type=ir.TensorType(_to_ir_dtype_from_np(aval_dtype)),
+            shape=_to_ir_shape(aval_shape),
         )
         self._var2val[var] = v
         return v
@@ -231,7 +238,7 @@ class _IRBuildContext:
         self._inputs.append(val)
 
         # Track symbolic dim origins
-        for ax, d in enumerate(getattr(aval, "shape", ())):
+        for ax, d in enumerate(tuple(aval.shape)):
             if not isinstance(d, (int, np.integer)):
                 self._symdim_origin[d] = (val, ax)
                 self._symdim_origin_str[str(d)] = (val, ax)
@@ -343,19 +350,19 @@ def to_onnx(
                 ctx, "record_primitive_calls_file", str(record_primitive_calls_file)
             )
 
-        if getattr(ctx, "_function_registry", None) is None:
-            setattr(ctx, "_function_registry", FunctionRegistry())
+        if ctx.get_function_registry() is None:
+            ctx.set_function_registry(FunctionRegistry())
 
         # Map constvars
         for cv, cval in zip(jpr.constvars, closed.consts):
             np_c = np.asarray(cval)
-            aval_dtype = getattr(getattr(cv, "aval", None), "dtype", None)
             target_dtype = None
-            if aval_dtype is not None:
-                try:
-                    target_dtype = np.dtype(aval_dtype)
-                except TypeError:
-                    target_dtype = None
+            try:
+                target_dtype = np.dtype(cv.aval.dtype)
+            except AttributeError:
+                target_dtype = None
+            except TypeError:
+                target_dtype = None
             desired_dtype = None
             if target_dtype is not None and target_dtype != np_c.dtype:
                 desired_dtype = target_dtype
@@ -404,7 +411,7 @@ def to_onnx(
                 except Exception:
                     has_params = False
                 if has_params:
-                    lower(ctx, eqn, getattr(eqn, "params", None))
+                    lower(ctx, eqn, eqn.params)
                 else:
                     lower(ctx, eqn)
             elif hasattr(plugin_ref, "get_handler"):
@@ -424,66 +431,65 @@ def to_onnx(
         )
 
         # Attach any native ir.Functions collected on ctx
-        ir_funcs = list(getattr(ctx, "_ir_functions", []) or [])
+        ir_funcs = list(ctx.ir_functions)
         if ir_funcs:
-            fstore = getattr(ir_model, "functions", None)
-            if fstore is None:
+            functions_store = ir_model.functions
+            if functions_store is None:
                 try:
                     ir_model.functions = {}
-                    fstore = ir_model.functions
+                    functions_store = ir_model.functions
                 except Exception:
                     ir_model.functions = []
-                    fstore = ir_model.functions
+                    functions_store = ir_model.functions
 
-            if isinstance(fstore, dict):
+            if isinstance(functions_store, dict):
                 for fn_ir in ir_funcs:
-                    key = (
-                        getattr(fn_ir, "id", None)
-                        or getattr(fn_ir, "identifier", None)
-                        or (
-                            (getattr(fn_ir, "domain", "") or ""),
-                            (getattr(fn_ir, "name", "") or ""),
-                            (getattr(fn_ir, "overload", "") or ""),
+                    identifier = None
+                    try:
+                        identifier = fn_ir.identifier()  # type: ignore[attr-defined]
+                    except AttributeError:
+                        identifier = None
+                    if not identifier and hasattr(fn_ir, "id"):
+                        identifier = getattr(fn_ir, "id")
+                    if not identifier:
+                        identifier = (
+                            (fn_ir.domain or ""),
+                            (fn_ir.name or ""),
+                            (fn_ir.overload or ""),
                         )
-                    )
-                    fstore[key] = fn_ir
-            elif isinstance(fstore, list):
+                    functions_store[identifier] = fn_ir
+            elif isinstance(functions_store, list):
 
-                def _fid(f):
+                def _fid(func: ir.Function) -> tuple[str, str, str]:
                     return (
-                        getattr(f, "domain", "") or "",
-                        getattr(f, "name", "") or "",
-                        getattr(f, "overload", "") or "",
+                        (func.domain or ""),
+                        (func.name or ""),
+                        (func.overload or ""),
                     )
 
-                existing = {_fid(f) for f in fstore}
+                existing = {_fid(func) for func in functions_store}
                 for fn_ir in ir_funcs:
-                    if _fid(fn_ir) not in existing:
-                        fstore.append(fn_ir)
+                    func_id = _fid(fn_ir)
+                    if func_id not in existing:
+                        functions_store.append(fn_ir)
+                        existing.add(func_id)
             else:
                 ir_model.functions = list(ir_funcs)
 
             # Ensure model-level opset imports cover default "" and each function domain
-            model_imports: Dict[str, int] = dict(
-                getattr(ir_model, "opset_imports", {}) or {}
-            )
-            if "" not in model_imports:
-                try:
-                    default_opset = int(
-                        getattr(getattr(ctx, "builder", None), "opset", 21)
-                    )
-                except Exception:
-                    default_opset = 21
-                model_imports[""] = default_opset or 21
+            model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
+            model_imports.setdefault("", int(ctx.builder.opset) or 21)
             for fn_ir in ir_funcs:
-                dom = (getattr(fn_ir, "domain", "") or "").strip()
+                dom = (fn_ir.domain or "").strip()
                 if dom and dom not in model_imports:
                     model_imports[dom] = 1
             try:
                 ir_model.opset_imports = model_imports
             except Exception:
                 try:
-                    getattr(ir_model, "opset_imports", {}).update(model_imports)
+                    existing_imports = ir_model.opset_imports
+                    if hasattr(existing_imports, "update"):
+                        existing_imports.update(model_imports)
                 except Exception:
                     pass
 
@@ -499,17 +505,12 @@ def to_onnx(
 
         # ---- Late attribute overrides (polish; not structural rewrites) ----
 
-        def _ir_attr_int(name: str, val: int):
-            Attr = getattr(ir, "Attr", None)
-            AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
+        def _ir_attr_int(name: str, val: int) -> Attr:
             ival = int(val)
-            if Attr is None:
-                raise RuntimeError("onnx_ir.Attr is not available")
-            if hasattr(Attr, "i"):
-                return Attr.i(name, ival)
-            if AttrType is not None:
-                return Attr(name, AttrType.INT, ival)
-            return Attr(name, ival)
+            try:
+                return Attr.i(name, ival)  # type: ignore[attr-defined]
+            except AttributeError:
+                return Attr(name, AttributeType.INT, ival)
 
         def _finalize_model_value_info_shapes(model_proto, ctx: IRContext) -> None:  # type: ignore[name-defined]
             try:
@@ -537,22 +538,28 @@ def to_onnx(
                     mapping[name] = tuple(dims)
                 return mapping
 
-            value_info_dims = {}
-            value_info_dims.update(_collect_dims(getattr(ctx, "_value_info", [])))
-            value_info_dims.update(_collect_dims(getattr(ctx, "_value_infos", [])))
-            value_info_dims.update(
-                _collect_dims(getattr(ctx.builder, "value_info", []))
-            )
-            value_info_dims.update(_collect_dims(getattr(ctx.builder, "outputs", [])))
-            value_info_dims.update(_collect_dims(getattr(ctx.builder, "inputs", [])))
+            value_info_dims: Dict[str, Tuple] = {}
+            value_info_dims.update(_collect_dims(ctx.value_infos))
+            value_info_dims.update(_collect_dims(ctx.builder.value_info))
+            value_info_dims.update(_collect_dims(ctx.builder.outputs))
+            value_info_dims.update(_collect_dims(ctx.builder.inputs))
 
-            targets = itertools.chain(
-                getattr(graph, "value_info", []) or [],
-                getattr(graph, "output", []) or [],
-                getattr(graph, "input", []) or [],
-            )
+            if isinstance(graph, ir.Graph):
+                targets = itertools.chain(
+                    graph.value_info,
+                    graph.outputs,
+                    graph.inputs,
+                )
+            else:
+                targets = itertools.chain(
+                    getattr(graph, "value_info", []) or [],
+                    getattr(graph, "output", []) or [],
+                    getattr(graph, "input", []) or [],
+                )
 
             for vi in targets:
+                if isinstance(vi, ir.Value):
+                    continue
                 name = getattr(vi, "name", "")
                 if not name:
                     continue
@@ -574,25 +581,33 @@ def to_onnx(
                             proto.dim_value = int(dim)
                         except Exception:
                             continue
-                        if proto.HasField("dim_param"):
+                        if hasattr(proto, "HasField") and proto.HasField("dim_param"):
                             proto.ClearField("dim_param")
                         continue
                     label = _as_ir_dim_label(dim)
                     if not label:
                         continue
-                    proto.dim_param = str(label)
-                    if proto.HasField("dim_value"):
-                        proto.ClearField("dim_value")
+                    if isinstance(proto, ir.SymbolicDim):
+                        proto.value = str(label)
+                    else:
+                        proto.dim_param = str(label)
+                        if hasattr(proto, "HasField") and proto.HasField("dim_value"):
+                            proto.ClearField("dim_value")
 
         def _apply_ir_attr_overrides_to_graph(
             gr: "ir.Graph", overrides: dict[str, dict[str, object]]
         ):
             if not overrides or gr is None:
                 return
-            nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
+            if isinstance(gr, ir.Graph):
+                nodes_ref = list(gr.nodes)
+            else:
+                nodes_ref = (
+                    getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
+                )
             name2node: Dict[str, ir.Node] = {}
             for n in nodes_ref:
-                nm = getattr(n, "name", "")
+                nm = n.name if isinstance(n, ir.Node) else getattr(n, "name", "")
                 if nm:
                     name2node[nm] = n
 
@@ -606,65 +621,50 @@ def to_onnx(
                 if attr_obj is not None:
                     attr_list.append(attr_obj)
 
-            def _make_attr(name: str, value: object) -> Optional["ir.Attr"]:
-                Attr = getattr(ir, "Attr", None)
-                if Attr is None:
-                    return None
+            def _make_attr(name: str, value: object) -> Optional[Attr]:
+                if isinstance(value, Attr):
+                    return value
 
-                # Direct two-arg construction (older onnx_ir builds)
                 try:
-                    return Attr(name, value)  # type: ignore[misc]
+                    return Attr(name, value)  # type: ignore[arg-type]
                 except TypeError:
                     pass
                 except Exception:
                     pass
 
-                AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-                if AttrType is None:
-                    return None
-
-                import numpy as _np
-
                 v = value
-                # Scalars -------------------------------------------------
-                if isinstance(v, (bool, _np.bool_, int, _np.integer)):
-                    return Attr(name, AttrType.INT, int(v))
-                if isinstance(v, (float, _np.floating)):
-                    return Attr(name, AttrType.FLOAT, float(v))
+                if isinstance(v, (bool, np.bool_, int, np.integer)):
+                    return Attr(name, AttributeType.INT, int(v))
+                if isinstance(v, (float, np.floating)):
+                    return Attr(name, AttributeType.FLOAT, float(v))
                 if isinstance(v, str):
-                    return Attr(name, AttrType.STRING, v)
+                    return Attr(name, AttributeType.STRING, v)
 
-                # Sequences ----------------------------------------------
                 if isinstance(v, (list, tuple)):
-                    if all(
-                        isinstance(x, (bool, _np.bool_, int, _np.integer)) for x in v
-                    ):
-                        return Attr(name, AttrType.INTS, [int(x) for x in v])
-                    if all(isinstance(x, (float, _np.floating)) for x in v):
-                        return Attr(name, AttrType.FLOATS, [float(x) for x in v])
+                    if all(isinstance(x, (bool, np.bool_, int, np.integer)) for x in v):
+                        return Attr(name, AttributeType.INTS, [int(x) for x in v])
+                    if all(isinstance(x, (float, np.floating)) for x in v):
+                        return Attr(name, AttributeType.FLOATS, [float(x) for x in v])
                     if all(isinstance(x, str) for x in v):
-                        return Attr(name, AttrType.STRINGS, list(v))
+                        return Attr(name, AttributeType.STRINGS, list(v))
 
-                # Tensor fallback ---------------------------------------
-                tensor_ctor = getattr(ir, "tensor", None)
-                if tensor_ctor is not None:
-                    try:
-                        tensor_val = (
-                            v
-                            if getattr(v, "data_type", None) is not None
-                            else tensor_ctor(_np.asarray(v))
-                        )
-                        return Attr(name, AttrType.TENSOR, tensor_val)
-                    except Exception:
-                        return None
-
-                return None
+                try:
+                    tensor_val = (
+                        v if hasattr(v, "data_type") else ir.tensor(np.asarray(v))
+                    )
+                    return Attr(name, AttributeType.TENSOR, tensor_val)
+                except Exception:
+                    return None
 
             for nm, kv in (overrides or {}).items():
                 n = name2node.get(nm)
                 if not n:
                     continue
-                current = getattr(n, "attributes", None)
+                current = (
+                    n.attributes
+                    if isinstance(n, ir.Node)
+                    else getattr(n, "attributes", None)
+                )
                 if current is not None:
                     added_any = False
                     if hasattr(current, "add"):
@@ -692,11 +692,11 @@ def to_onnx(
                 attr_list = None
                 if current is not None and hasattr(current, "append"):
                     attr_list = current
-                if attr_list is None:
+                if attr_list is None and not isinstance(n, ir.Node):
                     alt = getattr(n, "_attributes", None)
                     if alt is not None and hasattr(alt, "append"):
                         attr_list = alt
-                if attr_list is None:
+                if attr_list is None and not isinstance(n, ir.Node):
                     proto_attrs = getattr(n, "attribute", None)
                     if proto_attrs is not None and hasattr(proto_attrs, "append"):
                         attr_list = proto_attrs
@@ -728,9 +728,7 @@ def to_onnx(
                     pass
 
         # Apply overrides/fixes to top graph
-        _apply_ir_attr_overrides_to_graph(
-            ir_model.graph, getattr(ctx, "_attr_overrides", {})
-        )
+        _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
         _fix_concat_axis_in_graph(ir_model.graph)
         # …and to all function bodies (if any)
         _func_container = getattr(ir_model, "functions", None) or []
@@ -743,7 +741,7 @@ def to_onnx(
             try:
                 fn_overrides = dict(getattr(fn, "_attr_overrides", {}) or {})
                 if not fn_overrides:
-                    fn_overrides = getattr(ctx, "_attr_overrides", {}) or {}
+                    fn_overrides = ctx.attr_overrides or {}
                 _apply_ir_attr_overrides_to_graph(fn.graph, fn_overrides)
                 _fix_concat_axis_in_graph(fn.graph)
             except Exception:
@@ -751,7 +749,9 @@ def to_onnx(
 
         # Avoid emitting placeholders for onnx_function hits across runs
         try:
-            _ = getattr(ps2, "_consume_onnx_function_hits")()
+            ps2._consume_onnx_function_hits()
+        except AttributeError:
+            pass
         except Exception:
             pass
 

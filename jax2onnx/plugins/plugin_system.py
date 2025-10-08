@@ -556,7 +556,7 @@ class FunctionPlugin(PrimitivePlugin):
 
         call_param_names = set(getattr(ctx, "_call_input_param_names", set()))
         # Ensure a function registry exists on the parent (converter sets this)
-        freg = getattr(ctx, "_function_registry", None)
+        freg = ctx.get_function_registry()
         if freg is None:
             raise RuntimeError("[onnx_function] Function registry missing")
 
@@ -743,10 +743,9 @@ class FunctionPlugin(PrimitivePlugin):
             fname = self._allocate_friendly_name(ctx)
             fscope = FunctionScope(ctx, name=fname, domain=_FUNCTION_DOMAIN)
             # Make the CHILD context see the same function registry as the parent.
-            if getattr(ctx, "_function_registry", None) is not None:
-                setattr(
-                    fscope.ctx, "_function_registry", getattr(ctx, "_function_registry")
-                )
+            parent_registry = ctx.get_function_registry()
+            if parent_registry is not None:
+                fscope.ctx.set_function_registry(parent_registry)
             counters = getattr(ctx, "_func_name_counters", None)
             if counters is not None:
                 setattr(fscope.ctx, "_func_name_counters", counters)
@@ -898,15 +897,11 @@ class FunctionPlugin(PrimitivePlugin):
             fdef = fscope.end(outputs=child_out_vals)
             # Create a native onnx_ir.Function and attach to the PARENT context
             ir_fn = fscope.to_ir_function()
-            bucket = getattr(ctx, "_ir_functions", None)
-            if bucket is None:
-                bucket = []
-                setattr(ctx, "_ir_functions", bucket)
-            bucket.append(ir_fn)
+            ctx.ir_functions.append(ir_fn)
 
-            nested_ir_fns = list(getattr(fscope.ctx, "_ir_functions", []) or [])
+            nested_ir_fns = list(fscope.ctx.ir_functions)
             if nested_ir_fns:
-                bucket.extend(nested_ir_fns)
+                ctx.ir_functions.extend(nested_ir_fns)
 
             # Keep the friendly name and domain around (for call-site)
             freg.put(fkey, fdef)

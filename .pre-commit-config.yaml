@@ -11,14 +11,14 @@ repos:
       - id: ruff
         args: [--fix, --unsafe-fixes] #, --unsafe-fixes]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
-    hooks:
-      - id: mypy
-
 
   - repo: local
     hooks:
+      - id: mypy
+        name: mypy (poetry)
+        entry: python3 scripts/run_mypy.py
+        language: system
+        pass_filenames: false
       - id: ensure-path-markers
         name: Ensure Python files start with their repository path marker
         entry: python3 scripts/ensure_path_markers.py
