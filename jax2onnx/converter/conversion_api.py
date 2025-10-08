@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 from contextlib import contextmanager, ExitStack
 import inspect as _ins
 import os
@@ -34,6 +45,10 @@ from .function_scope import FunctionRegistry
 from jax.extend import core as jcore_ext  # type: ignore
 
 _LITERAL_TYPES = (jcore_ext.Literal,)
+
+ShapeDimSpec = Union[int, str]
+ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
+InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 # Keep ORT-compatible IR version (ORT ~1.18 supports IR v10 broadly)
 _ORT_SAFE_IR_VERSION = 10
@@ -94,7 +109,7 @@ def _to_ir_shape(shape_tuple) -> "ir.Shape":
 
 
 def _as_sds_list(
-    inputs: List[Any], enable_double_precision: bool
+    inputs: Sequence[InputSpec], enable_double_precision: bool
 ) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
@@ -102,15 +117,14 @@ def _as_sds_list(
     # 1) gather string symbols
     symnames: list[str] = []
     for spec in inputs:
-        if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            for dim in tuple(spec.shape):
-                if isinstance(dim, str) and dim not in symnames:
-                    symnames.append(dim)
-            continue
-        if isinstance(spec, (list, tuple)):
-            for dim in spec:
-                if isinstance(dim, str) and dim not in symnames:
-                    symnames.append(dim)
+        dims_iter: Iterable[object]
+        if isinstance(spec, jax.ShapeDtypeStruct):
+            dims_iter = tuple(spec.shape)
+        else:
+            dims_iter = spec
+        for dim in dims_iter:
+            if isinstance(dim, str) and dim not in symnames:
+                symnames.append(dim)
 
     # 2) create symbolic sizes
     name2sym: dict[str, object] = {}
@@ -127,8 +141,8 @@ def _as_sds_list(
 
     # 3) build SDS list
     for spec in inputs:
-        if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            dims = []
+        if isinstance(spec, jax.ShapeDtypeStruct):
+            dims: List[object] = []
             for dim in tuple(spec.shape):
                 if isinstance(dim, str):
                     dims.append(name2sym[dim])
@@ -137,12 +151,13 @@ def _as_sds_list(
                 else:
                     dims.append(dim)
             sds_list.append(jax.ShapeDtypeStruct(tuple(dims), spec.dtype))
-        elif isinstance(spec, (list, tuple)):
-            dt = jnp.float64 if enable_double_precision else jnp.float32
-            dims = tuple(name2sym[d] if isinstance(d, str) else int(d) for d in spec)
-            sds_list.append(jax.ShapeDtypeStruct(dims, dt))
-        else:
-            raise TypeError(f"Unsupported input spec: {type(spec)}")
+            continue
+
+        dims = tuple(
+            name2sym[dim] if isinstance(dim, str) else int(dim) for dim in spec
+        )
+        dt = jnp.float64 if enable_double_precision else jnp.float32
+        sds_list.append(jax.ShapeDtypeStruct(dims, dt))
     return sds_list
 
 
@@ -294,9 +309,9 @@ def _force_jax_x64(enable_double_precision: bool):
 
 def to_onnx(
     *,
-    fn: Any,
-    inputs: List[Any],
-    input_params: Optional[Dict[str, Any]],
+    fn: Callable[..., Any],
+    inputs: Sequence[InputSpec],
+    input_params: Optional[Mapping[str, object]],
     model_name: str,
     opset: int,
     enable_double_precision: bool,
@@ -314,8 +329,10 @@ def to_onnx(
         sds_list = _as_sds_list(inputs, enable_double_precision)
 
         # 2) JAXPR (optionally print for debugging)
+        frozen_params: Dict[str, object] = dict(input_params or {})
+
         def _wrapped(*xs):
-            return fn(*xs, **(input_params or {}))
+            return fn(*xs, **frozen_params)
 
         with _activate_plugin_worlds():
             closed = jax.make_jaxpr(_wrapped)(*sds_list)
@@ -332,9 +349,9 @@ def to_onnx(
             enable_double_precision=enable_double_precision,
             input_specs=sds_list,
         )
-        call_param_names = set(input_params.keys()) if input_params else set()
+        call_param_names = set(frozen_params.keys())
         setattr(ctx, "_call_input_param_names", call_param_names)
-        setattr(ctx, "_call_input_param_literals", dict(input_params or {}))
+        setattr(ctx, "_call_input_param_literals", dict(frozen_params))
         # Expose knobs for downstream (optional)
 
         if record_primitive_calls_file:

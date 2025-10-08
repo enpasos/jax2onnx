@@ -23,6 +23,7 @@
   - TODO: sweep any remaining legacy helpers (e.g., attr fallbacks) and widen mypy coverage to the whole converter once the baseline is clean.
   - `_read_scalar_bool_from_value_or_constant` now relies on typed IR payloads, keeping dropout Not-elimination tests green.
   - ✅ Current state is stable; ready to resume in a follow-up session / new chat when continuing the cleanup.
+  - 🎯 New goal: starting from the user interface with normalized, strongly typed specs so everything inside the converter/plugins stays under strict static typing and mypy can enforce contracts module-wide.
 
 ## Raw Inputs
 1. Setting a private field is not supported; Attr should be treated as immutable and replaced if modified.

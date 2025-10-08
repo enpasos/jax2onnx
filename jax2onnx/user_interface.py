@@ -7,11 +7,15 @@ from typing import (
     Dict,
     List,
     Literal,
+    Mapping,
     Optional,
+    Protocol,
+    Sequence,
     Tuple,
     Union,
     cast,
     overload,
+    runtime_checkable,
 )
 import argparse
 import importlib
@@ -24,7 +28,12 @@ import numpy as np
 import onnx
 from jax import config, core
 
-from jax2onnx.converter.conversion_api import to_onnx as to_onnx_impl
+from jax2onnx.converter.conversion_api import (
+    InputSpec,
+    ShapeDimSpec,
+    ShapeTupleSpec,
+    to_onnx as to_onnx_impl,
+)
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.serde_onnx import ir_to_onnx
@@ -91,11 +100,74 @@ def _normalize_return_mode(value: str) -> ReturnMode:
     return cast(ReturnMode, mode)
 
 
+@runtime_checkable
+class _SupportsShapeAndDtype(Protocol):
+    shape: Tuple[Any, ...]
+    dtype: Any
+
+
+UserInputSpec = Union[
+    jax.ShapeDtypeStruct,
+    core.ShapedArray,
+    _SupportsShapeAndDtype,
+    Sequence[ShapeDimSpec],
+]
+
+
+def _normalize_shape_tuple(candidate: Sequence[Any]) -> ShapeTupleSpec:
+    dims: list[ShapeDimSpec] = []
+    for dim in candidate:
+        if isinstance(dim, (int, np.integer)):
+            dims.append(int(dim))
+        elif isinstance(dim, str):
+            dims.append(dim)
+        else:
+            raise TypeError(
+                "Shape tuples may only contain int or str entries; "
+                f"received {type(dim)}."
+            )
+    return tuple(dims)
+
+
+def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpec]:
+    normalized: List[InputSpec] = []
+    for item in raw_inputs:
+        if isinstance(item, jax.ShapeDtypeStruct):
+            dims = tuple(
+                int(dim) if isinstance(dim, np.integer) else dim
+                for dim in tuple(item.shape)
+            )
+            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            continue
+        if isinstance(item, core.ShapedArray):
+            dims = tuple(
+                int(dim) if isinstance(dim, np.integer) else dim for dim in item.shape
+            )
+            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            continue
+        if isinstance(item, _SupportsShapeAndDtype):
+            dims = tuple(
+                int(dim) if isinstance(dim, np.integer) else dim
+                for dim in tuple(item.shape)
+            )
+            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            continue
+        if isinstance(item, (list, tuple)):
+            normalized.append(_normalize_shape_tuple(item))
+            continue
+        raise TypeError(
+            "Invalid 'inputs' entry. Expected a jax.ShapeDtypeStruct, "
+            "jax.core.ShapedArray, array-like object, or shape tuple/list. "
+            f"Received {type(item)}."
+        )
+    return normalized
+
+
 @overload
 def to_onnx(
     fn: Callable,
-    inputs: List[Any],
-    input_params: Optional[Dict[str, Any]] = ...,
+    inputs: Sequence[UserInputSpec],
+    input_params: Optional[Mapping[str, object]] = ...,
     model_name: str = ...,
     opset: int = ...,
     *,
@@ -109,8 +181,8 @@ def to_onnx(
 @overload
 def to_onnx(
     fn: Callable,
-    inputs: List[Any],
-    input_params: Optional[Dict[str, Any]] = ...,
+    inputs: Sequence[UserInputSpec],
+    input_params: Optional[Mapping[str, object]] = ...,
     model_name: str = ...,
     opset: int = ...,
     *,
@@ -124,8 +196,8 @@ def to_onnx(
 @overload
 def to_onnx(
     fn: Callable,
-    inputs: List[Any],
-    input_params: Optional[Dict[str, Any]] = ...,
+    inputs: Sequence[UserInputSpec],
+    input_params: Optional[Mapping[str, object]] = ...,
     model_name: str = ...,
     opset: int = ...,
     *,
@@ -138,8 +210,8 @@ def to_onnx(
 
 def to_onnx(
     fn: Callable,
-    inputs: List[Any],
-    input_params: Optional[Dict[str, Any]] = None,  # Made Optional more explicit
+    inputs: Sequence[UserInputSpec],
+    input_params: Optional[Mapping[str, object]] = None,
     model_name: str = "jax_model",
     opset: int = 21,
     *,  # All arguments after this must be keyword-only
@@ -156,10 +228,14 @@ def to_onnx(
 
     Args:
         fn: The JAX function or Flax module to convert.
-        inputs: Either shapes (List[Tuple|List]) or actual input values (List[np.ndarray]) to the function.
-        input_params: Optional parameters that should be exposed as inputs in the ONNX model
-                     rather than baked into the model. Useful for runtime parameters like
-                     'deterministic' flags.
+        inputs: Sequence of input specifications. Each entry may be:
+            * a `jax.ShapeDtypeStruct` (or `jax.core.ShapedArray`);
+            * any array-like object exposing `.shape` and `.dtype`
+              (e.g. `jax.Array`, `np.ndarray`);
+            * a tuple/list of ints/strs describing the desired shape.
+        input_params: Optional mapping of string keys to runtime parameters that
+            should be exposed as inputs in the ONNX model rather than baked into
+            the export (e.g. `"deterministic"` flags).
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 21.
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
@@ -211,51 +287,24 @@ def to_onnx(
             path_value = path_value.decode()
         file_path = cast(str, path_value)
 
-    processed_inputs_for_impl: list
+    normalized_inputs: List[InputSpec] = []
+    if inputs:
+        normalized_inputs = _normalize_input_specs(inputs)
 
-    if not inputs:  # Handle empty inputs list
-        processed_inputs_for_impl = []
-    else:
-        # Check if all elements are already ShapeDtypeStructs (or compatible ShapedArray)
-        if all(isinstance(x, core.ShapedArray) for x in inputs):
-            # Case 1: Inputs are already ShapeDtypeStructs (e.g., from t_generator with input_values)
-            # Preserve them as they contain both shape and dtype.
-            processed_inputs_for_impl = list(inputs)
-        else:
-            # Case 2: Inputs might be shape tuples or actual JAX/NumPy arrays.
-
-            # Define helper to check for shape tuples
-            def is_shape_tuple(item):
-                return isinstance(item, (tuple, list)) and all(
-                    isinstance(dim, (int, str)) for dim in item
+    param_map: Dict[str, object] = {}
+    if input_params:
+        for key, value in input_params.items():
+            if not isinstance(key, str):
+                raise TypeError(
+                    "input_params must use string keys; "
+                    f"received key of type {type(key)}."
                 )
-
-            if all(is_shape_tuple(x) for x in inputs):
-                # All inputs are shape tuples.
-                # to_onnx_impl will create ShapedArrays using a default dtype.
-                processed_inputs_for_impl = list(inputs)
-            else:
-                # Assume inputs are actual JAX arrays or NumPy arrays.
-                # Convert them to ShapeDtypeStructs.
-                try:
-                    import jax  # Ensure jax is imported for jax.ShapeDtypeStruct
-
-                    processed_inputs_for_impl = [
-                        jax.ShapeDtypeStruct(x.shape, x.dtype) for x in inputs
-                    ]
-                except AttributeError as e:
-                    # This might happen if the list is mixed and some items don't have .shape/.dtype
-                    # or if an item is not a ShapeDtypeStruct, not a shape tuple, and not an array.
-                    raise ValueError(
-                        "Invalid 'inputs' argument. Expected a list of JAX/NumPy arrays, "
-                        "jax.ShapeDtypeStruct objects, or shape tuples. "
-                        f"Got an element of type {type(inputs[0]) if inputs else 'Unknown'} in the list. Error: {e}"
-                    )
+            param_map[key] = value
 
     result = to_onnx_impl(
         fn=fn,
-        inputs=processed_inputs_for_impl,
-        input_params=input_params,
+        inputs=normalized_inputs,
+        input_params=param_map,
         model_name=model_name,
         opset=opset,
         enable_double_precision=enable_double_precision,
@@ -263,7 +312,7 @@ def to_onnx(
     )
 
     def _attach_input_params(model_proto: onnx.ModelProto) -> None:
-        if not input_params:
+        if not param_map:
             return
 
         graph = model_proto.graph
@@ -284,7 +333,7 @@ def to_onnx(
             if name:
                 referenced.add(name)
 
-        for name, value in input_params.items():
+        for name, value in param_map.items():
             if not name or name in existing_inputs:
                 continue
             if name in provided_names:

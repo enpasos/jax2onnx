@@ -90,29 +90,35 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     Return the Transpose 'perm' attribute as a list of ints, or None.
     """
     attr = _get_attr(node, "perm")
-    if isinstance(attr, ir.Attr):
-        try:
-            return [int(x) for x in attr.as_ints()]
-        except Exception:
-            value = attr.value
-            if isinstance(value, (list, tuple)):
+    if not isinstance(attr, ir.Attr):
+        if hasattr(attr, "ints"):
+            ints_value = attr.ints
+            if isinstance(ints_value, SequenceABC):
                 try:
-                    return [int(x) for x in value]
+                    return [int(x) for x in ints_value]
                 except Exception:
                     return None
-    if hasattr(attr, "ints"):
-        ints_value = getattr(attr, "ints")
-        if isinstance(ints_value, (list, tuple)):
+        if isinstance(attr, SequenceABC):
             try:
-                return [int(x) for x in ints_value]
+                return [int(x) for x in attr]
             except Exception:
                 return None
-    if isinstance(attr, (list, tuple)):
-        try:
-            return [int(x) for x in attr]
-        except Exception:
-            return None
-    return None
+        return None
+    try:
+        ints = list(attr.as_ints())
+    except Exception:
+        ints = None
+    candidates: Optional[SequenceABC] = ints
+    if not candidates:
+        value = attr.value
+        if isinstance(value, SequenceABC):
+            candidates = value
+    if not candidates:
+        return None
+    try:
+        return [int(x) for x in candidates]
+    except Exception:
+        return None
 
 
 def _perms_compose_identity(p1: List[int], p2: List[int]) -> bool:
@@ -131,21 +137,40 @@ def _perms_compose_identity(p1: List[int], p2: List[int]) -> bool:
         return False
 
 
-def _has_input_name_or_obj(node, name: Optional[str], obj) -> bool:
+def _value_identity(
+    value_or_name: Optional[object],
+) -> Tuple[Optional["ir.Value"], Optional[str]]:
+    if value_or_name is None:
+        return None, None
+    if isinstance(value_or_name, ir.Value):
+        return value_or_name, _v_name(value_or_name)
+    if isinstance(value_or_name, str):
+        return None, value_or_name or None
+    candidate_name = getattr(value_or_name, "name", None)
+    if isinstance(candidate_name, str) and candidate_name:
+        return None, candidate_name
+    return None, None
+
+
+def _has_input_name_or_obj(
+    node: object, name: Optional[str], obj: Optional[object]
+) -> bool:
     """
     Return True if 'node' has an input that matches either the given name
     (by .name on Value or string equality) or the given object identity.
     """
     ins = _node_inputs(node)
+    ref_value, ref_name = _value_identity(obj)
+    target_name = name or ref_name
     for iv in ins:
-        if obj is not None and iv is obj:
+        if ref_value is not None and iv is ref_value:
             return True
-        if name:
+        if target_name:
             ivn = _v_name(iv)
-            if ivn == name:
+            if ivn == target_name:
                 return True
             # If inputs are plain strings in this build
-            if isinstance(iv, str) and iv == name:
+            if isinstance(iv, str) and iv == target_name:
                 return True
     return False
 
@@ -155,14 +180,16 @@ def _count_consumers(nodes: List[object], name: Optional[str], obj) -> int:
     Count how many nodes consume the given value (by name or object).
     """
     # Prefer IR API when available
-    if obj is not None and hasattr(obj, "consumers"):
-        cons = obj.consumers()
+    ref_value, ref_name = _value_identity(obj)
+    if ref_value is not None:
+        cons = ref_value.consumers()
         if isinstance(cons, (list, tuple)):
             return len(cons)
 
+    target_name = name or ref_name
     c = 0
     for n in nodes:
-        if _has_input_name_or_obj(n, name, obj):
+        if _has_input_name_or_obj(n, target_name, ref_value or obj):
             c += 1
     return c
 
@@ -175,8 +202,10 @@ def _find_next_consumer_idx(
     value (by name or object). Return None if not found.
     """
     # Prefer the IR API when available, falling back to the legacy scan.
-    if obj is not None and hasattr(obj, "consumers"):
-        consumers = obj.consumers()
+    ref_value, ref_name = _value_identity(obj)
+    target_name = name or ref_name
+    if ref_value is not None:
+        consumers = ref_value.consumers()
         if isinstance(consumers, (list, tuple)):
             node_index = {n: idx for idx, n in enumerate(nodes)}
             for c in consumers:
@@ -184,7 +213,7 @@ def _find_next_consumer_idx(
                 if idx is not None and idx > start_idx:
                     return idx
     for i in range(start_idx + 1, len(nodes)):
-        if _has_input_name_or_obj(nodes[i], name, obj):
+        if _has_input_name_or_obj(nodes[i], target_name, ref_value or obj):
             return i
     return None
 
@@ -224,7 +253,7 @@ def _node_outputs(n: ir.Node) -> List["ir.Value"]:
     return list(n.outputs)
 
 
-def _node_output(n) -> Optional["ir.Value"]:
+def _node_output(n: ir.Node) -> Optional["ir.Value"]:
     outs = _node_outputs(n)
     return outs[0] if outs else None
 
@@ -233,7 +262,7 @@ def _node_inputs(n: ir.Node) -> List["ir.Value"]:
     return list(n.inputs)
 
 
-def _set_node_inputs(n, new_ins: List["ir.Value"]) -> None:
+def _set_node_inputs(n: ir.Node, new_ins: List["ir.Value"]) -> None:
     for idx, val in enumerate(new_ins):
         n.replace_input_with(idx, val)
 
@@ -283,18 +312,13 @@ def _clone_shape_obj(shape):
     if shape is None:
         return None
     try:
-        return ir.Shape(shape)
-    except Exception:
-        pass
-    try:
-        return copy.deepcopy(shape)
-    except Exception:
-        pass
-
-    dims = getattr(shape, "dims", None)
-    if dims is None:
-        try:
+        if isinstance(shape, ir.Shape):
+            dims = shape.dims
+        else:
             dims = tuple(shape)
+    except Exception:
+        try:
+            return copy.deepcopy(shape)
         except Exception:
             return None
     norm_dims: List[Any] = []
@@ -440,19 +464,18 @@ def _all_consumers(cons_by_obj, cons_by_name, v: Optional["ir.Value"]) -> Set[in
 
 
 def _get_attr(node: ir.Node, name: str) -> Optional[ir.Attr]:
-    attrs = node.attributes
+    try:
+        attrs = node.attributes
+    except AttributeError:
+        return None
     if isinstance(attrs, Mapping):
         return cast(Optional[ir.Attr], attrs.get(name))
     if isinstance(attrs, SequenceABC):
         for item in attrs:
-            key = getattr(item, "name", None)
-            if key == name:
+            if isinstance(item, ir.Attr) and item.name == name:
+                return item
+            if hasattr(item, "name") and item.name == name:
                 return cast(ir.Attr, item)
-    attr_seq = getattr(node, "attribute", None)
-    if isinstance(attr_seq, (list, tuple)):
-        for a in attr_seq:
-            if getattr(a, "name", None) == name:
-                return cast(ir.Attr, a)
     return None
 
 
@@ -464,36 +487,27 @@ def _attr_to_int(attr: Any) -> Optional[int]:
             return int(attr.as_int())
         except Exception:
             try:
-                ints = attr.as_ints()
-                if ints:
-                    return int(ints[0])
+                ints = list(attr.as_ints())
             except Exception:
-                pass
-        attr = attr.value
+                ints = None
+            if ints:
+                first = ints[0]
+                if isinstance(first, (int, np.integer)):
+                    return int(first)
+            value = attr.value
+            if isinstance(value, (int, np.integer)):
+                return int(value)
+            if isinstance(value, SequenceABC) and value:
+                first = value[0]
+                if isinstance(first, (int, np.integer)):
+                    return int(first)
+        return None
     if isinstance(attr, (int, np.integer)):
         return int(attr)
-    if hasattr(attr, "i"):
-        val = getattr(attr, "i")
-        if isinstance(val, (int, np.integer)):
-            return int(val)
-    for field in ("int", "int32", "int64", "value", "int_value"):
-        val = getattr(attr, field, None)
-        if isinstance(val, (int, np.integer)):
-            return int(val)
-    for field in ("ints", "values"):
-        seq = getattr(attr, field, None)
-        if isinstance(seq, SequenceABC) and seq:
-            first = seq[0]
-            if isinstance(first, (int, np.integer)):
-                return int(first)
-    try:
-        seq = list(attr)
-        if len(seq) == 2 and seq[0] == "to" and isinstance(seq[1], (int, np.integer)):
-            return int(seq[1])
-        if len(seq) == 1 and isinstance(seq[0], (int, np.integer)):
-            return int(seq[0])
-    except Exception:
-        pass
+    if isinstance(attr, SequenceABC) and attr:
+        first = attr[0]
+        if isinstance(first, (int, np.integer)):
+            return int(first)
     return None
 
 
@@ -511,9 +525,10 @@ def _collect_value_dtypes(graph: ir.Graph, nodes: List["ir.Node"]) -> Dict[str, 
     for value in graph.outputs:
         _record(value)
     init_container = graph.initializers
-    iterable = (
-        init_container.values() if hasattr(init_container, "values") else init_container
-    )
+    try:
+        iterable = init_container.values()
+    except AttributeError:
+        iterable = init_container
     for init in iterable:
         if isinstance(init, ir.Value):
             _record(init)
@@ -794,10 +809,16 @@ def _copy_shape_only(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bo
     """Copy shape metadata from src → dst when dst is missing/unknown."""
     if dst is None or src is None:
         return False
-    s_shp = getattr(src, "shape", None)
+    try:
+        s_shp = src.shape
+    except AttributeError:
+        return False
     if s_shp is None:
         return False
-    d_shp = getattr(dst, "shape", None)
+    try:
+        d_shp = dst.shape
+    except AttributeError:
+        d_shp = None
     s_key = _shape_dims_key(s_shp)
     d_key = _shape_dims_key(d_shp) if d_shp is not None else None
     if s_key is None:
@@ -821,8 +842,14 @@ def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> b
     if dst is None or src is None:
         return False
     changed = False
-    s_shp = getattr(src, "shape", None)
-    d_shp = getattr(dst, "shape", None)
+    try:
+        s_shp = src.shape
+    except AttributeError:
+        s_shp = None
+    try:
+        d_shp = dst.shape
+    except AttributeError:
+        d_shp = None
     if s_shp is not None:
         s_key = _shape_dims_key(s_shp)
         d_key = _shape_dims_key(d_shp) if d_shp is not None else None
@@ -834,8 +861,14 @@ def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> b
                     changed = True
                 except Exception:
                     pass
-    s_ty = getattr(src, "type", None)
-    d_ty = getattr(dst, "type", None)
+    try:
+        s_ty = src.type
+    except AttributeError:
+        s_ty = None
+    try:
+        d_ty = dst.type
+    except AttributeError:
+        d_ty = None
     if s_ty is not None and s_ty is not d_ty:
         try:
             dst.type = s_ty
@@ -887,15 +920,12 @@ def _find_producer_idx(
     if val_or_name is None:
         return None
     # Prefer IR API when available
-    if hasattr(val_or_name, "producer"):
-        try:
-            prod = val_or_name.producer()  # type: ignore[attr-defined]
-            if prod is not None:
-                for idx, n in enumerate(nodes):
-                    if n is prod:
-                        return idx
-        except Exception:
-            pass
+    if isinstance(val_or_name, ir.Value):
+        prod = val_or_name.producer()
+        if prod is not None:
+            for idx, n in enumerate(nodes):
+                if n is prod:
+                    return idx
     # Object identity match
     for idx, n in enumerate(nodes):
         for ov in _node_outputs(n):
@@ -916,104 +946,130 @@ def _find_producer_idx(
     return None
 
 
+def _literal_bool_array(value: str) -> Optional[np.ndarray]:
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return np.asarray(True, dtype=np.bool_)
+    if normalized == "false":
+        return np.asarray(False, dtype=np.bool_)
+    return None
+
+
+def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
+    attr_type = attr.type
+    if isinstance(attr_type, str):
+        try:
+            attr_type = IRAttrType[attr_type.upper()]
+        except KeyError:
+            attr_type = None
+    if attr_type is IRAttrType.FLOAT:
+        try:
+            return np.asarray(attr.as_float())
+        except Exception:
+            return None
+    if attr_type is IRAttrType.FLOATS:
+        try:
+            return np.asarray(tuple(attr.as_floats()))
+        except Exception:
+            return None
+    if attr_type is IRAttrType.INT:
+        try:
+            return np.asarray(attr.as_int())
+        except Exception:
+            return None
+    if attr_type is IRAttrType.INTS:
+        try:
+            return np.asarray(tuple(attr.as_ints()))
+        except Exception:
+            return None
+    if attr_type is IRAttrType.STRING:
+        try:
+            string_value = attr.as_string()
+        except Exception:
+            return None
+        bool_arr = _literal_bool_array(string_value)
+        if bool_arr is not None:
+            return bool_arr
+        return np.asarray(string_value)
+    if attr_type is IRAttrType.STRINGS:
+        try:
+            strings = tuple(attr.as_strings())
+        except Exception:
+            return None
+        if len(strings) == 1:
+            bool_arr = _literal_bool_array(strings[0])
+            if bool_arr is not None:
+                return bool_arr
+        return np.asarray(strings)
+    if attr_type is IRAttrType.TENSOR:
+        try:
+            return _to_numpy_from_any(attr.as_tensor())
+        except Exception:
+            return None
+    if attr_type is IRAttrType.TENSORS:
+        try:
+            tensors = tuple(attr.as_tensors())
+        except Exception:
+            return None
+        if len(tensors) == 1:
+            return _to_numpy_from_any(tensors[0])
+        collected = [
+            _to_numpy_from_any(tensor) for tensor in tensors if tensor is not None
+        ]
+        if not collected or any(arr is None for arr in collected):
+            return None
+        try:
+            return np.stack([np.asarray(arr) for arr in collected])
+        except Exception:
+            return None
+    value = attr.value
+    if value is not None:
+        return _to_numpy_from_any(value)
+    return None
+
+
 def _to_numpy_from_any(x: object) -> Optional[np.ndarray]:
     """
-    Best-effort conversion of various IR/ONNX payloads (including onnx_ir wrappers)
-    to a NumPy array:
-      - numpy-like / scalar                → np.asarray(x)
-      - has .numpy or .to_numpy()         → np.asarray(that)
-      - has common payload attrs          → np.asarray(getattr(x, ...))
-      - TensorProto-like (raw_data + dims)→ decoded buffer
-      - typed *_data fields               → np.asarray(field, dtype)
-      - last resort                       → np.asarray(x) (may still fail)
+    Convert common IR payload carriers (Values, Tensors, Attrs, numpy scalars) into
+    numpy arrays so scalar booleans can be read without falling back to proto shims.
     """
-    # Direct adapters that expose numpy-like payloads (call before np.asarray)
-    for accessor in ("numpy", "to_numpy"):
+    if x is None:
+        return None
+    if isinstance(x, np.ndarray):
+        return x
+    if isinstance(x, np.generic):
+        return np.asarray(x)
+    if isinstance(x, (bool, int, float, complex, np.bool_, np.integer, np.floating)):
+        return np.asarray(x)
+    if isinstance(x, str):
+        bool_arr = _literal_bool_array(x)
+        if bool_arr is not None:
+            return bool_arr
+        return np.asarray(x)
+    if isinstance(x, ir.Value):
+        return _to_numpy_from_any(x.const_value)
+    if isinstance(x, ir.Tensor):
         try:
-            attr = getattr(x, accessor, None)
-            if attr is None:
-                continue
-            data = attr() if callable(attr) else attr
-            arr = np.asarray(data)
-            if isinstance(arr, np.ndarray) or np.isscalar(arr):
-                return arr
+            return np.asarray(x.numpy())
         except Exception:
-            pass
-
-    # Fast path: already array/scalar-ish
-    try:
-        arr0 = np.asarray(x)
-        if isinstance(arr0, np.ndarray) or np.isscalar(arr0):
-            # If it's an object 0D array, attempt unwrap
-            if isinstance(arr0, np.ndarray) and arr0.dtype == object and arr0.size == 1:
-                try:
-                    inner = arr0.reshape(()).item()
-                    inner_arr = np.asarray(inner)
-                    if isinstance(inner_arr, np.ndarray) or np.isscalar(inner_arr):
-                        return inner_arr
-                except Exception:
-                    pass
-            return arr0
-    except Exception:
-        pass
-
-    # onnx_ir tensor wrapper heuristics: probe typical payload attrs
-    for payload_attr in ("value", "data", "array", "_array", "val"):
+            return None
+    if isinstance(x, ir.Attr):
+        return _to_numpy_from_attr(x)
+    if isinstance(x, SequenceABC) and not isinstance(x, (bytes, bytearray)):
         try:
-            payload = getattr(x, payload_attr, None)
-            if payload is not None:
-                return np.asarray(payload)
+            return np.asarray(tuple(x))
         except Exception:
-            pass
-
-    # TensorProto-like decoding (raw_data / dims / data_type)
+            return None
     try:
-        raw = getattr(x, "raw_data", None)
-        if raw is not None:
-            dt = int(getattr(x, "data_type", 0))
-            # minimal map: FLOAT=1, BOOL=9, DOUBLE=11
-            dt_map = {1: np.float32, 9: np.bool_, 11: np.float64}
-            dtype = dt_map.get(dt, np.uint8)
-            arr = np.frombuffer(raw, dtype=dtype)
-            dims = tuple(getattr(x, "dims", ()))
-            return arr.reshape(dims) if dims else (arr[0] if arr.size == 1 else arr)
-        # fallback to typed data fields (include common ones)
-        typed_fields = (
-            ("float_data", np.float32),
-            ("double_data", np.float64),
-            ("int32_data", np.int32),
-            ("int64_data", np.int64),
-            ("bool_data", np.bool_),
-        )
-        for fld, dtype in typed_fields:
-            if getattr(x, fld, None):
-                arr = np.asarray(getattr(x, fld), dtype=dtype)
-                dims = tuple(getattr(x, "dims", ()))
-                return arr.reshape(dims) if dims else (arr[0] if arr.size == 1 else arr)
-    except Exception:
-        pass
-
-    # Last resort
-    try:
-        arr_last = np.asarray(x)
-        if (
-            isinstance(arr_last, np.ndarray)
-            and arr_last.dtype == object
-            and arr_last.size == 1
-        ):
-            try:
-                val = arr_last.reshape(()).item()
-                # common string representations
-                if isinstance(val, str):
-                    lv = val.strip().lower()
-                    if lv in ("true", "false"):
-                        return np.asarray(lv == "true", dtype=np.bool_)
-                return np.asarray(val)
-            except Exception:
-                pass
-        return arr_last
+        arr = np.asarray(x)
     except Exception:
         return None
+    if arr.dtype == object and arr.size == 1:
+        try:
+            return _to_numpy_from_any(arr.reshape(()).item())
+        except Exception:
+            return None
+    return arr
 
 
 def _as_scalar_bool(payload: object) -> Optional[bool]:
@@ -1236,48 +1292,30 @@ def remove_dead_nodes_ir(graph) -> None:
 def _attr_kind(attr: object) -> Optional[str]:
     if attr is None:
         return None
-    atype = getattr(attr, "type", None)
-    if atype is None:
+    if isinstance(attr, ir.Attr):
+        atype = attr.type
+        if isinstance(atype, IRAttrType):
+            return atype.name
+        if isinstance(atype, str):
+            return atype.upper()
         return None
-    if isinstance(atype, str):
-        return atype.upper()
-    name = getattr(atype, "name", None)
-    if isinstance(name, str):
-        return name.upper()
-    try:
-        val = int(atype)
-    except Exception:
-        return None
-    for label in ("GRAPH", "GRAPHS"):
-        try:
-            enum_val = getattr(IRAttrType, label)
-        except AttributeError:
-            continue
-        try:
-            if val == int(enum_val.value):
-                return label
-        except Exception:
-            if val == int(enum_val):
-                return label
+    if isinstance(attr, IRAttrType):
+        return attr.name
+    if isinstance(attr, str):
+        return attr.upper()
     return None
 
 
-def _iter_node_attrs(node: object) -> Iterable[object]:
-    raw = getattr(node, "attributes", None)
-    if raw:
-        if hasattr(raw, "values"):
-            for val in raw.values():
-                yield val
-        elif isinstance(raw, dict):
-            for val in raw.values():
-                yield val
-        else:
-            for val in raw:
-                yield val
-    raw_alt = getattr(node, "attribute", None)
-    if raw_alt:
-        for val in raw_alt:
-            yield val
+def _iter_node_attrs(node: ir.Node) -> Iterable[ir.Attr]:
+    try:
+        raw = node.attributes
+    except AttributeError:
+        return ()
+    if isinstance(raw, Mapping):
+        return cast(Iterable[ir.Attr], raw.values())
+    if isinstance(raw, SequenceABC):
+        return cast(Iterable[ir.Attr], raw)
+    return ()
 
 
 def _collect_used_value_names(graph, used: Set[str]) -> None:
@@ -1314,24 +1352,22 @@ def _collect_used_value_names(graph, used: Set[str]) -> None:
         for attr in _iter_node_attrs(node):
             kind = _attr_kind(attr)
             if kind == "GRAPH":
-                sub = getattr(attr, "value", None)
-                if sub is None:
-                    sub = getattr(attr, "g", None)
-                if sub is not None:
-                    _collect_used_value_names(sub, used)
-            elif kind == "GRAPHS":
-                subs = getattr(attr, "value", None)
-                if subs is None:
-                    subs = getattr(attr, "graphs", None)
-                if subs is None:
+                if not isinstance(attr, ir.Attr):
                     continue
                 try:
-                    iterator = list(subs)
+                    sub_graph = attr.as_graph()
                 except Exception:
-                    iterator = subs
-                for sub in iterator or []:
-                    if sub is None:
-                        continue
+                    continue
+                if sub_graph is not None:
+                    _collect_used_value_names(sub_graph, used)
+            elif kind == "GRAPHS":
+                if not isinstance(attr, ir.Attr):
+                    continue
+                try:
+                    sub_graphs = tuple(attr.as_graphs())
+                except Exception:
+                    sub_graphs = ()
+                for sub in sub_graphs:
                     _collect_used_value_names(sub, used)
 
 

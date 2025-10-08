@@ -15,8 +15,12 @@ from jax2onnx.converter.ir_optimizations import (
     _has_input_name_or_obj,
     _count_consumers,
     _find_next_consumer_idx,
+    _to_numpy_from_any,
+    _as_scalar_bool,
     optimize_graph,
 )
+
+from onnx_ir import AttributeType as IRAttrType
 
 
 class V:
@@ -72,6 +76,28 @@ def test_consumer_scan():
     nodes = [N("Transpose", outputs=[v]), N("Something"), N("Relu", inputs=[v])]
     assert _find_next_consumer_idx(nodes, 0, "x", v) == 2
     assert _count_consumers(nodes, "x", v) == 1
+
+
+def test_to_numpy_and_scalar_bool_from_tensor_and_attr():
+    tensor = ir.tensor(np.asarray(True, dtype=np.bool_))
+    arr = _to_numpy_from_any(tensor)
+    assert arr is not None and arr.shape == () and arr.dtype == np.bool_
+    assert bool(arr)
+    attr_tensor = ir.Attr(name="value", type=IRAttrType.TENSOR, value=tensor)
+    attr_arr = _to_numpy_from_any(attr_tensor)
+    assert attr_arr is not None and bool(attr_arr)
+    assert _as_scalar_bool(tensor) is True
+    assert _as_scalar_bool(attr_tensor) is True
+
+
+def test_literal_false_strings_roundtrip():
+    arr = _to_numpy_from_any("false")
+    assert arr is not None and arr.shape == () and arr.dtype == np.bool_
+    assert bool(arr) is False
+    attr_str = ir.Attr(name="value", type=IRAttrType.STRING, value="false")
+    attr_arr = _to_numpy_from_any(attr_str)
+    assert attr_arr is not None and bool(attr_arr) is False
+    assert _as_scalar_bool(attr_str) is False
 
 
 # --------- Integration test for constant Not removal (current) ---------
