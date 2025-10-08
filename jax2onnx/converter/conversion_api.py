@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from contextlib import contextmanager, ExitStack
 import inspect as _ins
 import os
-import itertools
+from itertools import chain
 
 import jax
 import jax.numpy as jnp
@@ -103,15 +103,14 @@ def _as_sds_list(
     symnames: list[str] = []
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            shape = getattr(spec, "shape", ())
-            for d in shape:
-                if isinstance(d, str) and d not in symnames:
-                    symnames.append(d)
+            for dim in tuple(spec.shape):
+                if isinstance(dim, str) and dim not in symnames:
+                    symnames.append(dim)
             continue
         if isinstance(spec, (list, tuple)):
-            for d in spec:
-                if isinstance(d, str) and d not in symnames:
-                    symnames.append(d)
+            for dim in spec:
+                if isinstance(dim, str) and dim not in symnames:
+                    symnames.append(dim)
 
     # 2) create symbolic sizes
     name2sym: dict[str, object] = {}
@@ -129,16 +128,15 @@ def _as_sds_list(
     # 3) build SDS list
     for spec in inputs:
         if hasattr(spec, "shape") and hasattr(spec, "dtype"):
-            shape = tuple(spec.shape)
-            dims = tuple(
-                (
-                    name2sym[d]
-                    if isinstance(d, str)
-                    else int(d) if isinstance(d, (int, np.integer)) else d
-                )
-                for d in shape
-            )
-            sds_list.append(jax.ShapeDtypeStruct(dims, spec.dtype))
+            dims = []
+            for dim in tuple(spec.shape):
+                if isinstance(dim, str):
+                    dims.append(name2sym[dim])
+                elif isinstance(dim, (int, np.integer)):
+                    dims.append(int(dim))
+                else:
+                    dims.append(dim)
+            sds_list.append(jax.ShapeDtypeStruct(tuple(dims), spec.dtype))
         elif isinstance(spec, (list, tuple)):
             dt = jnp.float64 if enable_double_precision else jnp.float32
             dims = tuple(name2sym[d] if isinstance(d, str) else int(d) for d in spec)
@@ -208,17 +206,11 @@ class _IRBuildContext:
         if var in self._var2val:
             return self._var2val[var]
 
-        aval = getattr(var, "aval", None)
-        if aval is None:
+        if not hasattr(var, "aval"):
             raise TypeError(f"Unsupported var type: {type(var)}")
-        try:
-            aval_dtype = aval.dtype
-        except AttributeError:
-            aval_dtype = np.float32
-        try:
-            aval_shape = tuple(aval.shape)
-        except AttributeError:
-            aval_shape = ()
+        aval = var.aval
+        aval_dtype = aval.dtype
+        aval_shape = tuple(aval.shape)
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
             type=ir.TensorType(_to_ir_dtype_from_np(aval_dtype)),
@@ -512,30 +504,24 @@ def to_onnx(
             except AttributeError:
                 return Attr(name, AttributeType.INT, ival)
 
-        def _finalize_model_value_info_shapes(model_proto, ctx: IRContext) -> None:  # type: ignore[name-defined]
-            try:
-                graph = getattr(model_proto, "graph", None)
-                if graph is None:
-                    return
-            except Exception:
+        def _finalize_model_value_info_shapes(
+            model_proto: ir.Model, ctx: IRContext
+        ) -> None:
+            graph = model_proto.graph
+            if not isinstance(graph, ir.Graph):
                 return
 
-            def _collect_dims(values):
+            def _collect_dims(values: Iterable[ir.Value]) -> Dict[str, Tuple]:
                 mapping: Dict[str, Tuple] = {}
-                for val in values or []:
-                    name = getattr(val, "name", "")
+                for val in values:
+                    name = val.name or ""
                     if not name:
                         continue
-                    shape_obj = getattr(val, "shape", None)
-                    dims = getattr(shape_obj, "dims", None)
-                    if dims is None:
-                        try:
-                            dims = tuple(shape_obj)
-                        except Exception:
-                            dims = None
-                    if dims is None:
+                    shape_obj = val.shape
+                    if shape_obj is None:
                         continue
-                    mapping[name] = tuple(dims)
+                    dims = tuple(shape_obj.dims)
+                    mapping[name] = dims
                 return mapping
 
             value_info_dims: Dict[str, Tuple] = {}
@@ -544,82 +530,33 @@ def to_onnx(
             value_info_dims.update(_collect_dims(ctx.builder.outputs))
             value_info_dims.update(_collect_dims(ctx.builder.inputs))
 
-            if isinstance(graph, ir.Graph):
-                targets = itertools.chain(
-                    graph.value_info,
-                    graph.outputs,
-                    graph.inputs,
-                )
-            else:
-                targets = itertools.chain(
-                    getattr(graph, "value_info", []) or [],
-                    getattr(graph, "output", []) or [],
-                    getattr(graph, "input", []) or [],
-                )
-
-            for vi in targets:
-                if isinstance(vi, ir.Value):
-                    continue
-                name = getattr(vi, "name", "")
+            for vi in chain(graph.value_info, graph.outputs, graph.inputs):
+                name = vi.name or ""
                 if not name:
                     continue
                 dims = value_info_dims.get(name)
                 if not dims:
                     continue
-                tensor_type = getattr(getattr(vi, "type", None), "tensor_type", None)
-                if tensor_type is None:
-                    continue
-                shape_proto = getattr(tensor_type, "shape", None)
-                if shape_proto is None:
-                    continue
-                dim_protos = getattr(shape_proto, "dim", [])
-                if len(dim_protos) != len(dims):
-                    continue
-                for proto, dim in zip(dim_protos, dims):
+                normalized_dims: List[Union[int, ir.SymbolicDim]] = []
+                for dim in dims:
                     if isinstance(dim, (int, np.integer)):
-                        try:
-                            proto.dim_value = int(dim)
-                        except Exception:
-                            continue
-                        if hasattr(proto, "HasField") and proto.HasField("dim_param"):
-                            proto.ClearField("dim_param")
-                        continue
-                    label = _as_ir_dim_label(dim)
-                    if not label:
-                        continue
-                    if isinstance(proto, ir.SymbolicDim):
-                        proto.value = str(label)
+                        normalized_dims.append(int(dim))
                     else:
-                        proto.dim_param = str(label)
-                        if hasattr(proto, "HasField") and proto.HasField("dim_value"):
-                            proto.ClearField("dim_value")
+                        label = _as_ir_dim_label(dim)
+                        if isinstance(label, str):
+                            normalized_dims.append(ir.SymbolicDim(label))
+                        else:
+                            normalized_dims.append(dim)
+                vi.shape = ir.Shape(tuple(normalized_dims))
 
         def _apply_ir_attr_overrides_to_graph(
-            gr: "ir.Graph", overrides: dict[str, dict[str, object]]
-        ):
-            if not overrides or gr is None:
+            gr: ir.Graph, overrides: dict[str, dict[str, object]]
+        ) -> None:
+            if not overrides:
                 return
-            if isinstance(gr, ir.Graph):
-                nodes_ref = list(gr.nodes)
-            else:
-                nodes_ref = (
-                    getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
-                )
-            name2node: Dict[str, ir.Node] = {}
-            for n in nodes_ref:
-                nm = n.name if isinstance(n, ir.Node) else getattr(n, "name", "")
-                if nm:
-                    name2node[nm] = n
-
-            def _mutate_attr_list(attr_list: list, k: str, v: object) -> None:
-                for i in range(len(attr_list) - 1, -1, -1):
-                    a = attr_list[i]
-                    aname = getattr(a, "name", getattr(a, "key", None))
-                    if aname == k:
-                        del attr_list[i]
-                attr_obj = _make_attr(k, v)
-                if attr_obj is not None:
-                    attr_list.append(attr_obj)
+            name2node: Dict[str, ir.Node] = {
+                node.name: node for node in gr.nodes if node.name
+            }
 
             def _make_attr(name: str, value: object) -> Optional[Attr]:
                 if isinstance(value, Attr):
@@ -657,87 +594,34 @@ def to_onnx(
                     return None
 
             for nm, kv in (overrides or {}).items():
-                n = name2node.get(nm)
-                if not n:
+                node = name2node.get(nm)
+                if node is None or kv is None:
                     continue
-                current = (
-                    n.attributes
-                    if isinstance(n, ir.Node)
-                    else getattr(n, "attributes", None)
-                )
-                if current is not None:
-                    added_any = False
-                    if hasattr(current, "add"):
-                        for k_attr, v_attr in (kv or {}).items():
-                            attr_obj = _make_attr(k_attr, v_attr)
-                            if attr_obj is None:
-                                continue
-                            try:
-                                current.pop(k_attr, None)
-                            except Exception:
-                                pass
-                            try:
-                                current.add(attr_obj)
-                                added_any = True
-                            except Exception:
-                                pass
-                    if added_any:
-                        continue
-                    if hasattr(current, "update"):
-                        try:
-                            current.update(kv or {})
-                            continue
-                        except Exception:
-                            pass
-                attr_list = None
-                if current is not None and hasattr(current, "append"):
-                    attr_list = current
-                if attr_list is None and not isinstance(n, ir.Node):
-                    alt = getattr(n, "_attributes", None)
-                    if alt is not None and hasattr(alt, "append"):
-                        attr_list = alt
-                if attr_list is None and not isinstance(n, ir.Node):
-                    proto_attrs = getattr(n, "attribute", None)
-                    if proto_attrs is not None and hasattr(proto_attrs, "append"):
-                        attr_list = proto_attrs
-                if (
-                    attr_list is not None
-                    and hasattr(attr_list, "__len__")
-                    and hasattr(attr_list, "__getitem__")
-                ):
-                    for k_attr, v_attr in (kv or {}).items():
-                        _mutate_attr_list(attr_list, k_attr, v_attr)
+                for attr_name, attr_value in kv.items():
+                    attr_obj = _make_attr(attr_name, attr_value)
+                    if attr_obj is not None:
+                        node.attributes[attr_name] = attr_obj
 
-        def _fix_concat_axis_in_graph(gr: "ir.Graph") -> None:
-            nodes_ref = getattr(gr, "nodes", None) or getattr(gr, "_nodes", None) or []
-            for n in nodes_ref:
-                if getattr(n, "op_type", "") != "Concat":
+        def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
+            for node in gr.all_nodes():
+                if node.op_type != "Concat":
                     continue
-                attrs = getattr(n, "attributes", None)
-                if not isinstance(attrs, list):
-                    attrs = getattr(n, "_attributes", None)
-                if not isinstance(attrs, list):
+                if "axis" in node.attributes:
                     continue
-                if any(
-                    getattr(a, "name", getattr(a, "key", "")) == "axis" for a in attrs
-                ):
-                    continue
-                try:
-                    attrs.append(_ir_attr_int("axis", 0))
-                except Exception:
-                    pass
+                node.attributes["axis"] = _ir_attr_int("axis", 0)
 
         # Apply overrides/fixes to top graph
         _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
         _fix_concat_axis_in_graph(ir_model.graph)
         # …and to all function bodies (if any)
-        _func_container = getattr(ir_model, "functions", None) or []
-        _func_values = (
-            _func_container.values()
-            if isinstance(_func_container, dict)
-            else _func_container
-        )
-        for fn in _func_values:
+        function_container = ir_model.functions
+        if isinstance(function_container, dict):
+            function_values: Iterable[ir.Function] = function_container.values()
+        elif isinstance(function_container, Sequence):
+            function_values = function_container
+        else:
+            function_values = []
+        for fn in function_values:
             try:
                 fn_overrides = dict(getattr(fn, "_attr_overrides", {}) or {})
                 if not fn_overrides:

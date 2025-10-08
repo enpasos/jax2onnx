@@ -12,6 +12,7 @@
     - ✅ `jax2onnx/converter/function_scope.py` now passes mypy; adjusted `FunctionScope` guards and IR pretty-printer helpers to avoid optional name leaks while keeping override dumps readable.
     - ✅ `converter/conversion_api.py`, `converter/ir_context.py`, and `plugins/plugin_system.py` shed their dynamic IR access: contexts expose typed `function_registry`/`ir_functions` accessors, const var handling uses real `aval` attributes, and function exports rely on native `onnx_ir.Function` identifiers.
     - ✅ Further trimmed `conversion_api` dynamic paths: attr construction now leans on `onnx_ir.Attr`, function export uses `identifier()`, and value-info shape reconciliation prefers the typed IR context helpers (with proto fallbacks).
+    - ✅ `_finalize_model_value_info_shapes` and attr override paths now operate on typed `ir.Value`/`ir.Graph` containers (no proto mirrors), and Concat axis defaults rely on native attribute assignment.
   - `scripts/audit_ir_dynamic_access.py` reports dynamic `getattr` usage; wire it into CI once the baseline shrinks to something manageable.
   - Drift guard: extend `tests/extra_tests/framework/test_onnx_ir_surface.py` (or equivalent) so it asserts the upstream package still exposes the attributes we depend on.
   - First cleanups landed in `converter/ir_pretty.py`, `converter/ir_postprocess.py`, `converter/ir_optimizations.py` (helpers + cast/transpose/dropout passes), and `plugins/_ir_shapes.py`; dynamic graph/value access now goes through typed properties/helpers.
