@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final
 
 import jax
 import numpy as np
@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_DTYPE_TO_IR = {
+_DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
     np.dtype(np.int32): ir.DataType.INT32,
     np.dtype(np.int64): ir.DataType.INT64,
     np.dtype(np.float32): ir.DataType.FLOAT,

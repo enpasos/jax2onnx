@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Optional
 
 import jax
 import jax.numpy as jnp
@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_CUMSUM_PRIM = make_jnp_primitive("jax.numpy.cumsum")
+_CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
 
 
 @register_primitive(
@@ -217,7 +217,7 @@ def _cumsum_impl(
     return result
 
 
-_ORIGINAL_JNP_CUMSUM = getattr(jnp, "cumsum", None)
+_ORIGINAL_JNP_CUMSUM: Final[Optional[Callable[..., Any]]] = getattr(jnp, "cumsum", None)
 
 
 def _runtime_cumsum(

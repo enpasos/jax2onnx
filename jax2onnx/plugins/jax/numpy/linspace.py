@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_LINSPACE_PRIM = make_jnp_primitive("jax.numpy.linspace")
+_LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
 
 
 def _normalize_dtype(result_dtype: np.dtype, enable_double: bool) -> np.dtype:

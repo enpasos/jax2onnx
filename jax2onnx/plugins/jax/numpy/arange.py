@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_DYNAMIC_DIM_LABEL = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
+_DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 
 
 class _DynamicDimSentinel:
@@ -43,10 +43,10 @@ class _DynamicDimSentinel:
         raise TypeError(msg)
 
 
-DATA_DEPENDENT_DYNAMIC_DIM = _DynamicDimSentinel()
+DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
 
 
-_ARANGE_PRIM = make_jnp_primitive("jax.numpy.arange")
+_ARANGE_PRIM: Final = make_jnp_primitive("jax.numpy.arange")
 
 
 def _as_scalar(aval) -> float | int | None:

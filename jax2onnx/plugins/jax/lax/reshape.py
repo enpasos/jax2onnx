@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Final, List, Optional, Union
 from functools import reduce
 import operator
 import os
@@ -64,7 +64,7 @@ def _no_const_concat_shape(model) -> bool:
 # --- pattern helpers in the same style as nnx.linear ---
 # A single Reshape is expected (the tiny graphs in these tests contain only one),
 # and we do not want any dynamic shape ops for the all-static case.
-EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = EG(
+EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING: Final = EG(
     [
         (
             "Reshape",
@@ -79,7 +79,7 @@ EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING = EG(
         )
     ]
 )
-EXPECT_NO_DYNAMIC_SHAPE_NODES = EG([], must_absent=["Concat", "Gather", "Shape"])
+EXPECT_NO_DYNAMIC_SHAPE_NODES: Final = EG([], must_absent=["Concat", "Gather", "Shape"])
 
 
 def _prod_dims(dims):

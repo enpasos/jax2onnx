@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Final, Iterable, Tuple
 
 from jax import lax
 import numpy as np
@@ -20,25 +20,32 @@ def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
     return jaxpr_like, ()
 
 
-if not hasattr(lax, "remat2_p"):
-    try:
+def _init_remat2_primitive() -> Any | None:
+    existing = getattr(lax, "remat2_p", None)
+    if existing is not None:
+        existing.multiple_results = True
+        return existing
+    base_core: Any | None = None
+    try:  # pragma: no cover
         from jax.extend import core as jax_core_ext  # type: ignore
+
+        base_core = jax_core_ext
     except ImportError:  # pragma: no cover
-        jax_core_ext = None
-    if jax_core_ext is None:  # pragma: no cover
         try:
             from jax import core as jax_core
+
+            base_core = jax_core
         except ImportError:
-            jax_core = None
-        base_core = jax_core
-    else:
-        base_core = jax_core_ext
-    if base_core is not None:
-        remat2_prim = base_core.Primitive("remat2")
-        remat2_prim.multiple_results = True
-        lax.remat2_p = remat2_prim  # type: ignore[attr-defined]
-else:
-    lax.remat2_p.multiple_results = True  # type: ignore[attr-defined]
+            base_core = None
+    if base_core is None:
+        return None
+    remat2 = base_core.Primitive("remat2")
+    remat2.multiple_results = True
+    lax.remat2_p = remat2  # type: ignore[attr-defined]
+    return remat2
+
+
+_REMAT2_PRIM: Final[Any | None] = _init_remat2_primitive()
 
 
 @register_primitive(

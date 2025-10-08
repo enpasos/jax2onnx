@@ -74,13 +74,13 @@ def _to_ir_dim_for_shape(dim: object) -> DimValue:
     return None
 
 
-def _is_static_int(d) -> bool:
+def _is_static_int(d: object) -> bool:
     return isinstance(d, (int, np.integer)) and int(d) >= 0
 
 
 def _dim_label_from_value_or_aval(
     val: ir.Value, aval_shape: SequenceABC[object], i: int
-):
+) -> Union[str, int, None]:
     """Return a readable dim label, falling back to aval metadata when needed."""
     shp = val.shape
     if shp is not None:
@@ -100,7 +100,7 @@ def _dim_label_from_value_or_aval(
     return None
 
 
-def _ensure_value_info(ctx, v: ir.Value | None):
+def _ensure_value_info(ctx: object, v: ir.Value | None) -> None:
     if v is None:
         return
     try:
@@ -113,15 +113,14 @@ def _ensure_value_info(ctx, v: ir.Value | None):
         pass
 
 
-def is_shape_all_unknown(shp) -> bool:
+def is_shape_all_unknown(shp: object) -> bool:
     """True if shape is None or all dims are anonymous (None/unknown)."""
     if shp is None:
         return True
-    shp_obj = cast(object, shp)
-    if isinstance(shp_obj, ir.Shape):
-        dims: Tuple[object, ...] = tuple(shp_obj.dims)
-    elif isinstance(shp_obj, SequenceABC) and not isinstance(shp_obj, (str, bytes)):
-        dims = tuple(cast(SequenceABC[object], shp_obj))
+    if isinstance(shp, ir.Shape):
+        dims: Tuple[object, ...] = tuple(shp.dims)
+    elif isinstance(shp, SequenceABC) and not isinstance(shp, (str, bytes)):
+        dims = tuple(cast(SequenceABC[object], shp))
     else:
         return True
     for d in dims:

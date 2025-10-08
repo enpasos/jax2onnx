@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 from collections.abc import Sequence as _Seq
 
 import numpy as np
@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_PROD_PRIM = make_jnp_primitive("jax.numpy.prod")
+_PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
 
 
 @register_primitive(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -19,15 +19,23 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_WHERE_PRIM = make_jnp_primitive("jax.numpy.where")
+_WHERE_PRIM: Final = make_jnp_primitive("jax.numpy.where")
 
 # Deterministic fixtures used by regression-style testcases. Keep them small so
 # they stay easy to reason about while still exercising the broadcaster logic
 # that previously regressed when generated randomly.
-_WHERE_A_COND = np.array([[[True]], [[False]], [[True]], [[False]]], dtype=np.bool_)
-_WHERE_A_DATA = np.arange(4 * 1 * 4, dtype=np.float32).reshape(4, 1, 4)
-_WHERE_B_COND = np.array([[[False]], [[True]], [[True]], [[False]]], dtype=np.bool_)
-_WHERE_B_DATA = np.arange(4 * 1 * 4, dtype=np.int32).reshape(4, 1, 4) * 2
+_WHERE_A_COND: Final[np.ndarray] = np.array(
+    [[[True]], [[False]], [[True]], [[False]]], dtype=np.bool_
+)
+_WHERE_A_DATA: Final[np.ndarray] = np.arange(4 * 1 * 4, dtype=np.float32).reshape(
+    4, 1, 4
+)
+_WHERE_B_COND: Final[np.ndarray] = np.array(
+    [[[False]], [[True]], [[True]], [[False]]], dtype=np.bool_
+)
+_WHERE_B_DATA: Final[np.ndarray] = (
+    np.arange(4 * 1 * 4, dtype=np.int32).reshape(4, 1, 4) * 2
+)
 
 
 def _create_problematic_where_sequence(cond_input, data_input):

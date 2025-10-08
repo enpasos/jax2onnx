@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_MATMUL_PRIM = make_jnp_primitive("jax.numpy.matmul")
+_MATMUL_PRIM: Final = make_jnp_primitive("jax.numpy.matmul")
 
 
 def _matmul_shape(a_shape, b_shape, a_dtype):

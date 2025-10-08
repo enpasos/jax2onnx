@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Optional
+from typing import ClassVar, Final, Optional
 
 import equinox as eqx
 import jax
@@ -26,9 +26,11 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
-_eqx_linear_symbolic = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
-_eqx_linear_highrank = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(42))
-_eqx_linear_no_bias = eqx.nn.Linear(128, 64, use_bias=False, key=jax.random.PRNGKey(7))
+_eqx_linear_symbolic: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
+_eqx_linear_highrank: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(42))
+_eqx_linear_no_bias: Final = eqx.nn.Linear(
+    128, 64, use_bias=False, key=jax.random.PRNGKey(7)
+)
 
 
 def _ensure_static_int(dim: int | str | None) -> int:

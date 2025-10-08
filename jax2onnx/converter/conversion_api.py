@@ -44,14 +44,14 @@ from .function_scope import FunctionRegistry
 # We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
 from jax.extend import core as jcore_ext  # type: ignore
 
-_LITERAL_TYPES = (jcore_ext.Literal,)
+_LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
 InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 # Keep ORT-compatible IR version (ORT ~1.18 supports IR v10 broadly)
-_ORT_SAFE_IR_VERSION = 10
+_ORT_SAFE_IR_VERSION: int = 10
 
 
 def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
@@ -292,11 +292,15 @@ def _activate_plugin_worlds():
 
 @contextmanager
 def _force_jax_x64(enable_double_precision: bool):
-    read_config = getattr(jax.config, "read", None)
+    read_config = jax.config.read if hasattr(jax.config, "read") else None
     if callable(read_config):
         previous = bool(read_config("jax_enable_x64"))
     else:
-        previous = bool(getattr(jax.config, "jax_enable_x64", False))
+        previous = (
+            bool(jax.config.jax_enable_x64)
+            if hasattr(jax.config, "jax_enable_x64")
+            else False
+        )
     target = bool(enable_double_precision)
     if previous != target:
         jax.config.update("jax_enable_x64", target)
@@ -344,20 +348,18 @@ def to_onnx(
         jpr = closed.jaxpr
 
         # 3) IR context & inputs/consts
-        ctx = IRContext(
+        ctx: IRContext = IRContext(
             opset=opset,
             enable_double_precision=enable_double_precision,
             input_specs=sds_list,
         )
         call_param_names = set(frozen_params.keys())
-        setattr(ctx, "_call_input_param_names", call_param_names)
-        setattr(ctx, "_call_input_param_literals", dict(frozen_params))
+        ctx._call_input_param_names = call_param_names
+        ctx._call_input_param_literals = dict(frozen_params)
         # Expose knobs for downstream (optional)
 
         if record_primitive_calls_file:
-            setattr(
-                ctx, "record_primitive_calls_file", str(record_primitive_calls_file)
-            )
+            ctx.record_primitive_calls_file = str(record_primitive_calls_file)
 
         if ctx.get_function_registry() is None:
             ctx.set_function_registry(FunctionRegistry())
@@ -459,7 +461,7 @@ def to_onnx(
                     except AttributeError:
                         identifier = None
                     if not identifier and hasattr(fn_ir, "id"):
-                        identifier = getattr(fn_ir, "id")
+                        identifier = object.__getattribute__(fn_ir, "id")
                     if not identifier:
                         identifier = (
                             (fn_ir.domain or ""),
@@ -638,9 +640,12 @@ def to_onnx(
             function_values = []
         for fn in function_values:
             try:
-                fn_overrides = dict(getattr(fn, "_attr_overrides", {}) or {})
-                if not fn_overrides:
-                    fn_overrides = ctx.attr_overrides or {}
+                overrides_attr: dict[str, dict[str, object]] = {}
+                if hasattr(fn, "_attr_overrides"):
+                    raw_overrides = object.__getattribute__(fn, "_attr_overrides")
+                    if raw_overrides:
+                        overrides_attr = dict(raw_overrides)
+                fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
                 _apply_ir_attr_overrides_to_graph(fn.graph, fn_overrides)
                 _fix_concat_axis_in_graph(fn.graph)
             except Exception:

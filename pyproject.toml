@@ -87,6 +87,8 @@ files = [
     "jax2onnx/converter/function_scope.py",
     "jax2onnx/converter/ir_pretty.py",
     "jax2onnx/converter/ir_postprocess.py",
+    "jax2onnx/converter/ir_builder.py",
+    "jax2onnx/converter/ir_context.py",
     "jax2onnx/plugins/_ir_shapes.py",
     "tests/extra_tests/framework/test_onnx_ir_surface.py",
     "scripts/audit_ir_dynamic_access.py",
@@ -103,10 +105,16 @@ module = [
     "jax2onnx.converter.function_scope",
     "jax2onnx.converter.ir_pretty",
     "jax2onnx.converter.ir_postprocess",
+    "jax2onnx.converter.ir_builder",
+    "jax2onnx.converter.ir_context",
     "jax2onnx.plugins._ir_shapes",
 ]
 follow_imports = "normal"
 ignore_missing_imports = true
+allow_untyped_globals = false
+disallow_untyped_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*", "scripts.*"]

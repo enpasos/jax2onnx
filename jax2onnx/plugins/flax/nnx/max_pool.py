@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/max_pool.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, ClassVar, Final, Optional, Sequence, Tuple
 
 import numpy as np
 import jax
@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-EXPECT_T_MP_T = EG(
+EXPECT_T_MP_T: Final = EG(
     [
         (
             "Transpose -> MaxPool -> Transpose",
@@ -40,7 +40,7 @@ EXPECT_T_MP_T = EG(
 )
 
 
-MAX_POOL_PRIM = Primitive("nnx.max_pool")
+MAX_POOL_PRIM: Final[Primitive] = Primitive("nnx.max_pool")
 MAX_POOL_PRIM.multiple_results = False
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 
 import jax.numpy as jnp
 import numpy as np
@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_SPLIT_PRIM = make_jnp_primitive("jax.numpy.split")
+_SPLIT_PRIM: Final = make_jnp_primitive("jax.numpy.split")
 _SPLIT_PRIM.multiple_results = True
 
 

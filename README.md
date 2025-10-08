@@ -171,10 +171,10 @@ See [`docs/coverage_tables.md`](docs/coverage_tables.md#examples) for the autoge
 |:--------------|:---------| 
 | `JAX`         | 0.7.2    | 
 | `Flax`        | 0.12.0   | 
-| `Equinox`     | 0.13.1  | 
+| `Equinox`     | 0.13.2  | 
 | `onnx-ir`     | 0.1.10   | 
 | `onnx`        | 1.19.0   |  
-| `onnxruntime` | 1.23.0   |  
+| `onnxruntime` | 1.23.1   |  
 
 *Note: For more details, check `pyproject.toml`.*
 
@@ -182,7 +182,7 @@ See [`docs/coverage_tables.md`](docs/coverage_tables.md#examples) for the autoge
 
 ## ⚠️ Limitations
 
-- Currently not all JAX/Flax components are supported (you can easily help expand this coverage!).
+- Currently not all JAX/Flax or Equinox components are supported (you can easily help expand this coverage!).
 - Function references need dynamic resolution at call-time.
 
 

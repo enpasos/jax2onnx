@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Optional
 
 import jax
 import jax.numpy as jnp
@@ -30,11 +30,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-_EINSUM_MODULE_PRIM = Primitive("nnx_einsum_module")
+_EINSUM_MODULE_PRIM: Final[Primitive] = Primitive("nnx_einsum_module")
 _EINSUM_MODULE_PRIM.multiple_results = False
 
 
-EXPECT_EINSUM_ONLY = EG(
+EXPECT_EINSUM_ONLY: Final = EG(
     [
         (
             "Einsum",
@@ -49,7 +49,7 @@ EXPECT_EINSUM_ONLY = EG(
 )
 
 
-EXPECT_EINSUM_WITH_BIAS = EG(
+EXPECT_EINSUM_WITH_BIAS: Final = EG(
     [
         (
             "Einsum -> Add",

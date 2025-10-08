@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence, cast
+from typing import TYPE_CHECKING, Final, Sequence, cast
 
 import jax
 import numpy as np
@@ -16,19 +16,19 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_LAYOUT_MAP = {
+_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
     (0, 1, 2, 3): "NCHW",
     (0, 3, 1, 2): "NHWC",
     "NCHW": "NCHW",
     "NHWC": "NHWC",
 }
-_FILTER_LAYOUT_MAP = {
+_FILTER_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
     (0, 1, 2, 3): "OIHW",
     (3, 2, 0, 1): "HWIO",
     "OIHW": "OIHW",
     "HWIO": "HWIO",
 }
-_OUTPUT_LAYOUT_MAP = {
+_OUTPUT_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
     (0, 1, 2, 3): "NCHW",
     (0, 3, 1, 2): "NHWC",
     "NCHW": "NCHW",

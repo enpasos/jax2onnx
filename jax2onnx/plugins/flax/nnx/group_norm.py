@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/group_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, ClassVar, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -28,11 +28,11 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-GROUP_NORM_PRIM = Primitive("nnx.group_norm")
+GROUP_NORM_PRIM: Final[Primitive] = Primitive("nnx.group_norm")
 GROUP_NORM_PRIM.multiple_results = False
 
 
-EXPECT_GROUP_NORM_PLAIN = EG(
+EXPECT_GROUP_NORM_PLAIN: Final = EG(
     [
         (
             "GroupNormalization",
@@ -47,7 +47,7 @@ EXPECT_GROUP_NORM_PLAIN = EG(
 )
 
 
-EXPECT_GROUP_NORM_TRANSPOSED = EG(
+EXPECT_GROUP_NORM_TRANSPOSED: Final = EG(
     [
         (
             "Transpose -> GroupNormalization -> Transpose",

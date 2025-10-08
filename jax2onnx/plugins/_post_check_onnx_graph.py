@@ -6,20 +6,22 @@ import re
 from typing import (
     Any,
     Dict,
+    Final,
     Iterable,
     List,
+    Mapping,
     Optional,
+    Pattern,
     Sequence,
+    Set,
     Tuple,
     Union,
-    Set,
-    Mapping,
 )
 from collections import deque
 import numpy as np
 
 # Optional ONNX helper (disabled; kept for API compatibility without importing onnx)
-_onnx_numpy_helper = None
+_onnx_numpy_helper: Final[Any | None] = None
 
 ShapeDim = Optional[Union[int, str]]
 
@@ -32,7 +34,7 @@ SpecItem = Union[
 ]
 
 
-DEFAULT_PASSTHROUGH_OPS: Set[str] = {
+DEFAULT_PASSTHROUGH_OPS: Final[Set[str]] = {
     "Reshape",
     "Identity",
     "Cast",
@@ -253,7 +255,7 @@ def expect_graph(
 
 # ---------------- Implementation ----------------
 
-_SHAPE_SEP = re.compile(r"\s*[x×]\s*")
+_SHAPE_SEP: Final[Pattern[str]] = re.compile(r"\s*[x×]\s*")
 
 
 def _parse_shape(s: str) -> Tuple:
@@ -1196,7 +1198,7 @@ class _SymbolTable:
             idx += 1
 
 
-_SYMBOL_TOKEN = re.compile(r"^[A-Z](?:[A-Z0-9_]{0,3})$")
+_SYMBOL_TOKEN: Final[Pattern[str]] = re.compile(r"^[A-Z](?:[A-Z0-9_]{0,3})$")
 
 
 def _looks_like_symbol(token: str) -> bool:

@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/batch_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable, ClassVar, Final
 import logging
 import numpy as np
 import jax
@@ -98,7 +98,7 @@ def _const_from_array(ctx, name_hint: str, arr: np.ndarray) -> ir.Value:
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
 # Rank <= 2: a single BatchNormalization node (no layout converts).
-EXPECT_BN_ONLY = EG(
+EXPECT_BN_ONLY: Final = EG(
     [
         (
             "BatchNormalization",
@@ -114,7 +114,7 @@ EXPECT_BN_ONLY = EG(
     ]
 )
 # Rank > 2: NHWC -> NCHW, BN, then NCHW -> NHWC.
-EXPECT_T_BN_T = EG(
+EXPECT_T_BN_T: Final = EG(
     [
         (
             "Transpose -> BatchNormalization -> Transpose",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -31,8 +31,8 @@ def _is_dim_expr(x: object) -> bool:
     return isinstance(x, DimExpr)
 
 
-_ORIG_TILE = jnp.tile
-_TILE_PRIM = make_jnp_primitive("jax.numpy.tile")
+_ORIG_TILE: Final = jnp.tile
+_TILE_PRIM: Final = make_jnp_primitive("jax.numpy.tile")
 
 
 def _tile_param(a):

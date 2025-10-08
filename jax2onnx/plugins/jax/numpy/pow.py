@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -63,7 +63,7 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
         return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
 
 
-_POWER_PRIM = make_jnp_primitive("jax.numpy.power")
+_POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
 
 
 @register_primitive(
@@ -101,7 +101,7 @@ def _power_impl(*args, **kwargs):
     return orig(*args, **kwargs)
 
 
-_POW_PRIM = make_jnp_primitive("jax.numpy.pow")
+_POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
 
 
 @register_primitive(

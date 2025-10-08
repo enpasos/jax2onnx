@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
@@ -15,7 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_CELU_PRIM = Primitive("jax.nn.celu")
+_CELU_PRIM: Final[Primitive] = Primitive("jax.nn.celu")
 _CELU_PRIM.multiple_results = False
 
 

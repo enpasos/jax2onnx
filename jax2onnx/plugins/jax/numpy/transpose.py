@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Iterable, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
 
 import jax.numpy as jnp
 from jax import core
@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_TRANSPOSE_PRIM = make_jnp_primitive("jax.numpy.transpose")
+_TRANSPOSE_PRIM: Final = make_jnp_primitive("jax.numpy.transpose")
 
 
 def _normalize_axes(axes: Sequence[int] | int | None, rank: int) -> tuple[int, ...]:

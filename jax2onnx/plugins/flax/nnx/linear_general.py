@@ -2,7 +2,7 @@
 
 
 from __future__ import annotations
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
 from jax.extend.core import Primitive
@@ -169,9 +169,9 @@ def _init_dims(m, name):
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
 # Basic presence of a single Gemm (no flatten/reshape path needed).
-EXPECT_GEMM_ONLY = EG([("Gemm", {"counts": {"Gemm": 1}})])
+EXPECT_GEMM_ONLY: Final = EG([("Gemm", {"counts": {"Gemm": 1}})])
 # Static flatten path: Reshape -> Gemm -> Reshape (no dynamic shape ops).
-EXPECT_RGR = EG(
+EXPECT_RGR: Final = EG(
     [
         (
             "Reshape -> Gemm -> Reshape",
@@ -187,7 +187,7 @@ EXPECT_RGR = EG(
 )
 # Dynamic flatten path: input Reshape to Gemm, and separate dynamic-shape chain
 # (Shape->Slice->Concat) that feeds the final Reshape's shape, plus Gemm->Reshape.
-EXPECT_DYNAMIC_RGR = EG(
+EXPECT_DYNAMIC_RGR: Final = EG(
     [
         (
             "Reshape -> Gemm -> Reshape",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Iterable, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_RESHAPE_PRIM = make_jnp_primitive("jax.numpy.reshape")
+_RESHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.reshape")
 
 
 def _iter_newshape(newshape: Sequence[int | object] | int | object) -> Iterable:

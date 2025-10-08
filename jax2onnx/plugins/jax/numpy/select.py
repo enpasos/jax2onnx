@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_SELECT_PRIM = make_jnp_primitive("jax.numpy.select")
+_SELECT_PRIM: Final = make_jnp_primitive("jax.numpy.select")
 
 
 def _broadcast_shape(*shapes):

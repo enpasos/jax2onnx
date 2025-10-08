@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable, ClassVar, Final
 
 import jax.numpy as jnp
 from flax import nnx
@@ -29,11 +29,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-EMBED_PRIM = Primitive("nnx.embed")
+EMBED_PRIM: Final[Primitive] = Primitive("nnx.embed")
 EMBED_PRIM.multiple_results = False
 
 
-EXPECT_EMBED_GATHER = EG(
+EXPECT_EMBED_GATHER: Final = EG(
     [
         (
             "Gather",

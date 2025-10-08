@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Any
+from typing import TYPE_CHECKING, ClassVar, Final, Any
 
 import jax
 import jax.numpy as jnp
@@ -63,7 +63,7 @@ def _cast_value(
     return cast_val
 
 
-_CLIP_PRIM = make_jnp_primitive("jax.numpy.clip")
+_CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
 
 
 @register_primitive(

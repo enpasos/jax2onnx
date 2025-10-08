@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from flax import nnx
+from typing import Final
 
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
@@ -11,7 +12,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-_double_relu = nnx.Sequential(
+_double_relu: Final = nnx.Sequential(
     nnx.relu,
     nnx.relu,
 )

@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Final, Optional
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -71,7 +71,7 @@ def _linear_output_dims(
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-_GEMM_ONLY_COUNTS = {
+_GEMM_ONLY_COUNTS: Final[dict[str, int]] = {
     "Gemm": 1,
     "Reshape": 0,
     "Shape": 0,
@@ -81,7 +81,7 @@ _GEMM_ONLY_COUNTS = {
     "Transpose": 0,
 }
 
-_RGR_COUNTS = {
+_RGR_COUNTS: Final[dict[str, int]] = {
     "Reshape": 2,
     "Gemm": 1,
     "Shape": 0,
@@ -91,7 +91,7 @@ _RGR_COUNTS = {
     "Transpose": 0,
 }
 
-_DYNAMIC_RGR_COUNTS = {
+_DYNAMIC_RGR_COUNTS: Final[dict[str, int]] = {
     "Reshape": 2,
     "Gemm": 1,
     "Shape": 1,
@@ -114,23 +114,23 @@ def _linear_expect(
     return EG(specs, symbols=symbols, no_unused_inputs=True)
 
 
-EXPECT_GEMM_ONLY = _linear_expect(
+EXPECT_GEMM_ONLY: Final = _linear_expect(
     "Gemm:Bx64",
     symbols={"B": None},
     counts=_GEMM_ONLY_COUNTS,
 )
 
-EXPECT_RGR_STATIC_3 = _linear_expect(
+EXPECT_RGR_STATIC_3: Final = _linear_expect(
     "Reshape:30x128 -> Gemm:30x64 -> Reshape:3x10x64",
     counts=_RGR_COUNTS,
 )
 
-EXPECT_RGR_STATIC_2 = _linear_expect(
+EXPECT_RGR_STATIC_2: Final = _linear_expect(
     "Reshape:20x128 -> Gemm:20x64 -> Reshape:2x10x64",
     counts=_RGR_COUNTS,
 )
 
-EXPECT_DYNAMIC_RGR = _linear_expect(
+EXPECT_DYNAMIC_RGR: Final = _linear_expect(
     "Reshape:?x128 -> Gemm:?x64 -> Reshape:Bx10x64",
     counts=_DYNAMIC_RGR_COUNTS,
     symbols={"B": None},

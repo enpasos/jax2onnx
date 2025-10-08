@@ -18,6 +18,7 @@ Attach auto-generated `expect_graph` structural assertions to every plugin and e
 - [x] `plugins/flax/nnx/softmax.py`
 - [ ] (No remaining flax/nnx activations without coverage)
 - [ ] Other plugin families (JAX lax, Equinox, remaining examples)
+  - Progress: added `expect_graph` for `primitives.lax.abs`; target `primitives.lax.add` next.
 
 ## Standard Workflow
 1. Pick the next component from the TODO portion of the checklist.

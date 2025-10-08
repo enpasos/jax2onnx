@@ -36,3 +36,8 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: enforce-variable-annotations
+        name: Ensure converter module variables are annotated
+        entry: python3 scripts/check_variable_annotations.py
+        language: system
+        pass_filenames: false

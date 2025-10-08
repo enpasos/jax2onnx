@@ -8,6 +8,7 @@ from typing import (
     ClassVar,
     DefaultDict,
     Dict,
+    Final,
     Optional,
     Tuple,
     Union,
@@ -36,9 +37,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_DPA_PRIM = Primitive("jax.nn.dot_product_attention")
+_DPA_PRIM: Final[Primitive] = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
-_ORIG_DOT_PRODUCT_ATTENTION = jax_nn.dot_product_attention
+_ORIG_DOT_PRODUCT_ATTENTION: Final = jax_nn.dot_product_attention
 
 
 def _expect_dpa_mask_where_impl(model) -> bool:
@@ -73,7 +74,7 @@ def _expect_dpa_mask_where(model) -> bool:
     return _expect_dpa_mask_where_impl(model)
 
 
-_EXPECT_DPA_MASK_WHERE = _expect_dpa_mask_where
+_EXPECT_DPA_MASK_WHERE: Final = _expect_dpa_mask_where
 
 
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:

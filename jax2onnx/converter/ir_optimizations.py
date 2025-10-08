@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence as SequenceABC
-from typing import Dict, List, Optional, Tuple, Set, Iterable, Any, Callable, cast
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Set,
+    Iterable,
+    Any,
+    Callable,
+    Sequence,
+    TypeAlias,
+    cast,
+)
 import copy
 import os
 import numpy as np
@@ -28,7 +40,7 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     "not",
 }
 
-ALLOWED_ELEMWISE = {
+ALLOWED_ELEMWISE: Set[str] = {
     "Elu",
     "Gelu",
     "Relu",
@@ -54,21 +66,28 @@ UNARY_DATAFLOW_OPS: Set[str] = {
     "CastLike",
 }
 
-DEBUG = bool(int(os.getenv("JAX2ONNX_IROPT_DEBUG", "0")))
-RSH_DEBUG = bool(int(os.getenv("JAX2ONNX_RSH_DEBUG", "0")))
-TRN_DEBUG = bool(int(os.getenv("JAX2ONNX_TRN_DEBUG", "0")))
-DCE_DEBUG = bool(int(os.getenv("JAX2ONNX_DCE_DEBUG", "0")))
-TM_DEBUG = bool(int(os.getenv("JAX2ONNX_TM_DEBUG", "0")))
+DEBUG: bool = bool(int(os.getenv("JAX2ONNX_IROPT_DEBUG", "0")))
+RSH_DEBUG: bool = bool(int(os.getenv("JAX2ONNX_RSH_DEBUG", "0")))
+TRN_DEBUG: bool = bool(int(os.getenv("JAX2ONNX_TRN_DEBUG", "0")))
+DCE_DEBUG: bool = bool(int(os.getenv("JAX2ONNX_DCE_DEBUG", "0")))
+TM_DEBUG: bool = bool(int(os.getenv("JAX2ONNX_TM_DEBUG", "0")))
+
+# ---------------- Type aliases ----------------
+
+NodeList: TypeAlias = List[ir.Node]
+NodeSeq: TypeAlias = Sequence[ir.Node]
+ValueList: TypeAlias = List[ir.Value]
+ValueSeq: TypeAlias = Sequence[ir.Value]
 
 # ---------------- Debug ----------------
 
 
-def _dbg(*a):
+def _dbg(*a: object) -> None:
     if DEBUG:
         print("[iropt]", *a)
 
 
-def _dbg_tm(*a):
+def _dbg_tm(*a: object) -> None:
     if TM_DEBUG:
         print("[tm-inline]", *a)
 
@@ -89,31 +108,42 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     """
     Return the Transpose 'perm' attribute as a list of ints, or None.
     """
-    attr = _get_attr(node, "perm")
-    if not isinstance(attr, ir.Attr):
-        if hasattr(attr, "ints"):
-            ints_value = attr.ints
-            if isinstance(ints_value, SequenceABC):
-                try:
-                    return [int(x) for x in ints_value]
-                except Exception:
-                    return None
-        if isinstance(attr, SequenceABC):
-            try:
-                return [int(x) for x in attr]
-            except Exception:
-                return None
-        return None
-    try:
-        ints = list(attr.as_ints())
-    except Exception:
-        ints = None
-    candidates: Optional[SequenceABC] = ints
-    if not candidates:
-        value = attr.value
-        if isinstance(value, SequenceABC):
-            candidates = value
-    if not candidates:
+    attr_obj = _get_attr(node, "perm")
+    candidates: Optional[SequenceABC] = None
+
+    if attr_obj is None:
+        attrs_raw = getattr(node, "attributes", None)
+        if isinstance(attrs_raw, SequenceABC):
+            for entry in attrs_raw:
+                if getattr(entry, "name", None) == "perm":
+                    attr_obj = entry
+                    break
+
+    if isinstance(attr_obj, ir.Attr):
+        ints_candidate: Optional[SequenceABC] = None
+        try:
+            as_ints = attr_obj.as_ints()
+        except Exception:
+            as_ints = None
+        if as_ints:
+            ints_candidate = list(as_ints)
+        if ints_candidate is None:
+            value = attr_obj.value
+            if isinstance(value, SequenceABC):
+                ints_candidate = value
+        candidates = ints_candidate
+    elif isinstance(attr_obj, SequenceABC):
+        candidates = attr_obj
+    else:
+        ints_value = getattr(attr_obj, "ints", None)
+        if isinstance(ints_value, SequenceABC):
+            candidates = ints_value
+        else:
+            value = getattr(attr_obj, "value", None)
+            if isinstance(value, SequenceABC):
+                candidates = value
+
+    if candidates is None:
         return None
     try:
         return [int(x) for x in candidates]
@@ -121,7 +151,7 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
         return None
 
 
-def _perms_compose_identity(p1: List[int], p2: List[int]) -> bool:
+def _perms_compose_identity(p1: Sequence[int], p2: Sequence[int]) -> bool:
     """
     Return True if composing p1 after p2 yields identity.
     (i.e., composed[i] = p1[p2[i]] equals range(len(p1)))
@@ -146,9 +176,6 @@ def _value_identity(
         return value_or_name, _v_name(value_or_name)
     if isinstance(value_or_name, str):
         return None, value_or_name or None
-    candidate_name = getattr(value_or_name, "name", None)
-    if isinstance(candidate_name, str) and candidate_name:
-        return None, candidate_name
     return None, None
 
 
@@ -160,6 +187,10 @@ def _has_input_name_or_obj(
     (by .name on Value or string equality) or the given object identity.
     """
     ins = _node_inputs(node)
+    if obj is not None:
+        for iv in ins:
+            if iv is obj:
+                return True
     ref_value, ref_name = _value_identity(obj)
     target_name = name or ref_name
     for iv in ins:
@@ -175,7 +206,9 @@ def _has_input_name_or_obj(
     return False
 
 
-def _count_consumers(nodes: List[object], name: Optional[str], obj) -> int:
+def _count_consumers(
+    nodes: Sequence[object], name: Optional[str], obj: Optional[object]
+) -> int:
     """
     Count how many nodes consume the given value (by name or object).
     """
@@ -195,7 +228,7 @@ def _count_consumers(nodes: List[object], name: Optional[str], obj) -> int:
 
 
 def _find_next_consumer_idx(
-    nodes: List[object], start_idx: int, name: Optional[str], obj
+    nodes: Sequence[object], start_idx: int, name: Optional[str], obj: Optional[object]
 ) -> Optional[int]:
     """
     Find the index of the next node (after start_idx) that consumes the given
@@ -249,8 +282,8 @@ def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
     return None
 
 
-def _node_outputs(n: ir.Node) -> List["ir.Value"]:
-    return list(n.outputs)
+def _node_outputs(n: ir.Node) -> ValueList:
+    return list(cast(ValueSeq, n.outputs))
 
 
 def _node_output(n: ir.Node) -> Optional["ir.Value"]:
@@ -258,16 +291,16 @@ def _node_output(n: ir.Node) -> Optional["ir.Value"]:
     return outs[0] if outs else None
 
 
-def _node_inputs(n: ir.Node) -> List["ir.Value"]:
-    return list(n.inputs)
+def _node_inputs(n: ir.Node) -> ValueList:
+    return list(cast(ValueSeq, n.inputs))
 
 
-def _set_node_inputs(n: ir.Node, new_ins: List["ir.Value"]) -> None:
+def _set_node_inputs(n: ir.Node, new_ins: Sequence["ir.Value"]) -> None:
     for idx, val in enumerate(new_ins):
         n.replace_input_with(idx, val)
 
 
-def _rebuild_node_with_inputs(n: "ir.Node", new_ins: List["ir.Value"]) -> "ir.Node":
+def _rebuild_node_with_inputs(n: "ir.Node", new_ins: Sequence["ir.Value"]) -> "ir.Node":
     """
     Construct a fresh ir.Node with the same op_type/name/domain/outputs/attributes,
     but with the provided inputs. This avoids copy-on-write pitfalls in some
@@ -277,17 +310,23 @@ def _rebuild_node_with_inputs(n: "ir.Node", new_ins: List["ir.Value"]) -> "ir.No
     return n
 
 
-def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple]:
+def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple[int, ...]]:
     if v is None:
         return None
     shp = v.shape
     if shp is None:
         return None
     dims = shp.dims if isinstance(shp, ir.Shape) else tuple(shp)
-    return tuple(d if isinstance(d, int) else -1 for d in dims)
+    tuple_dims: List[int] = []
+    for d in dims:
+        if isinstance(d, int):
+            tuple_dims.append(d)
+        else:
+            tuple_dims.append(-1)
+    return tuple(tuple_dims)
 
 
-def _shape_dims_key(shape) -> Optional[Tuple[str, ...]]:
+def _shape_dims_key(shape: object) -> Optional[Tuple[str, ...]]:
     """Return a hashable key representing the shape's dimensions."""
     if shape is None:
         return None
@@ -307,7 +346,7 @@ def _shape_dims_key(shape) -> Optional[Tuple[str, ...]]:
     return tuple(key)
 
 
-def _clone_shape_obj(shape):
+def _clone_shape_obj(shape: object | None) -> ir.Shape | Tuple[Any, ...] | None:
     """Best-effort clone of an onnx_ir Shape object."""
     if shape is None:
         return None
@@ -407,7 +446,9 @@ def _replace_in_graph_outputs(
         return
 
 
-def _build_use_maps(nodes: List["ir.Node"]):
+def _build_use_maps(
+    nodes: NodeSeq,
+) -> Tuple[Dict[int, int], Dict[str, int], Dict[int, Set[int]], Dict[str, Set[int]]]:
     prod_by_obj: Dict[int, int] = {}
     prod_by_name: Dict[str, int] = {}
     cons_by_obj: Dict[int, Set[int]] = defaultdict(set)
@@ -432,50 +473,56 @@ def _build_use_maps(nodes: List["ir.Node"]):
 
 
 def _unique_consumer(
-    cons_by_obj, cons_by_name, val: Optional["ir.Value"]
+    cons_by_obj: Dict[int, Set[int]],
+    cons_by_name: Dict[str, Set[int]],
+    val: Optional["ir.Value"],
 ) -> Optional[int]:
     if val is None:
         return None
     nm = _v_name(val)
-    S = set(cons_by_obj.get(id(val), set()))
+    candidates = set(cons_by_obj.get(id(val), set()))
     if nm:
-        S |= set(cons_by_name.get(nm, set()))
-    return next(iter(S)) if len(S) == 1 else None
+        candidates |= set(cons_by_name.get(nm, set()))
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
-def _producer_idx_for(val: Optional["ir.Value"], prod_obj, prod_name) -> Optional[int]:
+def _producer_idx_for(
+    val: Optional["ir.Value"],
+    prod_obj: Dict[int, int],
+    prod_name: Dict[str, int],
+) -> Optional[int]:
     if val is None:
         return None
     nm = _v_name(val)
     return prod_obj.get(id(val)) or (prod_name.get(nm) if nm else None)
 
 
-def _all_consumers(cons_by_obj, cons_by_name, v: Optional["ir.Value"]) -> Set[int]:
+def _all_consumers(
+    cons_by_obj: Dict[int, Set[int]],
+    cons_by_name: Dict[str, Set[int]],
+    v: Optional["ir.Value"],
+) -> Set[int]:
     if v is None:
         return set()
     nm = _v_name(v)
-    S = set(cons_by_obj.get(id(v), set()))
+    consumers = set(cons_by_obj.get(id(v), set()))
     if nm:
-        S |= set(cons_by_name.get(nm, set()))
-    return S
+        consumers |= set(cons_by_name.get(nm, set()))
+    return consumers
 
 
 # ---------------- Attr access ----------------
 
 
 def _get_attr(node: ir.Node, name: str) -> Optional[ir.Attr]:
-    try:
-        attrs = node.attributes
-    except AttributeError:
-        return None
+    attrs = node.attributes
     if isinstance(attrs, Mapping):
-        return cast(Optional[ir.Attr], attrs.get(name))
+        candidate = attrs.get(name)
+        return candidate if isinstance(candidate, ir.Attr) else None
     if isinstance(attrs, SequenceABC):
         for item in attrs:
             if isinstance(item, ir.Attr) and item.name == name:
                 return item
-            if hasattr(item, "name") and item.name == name:
-                return cast(ir.Attr, item)
     return None
 
 
@@ -511,10 +558,10 @@ def _attr_to_int(attr: Any) -> Optional[int]:
     return None
 
 
-def _collect_value_dtypes(graph: ir.Graph, nodes: List["ir.Node"]) -> Dict[str, int]:
+def _collect_value_dtypes(graph: ir.Graph, nodes: NodeSeq) -> Dict[str, int]:
     type_map: Dict[str, int] = {}
 
-    def _record(val):
+    def _record(val: Optional[ir.Value]) -> None:
         name = _v_name(val)
         code = _value_dtype_code(val)
         if name and code is not None:
@@ -525,11 +572,11 @@ def _collect_value_dtypes(graph: ir.Graph, nodes: List["ir.Node"]) -> Dict[str, 
     for value in graph.outputs:
         _record(value)
     init_container = graph.initializers
-    try:
-        iterable = init_container.values()
-    except AttributeError:
-        iterable = init_container
-    for init in iterable:
+    if isinstance(init_container, Mapping):
+        init_values = init_container.values()
+    else:
+        init_values = init_container
+    for init in init_values:
         if isinstance(init, ir.Value):
             _record(init)
 
@@ -1307,15 +1354,12 @@ def _attr_kind(attr: object) -> Optional[str]:
 
 
 def _iter_node_attrs(node: ir.Node) -> Iterable[ir.Attr]:
-    try:
-        raw = node.attributes
-    except AttributeError:
-        return ()
-    if isinstance(raw, Mapping):
-        return cast(Iterable[ir.Attr], raw.values())
-    if isinstance(raw, SequenceABC):
-        return cast(Iterable[ir.Attr], raw)
-    return ()
+    attrs = node.attributes
+    if isinstance(attrs, Mapping):
+        return [attr for attr in attrs.values() if isinstance(attr, ir.Attr)]
+    if isinstance(attrs, SequenceABC):
+        return [attr for attr in attrs if isinstance(attr, ir.Attr)]
+    return []
 
 
 def _collect_used_value_names(graph, used: Set[str]) -> None:

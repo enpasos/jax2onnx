@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, ClassVar, Tuple, Union, cast
+from typing import TYPE_CHECKING, Callable, ClassVar, Final, Tuple, Union, cast
 
 import numpy as np
 from flax import nnx
@@ -52,11 +52,11 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     return dtype
 
 
-DPA_PRIM = Primitive("nnx.dot_product_attention")
+DPA_PRIM: Final[Primitive] = Primitive("nnx.dot_product_attention")
 DPA_PRIM.multiple_results = False
 
 
-EXPECT_DPA_BASE = EG(
+EXPECT_DPA_BASE: Final = EG(
     [
         (
             "Transpose -> MatMul -> Mul -> Softmax -> MatMul -> Transpose",
@@ -73,8 +73,8 @@ EXPECT_DPA_BASE = EG(
 )
 
 
-EXPECT_DPA_WITH_MASK = EG([("Where", {"counts": {"Where": 1}})])
-EXPECT_DPA_WITH_BIAS = EG([("Add", {"counts": {"Add": 1}})])
+EXPECT_DPA_WITH_MASK: Final = EG([("Where", {"counts": {"Where": 1}})])
+EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
 
 
 @register_primitive(

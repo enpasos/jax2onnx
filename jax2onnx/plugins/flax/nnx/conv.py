@@ -5,6 +5,7 @@ from typing import (
     TYPE_CHECKING,
     ClassVar,
     Callable,
+    Final,
     Sequence,
     Tuple,
     Any,
@@ -45,11 +46,11 @@ from operator import mul
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-logger = logging.getLogger("jax2onnx.plugins.flax.nnx.conv")
+logger: logging.Logger = logging.getLogger("jax2onnx.plugins.flax.nnx.conv")
 
 # --- graph pattern expectations for tests ---
 # Single-path: Transpose -> Conv -> Transpose
-EXPECT_TCT = EG(
+EXPECT_TCT: Final = EG(
     [
         (
             "Transpose -> Conv -> Transpose",
@@ -71,7 +72,7 @@ EXPECT_TCT = EG(
 )
 # Flattened-path (mixed-dim inputs):
 # Reshape -> Transpose -> Conv -> Transpose -> Reshape
-EXPECT_FLATTEN_TCT = EG(
+EXPECT_FLATTEN_TCT: Final = EG(
     [
         (
             "Reshape -> Transpose -> Conv -> Transpose -> Reshape",

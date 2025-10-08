@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 import jax
 from jax import core
@@ -19,7 +19,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_TRUNCATED_NORMAL_PRIM = Primitive("jax.nn.initializers.truncated_normal")
+_TRUNCATED_NORMAL_PRIM: Final[Primitive] = Primitive(
+    "jax.nn.initializers.truncated_normal"
+)
 _TRUNCATED_NORMAL_PRIM.multiple_results = False
 
 

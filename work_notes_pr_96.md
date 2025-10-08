@@ -16,10 +16,14 @@
     - ✅ `ir_context` sheds remaining dynamic guards: name/op_type/aval reads now check `hasattr` once and use the typed attributes, with only the initializer proxy delegating via `__getattr__`.
     - ✅ Began `ir_optimizations` cleanup: node input/output helpers now use `ir.Node.inputs/outputs`, graph node persistence runs through `graph._nodes`, graph outputs rewrite via the typed container, and Dropout training-mode inlining no longer touches proto shims.
     - ✅ Added `scripts/check_forbidden_reflection.py` + pre-commit hook to forbid `isinstance(..., ir.Graph)` and `getattr(..., 'node'/'output'/...)` patterns across the converter.
-    - ✅ `_collect_value_dtypes`, `_get_attr`, and `_replace_in_graph_outputs` favor the typed graph containers/attributes, keeping only thin fallbacks for legacy mirrors.
+  - ✅ `_collect_value_dtypes`, `_get_attr`, and `_replace_in_graph_outputs` favor the typed graph containers/attributes, keeping only thin fallbacks for legacy mirrors.
+  - ✅ Pre-commit now enforces module-level type annotations in `jax2onnx/converter` and `jax2onnx/plugins` via `check_variable_annotations.py`, and mypy forbids untyped globals/defs for the converter shape helpers subset.
+  - ✅ `ir_builder.py` and `ir_context.py` now participate in the strict mypy run (module-level names annotated, helper closures return typed results).
+  - ➕ Began typing cleanup in `ir_optimizations.py` (typed helper signatures, attr access without dynamic `getattr`) as preparation for bringing the optimizer under the strict mypy umbrella.
   - `scripts/audit_ir_dynamic_access.py` reports dynamic `getattr` usage; wire it into CI once the baseline shrinks to something manageable.
   - Drift guard: extend `tests/extra_tests/framework/test_onnx_ir_surface.py` (or equivalent) so it asserts the upstream package still exposes the attributes we depend on.
   - First cleanups landed in `converter/ir_pretty.py`, `converter/ir_postprocess.py`, `converter/ir_optimizations.py` (helpers + cast/transpose/dropout passes), and `plugins/_ir_shapes.py`; dynamic graph/value access now goes through typed properties/helpers.
+  - ✅ Converter-path audit continued: `conversion_api`, `ir_builder`, `ir_context`, `ir_postprocess`, and `ir_optimizations` now rely on typed APIs instead of `getattr` fallbacks (with `_force_jax_x64` + function exports calling attributes directly). Next sweep: plugin-side helpers like `_ir_shapes` and `_post_check_onnx_graph`.
   - TODO: sweep any remaining legacy helpers (e.g., attr fallbacks) and widen mypy coverage to the whole converter once the baseline is clean.
   - `_read_scalar_bool_from_value_or_constant` now relies on typed IR payloads, keeping dropout Not-elimination tests green.
   - ✅ Current state is stable; ready to resume in a follow-up session / new chat when continuing the cleanup.
@@ -62,6 +66,7 @@
 - R6: Maintain clear signatures and typing aligned with IR classes (input 5) to catch API drift early.
 - R7: Prefer `onnx_ir`'s built-in helpers (Attr/AttributeType, Function.identifier, live Graph containers) and remove proto shims now that the typed APIs are always available (input 25).
 - R8: When rewiring graph outputs, treat them as `Value` references—use `is_graph_output`, rename the survivor Value, replace entries in `graph.outputs`, and drop the node with `graph.remove(..., safe=True)` (input 26).
+- R9: Always provide explicit variable type annotations in backend processing so mypy enforces the converter/plugin interfaces.
 
 ## Apply Rules
 - R1: Audit converter and plugin code to replace `getattr`/private field mutations with direct API calls (`attr.get_graphs()`, `value.dtype`, etc.) and rebuild objects when necessary.
@@ -72,6 +77,7 @@
 - R6: Update helper signatures to use concrete IR types (`Iterable[ir.Attr]`, etc.) and rely on static typing instead of dynamic guards.
 - R7: When constructing attrs, exporting functions, or iterating graphs, call the canonical `onnx_ir` methods and excise any leftover proto mirrors.
 - R8: Mirror the identity-elimination pattern for rewrites: use `replace_all_uses_with`, rename surviving Values, and update `graph.outputs` in-place before removing the original node with `safe=True`.
+- R9: Annotate every intermediary variable in converter/plugin internals so static analysis can prove interface contracts.
 
 ## Answers to Inputs
 1. Follow R1: stop setting private Attr fields; rebuild Attr instances when changes are needed.

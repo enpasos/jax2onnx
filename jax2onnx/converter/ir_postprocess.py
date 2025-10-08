@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable as IterableABC, Sequence as SequenceABC
+from collections.abc import Iterable as IterableABC, Mapping, Sequence as SequenceABC
 from itertools import chain
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
-from typing import cast
+from typing import Iterable, cast
 
 
 DimValue = int | ir.SymbolicDim | None
@@ -212,14 +212,24 @@ def _process_graph(
 
 
 def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
-    funcs = getattr(model, "functions", None)
-    if funcs is None:
+    funcs_obj: object | None = model.functions
+    if funcs_obj is None:
         return
-    iterable = funcs.values() if hasattr(funcs, "values") else funcs
-    for function in iterable:
+    if isinstance(funcs_obj, Mapping):
+        iterable = cast(
+            Iterable[ir.Function | ir.Graph],
+            funcs_obj.values(),
+        )
+    else:
+        iterable = cast(Iterable[ir.Function | ir.Graph], funcs_obj)
+    for fn_obj in iterable:
+        if isinstance(fn_obj, ir.Function):
+            graph_obj: ir.Graph = fn_obj.graph
+        else:
+            graph_obj = fn_obj
         if loosen:
-            _loosen_graph_value_infos(function, force_rank_only=False)
-        _process_graph(function, loosen=loosen, promote=promote, force_rank_only=False)
+            _loosen_graph_value_infos(graph_obj, force_rank_only=False)
+        _process_graph(graph_obj, loosen=loosen, promote=promote, force_rank_only=False)
 
 
 def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:

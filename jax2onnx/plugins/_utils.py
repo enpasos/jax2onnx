@@ -1,7 +1,7 @@
 # jax2onnx/plugins/_utils.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final, Sequence
 import numpy as np
 import onnx_ir as ir
 
@@ -9,8 +9,7 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype] = {}
-_dtype_pairs = [
+_dtype_pairs: Final[Sequence[tuple[str, np.dtype[Any]]]] = (
     ("DOUBLE", np.float64),
     ("FLOAT", np.float32),
     ("FLOAT16", np.float16),
@@ -23,13 +22,20 @@ _dtype_pairs = [
     ("UINT16", np.uint16),
     ("UINT8", np.uint8),
     ("BOOL", np.bool_),
-]
-for name, np_dt in _dtype_pairs:
-    enum = getattr(ir.DataType, name, None)
-    if enum is None or np_dt is None:
-        continue
-    _IR_TO_NP_DTYPE[enum] = np.dtype(np_dt)
-del name, np_dt, enum
+)
+
+
+def _build_ir_to_np_dtype() -> dict[ir.DataType, np.dtype[Any]]:
+    mapping: dict[ir.DataType, np.dtype[Any]] = {}
+    for name, np_dt in _dtype_pairs:
+        enum = getattr(ir.DataType, name, None)
+        if enum is None or np_dt is None:
+            continue
+        mapping[enum] = np.dtype(np_dt)
+    return mapping
+
+
+_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = _build_ir_to_np_dtype()
 
 
 def cast_param_like(

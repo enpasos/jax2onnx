@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/avg_pool.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, ClassVar, Final, Optional, Sequence
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------
-_POOL_COUNTS = {
+_POOL_COUNTS: Final[dict[str, int]] = {
     "Transpose": 2,
     "AveragePool": 1,
     "Reshape": 0,
@@ -43,22 +43,22 @@ def _make_expect(path: str, *, symbols: Optional[dict[str, Optional[int]]] = Non
     return EG(spec, symbols=symbols, no_unused_inputs=True)
 
 
-EXPECT_32_TO_16 = _make_expect(
+EXPECT_32_TO_16: Final = _make_expect(
     "Transpose:Bx3x32x32 -> AveragePool:Bx3x16x16 -> Transpose:Bx16x16x3",
     symbols={"B": None},
 )
 
-EXPECT_8_TO_7 = _make_expect(
+EXPECT_8_TO_7: Final = _make_expect(
     "Transpose:Bx3x8x8 -> AveragePool:Bx3x7x7 -> Transpose:Bx7x7x3",
     symbols={"B": None},
 )
 
-EXPECT_10_TO_4 = _make_expect(
+EXPECT_10_TO_4: Final = _make_expect(
     "Transpose:Bx1x10x10 -> AveragePool:Bx1x4x4 -> Transpose:Bx4x4x1",
     symbols={"B": None},
 )
 
-EXPECT_8_TO_4 = _make_expect(
+EXPECT_8_TO_4: Final = _make_expect(
     "Transpose:Bx3x8x8 -> AveragePool:Bx3x4x4 -> Transpose:Bx4x4x3",
     symbols={"B": None},
 )

@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
-from typing import TYPE_CHECKING, Optional, Set
+from typing import TYPE_CHECKING, Any, Final, Optional, Set
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -17,7 +17,7 @@ from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 if TYPE_CHECKING:
     pass  # for hints
 
-_IR_TO_NP_DTYPE = {
+_IR_TO_NP_DTYPE: Final[dict[ir.DataType | None, np.dtype[Any]]] = {
     getattr(ir.DataType, "FLOAT16", None): np.float16,
     getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
     ir.DataType.FLOAT: np.float32,

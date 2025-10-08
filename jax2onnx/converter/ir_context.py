@@ -1,13 +1,22 @@
 # jax2onnx/converter/ir_context.py
 
 from __future__ import annotations
-from typing import Any, Sequence, Dict, Tuple, Optional, TYPE_CHECKING
+from typing import (
+    Any,
+    Sequence,
+    Dict,
+    Tuple,
+    Optional,
+    TYPE_CHECKING,
+    Iterable,
+    Iterator,
+)
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
 
-from jax.extend import core as jcore_ext  # type: ignore
+from jax.extend import core as jcore_ext
 
 if TYPE_CHECKING:
     from .conversion_api import FunctionRegistry
@@ -16,42 +25,42 @@ if TYPE_CHECKING:
 class _InitializerProxy:
     """List-like view over builder.initializers that is function-safe."""
 
-    def __init__(self, ctx: "IRContext") -> None:  # type: ignore[name-defined]
+    def __init__(self, ctx: "IRContext") -> None:
         self._ctx = ctx
         self._storage = ctx.builder.initializers
 
     def append(self, value: ir.Value) -> None:
         self._ctx._handle_initializer_append(value)
 
-    def extend(self, values):
+    def extend(self, values: Iterable[ir.Value]) -> None:
         for value in values:
             self.append(value)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ir.Value]:
         return iter(self._storage)
 
     def __len__(self) -> int:
         return len(self._storage)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> ir.Value:
         return self._storage[item]
 
     def __bool__(self) -> bool:
         return bool(self._storage)
 
-    def __getattr__(self, name):
-        return getattr(self._storage, name)
+    def __getattr__(self, name: str) -> Any:
+        return object.__getattribute__(self._storage, name)
 
 
 # ---- literal + dtype bookkeeping -------------------------------------------------
-_LITERAL_TYPES = (jcore_ext.Literal,)
-_FLOAT_TYPE_NAMES = ("FLOAT", "DOUBLE", "FLOAT16", "BFLOAT16")
-_FLOAT_DTYPES = {
+_LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
+_FLOAT_TYPE_NAMES: tuple[str, ...] = ("FLOAT", "DOUBLE", "FLOAT16", "BFLOAT16")
+_FLOAT_DTYPES: set[ir.DataType] = {
     ir.DataType.__members__[name]
     for name in _FLOAT_TYPE_NAMES
     if name in ir.DataType.__members__
 }
-_INT_TYPE_NAMES = (
+_INT_TYPE_NAMES: tuple[str, ...] = (
     "INT8",
     "INT16",
     "INT32",
@@ -61,7 +70,7 @@ _INT_TYPE_NAMES = (
     "UINT32",
     "UINT64",
 )
-_INT_DTYPES = {
+_INT_DTYPES: set[ir.DataType] = {
     ir.DataType.__members__[name]
     for name in _INT_TYPE_NAMES
     if name in ir.DataType.__members__
@@ -98,7 +107,7 @@ class IRContext:
         enable_double_precision: bool,
         input_specs: Sequence[Any] | None = None,
     ):
-        self.builder = IRBuilder(
+        self.builder: IRBuilder = IRBuilder(
             opset=opset, enable_double_precision=enable_double_precision
         )
         self.builder._function_mode = False
@@ -196,37 +205,45 @@ class IRContext:
     def set_node_attrs(self, node: Any, attrs: Dict[str, Any]) -> None:
         # make sure there is a stable name to key overrides
         if isinstance(node, ir.Node):
-            name = node.name
-            if not name:
+            node_name = node.name
+            if not node_name:
                 prefix = node.op_type or "node"
-                node.name = self.builder.fresh_name(prefix)
-                name = node.name
+                node_name = self.builder.fresh_name(prefix)
+                node.name = node_name
         else:
-            name = node.name if hasattr(node, "name") else None  # type: ignore[attr-defined]
-            if not name:
-                prefix = node.op_type if hasattr(node, "op_type") else "node"  # type: ignore[attr-defined]
-                name = self.builder.fresh_name(prefix)
-                setattr(node, "name", name)
-        merged = dict(self._attr_overrides.get(name, {}))
-        merged.update(attrs or {})
-        self._attr_overrides[name] = merged
+            node_name_obj = getattr(node, "name", None)
+            if not isinstance(node_name_obj, str) or not node_name_obj:
+                prefix_obj = getattr(node, "op_type", "node")
+                prefix = str(prefix_obj) if prefix_obj else "node"
+                node_name_obj = self.builder.fresh_name(prefix)
+                setattr(node, "name", node_name_obj)
+            node_name = node_name_obj
+        merged = dict(self._attr_overrides.get(node_name, {}))
+        merged.update(attrs)
+        self._attr_overrides[node_name] = merged
 
     def get_node_attrs(self, node: Any) -> Dict[str, Any]:
         if isinstance(node, ir.Node):
-            name = node.name
+            node_name = node.name or ""
         else:
-            name = node.name if hasattr(node, "name") else ""  # type: ignore[attr-defined]
-        return self._attr_overrides.get(name, {})
+            name_obj = getattr(node, "name", "")
+            node_name = name_obj if isinstance(name_obj, str) else ""
+        return self._attr_overrides.get(node_name, {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
-    def ensure_external_flag(self, name: str, var: Any):
+    def ensure_external_flag(self, name: str, var: Any) -> ir.Value:
         """Top-level: return/create a BOOL[] graph input `name`.
         Function body: return the Value for `var` (function input or literal)."""
         if self._inside_function_scope:
             if var is None:
                 lookup = self.__dict__.get("_call_param_value_by_name")
                 if isinstance(lookup, dict) and name in lookup:
-                    return lookup[name]
+                    value_obj = lookup[name]
+                    if isinstance(value_obj, ir.Value):
+                        return value_obj
+                    raise TypeError(
+                        f"Dynamic call parameter '{name}' is not an ir.Value"
+                    )
                 raise RuntimeError(
                     f"Call parameter '{name}' does not have a dynamic value in function scope"
                 )
@@ -241,7 +258,7 @@ class IRContext:
         self.builder.inputs.append(v)
         return v
 
-    def ensure_training_mode(self, flag_name: str, var: Any) -> Any:
+    def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value:
         """
         Return a BOOL[] Value for `training_mode`.
         - Inside a function: if `var` is a JAX literal (has a `.val`), fold to a constant
@@ -251,7 +268,7 @@ class IRContext:
         """
         # If we're inside a function body and the flag is a literal, fold now.
         if self._inside_function_scope:
-            lit_obj = var.val if hasattr(var, "val") else None  # type: ignore[attr-defined]
+            lit_obj = getattr(var, "val", None)
             # accept native bool, np.bool_, scalar array etc.
             if lit_obj is not None:
                 lit = bool(np.asarray(lit_obj).item())
@@ -281,7 +298,12 @@ class IRContext:
         self.add_node(node)
         return tm
 
-    def add_node(self, node: ir.Node, inputs=None, outputs=None):
+    def add_node(
+        self,
+        node: ir.Node,
+        inputs: Optional[Sequence[ir.Value]] = None,
+        outputs: Optional[Sequence[ir.Value]] = None,
+    ) -> ir.Node:
         # maintain legacy signature; plugins pass a constructed ir.Node
         self.builder.nodes.append(node)
         return node
@@ -298,7 +320,7 @@ class IRContext:
             return
         self.builder.initializers.append(value)
 
-    def _materialize_constant_value(self, value: ir.Value, tensor) -> None:
+    def _materialize_constant_value(self, value: ir.Value, tensor: Any) -> None:
         attributes = [Attr("value", AttributeType.TENSOR, tensor)]
         node = ir.Node(
             op_type="Constant",
@@ -336,13 +358,15 @@ class IRContext:
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self._function_mode:
-            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
-            aval_np_dtype: np.dtype | None = None
-            if aval is not None and hasattr(aval, "dtype"):
-                try:
-                    aval_np_dtype = np.dtype(aval.dtype)  # type: ignore[arg-type]
-                except TypeError:
-                    aval_np_dtype = None
+            aval = getattr(var, "aval", None)
+            aval_np_dtype: Optional[np.dtype] = None
+            if aval is not None:
+                aval_dtype_obj = getattr(aval, "dtype", None)
+                if aval_dtype_obj is not None:
+                    try:
+                        aval_np_dtype = np.dtype(aval_dtype_obj)
+                    except TypeError:
+                        aval_np_dtype = None
             if (
                 keep_float32
                 and aval_np_dtype is not None
@@ -396,7 +420,9 @@ class IRContext:
             pass
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
-        aval = var.aval
+        aval = getattr(var, "aval", None)
+        if aval is None:
+            raise TypeError("Expected var with 'aval' attribute")
         shp = tuple(aval.shape)
         aval_dtype = np.dtype(aval.dtype)
         promote_flag = self.builder.enable_double_precision
@@ -439,11 +465,14 @@ class IRContext:
         # Literals show up directly in eqn.invars for things like add_const
         if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
             arr = np.asarray(var.val)
-            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
-            literal_dtype = None
+            aval = getattr(var, "aval", None)
+            literal_dtype: Optional[np.dtype] = None
             if aval is not None:
+                aval_dtype_obj = getattr(aval, "dtype", None)
                 try:
-                    literal_dtype = np.dtype(aval.dtype if hasattr(aval, "dtype") else arr.dtype)  # type: ignore[attr-defined]
+                    literal_dtype = np.dtype(
+                        aval_dtype_obj if aval_dtype_obj is not None else arr.dtype
+                    )
                 except TypeError:
                     literal_dtype = None
             if prefer_np_dtype is not None:
@@ -462,10 +491,13 @@ class IRContext:
 
         if var in self.builder._var2val:
             return self.builder._var2val[var]
-        aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
+        aval = getattr(var, "aval", None)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
-        aval_dtype = np.dtype(aval.dtype)
+        aval_dtype_obj = getattr(aval, "dtype", None)
+        if aval_dtype_obj is None:
+            raise TypeError("Aval missing dtype")
+        aval_dtype = np.dtype(aval_dtype_obj)
         if (
             not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
@@ -492,10 +524,10 @@ class IRContext:
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):
             v = self.get_value_for_var(var, name_hint=f"out_{i}")
-            target_enum = None
-            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
+            target_enum: Optional[ir.DataType] = None
+            aval = getattr(var, "aval", None)
             if aval is not None:
-                aval_dtype = aval.dtype if hasattr(aval, "dtype") else None  # type: ignore[attr-defined]
+                aval_dtype = getattr(aval, "dtype", None)
                 if aval_dtype is not None:
                     try:
                         np_dtype = np.dtype(aval_dtype)
@@ -566,9 +598,11 @@ class IRContext:
         elif hasattr(self.builder, "add_opset_import"):
             self.builder.add_opset_import(domain, version)
 
-    def to_model_proto(self, *, name: str, ir_version: int = 10):
+    def to_model_proto(self, *, name: str, ir_version: int = 10) -> ir.Model:
         if hasattr(self.builder, "to_model_proto"):
-            return self.builder.to_model_proto(name=name, ir_version=ir_version)
+            result = self.builder.to_model_proto(name=name, ir_version=ir_version)
+            if isinstance(result, ir.Model):
+                return result
         return self.builder.to_ir_model(name=name, ir_version=ir_version)
 
 

@@ -10,7 +10,7 @@ from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
 
-_NP_TO_IR_BASE = {
+_NP_TO_IR_BASE: dict[np.dtype[Any], str] = {
     np.dtype(np.float32): "FLOAT",
     np.dtype(np.float64): "DOUBLE",
     np.dtype(np.int32): "INT32",
@@ -89,7 +89,12 @@ class IRBuilder:
 
         tape_initializers = self._tape_builder.initializers
         for value in tape_initializers[self._tape_initializer_index :]:
-            existing = self.initializers_by_name.get(value.name)
+            init_name = value.name or None
+            existing = (
+                self.initializers_by_name.get(init_name)
+                if init_name is not None
+                else None
+            )
             if existing is not None:
                 try:
                     idx = self.initializers.index(existing)
@@ -98,7 +103,8 @@ class IRBuilder:
                     self.initializers.append(value)
             else:
                 self.initializers.append(value)
-            self.initializers_by_name[value.name] = value
+            if init_name is not None:
+                self.initializers_by_name[init_name] = value
         self._tape_initializer_index = len(tape_initializers)
         # Builder exposes value_info as a helper function rather than a container; leave
         # IRBuilder.value_info under local control for compatibility with existing code.
@@ -164,7 +170,7 @@ class IRBuilder:
         for i, (var, spec) in enumerate(zip(invars, specs)):
             if hasattr(spec, "shape"):
                 shp = tuple(spec.shape)
-                dt = getattr(spec, "dtype", None)
+                dt = spec.dtype if hasattr(spec, "dtype") else None
             elif isinstance(spec, (tuple, list)):
                 shp = tuple(spec)
                 dt = None
@@ -186,7 +192,7 @@ class IRBuilder:
         """
         if var in self._var2val:
             return self._var2val[var]
-        aval = getattr(var, "aval", None)
+        aval = var.aval if hasattr(var, "aval") else None
         if aval is None:
             raise ValueError(f"Missing aval for var: {var}")
         shp = tuple(aval.shape)
@@ -235,14 +241,22 @@ class IRBuilder:
             )
         tape_builder = object.__getattribute__(self, "_tape_builder")
         try:
-            attr = getattr(tape_builder, name)
+            attr = object.__getattribute__(tape_builder, name)
         except AttributeError as err:
-            raise AttributeError(
-                f"{type(self).__name__!r} object has no attribute {name!r}"
-            ) from err
+            try:
+                getattr_hook = object.__getattribute__(
+                    type(tape_builder), "__getattr__"
+                )
+            except AttributeError:
+                getattr_hook = None
+            if getattr_hook is None:
+                raise AttributeError(
+                    f"{type(self).__name__!r} object has no attribute {name!r}"
+                ) from err
+            attr = getattr_hook(tape_builder, name)
         if callable(attr):
 
-            def _wrapped(*args: Any, **kwargs: Any):
+            def _wrapped(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
                 self._sync_from_tape_builder()
                 return result

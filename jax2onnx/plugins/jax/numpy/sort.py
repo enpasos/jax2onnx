@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_SORT_PRIM = make_jnp_primitive("jax.numpy.sort")
+_SORT_PRIM: Final = make_jnp_primitive("jax.numpy.sort")
 
 
 def _sort_eval(x, axis=-1):

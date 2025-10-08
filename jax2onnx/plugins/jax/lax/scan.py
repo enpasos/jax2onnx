@@ -2,34 +2,26 @@
 
 from __future__ import annotations
 
+import importlib
 import os
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Final, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import onnx_ir as ir
 from jax import core as jax_core
 from jax import lax
 
-try:
-    from jax.extend import core as jax_core_ext  # type: ignore
-except ImportError:  # pragma: no cover - older jax
-    jax_core_ext = None
-try:
-    from jax._src import core as jax_core_internal  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - private API moved
-    jax_core_internal = None
-import numpy as np
-import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
     builder_loop,
-    clone_value_for_subgraph,
     clone_input_for_subgraph,
+    clone_value_for_subgraph,
     create_loop_header_inputs,
     lower_jaxpr_eqns,
     make_subgraph_context,
@@ -40,6 +32,17 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _scalar_i64,
     _shape_of,
 )
+
+
+def _maybe_import(module: str) -> Any | None:
+    try:
+        return importlib.import_module(module)
+    except Exception:  # pragma: no cover
+        return None
+
+
+jax_core_ext: Final[Any | None] = _maybe_import("jax.extend.core")
+jax_core_internal: Final[Any | None] = _maybe_import("jax._src.core")
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext
@@ -106,7 +109,7 @@ def _maybe_var_type(mod):
         return None
 
 
-_JAX_VAR_TYPES = tuple(
+_JAX_VAR_TYPES: Final[tuple[type, ...]] = tuple(
     t
     for t in (
         _maybe_var_type(jax_core),
@@ -126,7 +129,7 @@ def _maybe_dropvar_type(mod):
         return None
 
 
-_DROP_VAR_TYPES = tuple(
+_DROP_VAR_TYPES: Final[tuple[type, ...]] = tuple(
     t
     for t in (
         _maybe_dropvar_type(jax_core),
@@ -1414,4 +1417,4 @@ class ScanPlugin(PrimitiveLeafPlugin):
         return list(loop_results)
 
 
-_DYNAMIC_DIM_SENTINEL = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
+_DYNAMIC_DIM_SENTINEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"

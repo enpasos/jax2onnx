@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, List, Optional, Sequence, cast
+from typing import Any, ClassVar, Final, List, Optional, Sequence, cast
 import jax.numpy as jnp
 from flax import nnx
 from jax.core import ShapedArray
@@ -124,7 +124,7 @@ def _layer_norm_attr_check(
     return True
 
 
-LAYER_NORM_PRIM = Primitive("nnx.layer_norm")
+LAYER_NORM_PRIM: Final[Primitive] = Primitive("nnx.layer_norm")
 LAYER_NORM_PRIM.multiple_results = False
 
 

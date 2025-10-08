@@ -14,7 +14,17 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, Set, TYPE_CHECKING, cast
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Final,
+    Optional,
+    Set,
+    TYPE_CHECKING,
+    cast,
+)
 
 import jax
 from jax.extend import core as jcore_ext
@@ -25,7 +35,7 @@ from jax.extend.core import Primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 
-logger = logging.getLogger("jax2onnx.plugins.plugin_system")
+logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 
 # ------------------------------------------------------------------------------
 # Registries and state
@@ -38,7 +48,7 @@ if TYPE_CHECKING:
 # Use a small private domain for ONNX functions. Netron shows the "f"
 # marker only when it can resolve a FunctionProto in a domain; ORT also
 # requires an opset import for non-empty domains.
-_FUNCTION_DOMAIN = "custom"
+_FUNCTION_DOMAIN: Final[str] = "custom"
 
 
 def _sanitize_op_type(s: str) -> str:
@@ -307,21 +317,29 @@ def _extract_ir_ctx(converter: Any):
     """
     # 1) direct attach on the facade
     for attr in ("_ctx", "ctx", "context"):
-        ctx = getattr(converter, attr, None)
-        if ctx is not None:
-            return ctx
+        if hasattr(converter, attr):
+            ctx = object.__getattribute__(converter, attr)
+            if ctx is not None:
+                return ctx
 
     # 2) via builder
-    b = getattr(converter, "builder", None)
+    b = (
+        object.__getattribute__(converter, "builder")
+        if hasattr(converter, "builder")
+        else None
+    )
     if b is None:
         return None
     for attr in ("_ctx", "ctx", "context", "_context", "ir_context", "parent_ctx"):
-        ctx = getattr(b, attr, None)
-        if ctx is not None:
-            return ctx
+        if hasattr(b, attr):
+            ctx = object.__getattribute__(b, attr)
+            if ctx is not None:
+                return ctx
 
     # 3) optional accessor
-    getctx = getattr(b, "get_context", None)
+    getctx = (
+        object.__getattribute__(b, "get_context") if hasattr(b, "get_context") else None
+    )
     if callable(getctx):
         try:
             return getctx()

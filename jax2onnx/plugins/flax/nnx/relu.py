@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/relu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union, Any
+from typing import TYPE_CHECKING, List, Union, Any, Final
 
 import numpy as np
 from jax.extend.core import Primitive as JaxPrimitive
@@ -23,11 +23,18 @@ if TYPE_CHECKING:
 
 # --- Define a JAX Primitive for nnx.relu and keep a reference on flax.nnx ---
 # We do this so tracing (make_jaxpr) “sees” a primitive instead of a Python function.
-nnx_relu_p = getattr(nnx, "relu_p", None)
-if nnx_relu_p is None:
-    nnx_relu_p = JaxPrimitive("nnx.relu")
-    nnx_relu_p.multiple_results = False
-    nnx.relu_p = nnx_relu_p  # attach for visibility / reuse
+
+
+def _init_relu_prim() -> Any:
+    relu_prim = getattr(nnx, "relu_p", None)
+    if relu_prim is None:
+        relu_prim = JaxPrimitive("nnx.relu")
+        relu_prim.multiple_results = False
+        nnx.relu_p = relu_prim  # attach for visibility / reuse
+    return relu_prim
+
+
+nnx_relu_p: Final[Any] = _init_relu_prim()
 
 
 def _relu_abstract_eval(x_aval: ShapedArray) -> ShapedArray:

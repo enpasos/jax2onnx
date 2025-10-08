@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from contextlib import contextmanager
 from importlib import import_module
-from typing import Any, Callable, Iterator, Union, Tuple
+from typing import Any, Callable, Final, Iterator, Union, Tuple
 
-_MISSING = object()
+_MISSING: Final[object] = object()
 
 
 def _resolve(target: Union[str, Any]) -> Any:

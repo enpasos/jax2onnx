@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/dropout.py
 
 from __future__ import annotations
-from typing import Callable, ClassVar, Any, Optional, Set
+from typing import Callable, ClassVar, Any, Final, Optional, Set
 import numpy as np
 import jax
 from jax.extend.core import Primitive
@@ -28,7 +28,7 @@ from flax import nnx
 # from jax2onnx.converter.conversion_api import _IRBuildContext
 from jax2onnx.converter.ir_context import IRContext
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _tp_to_numpy(tp) -> np.ndarray:
@@ -57,7 +57,7 @@ def _tp_to_numpy(tp) -> np.ndarray:
 
 # Structural sanity check for call-params path:
 #  - ensure a Not feeds Dropout with expected shapes (primitive vs MLP)
-_CALL_CHECK = EG(
+_CALL_CHECK: Final = EG(
     ["Not -> Dropout:Bx10", "Not -> Dropout:Bx20"],
     symbols={"B": None},
     mode="any",

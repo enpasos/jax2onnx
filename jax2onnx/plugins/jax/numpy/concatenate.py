@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Iterable, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -49,7 +49,7 @@ def _concat_dynamic_tile(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate([tiled, x], axis=1)
 
 
-_CONCAT_PRIM = make_jnp_primitive("jax.numpy.concatenate")
+_CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
 
 
 @register_primitive(

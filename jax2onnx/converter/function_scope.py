@@ -31,7 +31,7 @@ class FunctionDef:
 
 
 class FunctionRegistry:
-    def __init__(self):
+    def __init__(self) -> None:
         # key -> FunctionDef
         self._defs: dict[FunctionKey, FunctionDef] = {}
 
@@ -57,7 +57,7 @@ class FunctionScope:
     pointing at the produced function while reusing the parent graph values.
     """
 
-    def __init__(self, parent: IRContext, name: str, domain: str = ""):
+    def __init__(self, parent: IRContext, name: str, domain: str = "") -> None:
         self.parent = parent
         self.name = name
         self.domain = domain
@@ -203,7 +203,7 @@ class FunctionScope:
         return fn
 
 
-def attach_functions_to_model(*args, **kwargs):
+def attach_functions_to_model(*args: object, **kwargs: object) -> None:
     """
     Deprecated in IR2: use native onnx_ir.Function and attach to ir.Model.
     This is left as a no-op shim to keep imports from breaking while migrating.
