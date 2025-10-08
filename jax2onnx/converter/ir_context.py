@@ -202,9 +202,9 @@ class IRContext:
                 node.name = self.builder.fresh_name(prefix)
                 name = node.name
         else:
-            name = getattr(node, "name", None)
+            name = node.name if hasattr(node, "name") else None  # type: ignore[attr-defined]
             if not name:
-                prefix = getattr(node, "op_type", "node")
+                prefix = node.op_type if hasattr(node, "op_type") else "node"  # type: ignore[attr-defined]
                 name = self.builder.fresh_name(prefix)
                 setattr(node, "name", name)
         merged = dict(self._attr_overrides.get(name, {}))
@@ -212,7 +212,10 @@ class IRContext:
         self._attr_overrides[name] = merged
 
     def get_node_attrs(self, node: Any) -> Dict[str, Any]:
-        name = node.name if isinstance(node, ir.Node) else getattr(node, "name", "")
+        if isinstance(node, ir.Node):
+            name = node.name
+        else:
+            name = node.name if hasattr(node, "name") else ""  # type: ignore[attr-defined]
         return self._attr_overrides.get(name, {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
@@ -221,7 +224,7 @@ class IRContext:
         Function body: return the Value for `var` (function input or literal)."""
         if self._inside_function_scope:
             if var is None:
-                lookup = getattr(self, "_call_param_value_by_name", None)
+                lookup = self.__dict__.get("_call_param_value_by_name")
                 if isinstance(lookup, dict) and name in lookup:
                     return lookup[name]
                 raise RuntimeError(
@@ -248,7 +251,7 @@ class IRContext:
         """
         # If we're inside a function body and the flag is a literal, fold now.
         if self._inside_function_scope:
-            lit_obj = getattr(var, "val", None)
+            lit_obj = var.val if hasattr(var, "val") else None  # type: ignore[attr-defined]
             # accept native bool, np.bool_, scalar array etc.
             if lit_obj is not None:
                 lit = bool(np.asarray(lit_obj).item())
@@ -333,7 +336,7 @@ class IRContext:
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self._function_mode:
-            aval = getattr(var, "aval", None)
+            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
             aval_np_dtype: np.dtype | None = None
             if aval is not None and hasattr(aval, "dtype"):
                 try:
@@ -436,11 +439,11 @@ class IRContext:
         # Literals show up directly in eqn.invars for things like add_const
         if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
             arr = np.asarray(var.val)
-            aval = getattr(var, "aval", None)
+            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
             literal_dtype = None
             if aval is not None:
                 try:
-                    literal_dtype = np.dtype(getattr(aval, "dtype", arr.dtype))
+                    literal_dtype = np.dtype(aval.dtype if hasattr(aval, "dtype") else arr.dtype)  # type: ignore[attr-defined]
                 except TypeError:
                     literal_dtype = None
             if prefer_np_dtype is not None:
@@ -459,7 +462,7 @@ class IRContext:
 
         if var in self.builder._var2val:
             return self.builder._var2val[var]
-        aval = getattr(var, "aval", None)
+        aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
         aval_dtype = np.dtype(aval.dtype)
@@ -490,9 +493,9 @@ class IRContext:
         for i, var in enumerate(outvars):
             v = self.get_value_for_var(var, name_hint=f"out_{i}")
             target_enum = None
-            aval = getattr(var, "aval", None)
+            aval = var.aval if hasattr(var, "aval") else None  # type: ignore[attr-defined]
             if aval is not None:
-                aval_dtype = getattr(aval, "dtype", None)
+                aval_dtype = aval.dtype if hasattr(aval, "dtype") else None  # type: ignore[attr-defined]
                 if aval_dtype is not None:
                     try:
                         np_dtype = np.dtype(aval_dtype)
