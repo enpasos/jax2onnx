@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 from collections.abc import Iterable as IterableABC, Sequence as SequenceABC
-from typing import Tuple, Union, cast
+from typing import Protocol, Tuple, Union, cast
 
 import numpy as np
 import onnx_ir as ir
+
+from jax2onnx.converter.ir_builder import IRBuilder
+
+
+class _ValueInfoContext(Protocol):
+    """Protocol capturing the builder attribute we rely on."""
+
+    builder: IRBuilder
 
 
 DimValue = Union[int, ir.SymbolicDim, None]
@@ -41,18 +49,13 @@ def _as_ir_dim_label(dim: object) -> Union[str, int, None]:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
     if isinstance(dim, ir.SymbolicDim):
-        value = cast(object, getattr(dim, "value", None))
-        if isinstance(value, (int, np.integer)):
-            return int(value)
+        value = dim.value
+        if isinstance(value, str):
+            return value
         text = str(dim)
         return text if text else None
     if isinstance(dim, str):
         return dim
-    value_attr = cast(object, getattr(dim, "value", None))
-    if isinstance(value_attr, (int, np.integer)):
-        return int(value_attr)
-    if isinstance(value_attr, str):
-        return value_attr
     text = str(dim)
     return text if text else None
 
@@ -66,12 +69,8 @@ def _to_ir_dim_for_shape(dim: object) -> DimValue:
         return int(dim)
     if isinstance(dim, str):
         return ir.SymbolicDim(dim)
-    value_attr = cast(object, getattr(dim, "value", None))
-    if isinstance(value_attr, (int, np.integer)):
-        return int(value_attr)
-    if isinstance(value_attr, str):
-        return ir.SymbolicDim(value_attr)
-    return None
+    text = str(dim)
+    return ir.SymbolicDim(text) if text else None
 
 
 def _is_static_int(d: object) -> bool:
@@ -103,14 +102,15 @@ def _dim_label_from_value_or_aval(
 def _ensure_value_info(ctx: object, v: ir.Value | None) -> None:
     if v is None:
         return
-    try:
-        lst = getattr(ctx, "_value_info", None) or getattr(ctx, "_value_infos", None)
-        if lst is None:
-            return
-        if all(getattr(x, "name", None) != v.name for x in lst):
-            lst.append(v)
-    except Exception:
-        pass
+    ctx_typed = cast(_ValueInfoContext, ctx)
+    value_info = ctx_typed.builder.value_info
+    v_name = v.name
+    if v_name:
+        if all(info.name != v_name for info in value_info):
+            value_info.append(v)
+        return
+    if v not in value_info:
+        value_info.append(v)
 
 
 def is_shape_all_unknown(shp: object) -> bool:

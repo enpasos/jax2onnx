@@ -1,4 +1,4 @@
-# tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py
+# tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py
 
 from __future__ import annotations
 

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Final
-import importlib
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -32,24 +31,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _maybe_import(module: str) -> Any | None:
-    try:  # pragma: no cover - older jax without module
-        return importlib.import_module(module)
-    except Exception:
-        return None
-
-
-_JAX_CONFIG_MODULE: Final[Any | None] = _maybe_import("jax.config")
-
-
-_JAX_CONFIG: Final[Any | None] = _JAX_CONFIG_MODULE
-_USE_INT64: Final[bool] = bool(
-    getattr(_JAX_CONFIG, "read", lambda _k: False)("jax_enable_x64")
-)
-
-
 def _canon_int(value: int | np.integer) -> np.integer:
-    return np.int64(value) if _USE_INT64 else np.int32(value)
+    use_int64 = bool(jax.config.read("jax_enable_x64"))
+    return np.int64(value) if use_int64 else np.int32(value)
 
 
 def model_fn(x):

@@ -1,7 +1,6 @@
 # jax2onnx/user_interface.py
 
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -17,8 +16,6 @@ from typing import (
     overload,
     runtime_checkable,
 )
-import argparse
-import importlib
 import logging
 import os
 
@@ -26,7 +23,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
-from jax import config, core
+from jax import core
 
 from jax2onnx.converter.conversion_api import (
     InputSpec,
@@ -37,51 +34,8 @@ from jax2onnx.converter.conversion_api import (
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 from jax2onnx.serde_onnx import ir_to_onnx
-
-if TYPE_CHECKING:  # pragma: no cover - import optional dependency for typing
-    import onnxruntime
-
-    try:
-        from onnx_ir import Model as IRModel  # type: ignore
-    except Exception:
-        IRModel = Any  # type: ignore
-else:  # fallback stub so annotations using the name remain valid at runtime
-    onnxruntime = None  # type: ignore[assignment]
-    IRModel = Any  # type: ignore
-
-try:
-    from onnx import _mapping as _onnx_mapping
-except ImportError:  # pragma: no cover - optional mapping
-    _onnx_mapping = None
-
-
-def _major_minor(version_str: str) -> tuple[int, int]:
-    parts = version_str.split(".")
-    major = int(parts[0]) if parts else 0
-    minor = int(parts[1]) if len(parts) > 1 else 0
-    return major, minor
-
-
-_JAX_VERSION = _major_minor(jax.__version__)
-
-# JAX v0.7.x reworked jaxpr tracing; forcing dynamic-shapes via the legacy
-# config flag currently breaks otherwise-plain jit computations (see
-# https://github.com/jax-ml/jax/releases/tag/jax-v0.7.2).  Keep the behaviour
-# only for older releases where we relied on it, and fall back to the default on
-# newer toolchains.
-if _JAX_VERSION < (0, 7):
-    if os.environ.get("JAX2ONNX_ENABLE_LEGACY_DYNAMIC_SHAPES", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        config.update("jax_dynamic_shapes", True)
-
-# NEW -----------------------------------------------------------------
-_FLOAT64_HELP = (
-    "Export the entire ONNX graph in double precision (tensor(double)). "
-    "If omitted, tensors are exported in single precision (tensor(float))."
-)
+import onnxruntime
+from onnx_ir import Model as IRModel  # type: ignore
 
 
 ReturnMode = Literal["proto", "ir", "file"]
@@ -343,11 +297,10 @@ def to_onnx(
 
             arr = np.asarray(value)
             elem_type = None
-            if _onnx_mapping is not None:
-                try:
-                    elem_type = _onnx_mapping.NP_TYPE_TO_TENSOR_TYPE.get(arr.dtype)
-                except Exception:
-                    elem_type = None
+            try:
+                elem_type = onnx.helper.np_dtype_to_tensor_dtype(np.dtype(arr.dtype))
+            except Exception:
+                elem_type = None
             if elem_type is None and arr.dtype == np.bool_:
                 elem_type = onnx.TensorProto.BOOL
             if elem_type is None:
@@ -365,126 +318,19 @@ def to_onnx(
         onnx.save(model_proto, dest)
         return dest
 
-    # --- Bridge old vs new worlds gracefully ---
-    # New world (converter): returns an onnx_ir.Model → convert to ONNX ModelProto.
-    # Old world (converter v1): already returns an onnx.ModelProto → pass through.
-    ir_model_type = None
-    try:
-        ir_model_type = getattr(importlib.import_module("onnx_ir"), "Model", None)
-    except Exception:
-        ir_model_type = None
-
-    result_module = getattr(type(result), "__module__", "")
-    is_ir_model = False
-    if ir_model_type is not None and isinstance(result, ir_model_type):
-        is_ir_model = True
-    elif result_module.startswith("onnx_ir"):
-        is_ir_model = True
-
-    if is_ir_model:
-        postprocess_ir_model(
-            result,
-            promote_to_double=enable_double_precision,
-        )
-        if normalized_mode == "ir":
-            return result
-        model_proto = ir_to_onnx(result)
-        _attach_input_params(model_proto)
-        if normalized_mode == "file":
-            assert file_path is not None
-            return _save_model_proto(model_proto, file_path)
-        return model_proto
-
-    try:
-        onnx_mod = importlib.import_module("onnx")
-        model_proto_cls = getattr(onnx_mod, "ModelProto", None)
-    except Exception:
-        model_proto_cls = None
-
-    if model_proto_cls is not None and isinstance(result, model_proto_cls):
-        _attach_input_params(result)
-        if normalized_mode == "ir":
-            raise TypeError(
-                "return_mode='ir' requested, but backend produced an onnx.ModelProto."
-            )
-        if normalized_mode == "file":
-            assert file_path is not None
-            return _save_model_proto(result, file_path)
+    postprocess_ir_model(
+        result,
+        promote_to_double=enable_double_precision,
+    )
+    if normalized_mode == "ir":
         return result
 
-    # If we get here, we don't recognize the return type.
-    raise TypeError(
-        f"Unsupported model type from backend: {type(result)}. "
-        f"Expected onnx_ir.Model (new world) or onnx.ModelProto (old world)."
-    )
-
-
-def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="jax2onnx",
-        description="Convert a JAX function to an ONNX model.",
-    )
-    p.add_argument("module", help="Python module containing the JAX function")
-    p.add_argument("fn", help="Name of the JAX function inside the module")
-    p.add_argument("--out", help="Output .onnx file", default="model.onnx")
-    p.add_argument("--opset", type=int, default=21, help="ONNX opset version")
-    # … other existing args …
-
-    # ──────────────── NEW FLAG ────────────────
-    p.add_argument(
-        "--float64",
-        dest="enable_double_precision",
-        action="store_true",
-        default=False,
-        help=_FLOAT64_HELP,
-    )
-    # Add new argument for primitive call recording
-    p.add_argument(
-        "--record-primitives",
-        dest="record_primitive_calls_file",
-        help="File path to record JAX primitive calls during conversion",
-        default=None,
-    )
-
-    return p
-
-
-def run_command_line():
-    args = build_arg_parser().parse_args()
-
-    # Import the module and get the function
-    import importlib
-    import sys
-
-    sys.path.append(".")
-    try:
-        module = importlib.import_module(args.module)
-        function = getattr(module, args.fn)
-    except (ImportError, AttributeError) as e:
-        logging.error(f"Error loading function: {e}")
-        sys.exit(1)
-
-    # Parse input shapes or use reasonable defaults
-    input_specs = []  # Default to empty list if not specified
-    if hasattr(args, "input_shapes") and args.input_shapes:
-        try:
-            # Parse input shapes from command line
-            # This is a placeholder - actual implementation would depend on how shapes are specified
-            input_specs = eval(args.input_shapes)
-        except Exception as e:
-            logging.error(f"Error parsing input shapes: {e}")
-            sys.exit(1)
-
-    to_onnx(
-        function,
-        inputs=input_specs,
-        model_name=args.fn,
-        opset=args.opset,
-        enable_double_precision=args.enable_double_precision,
-        record_primitive_calls_file=args.record_primitive_calls_file,
-        return_mode="file",
-        output_path=args.out,
-    )
+    model_proto = ir_to_onnx(result)
+    _attach_input_params(model_proto)
+    if normalized_mode == "file":
+        assert file_path is not None
+        return _save_model_proto(model_proto, file_path)
+    return model_proto
 
 
 def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:

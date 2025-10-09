@@ -310,13 +310,25 @@ def _rebuild_node_with_inputs(n: "ir.Node", new_ins: Sequence["ir.Value"]) -> "i
     return n
 
 
+def _shape_dims_seq(shape: object | None) -> Optional[Tuple[object, ...]]:
+    if shape is None:
+        return None
+    if isinstance(shape, ir.Shape):
+        return tuple(shape.dims)
+    if isinstance(shape, SequenceABC) and not isinstance(shape, (str, bytes)):
+        try:
+            return tuple(shape)
+        except TypeError:
+            return None
+    return None
+
+
 def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple[int, ...]]:
     if v is None:
         return None
-    shp = v.shape
-    if shp is None:
+    dims = _shape_dims_seq(getattr(v, "shape", None))
+    if dims is None:
         return None
-    dims = shp.dims if isinstance(shp, ir.Shape) else tuple(shp)
     tuple_dims: List[int] = []
     for d in dims:
         if isinstance(d, int):
@@ -326,17 +338,11 @@ def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple[int, ...]]:
     return tuple(tuple_dims)
 
 
-def _shape_dims_key(shape: object) -> Optional[Tuple[str, ...]]:
+def _shape_dims_key(shape: object | None) -> Optional[Tuple[str, ...]]:
     """Return a hashable key representing the shape's dimensions."""
-    if shape is None:
+    dims = _shape_dims_seq(shape)
+    if dims is None:
         return None
-    if isinstance(shape, ir.Shape):
-        dims = shape.dims
-    else:
-        try:
-            dims = tuple(shape)
-        except Exception:
-            return None
     key: List[str] = []
     for d in dims:
         if isinstance(d, (int, np.integer)):
@@ -350,12 +356,8 @@ def _clone_shape_obj(shape: object | None) -> ir.Shape | Tuple[Any, ...] | None:
     """Best-effort clone of an onnx_ir Shape object."""
     if shape is None:
         return None
-    try:
-        if isinstance(shape, ir.Shape):
-            dims = shape.dims
-        else:
-            dims = tuple(shape)
-    except Exception:
+    dims = _shape_dims_seq(shape)
+    if dims is None:
         try:
             return copy.deepcopy(shape)
         except Exception:

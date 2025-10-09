@@ -137,6 +137,11 @@ class IRContext:
         # Set by FunctionScope while emitting FunctionProto
         self._inside_function_scope: bool = False
         self._keep_function_float32: bool = False
+        # Function plugin bookkeeping mirrors (always initialised for typed access)
+        self._func_name_counters: dict[str, int] = {}
+        self._call_input_param_names: set[str] = set()
+        self._call_input_param_literals: dict[str, Any] = {}
+        self._call_param_value_by_name: dict[str, ir.Value] = {}
 
     @property
     def opset(self) -> int:

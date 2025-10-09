@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import importlib
 import os
-from typing import TYPE_CHECKING, Any, Final, Union
+from typing import TYPE_CHECKING, Final, Union
 
 import jax
 import jax.numpy as jnp
@@ -33,16 +32,8 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _shape_of,
 )
 
-
-def _maybe_import(module: str) -> Any | None:
-    try:
-        return importlib.import_module(module)
-    except Exception:  # pragma: no cover
-        return None
-
-
-jax_core_ext: Final[Any | None] = _maybe_import("jax.extend.core")
-jax_core_internal: Final[Any | None] = _maybe_import("jax._src.core")
+import jax.extend.core as jax_core_ext
+import jax._src.core as jax_core_internal
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext

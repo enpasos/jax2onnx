@@ -1033,14 +1033,6 @@ def register_primitive(
     return _decorator
 
 
-def register_primitive2(jax_primitive_name: str):
-    def _wrap(cls):
-        PLUGIN_REGISTRY[jax_primitive_name] = cls()
-        return cls
-
-    return _wrap
-
-
 # ------------------------------------------------------------------------------
 # Monkey patching activation
 # ------------------------------------------------------------------------------
