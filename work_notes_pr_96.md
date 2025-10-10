@@ -2,8 +2,8 @@
 
 - Baseline cleanup is done; the remaining reflection work should target real wins, not a blanket “ban `getattr`”.
 - Primary focus areas:
-  * `converter/ir_context.py`: attribute helpers in place (`_maybe_attr/_maybe_aval/_maybe_dtype/...`); remaining TODO is to migrate the legacy `_InitializerProxy.__getattr__` shim or drop it if nothing relies on it.
-  * `converter/ir_optimizations.py`: attr + shape helpers now read via typed APIs (no `getattr` hits); next time we touch the file, focus on consumer maps (`_build_use_maps`) before moving on.
+  * `converter/ir_context.py`: attribute helpers are in place; the old `_InitializerProxy.__getattr__` shim has been replaced with a typed view. No further action unless new mutators are required.
+  * `converter/ir_optimizations.py`: attr + shape helpers now read via typed APIs. `_build_use_maps` has been updated to rely on `Value.consumers()`; remaining cleanups should target bespoke producer lookups if they surface again.
   * `plugins/_post_check_onnx_graph.py` and `_patching.py`: these still need reflection for ONNX proto shims—document that expectation so the audit report is actionable.
 - Workflow for each sweep:
   1. Add typed utility functions (e.g., `_maybe_aval`, `_maybe_dtype`) and migrate one module at a time.

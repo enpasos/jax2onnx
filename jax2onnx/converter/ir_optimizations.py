@@ -171,7 +171,7 @@ def _perms_compose_identity(p1: Sequence[int], p2: Sequence[int]) -> bool:
 
 def _value_identity(
     value_or_name: Optional[object],
-) -> Tuple[Optional["ir.Value"], Optional[str]]:
+) -> Tuple[Optional[ir.Value], Optional[str]]:
     if value_or_name is None:
         return None, None
     if isinstance(value_or_name, ir.Value):
@@ -288,7 +288,7 @@ def _node_outputs(n: ir.Node) -> ValueList:
     return list(cast(ValueSeq, n.outputs))
 
 
-def _node_output(n: ir.Node) -> Optional["ir.Value"]:
+def _node_output(n: ir.Node) -> Optional[ir.Value]:
     outs = _node_outputs(n)
     return outs[0] if outs else None
 
@@ -297,19 +297,9 @@ def _node_inputs(n: ir.Node) -> ValueList:
     return list(cast(ValueSeq, n.inputs))
 
 
-def _set_node_inputs(n: ir.Node, new_ins: Sequence["ir.Value"]) -> None:
+def _set_node_inputs(n: ir.Node, new_ins: Sequence[ir.Value]) -> None:
     for idx, val in enumerate(new_ins):
         n.replace_input_with(idx, val)
-
-
-def _rebuild_node_with_inputs(n: "ir.Node", new_ins: Sequence["ir.Value"]) -> "ir.Node":
-    """
-    Construct a fresh ir.Node with the same op_type/name/domain/outputs/attributes,
-    but with the provided inputs. This avoids copy-on-write pitfalls in some
-    onnx_ir builds where mutating `.inputs`/`.input` doesn't persist.
-    """
-    _set_node_inputs(n, new_ins)
-    return n
 
 
 def _shape_dims_seq(shape: object | None) -> Optional[Tuple[object, ...]]:
@@ -325,7 +315,7 @@ def _shape_dims_seq(shape: object | None) -> Optional[Tuple[object, ...]]:
     return None
 
 
-def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple[int, ...]]:
+def _shape_tuple(v: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     if v is None:
         return None
     dims = _shape_dims_seq(v.shape)
@@ -376,7 +366,7 @@ def _clone_shape_obj(shape: object | None) -> ir.Shape | Tuple[Any, ...] | None:
         return tuple(norm_dims)
 
 
-def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool:
+def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
     ta, tb = _shape_tuple(a), _shape_tuple(b)
     if ta is None or tb is None or len(ta) != len(tb):
         return False
@@ -390,7 +380,7 @@ def _shapes_compatible(a: Optional["ir.Value"], b: Optional["ir.Value"]) -> bool
 
 def _get_node_seq_and_setter(
     graph: ir.Graph,
-) -> Tuple[List["ir.Node"], Callable[[List["ir.Node"]], None]]:
+) -> Tuple[List[ir.Node], Callable[[List[ir.Node]], None]]:
     container = graph._nodes
     snapshot = list(container)
 
@@ -403,11 +393,28 @@ def _get_node_seq_and_setter(
 
 
 def _replace_everywhere(
-    nodes: List["ir.Node"],
-    old_v: Optional["ir.Value"],
+    nodes: List[ir.Node],
+    old_v: Optional[ir.Value],
     old_name: Optional[str],
-    new_v: "ir.Value",
+    new_v: ir.Value,
 ) -> None:
+    """
+    Rewire a value across a specific node subset.
+
+    Several optimizations (reshape/transposed pair folding, dropout rewrites,
+    etc.) need to redirect an intermediate edge only for the linear chain of
+    nodes they touch, while other consumers of the same value must remain
+    unchanged.  The global helper ``ir.convenience.replace_all_uses_with`` would
+    rewrite every consumer in the graph, so we keep this scoped helper:
+
+    * When ``old_v`` is present we rely on the IR helper (safe because the pass
+      already knows all consumers that should be updated share that object).
+    * When the pass only tracked the value name (legacy IR builds may expose
+      strings or name copies), we manually scan the provided ``nodes`` and
+      update inputs that match either the cached object or the cached name.
+    * String-name rewrites also handle the case where ONNX IR stored a raw
+      string in the input list.
+    """
     if old_v is not None:
         ir_convenience.replace_all_uses_with(old_v, new_v)
         return
@@ -430,19 +437,37 @@ def _replace_everywhere(
 
 def _replace_in_graph_outputs(
     graph: ir.Graph,
-    old_v: Optional["ir.Value"],
+    old_v: Optional[ir.Value],
     old_name: Optional[str],
-    new_v: "ir.Value",
+    new_v: ir.Value,
 ) -> None:
-    if old_v is not None:
-        ir_convenience.replace_all_uses_with(old_v, new_v)
+    """
+    Swap a graph output from ``old_v`` to ``new_v`` while keeping legacy fallbacks.
 
+    Optimizer passes sometimes redirect the final node in a chain (e.g.
+    collapsing Reshape→Reshape). If the old value fed a graph output we must
+    update the graph outputs list; otherwise ONNX still sees the stale symbol.
+
+    Parameters
+    ----------
+    graph:
+        The graph whose outputs need updating.
+    old_v:
+        The value being replaced. When present we let the IR helper rewrite all
+        consumers (graph outputs included).
+    old_name:
+        Legacy fallback when only the value name is known. Some onnx_ir builds
+        expose string inputs, so we still scan for matching names.
+    new_v:
+        The replacement value that should now feed the graph outputs.
+    """
+    if old_v is None:
+        return
+    ir_convenience.replace_all_uses_with(old_v, new_v)
     outputs = graph.outputs
     replaced = False
     for idx, ov in enumerate(outputs):
-        if (old_v is not None and ov is old_v) or (
-            old_name and _v_name(ov) == old_name
-        ):
+        if ov is old_v or (old_name and _v_name(ov) == old_name):
             outputs[idx] = new_v
             replaced = True
 
@@ -453,33 +478,51 @@ def _replace_in_graph_outputs(
 def _build_use_maps(
     nodes: NodeSeq,
 ) -> Tuple[Dict[int, int], Dict[str, int], Dict[int, Set[int]], Dict[str, Set[int]]]:
+    node_index: Dict[int, int] = {id(node): idx for idx, node in enumerate(nodes)}
     prod_by_obj: Dict[int, int] = {}
     prod_by_name: Dict[str, int] = {}
     cons_by_obj: Dict[int, Set[int]] = defaultdict(set)
     cons_by_name: Dict[str, Set[int]] = defaultdict(set)
-    for i, n in enumerate(nodes):
-        for ov in _node_outputs(n):
+
+    for idx, node in enumerate(nodes):
+        outputs = _node_outputs(node)
+        for ov in outputs:
             if ov is None:
                 continue
-            prod_by_obj[id(ov)] = i
+            prod_by_obj[id(ov)] = idx
             nm = _v_name(ov)
             if nm:
-                prod_by_name[nm] = i
-    for i, n in enumerate(nodes):
-        for iv in _node_inputs(n):
+                prod_by_name[nm] = idx
+            if isinstance(ov, ir.Value):
+                consumers = ov.consumers()
+                if consumers:
+                    for consumer in consumers:
+                        c_idx = node_index.get(id(consumer))
+                        if c_idx is None:
+                            try:
+                                c_idx = nodes.index(consumer)
+                            except ValueError:
+                                continue
+                            node_index[id(consumer)] = c_idx
+                        cons_by_obj[id(ov)].add(c_idx)
+                        if nm:
+                            cons_by_name[nm].add(c_idx)
+        inputs = _node_inputs(node)
+        for iv in inputs:
             if iv is None:
                 continue
-            cons_by_obj[id(iv)].add(i)
+            cons_by_obj[id(iv)].add(idx)
             nm = _v_name(iv)
             if nm:
-                cons_by_name[nm].add(i)
+                cons_by_name[nm].add(idx)
+
     return prod_by_obj, prod_by_name, cons_by_obj, cons_by_name
 
 
 def _unique_consumer(
     cons_by_obj: Dict[int, Set[int]],
     cons_by_name: Dict[str, Set[int]],
-    val: Optional["ir.Value"],
+    val: Optional[ir.Value],
 ) -> Optional[int]:
     if val is None:
         return None
@@ -491,7 +534,7 @@ def _unique_consumer(
 
 
 def _producer_idx_for(
-    val: Optional["ir.Value"],
+    val: Optional[ir.Value],
     prod_obj: Dict[int, int],
     prod_name: Dict[str, int],
 ) -> Optional[int]:
@@ -504,7 +547,7 @@ def _producer_idx_for(
 def _all_consumers(
     cons_by_obj: Dict[int, Set[int]],
     cons_by_name: Dict[str, Set[int]],
-    v: Optional["ir.Value"],
+    v: Optional[ir.Value],
 ) -> Set[int]:
     if v is None:
         return set()
@@ -856,7 +899,7 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
 # ---------------- Shape propagation helpers ----------------
 
 
-def _copy_shape_only(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> bool:
+def _copy_shape_only(dst: Optional[ir.Value], src: Optional[ir.Value]) -> bool:
     """Copy shape metadata from src → dst when dst is missing/unknown."""
     if dst is None or src is None:
         return False

@@ -10,8 +10,11 @@ from typing import (
     TYPE_CHECKING,
     Iterable,
     Iterator,
+    Union,
     cast,
 )
+from typing import overload
+from collections.abc import MutableSequence
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
@@ -23,8 +26,8 @@ if TYPE_CHECKING:
     from .conversion_api import FunctionRegistry
 
 
-class _InitializerProxy:
-    """List-like view over builder.initializers that is function-safe."""
+class _InitializerProxy(MutableSequence[ir.Value]):
+    """Typed view over builder.initializers that preserves IR builder invariants."""
 
     def __init__(self, ctx: "IRContext") -> None:
         self._ctx = ctx
@@ -37,20 +40,70 @@ class _InitializerProxy:
         for value in values:
             self.append(value)
 
-    def __iter__(self) -> Iterator[ir.Value]:
-        return iter(self._storage)
+    @overload
+    def __getitem__(self, index: int) -> ir.Value: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> MutableSequence[ir.Value]: ...
+
+    def __getitem__(
+        self, index: Union[int, slice]
+    ) -> Union[ir.Value, MutableSequence[ir.Value]]:
+        return self._storage[index]
+
+    @overload
+    def __setitem__(self, index: int, value: ir.Value) -> None: ...
+
+    @overload
+    def __setitem__(self, index: slice, value: Iterable[ir.Value]) -> None: ...
+
+    def __setitem__(
+        self, index: Union[int, slice], value: Union[ir.Value, Iterable[ir.Value]]
+    ) -> None:
+        if isinstance(index, slice):
+            if not isinstance(value, Iterable):
+                raise TypeError("Slice assignment expects an iterable of ir.Value")
+            self._storage[index] = list(value)
+        else:
+            if not isinstance(value, ir.Value):
+                raise TypeError("Expected ir.Value for item assignment")
+            self._storage[index] = value
+
+    @overload
+    def __delitem__(self, index: int) -> None: ...
+
+    @overload
+    def __delitem__(self, index: slice) -> None: ...
+
+    def __delitem__(self, index: Union[int, slice]) -> None:
+        del self._storage[index]
 
     def __len__(self) -> int:
         return len(self._storage)
 
-    def __getitem__(self, item: int) -> ir.Value:
-        return self._storage[item]
+    def insert(self, index: int, value: ir.Value) -> None:
+        if index >= len(self._storage):
+            self.append(value)
+            return
+        self._storage.insert(index, value)
+
+    def __iter__(self) -> Iterator[ir.Value]:
+        return iter(self._storage)
+
+    def __contains__(self, value: object) -> bool:
+        return value in self._storage
+
+    def clear(self) -> None:
+        self._storage.clear()
+
+    def pop(self, index: int = -1) -> ir.Value:
+        return self._storage.pop(index)
 
     def __bool__(self) -> bool:
         return bool(self._storage)
 
-    def __getattr__(self, name: str) -> Any:
-        return object.__getattribute__(self._storage, name)
+    def __repr__(self) -> str:
+        return f"_InitializerProxy({self._storage!r})"
 
 
 # ---- literal + dtype bookkeeping -------------------------------------------------
