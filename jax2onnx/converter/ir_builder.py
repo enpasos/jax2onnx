@@ -9,22 +9,6 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
-
-_NP_TO_IR_BASE: dict[np.dtype[Any], str] = {
-    np.dtype(np.float32): "FLOAT",
-    np.dtype(np.float64): "DOUBLE",
-    np.dtype(np.int32): "INT32",
-    np.dtype(np.int64): "INT64",
-    np.dtype(np.uint8): "UINT8",
-    np.dtype(np.int8): "INT8",
-    np.dtype(np.uint16): "UINT16",
-    np.dtype(np.int16): "INT16",
-    np.dtype(np.uint32): "UINT32",
-    np.dtype(np.uint64): "UINT64",
-    np.dtype(np.bool_): "BOOL",
-}
-
-
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     """
     Map numpy dtype to onnx_ir.DataType.
@@ -41,12 +25,10 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         if key == np.float64:
             return ir.DataType.DOUBLE
         return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
-    name = _NP_TO_IR_BASE.get(key)
-    if name:
-        return ir.DataType[name]
-    if np.issubdtype(key, np.integer):
-        return ir.DataType.INT64
-    raise TypeError(f"Unsupported dtype: {dtype}")
+    try:
+        return ir.DataType.from_numpy(key)
+    except Exception as e:
+        raise TypeError(f"Unsupported dtype: {dtype}") from e
 
 
 class IRBuilder:
@@ -278,7 +260,7 @@ class IRBuilder:
             outputs=self.outputs,
             nodes=self.nodes,
             initializers=self.initializers,
-            name=name or "jax2onnx_ir_graph",
+            name=name or "main_graph",
             opset_imports={"": self.opset},
         )
-        return ir.Model(graph, ir_version=ir_version)
+        return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")
