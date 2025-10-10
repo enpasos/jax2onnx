@@ -17,7 +17,6 @@ from typing import (
     TypeAlias,
     cast,
 )
-import copy
 import os
 import numpy as np
 
@@ -342,28 +341,6 @@ def _shape_dims_key(shape: object | None) -> Optional[Tuple[str, ...]]:
         else:
             key.append(f"repr:{repr(d)}")
     return tuple(key)
-
-
-def _clone_shape_obj(shape: object | None) -> ir.Shape | Tuple[Any, ...] | None:
-    """Best-effort clone of an onnx_ir Shape object."""
-    if shape is None:
-        return None
-    dims = _shape_dims_seq(shape)
-    if dims is None:
-        try:
-            return copy.deepcopy(shape)
-        except Exception:
-            return None
-    norm_dims: List[Any] = []
-    for d in dims:
-        if isinstance(d, (int, np.integer)):
-            norm_dims.append(int(d))
-        else:
-            norm_dims.append(str(d))
-    try:
-        return ir.Shape(tuple(norm_dims))
-    except Exception:
-        return tuple(norm_dims)
 
 
 def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
@@ -927,7 +904,7 @@ def _copy_shape_only(dst: Optional[ir.Value], src: Optional[ir.Value]) -> bool:
         return False
     if d_key == s_key:
         return False
-    cloned = _clone_shape_obj(s_shp)
+    cloned = ir.Shape(s_shp)
     if cloned is None:
         return False
     try:
@@ -956,7 +933,7 @@ def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> b
         s_key = _shape_dims_key(s_shp)
         d_key = _shape_dims_key(d_shp) if d_shp is not None else None
         if s_key is not None and s_key != d_key:
-            cloned = _clone_shape_obj(s_shp)
+            cloned = ir.Shape(s_shp)
             if cloned is not None:
                 try:
                     dst.shape = cloned
