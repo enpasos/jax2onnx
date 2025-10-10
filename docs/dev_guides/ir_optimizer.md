@@ -1,0 +1,48 @@
+# IR Optimizer Passes
+
+The converter runs a lightweight, IR-only optimization sweep after lowering and before serialization. Passes must be structure-only (no op-specific math) and safe across `onnx_ir` variants. This guide documents the current canon and the invariants each pass must respect.
+
+---
+
+## Transpose Pair Folding
+
+**Pattern**  
+`Transpose → [pure elementwise]* → Transpose`
+
+**Condition**  
+The composed permutation of the Transpose nodes equals identity.
+
+**Allowed middle ops**  
+Elementwise operators that do not reorder elements, including:
+`Relu`, `Gelu`, `Elu`, `Sigmoid`, `Tanh`, `LeakyRelu`, `Dropout`, `Cast`, `CastLike`, `Identity`, etc.
+
+**Not folded**  
+Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, or similar layout-sensitive ops.
+
+### Matching heuristics
+
+- Follow the true consumer chain by **name or object identity** (some `onnx_ir` builds wrap/rename `Value` objects).
+- Skip helper nodes on side branches (`Const`, `Shape`, etc.) that do not consume the current tensor.
+- Require **single consumer** at each hop (no branching rewires).
+- Read permutations from the `perm` attribute when available.
+- When `perm` is missing, treat the pair as cancellable only if the input and output shapes match and the middle segment is strictly elementwise.
+
+### Rewiring and deletion
+
+- `onnx_ir.Node.inputs` may be immutable; use `Node.replace_input_with(index: int, value: Value)` when provided by the backend.
+- Rewire **all** consumers of the second transpose’s output (by name or object) to the kept tensor.
+- Update graph/model outputs and the var→value map so no reference points at removed nodes.
+- Delete nodes in reverse order (second transpose first), maintaining any live list mirrors (`graph.nodes`, `graph._nodes`, etc.).
+
+This pass is intentionally conservative, portable across `onnx_ir` variants, and oblivious to specific operator semantics.
+
+---
+
+## Authoring new passes
+
+- Keep logic IR-only—never import ONNX protobuf utilities.
+- Prefer helper predicates in `converter/ir_optimizations.py` (`_is_elem`, `_count_consumers`, etc.).
+- Verify mutations persist across all node containers (`graph.nodes`, `_nodes`, `node`).
+- Add focused regression tests under `tests/extra_tests/framework/`.
+- Document the new rule here and reference the guide from `docs/design.md`.
+

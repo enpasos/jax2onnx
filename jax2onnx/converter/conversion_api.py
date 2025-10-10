@@ -40,9 +40,7 @@ from .ir_builder import IRBuilder
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 
-# ---- JAX 0.6.x: bind from jax.extend.core only ------------------------------
-# We officially support JAX 0.6.x; never touch jax.core.Literal on this path.
-from jax.extend import core as jcore_ext  # type: ignore
+from jax.extend import core as jcore_ext
 
 _LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
@@ -50,8 +48,7 @@ ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
 InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
-# Keep ORT-compatible IR version (ORT ~1.18 supports IR v10 broadly)
-_ORT_SAFE_IR_VERSION: int = 10
+_ORT_SAFE_IR_VERSION: int = 11
 
 
 def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":

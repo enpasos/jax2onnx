@@ -25,7 +25,7 @@ _NP_TO_IR_BASE: dict[np.dtype[Any], str] = {
 }
 
 
-def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> "ir.DataType":
+def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     """
     Map numpy dtype to onnx_ir.DataType.
     Floats are normalized by enable_double flag.
@@ -271,8 +271,7 @@ class IRBuilder:
     def get_symbolic_dim_origin(self, sym: str) -> Optional[tuple[ir.Value, int]]:
         return self._sym_origin.get(sym)
 
-    # ---------- finalize (IR only) ----------
-    def to_ir_model(self, *, name: str, ir_version: int = 10) -> "ir.Model":
+    def to_ir_model(self, *, name: str, ir_version: int = 11) -> ir.Model:
         self._sync_from_tape_builder()
         graph = ir.Graph(
             inputs=self.inputs,

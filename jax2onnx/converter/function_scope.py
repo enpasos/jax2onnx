@@ -200,11 +200,3 @@ class FunctionScope:
         )
         setattr(fn, "_attr_overrides", dict(self._attr_overrides or {}))
         return fn
-
-
-def attach_functions_to_model(*args: object, **kwargs: object) -> None:
-    """
-    Deprecated in IR2: use native onnx_ir.Function and attach to ir.Model.
-    This is left as a no-op shim to keep imports from breaking while migrating.
-    """
-    return None
