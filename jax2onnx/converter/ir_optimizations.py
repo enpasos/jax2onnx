@@ -462,7 +462,13 @@ def _replace_in_graph_outputs(
         The replacement value that should now feed the graph outputs.
     """
     if old_v is None:
+        if not old_name:
+            return
+        for idx, ov in enumerate(graph.outputs):
+            if _v_name(ov) == old_name:
+                graph.outputs[idx] = new_v
         return
+
     ir_convenience.replace_all_uses_with(old_v, new_v)
     outputs = graph.outputs
     replaced = False
@@ -565,7 +571,9 @@ def _get_attr(node: ir.Node, name: str) -> Optional[ir.Attr]:
     attrs = node.attributes
     if isinstance(attrs, Mapping):
         candidate = attrs.get(name)
-        return candidate if isinstance(candidate, ir.Attr) else None
+        if isinstance(candidate, ir.Attr):
+            return candidate
+        return None
     if isinstance(attrs, SequenceABC):
         for item in attrs:
             if isinstance(item, ir.Attr) and item.name == name:
