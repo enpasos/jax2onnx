@@ -85,7 +85,6 @@ warn_unreachable = true
 incremental = false
 files = [
     "jax2onnx/converter/function_scope.py",
-    "jax2onnx/converter/ir_pretty.py",
     "jax2onnx/converter/ir_postprocess.py",
     "jax2onnx/converter/ir_builder.py",
     "jax2onnx/converter/ir_context.py",

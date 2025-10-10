@@ -7,7 +7,7 @@ from jax import lax
 import numpy as np
 import onnx_ir as ir
 
-# from onnx_ir import Attribute as IRAttr  # NEW: proper Attr objects
+# from onnx_ir import Attribute as IRAttr
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64

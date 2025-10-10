@@ -468,7 +468,7 @@ LAYER_NORM_PRIM.def_abstract_eval(LayerNormPlugin.abstract_eval)
 
 
 # ---------------------------------------------------------------------------
-# NEW: runtime Python impl for the primitive (eager JAX path for validation).
+# runtime Python impl for the primitive (eager JAX path for validation).
 # This mirrors the ONNX LayerNormalization math & order-of-ops to minimize
 # numeric drift vs. ORT, while our lowering still emits a single LN node.
 # ---------------------------------------------------------------------------

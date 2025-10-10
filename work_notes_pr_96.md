@@ -2,8 +2,8 @@
 
 - Baseline cleanup is done; the remaining reflection work should target real wins, not a blanket “ban `getattr`”.
 - Primary focus areas:
-  * `converter/ir_context.py`: replace the noisy `getattr(var, "aval", ...)` branches with small typed helpers; keep literal fallbacks where they protect edge cases.
-  * `converter/ir_optimizations.py`: audit the attr/shape helpers next and tighten signatures so audit output for that module shrinks.
+  * `converter/ir_context.py`: attribute helpers in place (`_maybe_attr/_maybe_aval/_maybe_dtype/...`); remaining TODO is to migrate the legacy `_InitializerProxy.__getattr__` shim or drop it if nothing relies on it.
+  * `converter/ir_optimizations.py`: attr + shape helpers now read via typed APIs (no `getattr` hits); next time we touch the file, focus on consumer maps (`_build_use_maps`) before moving on.
   * `plugins/_post_check_onnx_graph.py` and `_patching.py`: these still need reflection for ONNX proto shims—document that expectation so the audit report is actionable.
 - Workflow for each sweep:
   1. Add typed utility functions (e.g., `_maybe_aval`, `_maybe_dtype`) and migrate one module at a time.
@@ -53,5 +53,3 @@
 - R7: Prefer `onnx_ir`'s built-in helpers (Attr/AttributeType, Function.identifier, live Graph containers) and remove proto shims now that the typed APIs are always available (input 25).
 - R8: When rewiring graph outputs, treat them as `Value` references—use `is_graph_output`, rename the survivor Value, replace entries in `graph.outputs`, and drop the node with `graph.remove(..., safe=True)` (input 26).
 - R9: Always provide explicit variable type annotations in backend processing so mypy enforces the converter/plugin interfaces.
-
-

@@ -151,7 +151,6 @@ class FunctionScope:
             attr_overrides=overrides,
         )
 
-    # NEW: materialize a native onnx_ir.Function from the child context
     def to_ir_function(self) -> ir.Function:
         # Pick an opset for the body; prefer parent/child builder opset
         body_opset = int(self.ctx.builder.opset)

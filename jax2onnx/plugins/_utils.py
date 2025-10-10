@@ -86,7 +86,6 @@ def cast_param_like(
     return out
 
 
-# --- NEW: inline reshape for constant parameters (no runtime node) ---
 def inline_reshape_initializer(
     ctx, val: ir.Value, new_shape: tuple[int, ...], name_hint: str
 ) -> ir.Value:

@@ -10,6 +10,7 @@ from typing import (
     TYPE_CHECKING,
     Iterable,
     Iterator,
+    cast,
 )
 import numpy as np
 import onnx_ir as ir
@@ -97,6 +98,57 @@ def _is_float_dtype_enum(enum: ir.DataType) -> bool:
 
 def _is_int_dtype_enum(enum: ir.DataType) -> bool:
     return enum in _INT_DTYPES
+
+
+def _maybe_attr(obj: Any, attr: str) -> Any | None:
+    if obj is None:
+        return None
+    if not hasattr(obj, attr):
+        return None
+    try:
+        return object.__getattribute__(obj, attr)
+    except AttributeError:
+        return None
+    except Exception:
+        try:
+            return getattr(obj, attr)
+        except Exception:
+            return None
+
+
+def _maybe_str_attr(obj: Any, attr: str) -> Optional[str]:
+    value = _maybe_attr(obj, attr)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _maybe_literal_value(literal: Any) -> Any | None:
+    return _maybe_attr(literal, "val")
+
+
+def _maybe_aval(obj: Any) -> Any | None:
+    return _maybe_attr(obj, "aval")
+
+
+def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
+    dtype_obj = _maybe_attr(aval, "dtype")
+    if dtype_obj is None:
+        return None
+    try:
+        return cast(np.dtype[Any], np.dtype(dtype_obj))
+    except TypeError:
+        return None
+
+
+def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
+    shape_obj = _maybe_attr(aval, "shape")
+    if shape_obj is None:
+        return None
+    try:
+        return tuple(shape_obj)
+    except TypeError:
+        return None
 
 
 class IRContext:
@@ -207,33 +259,18 @@ class IRContext:
     #   - function bodies (need onnx_ir Attr objects)
     #   - top-level graphs (stash raw values, applied later in to_onnx)
     # ------------------------------------------------------------------
-    def set_node_attrs(self, node: Any, attrs: Dict[str, Any]) -> None:
-        # make sure there is a stable name to key overrides
-        if isinstance(node, ir.Node):
-            node_name = node.name
-            if not node_name:
-                prefix = node.op_type or "node"
-                node_name = self.builder.fresh_name(prefix)
-                node.name = node_name
-        else:
-            node_name_obj = getattr(node, "name", None)
-            if not isinstance(node_name_obj, str) or not node_name_obj:
-                prefix_obj = getattr(node, "op_type", "node")
-                prefix = str(prefix_obj) if prefix_obj else "node"
-                node_name_obj = self.builder.fresh_name(prefix)
-                setattr(node, "name", node_name_obj)
-            node_name = node_name_obj
+    def set_node_attrs(self, node: ir.Node, attrs: Dict[str, Any]) -> None:
+        node_name = node.name
+        if not node_name:
+            prefix = node.op_type or "node"
+            node_name = self.builder.fresh_name(prefix)
+            node.name = node_name
         merged = dict(self._attr_overrides.get(node_name, {}))
         merged.update(attrs)
         self._attr_overrides[node_name] = merged
 
-    def get_node_attrs(self, node: Any) -> Dict[str, Any]:
-        if isinstance(node, ir.Node):
-            node_name = node.name or ""
-        else:
-            name_obj = getattr(node, "name", "")
-            node_name = name_obj if isinstance(name_obj, str) else ""
-        return self._attr_overrides.get(node_name, {})
+    def get_node_attrs(self, node: ir.Node) -> Dict[str, Any]:
+        return self._attr_overrides.get(node.name or "", {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
     def ensure_external_flag(self, name: str, var: Any) -> ir.Value:
@@ -273,7 +310,7 @@ class IRContext:
         """
         # If we're inside a function body and the flag is a literal, fold now.
         if self._inside_function_scope:
-            lit_obj = getattr(var, "val", None)
+            lit_obj = _maybe_literal_value(var)
             # accept native bool, np.bool_, scalar array etc.
             if lit_obj is not None:
                 lit = bool(np.asarray(lit_obj).item())
@@ -363,15 +400,8 @@ class IRContext:
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self._function_mode:
-            aval = getattr(var, "aval", None)
-            aval_np_dtype: Optional[np.dtype] = None
-            if aval is not None:
-                aval_dtype_obj = getattr(aval, "dtype", None)
-                if aval_dtype_obj is not None:
-                    try:
-                        aval_np_dtype = np.dtype(aval_dtype_obj)
-                    except TypeError:
-                        aval_np_dtype = None
+            aval = _maybe_aval(var)
+            aval_np_dtype = _maybe_dtype(aval)
             if (
                 keep_float32
                 and aval_np_dtype is not None
@@ -425,11 +455,15 @@ class IRContext:
             pass
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
-        aval = getattr(var, "aval", None)
+        aval = _maybe_aval(var)
         if aval is None:
             raise TypeError("Expected var with 'aval' attribute")
-        shp = tuple(aval.shape)
-        aval_dtype = np.dtype(aval.dtype)
+        shp = _maybe_shape(aval)
+        if shp is None:
+            raise TypeError("Aval missing shape")
+        aval_dtype = _maybe_dtype(aval)
+        if aval_dtype is None:
+            raise TypeError("Aval missing dtype")
         promote_flag = self.builder.enable_double_precision
         if (
             self._function_mode
@@ -469,15 +503,15 @@ class IRContext:
     ) -> ir.Value:
         # Literals show up directly in eqn.invars for things like add_const
         if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            arr = np.asarray(var.val)
-            aval = getattr(var, "aval", None)
-            literal_dtype: Optional[np.dtype] = None
-            if aval is not None:
-                aval_dtype_obj = getattr(aval, "dtype", None)
+            literal_val = _maybe_literal_value(var)
+            if literal_val is None:
+                raise TypeError("Literal missing value")
+            arr = np.asarray(literal_val)
+            aval = _maybe_aval(var)
+            literal_dtype = _maybe_dtype(aval)
+            if literal_dtype is None:
                 try:
-                    literal_dtype = np.dtype(
-                        aval_dtype_obj if aval_dtype_obj is not None else arr.dtype
-                    )
+                    literal_dtype = np.dtype(arr.dtype)
                 except TypeError:
                     literal_dtype = None
             if prefer_np_dtype is not None:
@@ -496,13 +530,12 @@ class IRContext:
 
         if var in self.builder._var2val:
             return self.builder._var2val[var]
-        aval = getattr(var, "aval", None)
+        aval = _maybe_aval(var)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
-        aval_dtype_obj = getattr(aval, "dtype", None)
-        if aval_dtype_obj is None:
+        aval_dtype = _maybe_dtype(aval)
+        if aval_dtype is None:
             raise TypeError("Aval missing dtype")
-        aval_dtype = np.dtype(aval_dtype_obj)
         if (
             not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
@@ -518,10 +551,13 @@ class IRContext:
             and aval_dtype != np.float64
         ):
             promote_flag = False
+        shape_tuple = _maybe_shape(aval)
+        if shape_tuple is None:
+            raise TypeError("Aval missing shape")
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
             type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
-            shape=_to_ir_shape(tuple(aval.shape)),
+            shape=_to_ir_shape(shape_tuple),
         )
         self.builder._var2val[var] = v
         return v
@@ -530,18 +566,12 @@ class IRContext:
         for i, var in enumerate(outvars):
             v = self.get_value_for_var(var, name_hint=f"out_{i}")
             target_enum: Optional[ir.DataType] = None
-            aval = getattr(var, "aval", None)
-            if aval is not None:
-                aval_dtype = getattr(aval, "dtype", None)
-                if aval_dtype is not None:
-                    try:
-                        np_dtype = np.dtype(aval_dtype)
-                    except TypeError:
-                        np_dtype = None
-                    else:
-                        target_enum = _dtype_to_ir(
-                            np_dtype, self.builder.enable_double_precision
-                        )
+            aval = _maybe_aval(var)
+            np_dtype = _maybe_dtype(aval)
+            if np_dtype is not None:
+                target_enum = _dtype_to_ir(
+                    np_dtype, self.builder.enable_double_precision
+                )
             current_type = v.type
             current_enum = (
                 current_type.dtype if isinstance(current_type, ir.TensorType) else None

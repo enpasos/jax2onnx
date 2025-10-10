@@ -457,7 +457,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 promote_dtype=promote_dtype,
                 dtype=None,  # match Flax default
                 dot_general=dot_general,  # function path
-                dot_general_cls=None,  # NEW: ensure branch is skipped
+                dot_general_cls=None,
                 precision=None,
                 preferred_element_type=None,
             )

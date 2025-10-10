@@ -108,40 +108,42 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     """
     Return the Transpose 'perm' attribute as a list of ints, or None.
     """
-    attr_obj = _get_attr(node, "perm")
-    candidates: Optional[SequenceABC] = None
-
+    attr_obj: Optional[object] = _get_attr(node, "perm")
     if attr_obj is None:
-        attrs_raw = getattr(node, "attributes", None)
+        attrs_raw = node.attributes
         if isinstance(attrs_raw, SequenceABC):
             for entry in attrs_raw:
-                if getattr(entry, "name", None) == "perm":
+                if isinstance(entry, ir.Attr):
+                    if entry.name == "perm":
+                        attr_obj = entry
+                        break
+                elif isinstance(entry, SequenceABC):
                     attr_obj = entry
                     break
+                else:
+                    ints_attr = entry.ints if hasattr(entry, "ints") else None
+                    if isinstance(ints_attr, SequenceABC):
+                        attr_obj = ints_attr
+                        break
+                    value_attr = entry.value if hasattr(entry, "value") else None
+                    if isinstance(value_attr, SequenceABC):
+                        attr_obj = entry
+                        break
 
+    candidates: Optional[SequenceABC] = None
     if isinstance(attr_obj, ir.Attr):
-        ints_candidate: Optional[SequenceABC] = None
         try:
             as_ints = attr_obj.as_ints()
         except Exception:
             as_ints = None
         if as_ints:
-            ints_candidate = list(as_ints)
-        if ints_candidate is None:
+            candidates = list(as_ints)
+        else:
             value = attr_obj.value
             if isinstance(value, SequenceABC):
-                ints_candidate = value
-        candidates = ints_candidate
+                candidates = value
     elif isinstance(attr_obj, SequenceABC):
         candidates = attr_obj
-    else:
-        ints_value = getattr(attr_obj, "ints", None)
-        if isinstance(ints_value, SequenceABC):
-            candidates = ints_value
-        else:
-            value = getattr(attr_obj, "value", None)
-            if isinstance(value, SequenceABC):
-                candidates = value
 
     if candidates is None:
         return None
@@ -326,7 +328,7 @@ def _shape_dims_seq(shape: object | None) -> Optional[Tuple[object, ...]]:
 def _shape_tuple(v: Optional["ir.Value"]) -> Optional[Tuple[int, ...]]:
     if v is None:
         return None
-    dims = _shape_dims_seq(getattr(v, "shape", None))
+    dims = _shape_dims_seq(v.shape)
     if dims is None:
         return None
     tuple_dims: List[int] = []
