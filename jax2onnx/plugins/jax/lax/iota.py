@@ -1,38 +1,38 @@
+# jax2onnx/plugins/jax/lax/iota.py
+
 from __future__ import annotations
-from typing import TYPE_CHECKING, Sequence, Any
+
+from typing import TYPE_CHECKING, Any, Final
+
+import jax
 import numpy as np
-from jax import lax, core
-from onnx import helper, TensorProto
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Primitive alias
-iota_p = lax.iota_p
 
-# Map numpy dtypes to ONNX dtypes
-NUMPY_TO_ONNX_DTYPE = {
-    np.dtype(np.float32): TensorProto.FLOAT,
-    np.dtype(np.float64): TensorProto.DOUBLE,
-    np.dtype(np.int8): TensorProto.INT8,
-    np.dtype(np.int16): TensorProto.INT16,
-    np.dtype(np.int32): TensorProto.INT32,
-    np.dtype(np.int64): TensorProto.INT64,
-    np.dtype(np.uint8): TensorProto.UINT8,
-    np.dtype(np.uint16): TensorProto.UINT16,
-    np.dtype(np.uint32): TensorProto.UINT32,
-    np.dtype(np.uint64): TensorProto.UINT64,
-    np.dtype(np.bool_): TensorProto.BOOL,
+_DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
+    np.dtype(np.int32): ir.DataType.INT32,
+    np.dtype(np.int64): ir.DataType.INT64,
+    np.dtype(np.float32): ir.DataType.FLOAT,
+    np.dtype(np.float64): getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT),
+    np.dtype(np.bool_): ir.DataType.BOOL,
 }
 
 
 @register_primitive(
-    jaxpr_primitive=iota_p.name,
+    jaxpr_primitive=jax.lax.iota_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.iota.html",
     onnx=[
-        {"component": "Range", "doc": "https://onnx.ai/onnx/operators/onnx__Range.html"}
+        {
+            "component": "Range",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
+        }
     ],
     since="v0.5.0",
     context="primitives.lax",
@@ -40,146 +40,124 @@ NUMPY_TO_ONNX_DTYPE = {
     testcases=[
         {
             "testcase": "iota_int32",
-            "callable": lambda: lax.iota(np.int32, 5),
+            "callable": lambda: jax.lax.iota(np.int32, 5),
             "input_shapes": [],
         },
         {
             "testcase": "iota_float32",
-            "callable": lambda: lax.iota(np.float32, 10),
+            "callable": lambda: jax.lax.iota(np.float32, 10),
             "input_shapes": [],
         },
         {
             "testcase": "broadcasted_iota",
-            "callable": lambda: lax.broadcasted_iota(np.int32, (3, 4), 1),
+            "callable": lambda: jax.lax.broadcasted_iota(np.int32, (3, 4), 1),
             "input_shapes": [],
         },
     ],
 )
 class IotaPlugin(PrimitiveLeafPlugin):
-    @staticmethod
-    def abstract_eval(*dynamic_shape, dtype, shape, dimension, **__):
-        return core.ShapedArray(shape, dtype)
+    """Lower ``lax.iota`` (and broadcasted variants) with pure IR ops."""
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Any],
-        node_outputs: Sequence[Any],
-        params: dict[str, Any],
-    ):
-        out_name = s.get_name(node_outputs[0])
-        dtype = params["dtype"]
-        shape = params["shape"]
-        dimension = params["dimension"]
-
-        # Process dynamic dimensions if present
-        for i, dim in enumerate(node_inputs):
-            shape_dim_name = s.get_name(dim)
-            if not isinstance(shape, list):
-                shape = list(shape)
-            shape[i] = shape_dim_name
-
-        # Create 1D range for the specified dimension
-        dim_size = shape[dimension] if isinstance(shape[dimension], int) else None
-
-        # Range operator constants
-        start_name = s.get_constant_name(np.array(0, dtype=np.int64))
-        delta_name = s.get_constant_name(np.array(1, dtype=np.int64))
-
-        if dim_size is not None:
-            limit_name = s.get_constant_name(np.array(dim_size, dtype=np.int64))
-        else:
-            limit_name = shape[dimension]  # Dynamic dimension name
-
-        # Create Range node
-        range_output = s.get_unique_name("range_output")
-        s.add_node(
-            helper.make_node(
-                "Range",
-                inputs=[start_name, limit_name, delta_name],
-                outputs=[range_output],
-                name=s.get_unique_name("range"),
-            )
-        )
-
-        if dim_size is not None:
-            s.add_shape_info(range_output, (dim_size,), np.dtype(np.int64))
-
-        # For 1D case with static shape
-        if len(shape) == 1 and isinstance(shape[0], int):
-            self._add_cast_if_needed(s, range_output, out_name, dtype)
-            return
-
-        # For multidimensional case
-        # Create unsqueeze axes for dimensions other than the target dimension
-        unsqueeze_axes = [i for i in range(len(shape)) if i != dimension]
-        unsqueeze_axes_name = s.get_constant_name(
-            np.array(unsqueeze_axes, dtype=np.int64)
-        )
-
-        # Unsqueeze to add singleton dimensions
-        unsqueezed_output = s.get_unique_name("unsqueezed_output")
-        s.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                inputs=[range_output, unsqueeze_axes_name],
-                outputs=[unsqueezed_output],
-                name=s.get_unique_name("unsqueeze"),
-            )
-        )
-
-        # Calculate intermediate shape after unsqueezing for shape info
-        if all(isinstance(dim, int) for dim in shape):
-            intermediate_shape = [1] * len(shape)
-            intermediate_shape[dimension] = shape[dimension]
-            s.add_shape_info(
-                unsqueezed_output, tuple(intermediate_shape), np.dtype(np.int64)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for lax.iota lowering"
             )
 
-            # Create shape constant for Expand
-            shape_name = s.get_constant_name(np.array(shape, dtype=np.int64))
-            expanded_output = s.get_unique_name("expanded_output")
+        params = eqn.params
+        dtype = np.dtype(params["dtype"])
+        shape_param = params.get("shape", ())
+        dimension = int(params.get("dimension", 0))
 
-            # Expand to final shape
-            s.add_node(
-                helper.make_node(
-                    "Expand",
-                    inputs=[unsqueezed_output, shape_name],
-                    outputs=[expanded_output],
-                    name=s.get_unique_name("expand"),
-                )
-            )
+        out_var = eqn.outvars[0]
 
-            s.add_shape_info(expanded_output, tuple(shape), np.dtype(np.int64))
-            self._add_cast_if_needed(s, expanded_output, out_name, dtype)
-        else:
+        if not shape_param:
+            # scalar iota is treated as vector of length size param (when provided as int)
+            shape_param = (int(params.get("size", 0)),)
+
+        try:
+            shape = tuple(int(d) for d in shape_param)
+        except TypeError as exc:  # dynamic dims not yet supported in IR path
             raise NotImplementedError(
-                "Dynamic shape handling for iota not fully implemented"
+                "Dynamic shapes for lax.iota are not supported yet"
+            ) from exc
+
+        rank = len(shape)
+        if dimension < 0 or dimension >= rank:
+            raise ValueError(
+                f"iota dimension {dimension} out of range for shape {shape}"
             )
 
-    def _add_cast_if_needed(self, s, input_name, output_name, dtype):
-        """Helper to add a Cast node if needed or an Identity node otherwise."""
-        onnx_dtype = NUMPY_TO_ONNX_DTYPE.get(np.dtype(dtype), TensorProto.FLOAT)
-        if np.dtype(dtype) != np.int64:
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[input_name],
-                    outputs=[output_name],
-                    name=s.get_unique_name("cast"),
-                    to=int(onnx_dtype),
-                )
+        # Build the 1-D range along the chosen axis.
+        start = _scalar_i64(ctx, 0, "iota_start")
+        limit = _scalar_i64(ctx, shape[dimension], "iota_limit")
+        delta = _scalar_i64(ctx, 1, "iota_delta")
+
+        range_out = builder.Range(
+            start,
+            limit,
+            delta,
+            _outputs=[ctx.fresh_name("iota_range")],
+        )
+        range_out.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(range_out, (shape[dimension],))
+        _ensure_value_info(ctx, range_out)
+
+        current = range_out
+        if rank > 1:
+            axes = [ax for ax in range(rank) if ax != dimension]
+            axes_tensor = (
+                _const_i64(ctx, np.asarray(axes, dtype=np.int64), "iota_unsq_axes")
+                if axes
+                else None
             )
+            if axes_tensor is not None:
+                unsq_shape = [1] * rank
+                unsq_shape[dimension] = shape[dimension]
+                current_unsq = builder.Unsqueeze(
+                    current,
+                    axes_tensor,
+                    _outputs=[ctx.fresh_name("iota_unsq")],
+                )
+                current_unsq.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(current_unsq, tuple(unsq_shape))
+                _ensure_value_info(ctx, current_unsq)
+                current = current_unsq
+
+            expand_shape = _const_i64(
+                ctx, np.asarray(shape, dtype=np.int64), "iota_expand_shape"
+            )
+            expanded = builder.Expand(
+                current,
+                expand_shape,
+                _outputs=[ctx.fresh_name("iota_expanded")],
+            )
+            expanded.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(expanded, tuple(shape))
+            _ensure_value_info(ctx, expanded)
+            current = expanded
+
+        target_dtype = _DTYPE_TO_IR.get(dtype)
+        if target_dtype is None:
+            raise TypeError(f"Unsupported dtype for lax.iota: {dtype}")
+
+        if target_dtype != ir.DataType.INT64:
+            cast_out = builder.Cast(
+                current,
+                _outputs=[ctx.fresh_name("iota_cast")],
+                to=int(target_dtype.value),
+            )
+            cast_out.type = ir.TensorType(target_dtype)
+            _stamp_type_and_shape(cast_out, tuple(shape))
+            _ensure_value_info(ctx, cast_out)
+            ctx.bind_value_for_var(out_var, cast_out)
         else:
-            s.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[input_name],
-                    outputs=[output_name],
-                    name=s.get_unique_name("identity"),
-                )
+            identity_out = builder.Identity(
+                current,
+                _outputs=[ctx.fresh_name("iota_out")],
             )
-
-
-# Register abstract eval
-iota_p.def_abstract_eval(IotaPlugin.abstract_eval)
+            identity_out.type = ir.TensorType(target_dtype)
+            _stamp_type_and_shape(identity_out, tuple(shape))
+            _ensure_value_info(ctx, identity_out)
+            ctx.bind_value_for_var(out_var, identity_out)

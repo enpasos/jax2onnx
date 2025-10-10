@@ -1,4 +1,5 @@
-# file: jax2onnx/utils/onnx_debug.py
+# jax2onnx/utils/onnx_debug.py
+
 from __future__ import annotations
 from typing import Iterable, Tuple, Optional
 import onnx

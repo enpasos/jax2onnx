@@ -1,7 +1,9 @@
+# tests/extra_tests/loop/test_loop_body_io_relaxation.py
+
 import jax
 import jax.numpy as jnp
 import onnx
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _simple_loop_fn(y0):
@@ -44,7 +46,6 @@ def test_loop_body_io_are_relaxed_when_requested():
         _simple_loop_fn,
         inputs=[y0],
         enable_double_precision=True,
-        loosen_internal_shapes=True,  # <— this is the knob under test
         opset=21,
         model_name="loop_body_io_relaxation",
     )

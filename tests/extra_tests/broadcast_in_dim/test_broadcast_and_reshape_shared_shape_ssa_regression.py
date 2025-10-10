@@ -1,123 +1,105 @@
-"""
-Regression: ensure SSA-unique helper names when *both* broadcast_in_dim(..., h.shape)
-and reshape(h, h.shape) are used in the same Loop/Scan body for the SAME producer `h`.
+# tests/extra_tests/broadcast_in_dim/test_broadcast_and_reshape_shared_shape_ssa_regression.py
 
-Historically this could yield two separate Shape nodes with the exact same output name
-(e.g. 'Add__shape'), violating SSA and causing ORT to reject the model:
-
-  INVALID_GRAPH : Graph must be in single static assignment (SSA) form,
-  however 'Add__shape' has been used as output names multiple times.
-"""
+"""IR regression: broadcast_in_dim + reshape share shape helpers without SSA clashes."""
 
 from __future__ import annotations
 
 import collections
 import numpy as np
 import pytest
+
 import jax
 import jax.numpy as jnp
 from jax import lax
 from onnx import AttributeProto
 
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
-try:
-    import onnxruntime as ort  # type: ignore
+try:  # optional runtime smoke test
+    import onnxruntime as ort
 
     HAS_ORT = True
-except Exception:
+except Exception:  # pragma: no cover - ORT dependency optional
     HAS_ORT = False
 
 
-def _collect_node_outputs_recursive(g):
-    outs = []
-    for n in g.node:
-        outs.extend([o for o in n.output if o])
-        for a in n.attribute:
-            if a.type == AttributeProto.GRAPH and a.g is not None:
-                outs.extend(_collect_node_outputs_recursive(a.g))
-            elif a.type == AttributeProto.GRAPHS and a.graphs:
-                for sg in a.graphs:
-                    outs.extend(_collect_node_outputs_recursive(sg))
-    return outs
+def _collect_node_outputs_recursive(graph):
+    outputs: list[str] = []
+    for node in graph.node:
+        outputs.extend([name for name in node.output if name])
+        for attr in node.attribute:
+            if attr.type == AttributeProto.GRAPH and attr.g is not None:
+                outputs.extend(_collect_node_outputs_recursive(attr.g))
+            elif attr.type == AttributeProto.GRAPHS and attr.graphs:
+                for subgraph in attr.graphs:
+                    outputs.extend(_collect_node_outputs_recursive(subgraph))
+    return outputs
 
 
-def _find_first_loop_body(g):
-    for n in g.node:
-        if n.op_type == "Loop":
-            for a in n.attribute:
-                if a.type == AttributeProto.GRAPH and a.g is not None:
-                    return a.g
-    for n in g.node:
-        for a in n.attribute:
-            if a.type == AttributeProto.GRAPH and a.g is not None:
-                sub = _find_first_loop_body(a.g)
-                if sub is not None:
-                    return sub
-            elif a.type == AttributeProto.GRAPHS and a.graphs:
-                for sg in a.graphs:
-                    sub = _find_first_loop_body(sg)
-                    if sub is not None:
-                        return sub
+def _find_first_loop_body(graph):
+    for node in graph.node:
+        if node.op_type == "Loop":
+            for attr in node.attribute:
+                if attr.type == AttributeProto.GRAPH and attr.g is not None:
+                    return attr.g
+    for node in graph.node:
+        for attr in node.attribute:
+            if attr.type == AttributeProto.GRAPH and attr.g is not None:
+                body = _find_first_loop_body(attr.g)
+                if body is not None:
+                    return body
+            elif attr.type == AttributeProto.GRAPHS and attr.graphs:
+                for subgraph in attr.graphs:
+                    body = _find_first_loop_body(subgraph)
+                    if body is not None:
+                        return body
     return None
 
 
 def _body_broadcast_and_reshape_on_same_h(y):
-    """
-    In each step:
-      h = c + broadcast_to(1, c.shape)      # -> Add (producer)
-      b1 = broadcast_to(1, h.shape)         # -> Shape(h) via broadcast_in_dim
-      r1 = jnp.reshape(h, h.shape)          # -> Shape(h) via reshape path
-    Without a shared 'shape-of' cache, both helpers mint an output like 'Add__shape'
-    inside the same Loop body, violating SSA.
-    """
     dt = y.dtype
     one = jnp.array(1.0, dt)
 
-    def step(c, _):
-        h = c + jnp.broadcast_to(one, c.shape)  # Add producer
-        b1 = jnp.broadcast_to(one, h.shape)  # uses Shape(h) in broadcast_in_dim
-        # Keep `h` live (avoid fusion away) and request another Shape(h) via reshape:
+    def step(carry, _):
+        h = carry + jnp.broadcast_to(one, carry.shape)
+        broadcast_shape = jnp.broadcast_to(one, h.shape)
         h2 = h + jnp.array(0.0, dt)
-        r1 = jnp.reshape(h2, h.shape)  # uses Shape(h) in reshape path
-        out = h + b1 + r1
-        return c + jnp.array(0.0, dt), out
+        reshaped = jnp.reshape(h2, h.shape)
+        out = h + broadcast_shape + reshaped
+        return carry + jnp.array(0.0, dt), out
 
-    _, ys = lax.scan(step, y, xs=None, length=2)  # xs=None -> lowered as Loop
+    _, ys = lax.scan(step, y, xs=None, length=2)
     return ys
 
 
-@pytest.mark.parametrize("dtype", [jnp.float64])  # stress the double-precision path
+@pytest.mark.parametrize("dtype", [jnp.float64])
 def test_loop_body_shared_shape_helpers_are_ssa_unique(tmp_path, dtype):
-    # Symbolic shape encourages runtime Shape() materialization
     spec = jax.ShapeDtypeStruct(("B", 4), dtype)
     model = to_onnx(
         _body_broadcast_and_reshape_on_same_h,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_ssa",
     )
 
-    # Inspect the first Loop body (where the previous duplication occurred)
     body = _find_first_loop_body(model.graph)
-    assert body is not None, "Expected a Loop body subgraph."
+    assert body is not None, "Expected a Loop body subgraph"
     outs = _collect_node_outputs_recursive(body)
-    dupes = [n for n, c in collections.Counter(outs).items() if c > 1]
-
-    # This assertion FAILS on buggy code (duplicate '...__shape' outputs from two helpers),
-    # and PASSES once helper names are properly cached/unique across both paths.
+    dupes = [name for name, count in collections.Counter(outs).items() if count > 1]
     assert not dupes, f"Duplicate outputs in Loop body (SSA violation): {dupes}"
 
-    # ORT load smoke test — used to raise INVALID_GRAPH on buggy code.
     if HAS_ORT:
-        p = tmp_path / "broadcast_and_reshape_shared_shape_ssa.onnx"
-        p.write_bytes(model.SerializeToString())
-        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        out_path = tmp_path / "broadcast_and_reshape_shared_shape_ssa.onnx"
+        out_path.write_bytes(model.SerializeToString())
+        try:
+            ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+        except Exception as exc:  # pragma: no cover - regression guard
+            pytest.fail(f"onnxruntime failed to load IR model: {exc}")
 
 
-def test_numeric_executes(dtype=jnp.float64):
+@pytest.mark.parametrize("dtype", [jnp.float64])
+def test_numeric_executes(tmp_path, dtype):
     if not HAS_ORT:
         pytest.skip("onnxruntime not available")
     spec = jax.ShapeDtypeStruct((7, 4), dtype)
@@ -125,7 +107,6 @@ def test_numeric_executes(dtype=jnp.float64):
         _body_broadcast_and_reshape_on_same_h,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="broadcast_and_reshape_shared_shape_numeric",
     )

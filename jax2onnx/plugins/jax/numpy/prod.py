@@ -1,124 +1,223 @@
-# file: jax2onnx/plugins/jax/numpy/prod.py
+# jax2onnx/plugins/jax/numpy/prod.py
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
+from collections.abc import Sequence as _Seq
+
+import numpy as np
 
 import jax
-from jax import core
-from jax import numpy as jnp
-from jax.extend.core import Primitive
+import jax.numpy as jnp
 
-from jax2onnx.plugins.jax.lax._reduce_utils import add_reduce_node
-from jax2onnx.plugin_system import (
-    PrimitiveLeafPlugin,
-    register_primitive,
+from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
+from jax2onnx.plugins.jax.numpy._common import (
+    get_orig_impl,
+    make_jnp_primitive,
 )
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-jnp.prod_p = Primitive("jnp.prod")
-jnp.prod_p.multiple_results = False
+
+_PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.prod_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.prod.html#jax.numpy.prod",
+    jaxpr_primitive=_PROD_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.prod.html",
     onnx=[
         {
             "component": "ReduceProd",
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceProd.html",
         }
     ],
-    since="v0.6.2",
+    since="v0.8.0",
     context="primitives.jnp",
     component="prod",
     testcases=[
         {
             "testcase": "basic_prod",
+            "callable": lambda: jnp.prod(np.arange(12, dtype=np.float32).reshape(3, 4)),
+            "input_values": [],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "prod_with_axis",
+            "callable": lambda: jnp.prod(
+                np.arange(60, dtype=np.float32).reshape(3, 4, 5), axis=1
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3, 5)],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "prod_with_keepdims",
+            "callable": lambda: jnp.prod(
+                np.arange(12, dtype=np.float32).reshape(3, 4), axis=0, keepdims=True
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(1, 4)],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "jnp_prod_basic",
             "callable": lambda x: jnp.prod(x),
             "input_shapes": [(3, 4)],
         },
         {
-            "testcase": "prod_with_axis",
+            "testcase": "jnp_prod_axis",
             "callable": lambda x: jnp.prod(x, axis=1),
             "input_shapes": [(3, 4, 5)],
         },
         {
-            "testcase": "prod_with_keepdims",
+            "testcase": "jnp_prod_keepdims",
             "callable": lambda x: jnp.prod(x, axis=0, keepdims=True),
             "input_shapes": [(3, 4)],
         },
     ],
 )
-class ProdPlugin(PrimitiveLeafPlugin):
-    _ORIG_CALL: Callable[..., Any] | None = None
+class JnpProdPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _PROD_PRIM
+    _FUNC_NAME: ClassVar[str] = "prod"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(
-        a: core.ShapedArray,
+        x,
         *,
-        axis: int | Sequence[int] | None = None,
-        dtype: jnp.dtype | None = None,
+        axes: Sequence[int] | None = None,
+        axes_is_tuple: bool = False,  # ignored, kept for signature symmetry
+        dtype: np.dtype | None = None,
         keepdims: bool = False,
-        **kwargs: Any,
-    ) -> Sequence[core.ShapedArray]:
-        """Computes the output shape and dtype for jnp.prod using jax.eval_shape."""
-        orig_call = ProdPlugin._ORIG_CALL or jnp.prod
+        initial=None,
+        where=True,
+    ):
+        if initial is not None:
+            raise NotImplementedError(
+                "jnp.prod with 'initial' is not supported in ONNX lowering"
+            )
+        if where is not True:
+            raise NotImplementedError(
+                "jnp.prod with 'where' mask is not supported in ONNX lowering"
+            )
 
-        def _helper(arr):
-            return orig_call(arr, axis=axis, dtype=dtype, keepdims=keepdims)
+        ndim = len(x.shape)
+        out_dtype = np.dtype(dtype) if dtype is not None else np.dtype(x.dtype)
 
-        spec_a = jax.ShapeDtypeStruct(a.shape, a.dtype)
-        out_spec = jax.eval_shape(_helper, spec_a)
+        if axes is None:
+            axes_tuple = tuple(range(ndim))
+        else:
+            axes_tuple = tuple(
+                int(ax) % ndim if ndim and int(ax) < 0 else int(ax) for ax in axes
+            )
 
-        return [core.ShapedArray(out_spec.shape, out_spec.dtype)]
+        if axes is None:
+            if keepdims:
+                out_shape = tuple(1 for _ in range(ndim))
+            else:
+                out_shape = ()
+        else:
+            if keepdims:
+                out_shape = tuple(
+                    1 if i in axes_tuple else dim for i, dim in enumerate(x.shape)
+                )
+            else:
+                out_shape = tuple(
+                    dim for i, dim in enumerate(x.shape) if i not in axes_tuple
+                )
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        invars: Any,
-        outvars: Any,
-        params: dict[str, Any],
-    ) -> None:  # Changed return type to match superclass
-        inp_name = s.get_name(invars[0])
-        out_name = s.get_name(outvars[0])
-        axes = params.get("axes")
-        in_rank = len(invars[0].aval.shape)
-        out_rank = len(outvars[0].aval.shape)
-        keepdims = in_rank == out_rank
+        return jax.core.ShapedArray(out_shape, out_dtype)
 
-        add_reduce_node(
-            s.builder,
-            op_type="ReduceProd",
-            inp=inp_name,
-            out=out_name,
-            axes=axes,
-            keepdims=int(keepdims),
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        lower_reduction(ctx, eqn, op_type="ReduceProd", allow_dtype_param=True)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.prod not found for monkey patching")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(
+                a, axis=None, dtype=None, keepdims=False, *, initial=None, where=True
+            ):
+                if initial is not None:
+                    raise NotImplementedError(
+                        "jnp.prod with 'initial' is not supported for ONNX export"
+                    )
+                if where is not True:
+                    raise NotImplementedError(
+                        "jnp.prod with 'where' is not supported for ONNX export"
+                    )
+                axes_param = None
+                axes_is_tuple = False
+                if axis is not None:
+                    if isinstance(axis, _Seq) and not isinstance(axis, (str, bytes)):
+                        axes_param = tuple(int(ax) for ax in axis)
+                        axes_is_tuple = True
+                    else:
+                        axes_param = (int(axis),)
+                        axes_is_tuple = False
+                return cls._PRIM.bind(
+                    a,
+                    axes=axes_param,
+                    axes_is_tuple=axes_is_tuple,
+                    dtype=dtype,
+                    keepdims=keepdims,
+                )
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
+
+
+@JnpProdPlugin._PRIM.def_impl
+def _prod_impl(
+    a,
+    *,
+    axes=None,
+    axes_is_tuple: bool = False,
+    dtype=None,
+    keepdims=False,
+    initial=None,
+    where=True,
+):
+    if initial is not None:
+        raise NotImplementedError(
+            "jnp.prod with 'initial' is not supported for ONNX export"
         )
-        # Make sure this function doesn't return anything
-        return None  # explicit return None to match the superclass return type
+    if where is not True:
+        raise NotImplementedError(
+            "jnp.prod with 'where' is not supported for ONNX export"
+        )
 
-    @staticmethod
-    def _prod_binding(*args, **kwargs):
-        """This is called as the monkey-patched jnp.prod."""
-        out = ProdPlugin._ORIG_CALL(*args, **kwargs)
-        # Always return as a tuple if single result
-        return (out,) if not jnp.prod_p.multiple_results else out
+    try:
+        orig = get_orig_impl(JnpProdPlugin._PRIM, JnpProdPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.prod
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        """Returns the patched function that captures the original and binds the primitive."""
-        ProdPlugin._ORIG_CALL = orig_fn
-        return ProdPlugin._prod_binding
+    axis_arg = None
+    if axes is not None:
+        axis_vals = tuple(int(ax) for ax in axes)
+        axis_arg = axis_vals if axes_is_tuple else axis_vals[0]
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information to the converter for jnp.prod."""
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "prod",
-            "patch_function": ProdPlugin.get_monkey_patch,
-        }
+    return orig(a, axis=axis_arg, dtype=dtype, keepdims=keepdims)
 
 
-jnp.prod_p.def_abstract_eval(ProdPlugin.abstract_eval)
+JnpProdPlugin._PRIM.def_abstract_eval(JnpProdPlugin.abstract_eval)

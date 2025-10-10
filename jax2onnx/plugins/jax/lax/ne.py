@@ -1,12 +1,14 @@
+# jax2onnx/plugins/jax/lax/ne.py
+
 from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
+import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass  # type hints only
 
 
 @register_primitive(
@@ -28,35 +30,36 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "ne",
-            "callable": lambda x1, x2: x1 != x2,
+            "callable": lambda x1, x2: jax.lax.ne(x1, x2),
             "input_shapes": [(3,), (3,)],
         }
     ],
 )
 class NePlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.ne to ONNX Equal and Not."""
+    def lower(self, ctx, eqn):
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX ne primitive."""
-        input_names = [s.get_name(inp) for inp in node_inputs]
-        eq_output = s.get_unique_name("equal_output")
-        output_name = s.get_var_name(node_outputs[0])
-
-        # Add value info for eq_output
-        s.add_shape_info(eq_output, shape=node_inputs[0].aval.shape, dtype="bool")
-
-        node_1 = helper.make_node(
-            "Equal",
-            inputs=input_names,
-            outputs=[eq_output],
-            name=s.get_unique_name("ne_eq"),
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ne_lhs"))
+        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        rhs_val = ctx.get_value_for_var(
+            rhs_var,
+            name_hint=ctx.fresh_name("ne_rhs"),
+            prefer_np_dtype=prefer_dtype,
         )
-        s.add_node(node_1)
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ne_out"))
 
-        node_2 = helper.make_node(
-            "Not",
-            inputs=[eq_output],
-            outputs=[output_name],
-            name=s.get_unique_name("ne_not"),
-        )
-        s.add_node(node_2)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ne_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("ne_out")
+
+        eq_val = ctx.builder.Equal(lhs_val, rhs_val, _outputs=[ctx.fresh_name("ne_eq")])
+        eq_val.shape = lhs_val.shape
+
+        result = ctx.builder.Not(eq_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

@@ -1,174 +1,217 @@
-# file: jax2onnx/plugins/jax/numpy/take.py
+# jax2onnx/plugins/jax/numpy/take.py
 
-from typing import TYPE_CHECKING, Any, Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import onnx_ir as ir
 from flax import nnx
 from jax import core
-from jax.extend.core import Primitive, Var
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-# 1. Define a custom JAX primitive to represent jnp.take.
-#    This allows us to write a specific handler for it.
-jnp.take_p = Primitive("jnp_take")
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# Test function that reproduces the data-dependent arange->take issue
-class ArangeTakeModule(nnx.Module):
-    """A module to reproduce the gpt.py pattern."""
+_TAKE_PRIM: Final = make_jnp_primitive("jax.numpy.take")
 
-    def __init__(self, num_embeddings: int, features: int, *, rngs: nnx.Rngs):
+
+class _ArangeTakeModule(nnx.Module):
+    def __init__(
+        self,
+        num_embeddings: int,
+        features: int,
+        *,
+        dtype: jnp.dtype | type = jnp.float32,
+        rngs: nnx.Rngs,
+    ):
         self.embedding = nnx.Param(
-            jax.random.normal(rngs.params(), (num_embeddings, features))
+            jax.random.normal(rngs.params(), (num_embeddings, features), dtype=dtype)
         )
 
     def __call__(self, x: jax.Array):
-        """
-        1. Get shape `T` from input `x`.
-        2. Create indices `[0, ..., T-1]` using arange.
-        3. Use indices to gather from an embedding table via jnp.take.
-        """
-        T = x.shape[1]
-        indices = jnp.arange(T)
+        seq_len = x.shape[1]
+        indices = jnp.arange(seq_len)
         return jnp.take(self.embedding.value, indices, axis=0)
 
 
+def _canonical_axis(axis: int, rank: int) -> int:
+    axis_norm = axis if axis >= 0 else axis + rank
+    if axis_norm < 0 or axis_norm >= rank:
+        raise ValueError(f"jnp.take axis {axis} out of bounds for rank {rank}")
+    return axis_norm
+
+
+def _as_int64(
+    ctx: "IRContext", value: ir.Value, shape: tuple[int | object, ...], name_hint: str
+) -> ir.Value:
+    current_type = getattr(value, "type", None)
+    current_dtype = getattr(current_type, "dtype", None)
+    if current_dtype == ir.DataType.INT64:
+        _stamp_type_and_shape(value, shape)
+        _ensure_value_info(ctx, value)
+        return value
+
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+        to=int(ir.DataType.INT64.value),
+    )
+    cast_val.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(cast_val, shape)
+    _ensure_value_info(ctx, cast_val)
+    return cast_val
+
+
 @register_primitive(
-    jaxpr_primitive=jnp.take_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.take.html",
+    jaxpr_primitive=_TAKE_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.take.html",
     onnx=[
         {
             "component": "Gather",
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="v0.7.0",
+    since="v0.9.0",
     context="primitives.jnp",
     component="take",
     testcases=[
         {
             "testcase": "take_data_dependent_indices",
-            "callable": ArangeTakeModule(
-                num_embeddings=10,  # Must be >= the sequence length
+            "callable": construct_and_call(
+                _ArangeTakeModule,
+                num_embeddings=10,
                 features=16,
-                rngs=nnx.Rngs(0),
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
-            # Input `x` has shape (B, T) = (3, 10)
             "input_shapes": [(3, 10)],
             "input_dtypes": [jnp.float32],
-            # The bug exists in f32, no need to run f64 as well.
             "run_only_f32_variant": True,
         },
-    ],  # The `arange_gather_repro` will test this
+        {
+            "testcase": "take_basic_axis1",
+            "callable": lambda x, idx: jnp.take(x, idx, axis=1),
+            "input_values": [
+                np.arange(12, dtype=np.float32).reshape(3, 4),
+                np.array([0, 2], dtype=np.int32),
+            ],
+            "expected_output_shapes": [(3, 2)],
+            "expected_output_dtypes": [np.float32],
+        },
+    ],
 )
-class TakePlugin(PrimitiveLeafPlugin):
-    """
-    Plugin to convert jnp.take to ONNX Gather.
-
-    This plugin intercepts calls to `jnp.take` and maps them to the
-    ONNX Gather operator, which is the direct equivalent for the common
-    use case (indexing along a single axis).
-    """
-
-    _ORIG_CALL: Callable[..., Any] | None = None
+class JnpTakePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _TAKE_PRIM
+    _FUNC_NAME: ClassVar[str] = "take"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(arr_aval, indices_aval, *, axis, **kwargs):
-        """
-        Abstract evaluation rule to determine the output shape of the take operation.
-        """
-        # The output shape is the concatenation of the array's shape before the axis,
-        # the indices' shape, and the array's shape after the axis.
-        output_shape = (
-            arr_aval.shape[:axis] + indices_aval.shape + arr_aval.shape[axis + 1 :]
+    def abstract_eval(arr, indices, *, axis=None, mode=None):
+        if mode is not None:
+            raise NotImplementedError("jnp.take mode parameter is not supported")
+        if axis is None:
+            raise NotImplementedError("jnp.take with axis=None is not supported")
+        rank = len(arr.shape)
+        axis_norm = _canonical_axis(int(axis), rank)
+        out_shape = arr.shape[:axis_norm] + indices.shape + arr.shape[axis_norm + 1 :]
+        return core.ShapedArray(out_shape, arr.dtype)
+
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        axis_param = params.get("axis")
+        mode = params.get("mode")
+        if mode is not None:
+            raise NotImplementedError("jnp.take mode parameter is not supported")
+        if axis_param is None:
+            raise NotImplementedError("jnp.take with axis=None is not supported")
+
+        arr_var, indices_var = eqn.invars
+        out_var = eqn.outvars[0]
+
+        arr_val = ctx.get_value_for_var(
+            arr_var, name_hint=ctx.fresh_name("take_data"), prefer_np_dtype=None
         )
-        return core.ShapedArray(output_shape, arr_aval.dtype)
-
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: list[Var],
-        node_outputs: list[Var],
-        params: dict[str, Any],
-    ):
-        """Converts the custom jnp_take primitive to an ONNX Gather node."""
-        arr_var, indices_var = node_inputs
-        (output_var,) = node_outputs
-        axis = params["axis"]
-
-        arr_name = s.get_name(arr_var)
-        indices_name = s.get_name(indices_var)
-
-        # ── ONNX Gather wants int64 indices ────────────────────────────────────
-        # If our JAX indices are any integer type ≠ int64, insert a Cast→INT64.
-        import numpy as _np
-        from onnx import TensorProto
-
-        if (
-            _np.issubdtype(indices_var.aval.dtype, _np.integer)
-            and indices_var.aval.dtype != _np.int64
-        ):
-            casted = s.get_unique_name(f"{indices_name}_cast_int64")
-            cast_node = helper.make_node(
-                "Cast",
-                inputs=[indices_name],
-                outputs=[casted],
-                to=TensorProto.INT64,
-                name=s.get_unique_name("Cast"),
-            )
-            s.add_node(cast_node)
-            # preserve shape info (same shape, but now int64)
-            s.add_shape_info(casted, indices_var.aval.shape, _np.int64)
-            indices_name = casted
-        # ─────────────────────────────────────────────────────────────────────
-
-        output_name = s.get_name(output_var)
-
-        # jnp.take with an axis corresponds directly to ONNX Gather.
-        gather_node = helper.make_node(
-            "Gather",
-            inputs=[arr_name, indices_name],
-            outputs=[output_name],
-            axis=axis,
-            name=s.get_unique_name("take_gather"),
+        indices_val = ctx.get_value_for_var(
+            indices_var,
+            name_hint=ctx.fresh_name("take_indices"),
+            prefer_np_dtype=np.int64,
         )
-        s.add_node(gather_node)
+        indices_dtype = np.dtype(getattr(indices_var.aval, "dtype", np.int64))
+        if not np.issubdtype(indices_dtype, np.integer):
+            raise TypeError("jnp.take indices must be integer typed")
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable[..., Any]):
-        """
-        Returns a patched version of jnp.take that uses our custom primitive.
-        """
-        TakePlugin._ORIG_CALL = orig_fn
+        indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
+        indices_val = _as_int64(ctx, indices_val, indices_shape, "take_indices_int64")
 
-        def patched_take(arr, indices, *, axis=None, **kwargs):
-            # For now, only intercept the simple case (axis is specified).
-            # The GPT model uses `axis=0`.
-            if axis is None or kwargs.get("mode") is not None:
-                # Fallback to the original jnp.take for more complex cases
-                # like 'clip' or 'wrap' modes, which require more logic.
-                return TakePlugin._ORIG_CALL(arr, indices, axis=axis, **kwargs)
+        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
+        axis = _canonical_axis(int(axis_param), len(arr_shape))
 
-            # Bind our custom primitive, which will be handled by this plugin.
-            return jnp.take_p.bind(arr, indices, axis=axis)
+        result = ctx.builder.Gather(
+            arr_val,
+            indices_val,
+            axis=int(axis),
+            _outputs=[ctx.fresh_name("Gather")],
+        )
 
-        return patched_take
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        result.type = ir.TensorType(getattr(arr_val.type, "dtype", ir.DataType.FLOAT))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
-    @staticmethod
-    def patch_info() -> dict[str, Any]:
-        """Provides the information needed to monkey-patch jnp.take."""
-        return {
-            "patch_targets": [jnp],
-            "patch_function": TakePlugin.get_monkey_patch,
-            "target_attribute": "take",
-        }
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.take not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(arr, indices, *, axis=None, mode=None):
+                if axis is None or mode is not None:
+                    return orig(arr, indices, axis=axis, mode=mode)
+                indices_arr = jnp.asarray(indices)
+                return cls._PRIM.bind(
+                    jnp.asarray(arr),
+                    indices_arr,
+                    axis=int(axis),
+                    mode=None,
+                )
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-# Register the abstract evaluation rule with our new primitive
-jnp.take_p.def_abstract_eval(TakePlugin.abstract_eval)
+@JnpTakePlugin._PRIM.def_impl
+def _take_impl(arr, indices, *, axis=None, mode=None):
+    orig = get_orig_impl(JnpTakePlugin._PRIM, JnpTakePlugin._FUNC_NAME)
+    return orig(arr, indices, axis=axis, mode=mode)
+
+
+JnpTakePlugin._PRIM.def_abstract_eval(JnpTakePlugin.abstract_eval)

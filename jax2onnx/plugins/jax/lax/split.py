@@ -1,20 +1,20 @@
 # jax2onnx/plugins/jax/lax/split.py
 
-"""ONNX plugin for the JAX `lax.split` primitive."""
-
 from __future__ import annotations
 
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from onnx import helper
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -29,46 +29,62 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "lax_split_equal_parts",
-            # FIX: Use jnp.split, which correctly lowers to the lax.split primitive
-            # with the 'sizes' parameter calculated. This also matches the GRUCell use case.
             "callable": lambda x: jnp.split(x, 2, axis=1),
             "input_shapes": [(4, 6)],
-            "opset_version": 13,
         },
         {
             "testcase": "lax_split_unequal_parts",
             "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(4, 9)],
-            "opset_version": 13,
         },
     ],
 )
-class LaxSplitPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting `jax.lax.split` to ONNX `Split`."""
+class SplitPlugin(PrimitiveLeafPlugin):
+    """Lower ``lax.split`` to ONNX ``Split`` using IR-only ops."""
 
-    def to_onnx(
-        self,
-        conv: "Jaxpr2OnnxConverter",
-        invars: List[jax.core.Var],
-        outvars: List[jax.core.Var],
-        params: Dict[str, Any],
-    ):
-        """Lower the `split` primitive to an ONNX `Split` node."""
-        axis: int = params["axis"]
-        sizes: list[int] = params["sizes"]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        data_var = eqn.invars[0]
+        out_vars = list(eqn.outvars)
 
-        inp_name = conv.get_name(invars[0])
-        out_names = [conv.get_name(v) for v in outvars]
+        axis = int(eqn.params.get("axis", 0))
+        sizes = tuple(int(s) for s in eqn.params.get("sizes", ()))
+        if not sizes:
+            raise ValueError("lax.split requires non-empty sizes parameter")
 
-        # FIX: Use the correct converter method 'get_constant_name' to create the tensor.
-        split_tensor_name = conv.get_constant_name(np.array(sizes, dtype=np.int64))
-        node_inputs = [inp_name, split_tensor_name]
+        rank = len(getattr(data_var.aval, "shape", ()))
+        if rank == 0:
+            raise ValueError("lax.split expects the operand to have rank >= 1")
+        axis = axis % rank
 
-        split_node = helper.make_node(
-            "Split",
-            inputs=node_inputs,
-            outputs=out_names,
-            name=conv.get_unique_name("lax_split"),
+        data_val = ctx.get_value_for_var(
+            data_var, name_hint=ctx.fresh_name("split_data")
+        )
+
+        splits_val = _const_i64(ctx, np.asarray(sizes, dtype=np.int64), "split_sizes")
+        _stamp_type_and_shape(splits_val, (len(sizes),))
+        _ensure_value_info(ctx, splits_val)
+
+        out_vals = [
+            ctx.get_value_for_var(var, name_hint=ctx.fresh_name("split_out"))
+            for var in out_vars
+        ]
+
+        out_names = [
+            getattr(val, "name", None) or ctx.fresh_name("split_out")
+            for val in out_vals
+        ]
+        split_results = ctx.builder.Split(
+            data_val,
+            splits_val,
+            _outputs=out_names,
             axis=axis,
         )
-        conv.add_node(split_node)
+
+        data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        for var, val, res in zip(out_vars, out_vals, split_results):
+            out_shape = tuple(getattr(var.aval, "shape", ()))
+            if data_dtype is not None:
+                res.type = ir.TensorType(data_dtype)
+            _stamp_type_and_shape(res, out_shape)
+            _ensure_value_info(ctx, res)
+            ctx.bind_value_for_var(var, res)

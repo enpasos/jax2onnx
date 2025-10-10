@@ -1,32 +1,29 @@
-# file: jax2onnx/plugins/jax/nn/celu.py
+# jax2onnx/plugins/jax/nn/celu.py
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
-import numpy as np
 from jax.extend.core import Primitive
-from jax.interpreters import batching
-from onnx import helper
-from onnx import TensorProto
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Define our own primitive
-jax.nn.celu_p = Primitive("jax.nn.celu")
-jax.nn.celu_p.multiple_results = False
+
+_CELU_PRIM: Final[Primitive] = Primitive("jax.nn.celu")
+_CELU_PRIM.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=jax.nn.celu_p.name,
+    jaxpr_primitive=_CELU_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.celu.html",
     onnx=[
-        {
-            "component": "Celu",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Celu.html",
-        }
+        {"component": "Celu", "doc": "https://onnx.ai/onnx/operators/onnx__Celu.html"}
     ],
     since="v0.7.1",
     context="primitives.nn",
@@ -36,114 +33,72 @@ jax.nn.celu_p.multiple_results = False
             "testcase": "jaxnn_celu",
             "callable": lambda x: jax.nn.celu(x, alpha=0.1),
             "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "jaxnn_celu_1",
             "callable": lambda x: jax.nn.celu(x, alpha=0.2),
             "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "jaxnn_celu_alpha_default",
+            "callable": lambda x: jax.nn.celu(x),
+            "input_shapes": [(3, 4)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "jaxnn_celu_alpha_custom",
+            "callable": lambda x: jax.nn.celu(x, alpha=0.3),
+            "input_shapes": [("B", 2, 2)],
+            "run_only_f32_variant": True,
         },
     ],
 )
-class JaxCeluPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.nn.celu calls to the ONNX Celu operator.
-    """
+class CeluPlugin(PrimitiveLeafPlugin):
+    """Lower ``jax.nn.celu`` to ONNX ``Celu`` (IR-only)."""
+
+    _PRIM: ClassVar[Primitive] = _CELU_PRIM
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, alpha=1.0):
-        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
+    def abstract_eval(x, alpha: float = 1.0):
+        del alpha
+        return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        # unpack inputs/outputs and get dtype/shape
-        (input_var,) = node_inputs
-        (output_var,) = node_outputs
-        input_name = s.get_name(input_var)
-        output_name = s.get_name(output_var)
-        alpha = params.get("alpha", 1.0)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        alpha = float(eqn.params.get("alpha", 1.0))
 
-        dt = input_var.aval.dtype
-        shape = tuple(input_var.aval.shape)
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Celu",
+            input_hint="celu_in",
+            output_hint="celu_out",
+            attrs={"alpha": alpha},
+        )
 
-        # ONNX Celu doesn't support double, so cast→Celu(float32)→cast back
-        if np.issubdtype(dt, np.floating) and dt == np.dtype(np.float64):
-            # 1) cast input down to float32
-            cast_in = s.get_unique_name("celu_cast_in")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[input_name],
-                    outputs=[cast_in],
-                    to=TensorProto.FLOAT,
-                )
-            )
-            s.add_shape_info(cast_in, shape, TensorProto.FLOAT)
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
-            # 2) float32 Celu
-            celu_f32 = s.get_unique_name("celu_f32")
-            s.add_node(
-                helper.make_node(
-                    "Celu",
-                    inputs=[cast_in],
-                    outputs=[celu_f32],
-                    name=s.get_unique_name("celu"),
-                    alpha=alpha,
-                )
-            )
-            s.add_shape_info(celu_f32, shape, TensorProto.FLOAT)
-
-            # 3) cast result back to float64
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[celu_f32],
-                    outputs=[output_name],
-                    to=TensorProto.DOUBLE,
-                )
-            )
-        else:
-            # float32 (or any non‐double) Celu
-            s.add_node(
-                helper.make_node(
-                    "Celu",
-                    inputs=[input_name],
-                    outputs=[output_name],
-                    name=s.get_unique_name("celu"),
-                    alpha=alpha,
-                )
-            )
-
-    @staticmethod
-    def get_monkey_patch():
-        def patched_celu(x, alpha=1.0):
-            return jax.nn.celu_p.bind(x, alpha=alpha)
-
-        return patched_celu
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jax.nn],
-            "patch_function": lambda _: JaxCeluPlugin.get_monkey_patch(),
-            "target_attribute": "celu",
-        }
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("jax.nn", "celu_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="jax.nn",
+                attr="celu",
+                make_value=lambda orig: (
+                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+                ),
+                delete_if_missing=False,
+            ),
+        ]
 
 
-def celu_batching_rule(batched_args, batch_dims, *, alpha):
-    """
-    Batching rule for jax.nn.celu.
-    Since celu is elementwise, we simply apply the primitive to the batched input.
-    """
-    (x,) = batched_args
-    (bdim,) = batch_dims
-
-    y = jax.nn.celu_p.bind(x, alpha=alpha)
-    return y, bdim
-
-
-# === Registration ===
-
-# Register the abstract evaluation function
-jax.nn.celu_p.def_abstract_eval(JaxCeluPlugin.abstract_eval)
-
-# Register the batching rule
-batching.primitive_batchers[jax.nn.celu_p] = celu_batching_rule
+@CeluPlugin._PRIM.def_impl
+def _celu_impl(*args, **kwargs):
+    return jax.nn.celu(*args, **kwargs)

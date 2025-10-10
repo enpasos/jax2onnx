@@ -1,183 +1,175 @@
-# file: jax2onnx/plugins/jax/numpy/sort.py
+# jax2onnx/plugins/jax/numpy/sort.py
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Any, Dict, List
+from typing import TYPE_CHECKING, ClassVar, Final
 
-import numpy as np
 import jax
-from jax import numpy as jnp, core
-from jax.extend.core import Primitive
-from jax._src.export.shape_poly import _DimExpr as DimExpr  # noqa: F401
+import jax.numpy as jnp
+import numpy as np
+from jax import core
 
-from onnx import helper
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-# ---------------------------------------------------------------------- #
-# 1.  A dedicated primitive for jnp.sort                                 #
-# ---------------------------------------------------------------------- #
-sort_p = Primitive("jnp.sort")
-sort_p.multiple_results = False  # only the sorted values
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# ---------------------------------------------------------------------- #
-# 2.  Plugin registration                                                #
-# ---------------------------------------------------------------------- #
+_SORT_PRIM: Final = make_jnp_primitive("jax.numpy.sort")
+
+
+def _sort_eval(x, axis=-1):
+    orig = getattr(_SORT_PRIM, "__orig_impl__sort", jnp.sort)
+    spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+    result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
+    return result
+
+
 @register_primitive(
-    jaxpr_primitive=sort_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.sort.html",
+    jaxpr_primitive=_SORT_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.sort.html",
     onnx=[
-        {
-            "component": "TopK",
-            "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html",
-        }
+        {"component": "Sort", "doc": "https://onnx.ai/onnx/operators/onnx__Sort.html"}
     ],
-    since="v0.5.2",
+    since="v0.9.0",
     context="primitives.jnp",
     component="sort",
     testcases=[
         {
             "testcase": "sort_1d",
             "callable": lambda x: jnp.sort(x),
-            "input_shapes": [(7,)],
+            "input_shapes": [(5,)],
         },
         {
             "testcase": "sort_2d_axis0",
             "callable": lambda x: jnp.sort(x, axis=0),
-            "input_shapes": [("B", 4)],
+            "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "sort_basic",
+            "callable": lambda x: jnp.sort(x, axis=1),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
-class SortPlugin(PrimitiveLeafPlugin):
-    """
-    Lower `jnp.sort` (ascending, values-only) to ONNX `TopK`
-    with `largest=0, sorted=1`.
-    """
-
-    _ORIG_CALL: Callable[..., Any] | None = None
-    primitive = sort_p
-
-    # ----------------------------------------------------------
-    # abstract_eval – delegate to the original jnp.sort
-    # ----------------------------------------------------------
-    @staticmethod
-    def abstract_eval(x: core.ShapedArray, *, axis: int | None = -1, **_):
-        if SortPlugin._ORIG_CALL is None:  # pragma: no cover
-            raise RuntimeError("Original jnp.sort not captured")
-        spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
-        out = jax.eval_shape(lambda a: SortPlugin._ORIG_CALL(a, axis=axis), spec)
-        return core.ShapedArray(out.shape, out.dtype)
-
-    # ----------------------------------------------------------
-    # ONNX lowering
-    # ----------------------------------------------------------
-    def to_onnx(  # noqa: D401
-        self,
-        conv: "Jaxpr2OnnxConverter",
-        invars: List,
-        outvars: List,
-        params: Dict[str, Any],
-    ):
-        x_var = invars[0]
-        x_name = conv.get_name(x_var)
-
-        axis = params.get("axis", -1)
-        if axis < 0:
-            axis += len(x_var.aval.shape)
-
-        # -------------------------------------------------- #
-        # shape(x)  -> gather(axis)  -> k_scalar            #
-        # -------------------------------------------------- #
-        shape_name = conv.get_unique_name("shape_of")
-        conv.add_node(
-            helper.make_node(
-                "Shape",
-                inputs=[x_name],
-                outputs=[shape_name],
-                name=conv.get_unique_name("Shape"),
-            )
-        )
-        conv.add_shape_info(shape_name, (len(x_var.aval.shape),), np.int64)
-
-        axis_const = conv.get_constant_name(np.array(axis, dtype=np.int64))  # 0-D
-        k_scalar = conv.get_unique_name("dim_size")
-        conv.add_node(
-            helper.make_node(
-                "Gather",
-                inputs=[shape_name, axis_const],
-                outputs=[k_scalar],
-                axis=0,
-                name=conv.get_unique_name("Gather_dim"),
-            )
-        )
-        conv.add_shape_info(k_scalar, (), np.int64)
-
-        # -------------------------------------------------- #
-        # Unsqueeze k to 1-D so TopK accepts it              #
-        # -------------------------------------------------- #
-        axes_const = conv.get_constant_name(np.array([0], dtype=np.int64))  # 1-D
-        k_name = conv.get_unique_name("k_unsqueezed")
-        conv.add_node(
-            helper.make_node(
-                "Unsqueeze",
-                inputs=[k_scalar, axes_const],
-                outputs=[k_name],
-                name=conv.get_unique_name("Unsqueeze_k"),
-            )
-        )
-        conv.add_shape_info(k_name, (1,), np.int64)
-
-        # -------------------------------------------------- #
-        # TopK                                              #
-        # -------------------------------------------------- #
-        values_out = conv.get_name(outvars[0])
-        indices_tmp = conv.get_unique_name("topk_indices")  # ignored
-        conv.add_node(
-            helper.make_node(
-                "TopK",
-                inputs=[x_name, k_name],
-                outputs=[values_out, indices_tmp],
-                axis=axis,
-                largest=0,
-                sorted=1,
-                name=conv.get_unique_name("TopK_sort"),
-            )
-        )
-
-        # Meta-data for the sorted values
-        out_shape = tuple(conv._dim_to_symbol_safe(d) for d in x_var.aval.shape)
-        out_dtype_enum = conv._ensure_onnx_dtype(x_var.aval.dtype)
-        conv.add_shape_info(values_out, out_shape, out_dtype_enum)
-        conv.add_shape_info(indices_tmp, out_shape, np.int64)
-
-    # ----------------------------------------------------------
-    # monkey-patch helpers
-    # ----------------------------------------------------------
-    @staticmethod
-    def _sort_binding(a, *, axis=-1):
-        return sort_p.bind(a, axis=axis)
+class JnpSortPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _SORT_PRIM
+    _FUNC_NAME: ClassVar[str] = "sort"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        SortPlugin._ORIG_CALL = orig_fn
+    def abstract_eval(x, *, axis=-1, kind=None, order=None):
+        if kind not in (None, "stable", "mergesort"):
+            raise NotImplementedError("Only default/stable sorts supported")
+        if order is not None:
+            raise NotImplementedError("jnp.sort order parameter is not supported")
+        result = _sort_eval(x, axis=axis)
+        return core.ShapedArray(result.shape, result.dtype)
 
-        def patched_sort(a, axis=-1):
-            return SortPlugin._sort_binding(a, axis=axis)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        axis = int(params.get("axis", -1))
+        kind = params.get("kind", None)
+        order = params.get("order", None)
+        if order is not None:
+            raise NotImplementedError("jnp.sort order parameter is not supported")
+        if kind not in (None, "stable", "mergesort"):
+            raise NotImplementedError("Only default/stable sorts supported")
 
-        return patched_sort
+        (arr_var,) = eqn.invars
+        (out_var,) = eqn.outvars
 
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "sort",
-            "patch_function": SortPlugin.get_monkey_patch,
-        }
+        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
+        if not arr_shape:
+            axis = 0
+        else:
+            if axis < 0:
+                axis += len(arr_shape)
+            if axis < 0 or axis >= len(arr_shape):
+                raise ValueError("axis out of bounds")
+
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("sort_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for sort lowering")
+
+        axis_size = arr_shape[axis] if arr_shape else 1
+        if not isinstance(axis_size, (int, np.integer)):
+            raise TypeError("jnp.sort requires static axis length")
+        k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
+        values, _indices = builder.TopK(
+            arr_val,
+            k_val,
+            _outputs=[
+                ctx.fresh_name("sort_values"),
+                ctx.fresh_name("sort_indices"),
+            ],
+            axis=int(axis),
+            largest=0,
+            sorted=1,
+        )
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        if getattr(arr_val, "type", None) is not None:
+            values.type = arr_val.type
+        _stamp_type_and_shape(values, target_shape)
+        _ensure_value_info(ctx, values)
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
+        result = builder.Identity(
+            values,
+            _outputs=[out_name],
+        )
+        if getattr(arr_val, "type", None) is not None:
+            result.type = arr_val.type
+        _stamp_type_and_shape(result, target_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.sort not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(a, axis=-1, kind=None, order=None):
+                if order is not None:
+                    raise NotImplementedError(
+                        "jnp.sort order parameter is not supported"
+                    )
+                if kind not in (None, "stable", "mergesort"):
+                    raise NotImplementedError("Only default/stable sorts supported")
+                return cls._PRIM.bind(a, axis=axis, kind=kind, order=order)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-# Register abstract-eval with the primitive
-sort_p.def_abstract_eval(SortPlugin.abstract_eval)
+@JnpSortPlugin._PRIM.def_impl
+def _sort_impl(a, axis=-1, kind=None, order=None):
+    orig = get_orig_impl(JnpSortPlugin._PRIM, JnpSortPlugin._FUNC_NAME)
+    return orig(a, axis=axis, kind=kind, order=order)
+
+
+JnpSortPlugin._PRIM.def_abstract_eval(JnpSortPlugin.abstract_eval)

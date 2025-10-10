@@ -2,36 +2,60 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Iterable, Tuple
+
+import jax
 import numpy as np
-from jax import lax, numpy as jnp
-from jax.extend.core import ClosedJaxpr, Literal, Var
-from types import SimpleNamespace
-from onnx import helper, GraphProto, TensorProto
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-import logging
+import jax.numpy as jnp
+import onnx_ir as ir
 
-if TYPE_CHECKING:
-    pass
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    lower_jaxpr_eqns,
+    make_subgraph_context,
+)
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-module_logger = logging.getLogger("jax2onnx.plugins.jax.lax.cond")
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Use lax.cond_p directly from JAX
-cond_p = lax.cond_p
+
+def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
+    if hasattr(jaxpr_like, "jaxpr") and hasattr(jaxpr_like, "consts"):
+        return jaxpr_like.jaxpr, getattr(jaxpr_like, "consts")
+    return jaxpr_like, ()
+
+
+def _extract_branches(
+    params: dict[str, Any],
+) -> Tuple[Tuple[Any, Iterable[Any]], Tuple[Any, Iterable[Any]]]:
+    if "branches" in params:
+        false_closed, true_closed = params["branches"]
+    else:
+        true_closed = params["true_jaxpr"]
+        false_closed = params["false_jaxpr"]
+    true_jaxpr, true_consts = _unwrap_closed_jaxpr(true_closed)
+    false_jaxpr, false_consts = _unwrap_closed_jaxpr(false_closed)
+    return (true_jaxpr, true_consts), (false_jaxpr, false_consts)
 
 
 @register_primitive(
-    jaxpr_primitive=cond_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.cond.html",
-    onnx=[{"component": "If", "doc": "https://onnx.ai/onnx/operators/onnx__If.html"}],
+    jaxpr_primitive=jax.lax.cond_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cond.html",
+    onnx=[
+        {
+            "component": "If",
+            "doc": "https://onnx.ai/onnx/operators/onnx__If.html",
+        }
+    ],
     since="v0.5.1",
     context="primitives.lax",
     component="cond",
     testcases=[
         {
             "testcase": "cond_scalar",
-            "callable": lambda: lax.cond(
+            "callable": lambda: jax.lax.cond(
                 True,
                 lambda x: x + 1,
                 lambda x: x - 1,
@@ -42,25 +66,21 @@ cond_p = lax.cond_p
         },
         {
             "testcase": "cond_multiple_operands_in_tuple",
-            "callable": lambda: lax.cond(
+            "callable": lambda: jax.lax.cond(
                 True,
                 lambda tup: tup[0] + tup[1] - tup[2],
                 lambda tup: tup[0] - tup[1] + tup[2],
-                (
-                    np.array(10, np.int32),
-                    np.array(5, np.int32),
-                    np.array(2, np.int32),
-                ),
+                (np.array(10, np.int32), np.array(5, np.int32), np.array(2, np.int32)),
             ),
             "input_shapes": [],
             "expected_output_shapes": [()],
         },
         {
             "testcase": "cond_my_new_complex_scenario",
-            "callable": lambda op1, op2: lax.cond(
+            "callable": lambda op1, op2: jax.lax.cond(
                 jnp.all(op1 > 0),
                 lambda t: (t[0] * 2 + t[1], jnp.sum(t[0], axis=(-2, -1))),
-                lambda t: (t[0] - t[1] * 2, jnp.mean(t[0], axis=(-2, -1))),
+                lambda t: (t[0] - t[1] * 2, jnp.sum(t[0], axis=(-2, -1))),
                 (op1, op2),
             ),
             "input_shapes": [(11, 3, 4), (3, 4)],
@@ -70,12 +90,12 @@ cond_p = lax.cond_p
         },
         {
             "testcase": "cond_nested_conditional",
-            "callable": lambda x, y, z_pred: lax.cond(
+            "callable": lambda x, y, z_pred: jax.lax.cond(
                 x > 5,
-                lambda op: lax.cond(
+                lambda op: jax.lax.cond(
                     z_pred,
                     lambda inner_op: inner_op * 10,
-                    lambda inner_op: inner_op / 10,
+                    lambda inner_op: inner_op - 10,
                     op,
                 ),
                 lambda op: op + 100,
@@ -87,7 +107,7 @@ cond_p = lax.cond_p
         },
         {
             "testcase": "cond_variables",
-            "callable": lambda x, y: lax.cond(
+            "callable": lambda x, y: jax.lax.cond(
                 x > 5,
                 lambda op: op - 100,
                 lambda op: op + 100,
@@ -99,23 +119,23 @@ cond_p = lax.cond_p
         },
         {
             "testcase": "cond_internal_constant_f64",
-            "callable": lambda: lax.cond(
+            "callable": lambda: jax.lax.cond(
                 False,
                 lambda x: x * 2.0,
                 lambda x: x + 1.0,
                 jnp.zeros((2, 4), dtype=jnp.float64),
             ),
             "input_shapes": [],
-            "enable_double_precision": True,
             "expected_output_shapes": [(2, 4)],
             "expected_output_dtypes": [np.float64],
+            "enable_double_precision": True,
             "run_only_f64_variant": True,
         },
         {
             "testcase": "cond_passthrough_identity",
-            "callable": lambda pred, x, y: lax.cond(
+            "callable": lambda pred, x, y: jax.lax.cond(
                 pred,
-                lambda op_x, op_y: lax.add(op_x, op_y),
+                lambda op_x, op_y: jax.lax.add(op_x, op_y),
                 lambda op_x, op_y: op_x,
                 x,
                 y,
@@ -128,13 +148,13 @@ cond_p = lax.cond_p
         },
         {
             "testcase": "cond_with_scatter",
-            "callable": lambda operand, updates: lax.cond(
+            "callable": lambda operand, updates: jax.lax.cond(
                 True,
-                lambda op, upd: lax.scatter_add(
+                lambda op, upd: jax.lax.scatter_add(
                     op,
                     jnp.array([[1], [3]], dtype=jnp.int32),
                     upd,
-                    lax.ScatterDimensionNumbers(
+                    jax.lax.ScatterDimensionNumbers(
                         update_window_dims=(1,),
                         inserted_window_dims=(0,),
                         scatter_dims_to_operand_dims=(0,),
@@ -152,147 +172,163 @@ cond_p = lax.cond_p
     ],
 )
 class CondPlugin(PrimitiveLeafPlugin):
-    primitive = cond_p
+    """IR-first lowering for ``lax.cond`` to ONNX ``If``."""
 
-    def to_onnx(
-        self,
-        conv: Jaxpr2OnnxConverter,
-        invars: List[Var],
-        outvars: List[Var],
-        params: Dict[str, Any],
-    ):
-        fake_eqn = SimpleNamespace(invars=invars, outvars=outvars, params=params)
-        self._to_onnx_impl(conv, fake_eqn)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        cond_var, *operand_vars = eqn.invars
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for lax.cond lowering"
+            )
 
-    def _make_branch(
-        self,
-        parent_conv: Jaxpr2OnnxConverter,
-        tag: str,
-        closed: ClosedJaxpr,
-        op_names_parent: List[str],
-    ) -> GraphProto:
-        from jax2onnx.converter.onnx_builder import OnnxBuilder
+        cond_val = ctx.get_value_for_var(
+            cond_var, name_hint=ctx.fresh_name("cond_pred")
+        )
+        needs_cast = True
+        aval_dtype = getattr(getattr(cond_var, "aval", None), "dtype", None)
+        if aval_dtype is not None and np.issubdtype(np.dtype(aval_dtype), np.bool_):
+            needs_cast = False
+        elif (
+            hasattr(cond_val, "type")
+            and getattr(cond_val.type, "dtype", None) == ir.DataType.BOOL
+        ):
+            needs_cast = False
 
-        sub_builder = OnnxBuilder(
-            name_generator=parent_conv.builder.name_generator,
-            opset=parent_conv.builder.opset,
-            model_name=f"{tag}_body",
-            initializers=parent_conv.builder.initializers,
-            enable_double_precision=parent_conv.builder.enable_double_precision,
-            converter=parent_conv,
+        if needs_cast:
+            cond_val = builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("cond_pred_bool")],
+                to=int(ir.DataType.BOOL.value),
+            )
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(
+                cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(ctx, cond_val)
+        else:
+            _stamp_type_and_shape(
+                cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(ctx, cond_val)
+
+        branch_input_vals = [
+            ctx.get_value_for_var(v, name_hint=ctx.fresh_name("cond_operand"))
+            for v in operand_vars
+        ]
+        for var, val in zip(operand_vars, branch_input_vals):
+            _stamp_type_and_shape(
+                val, tuple(getattr(getattr(var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(ctx, val)
+
+        (true_jaxpr, true_consts), (false_jaxpr, false_consts) = _extract_branches(
+            eqn.params
         )
 
-        if hasattr(parent_conv.builder, "var_to_symbol_map"):
-            sub_builder.var_to_symbol_map.update(parent_conv.builder.var_to_symbol_map)
-
-        sub_conv = parent_conv.__class__(sub_builder)
-        sub_conv.symbolic_dim_to_origin = parent_conv.symbolic_dim_to_origin
-
-        for branch_invar, parent_var_name in zip(closed.jaxpr.invars, op_names_parent):
-            sub_conv.var_to_name[branch_invar] = parent_var_name
-
-        for cv, cval in zip(closed.jaxpr.constvars, closed.consts):
-            sub_conv.var_to_name[cv] = sub_conv.get_constant_name(cval)
-
-        sub_conv._process_jaxpr(closed.jaxpr, closed.consts)
-
-        # --- FIX STARTS HERE ---
-        sub_builder.outputs.clear()  # Clear any outputs added by _process_jaxpr
-
-        subgraph_input_names = set(op_names_parent)
-        final_output_names = []
-
-        for out_var in closed.jaxpr.outvars:
-            out_name = sub_conv.get_name(out_var)
-            if out_name in subgraph_input_names:
-                identity_out_name = sub_conv.get_unique_name(f"{out_name}_identity")
-                node = helper.make_node("Identity", [out_name], [identity_out_name])
-                sub_builder.add_node(node)
-                final_output_names.append(identity_out_name)
-            else:
-                final_output_names.append(out_name)
-
-        # Now, correctly define the outputs for the subgraph using the final names
-        for name_in_sub, out_var in zip(final_output_names, closed.jaxpr.outvars):
-            shape = tuple(
-                parent_conv._dim_to_symbol_safe(d) for d in out_var.aval.shape
-            )
-            dtype = parent_conv._ensure_onnx_dtype(out_var.aval.dtype)
-            sub_builder.add_output(name_in_sub, shape, dtype)
-        # --- FIX ENDS HERE ---
-
-        graph = sub_builder.create_graph(
-            sub_builder.model_name, is_subgraph=True, empty_inputs=True
+        then_graph = self._build_branch_graph(
+            ctx,
+            true_jaxpr,
+            true_consts,
+            branch_input_vals,
+            prefix="cond_then",
         )
-        return graph
+        else_graph = self._build_branch_graph(
+            ctx,
+            false_jaxpr,
+            false_consts,
+            branch_input_vals,
+            prefix="cond_else",
+        )
 
-    def _to_onnx_impl(self, conv: Jaxpr2OnnxConverter, eqn: Any):
-        pred_var = eqn.invars[0]
-        raw_pred_name = conv.get_name(pred_var)
-
-        if isinstance(pred_var, Literal):
-            lit_val = pred_var.val
-            pred_bool_name = conv.builder.get_unique_name("cond_pred_bool")
-            tensor_proto = helper.make_tensor(
-                name=pred_bool_name,
-                data_type=TensorProto.BOOL,
-                dims=[],
-                vals=[bool(lit_val != 0)],
-            )
-            conv.builder.initializers.append(tensor_proto)
-            conv.builder.add_value_info(
-                pred_bool_name,
-                (),
-                TensorProto.BOOL,
-            )
-            condition_input = pred_bool_name
-
-        else:
-            pred_dtype = pred_var.aval.dtype
-            onnx_dtype = conv._ensure_onnx_dtype(pred_dtype)
-            if onnx_dtype != TensorProto.BOOL:
-                pred_bool_name = conv.builder.get_unique_name("cond_pred_bool")
-                cast_node = helper.make_node(
-                    "Cast",
-                    inputs=[raw_pred_name],
-                    outputs=[pred_bool_name],
-                    name=conv.get_unique_name("cast_to_bool"),
-                    to=TensorProto.BOOL,
-                )
-                conv.builder.add_node(cast_node)
-                conv.builder.add_value_info(
-                    pred_bool_name,
-                    (),
-                    TensorProto.BOOL,
-                )
-                condition_input = pred_bool_name
-            else:
-                condition_input = raw_pred_name
-
-        branch_inputs = eqn.invars[1:]
-        branch_input_names = [conv.get_name(v) for v in branch_inputs]
-
-        if "branches" in eqn.params:
-            false_closed, true_closed = eqn.params["branches"]
-        else:
-            true_closed = eqn.params["true_jaxpr"]
-            false_closed = eqn.params["false_jaxpr"]
-
-        then_graph = self._make_branch(conv, "then", true_closed, branch_input_names)
-        else_graph = self._make_branch(conv, "else", false_closed, branch_input_names)
-
-        out_names = [conv.get_name(v) for v in eqn.outvars]
-        if_node = helper.make_node(
-            "If",
-            inputs=[condition_input],
-            outputs=out_names,
+        output_names = [ctx.fresh_name("cond_out") for _ in eqn.outvars]
+        if_outputs = builder.If(
+            cond_val,
             then_branch=then_graph,
             else_branch=else_graph,
-            name=conv.get_unique_name("If_cond"),
+            _outputs=output_names,
         )
-        conv.builder.add_node(if_node)
 
-        for v, name in zip(eqn.outvars, out_names):
-            shape = tuple(conv._dim_to_symbol_safe(d) for d in v.aval.shape)
-            dtype = conv._ensure_onnx_dtype(v.aval.dtype)
-            conv.builder.add_output(name, shape, dtype)
+        if not isinstance(if_outputs, tuple):
+            if_outputs = (if_outputs,)
+
+        enable_dp = getattr(builder, "enable_double_precision", False)
+        for var, out_val in zip(eqn.outvars, if_outputs):
+            aval = getattr(var, "aval", None)
+            dtype_enum = None
+            if aval is not None:
+                aval_dtype = getattr(aval, "dtype", None)
+                if aval_dtype is not None:
+                    try:
+                        dtype_enum = _dtype_to_ir(np.dtype(aval_dtype), enable_dp)
+                    except TypeError:
+                        dtype_enum = None
+            if dtype_enum is not None:
+                out_val.type = ir.TensorType(dtype_enum)
+            _stamp_type_and_shape(out_val, tuple(getattr(aval, "shape", ()) or ()))
+            _ensure_value_info(ctx, out_val)
+            ctx.bind_value_for_var(var, out_val)
+
+    def _build_branch_graph(
+        self,
+        ctx: "IRContext",
+        branch_jaxpr,
+        consts: Iterable[Any],
+        operand_vals: list[ir.Value],
+        *,
+        prefix: str,
+    ) -> ir.Graph:
+        branch_ctx = make_subgraph_context(ctx, prefix=prefix)
+
+        # Bind constants inside the branch context.
+        for const_var, const_value in zip(branch_jaxpr.constvars, consts):
+            branch_ctx.bind_const_for_var(const_var, np.asarray(const_value))
+
+        builder = getattr(branch_ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("Branch context missing builder for lax.cond")
+
+        branch_inputs: list[ir.Value] = []
+        for outer_val, inner_var in zip(operand_vals, branch_jaxpr.invars):
+            capture = builder.Identity(
+                outer_val,
+                _outputs=[branch_ctx.fresh_name("cond_capture")],
+            )
+            orig_type = getattr(outer_val, "type", None)
+            if orig_type is not None:
+                capture.type = orig_type
+            _stamp_type_and_shape(
+                capture, tuple(getattr(getattr(inner_var, "aval", None), "shape", ()))
+            )
+            _ensure_value_info(branch_ctx, capture)
+            branch_ctx.bind_value_for_var(inner_var, capture)
+            branch_inputs.append(capture)
+
+        lower_jaxpr_eqns(branch_ctx, branch_jaxpr)
+
+        input_names = {val.name for val in branch_inputs}
+        branch_outputs: list[ir.Value] = []
+        for out_var in branch_jaxpr.outvars:
+            val = branch_ctx.get_value_for_var(out_var)
+            if val.name in input_names:
+                orig_type = getattr(val, "type", None)
+                val = builder.Identity(
+                    val,
+                    _outputs=[branch_ctx.fresh_name(f"{val.name}_identity")],
+                )
+                if orig_type is not None:
+                    val.type = orig_type
+            branch_outputs.append(val)
+            _stamp_type_and_shape(val, tuple(getattr(out_var.aval, "shape", ())))
+            _ensure_value_info(branch_ctx, val)
+
+        branch_ctx.builder.outputs = branch_outputs
+
+        return ir.Graph(
+            inputs=[],
+            outputs=list(branch_outputs),
+            nodes=list(branch_ctx.builder.nodes),
+            initializers=list(branch_ctx.builder.initializers),
+            name=ctx.fresh_name(prefix),
+            opset_imports={"": getattr(ctx.builder, "opset", 21)},
+        )

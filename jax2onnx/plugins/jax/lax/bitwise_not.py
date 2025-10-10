@@ -1,89 +1,71 @@
-"""ONNX plug-in for the unary **NOT** primitive:
-  * ``jax.numpy.logical_not``               (bool inputs)
-  * ``jax.lax.bitwise_not``                 (integer inputs)
+# jax2onnx/plugins/jax/lax/bitwise_not.py
 
-JAX primitive name           : ``"not"``   (object ``lax.not_p``)
-Mapped ONNX operator          : ``BitwiseNot`` (opset ≥ 18)
-"""
+from typing import TYPE_CHECKING
 
-from __future__ import annotations
-
-from typing import Any, Sequence
-
-import logging
+import jax
 import numpy as np
-from jax import lax
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-logger = logging.getLogger("jax2onnx.plugins.jax.lax.bitwise_not")
+if TYPE_CHECKING:
+    pass  # type hints only
 
 
 @register_primitive(
-    jaxpr_primitive=lax.not_p.name,  # ▶  primitive is literally called "not"
+    jaxpr_primitive=jax.lax.not_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.bitwise_not.html",
     onnx=[
         {
             "component": "BitwiseNot",
             "doc": "https://onnx.ai/onnx/operators/onnx__BitwiseNot.html",
-        }
+        },
+        {
+            "component": "Not",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Not.html",
+        },
     ],
     since="v0.7.5",
     context="primitives.lax",
     component="bitwise_not",
     testcases=[
-        # simple smoke-tests to exercise both bool and int paths
         {
             "testcase": "bitwise_not_bool",
-            "callable": lambda x: lax.bitwise_not(x),
+            "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(True, dtype=np.bool_)],
             "expected_output_dtypes": [np.bool_],
         },
         {
             "testcase": "bitwise_not_i32",
-            "callable": lambda x: lax.bitwise_not(x),
+            "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(7, dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
         },
     ],
 )
 class BitwiseNotPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.not_p`` to ONNX ``BitwiseNot`` or logical ``Not``."""
-
-    # ① abstract eval — shape & dtype unchanged
     @staticmethod
     def abstract_eval(x):
         return x
 
-    # ② lowering
-    def to_onnx(
-        self,
-        s,  # Jaxpr2OnnxConverter
-        node_inputs: Sequence[Any],
-        node_outputs: Sequence[Any],
-        params: dict[str, Any],
-    ):
-        inp_name = s.get_name(node_inputs[0])
-        out_name = s.get_name(node_outputs[0])
-        dtype = node_inputs[0].aval.dtype
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-        # ONNX rule:  bool → Not,  ints → BitwiseNot
-        is_bool = np.dtype(dtype).kind == "b"
-        op_type = "Not" if is_bool else "BitwiseNot"
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("not_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("not_out"))
 
-        s.add_node(
-            helper.make_node(
-                op_type,
-                inputs=[inp_name],
-                outputs=[out_name],
-                name=s.get_unique_name(op_type.lower()),
-            )
-        )
+        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.bool_))
+        op_type = "Not" if x_dtype.kind == "b" else "BitwiseNot"
 
-        aval = node_inputs[0].aval
-        s.add_shape_info(out_name, aval.shape, aval.dtype)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("not_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("not_out")
 
-        logger.debug(
-            "Lowered lax.not_p  →  ONNX %s  (%s → %s)", op_type, inp_name, out_name
-        )
+        builder_fn = getattr(ctx.builder, op_type)
+        result = builder_fn(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

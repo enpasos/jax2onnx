@@ -1,8 +1,9 @@
 repos:
   - repo: https://github.com/psf/black
     rev: 25.1.0
-    hooks:
+    hooks: 
       - id: black
+
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.5
@@ -10,8 +11,33 @@ repos:
       - id: ruff
         args: [--fix, --unsafe-fixes] #, --unsafe-fixes]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
-    hooks:
-      - id: mypy
 
+  - repo: local
+    hooks:
+      - id: forbid-reflection-patterns
+        name: Forbid isinstance/getattr reflection shims
+        entry: python3 scripts/check_forbidden_reflection.py
+        language: system
+        pass_filenames: false
+      - id: mypy
+        name: mypy (poetry)
+        entry: python3 scripts/run_mypy.py
+        language: system
+        pass_filenames: false
+      - id: ensure-path-markers
+        name: Ensure Python files start with their repository path marker
+        entry: python3 scripts/ensure_path_markers.py
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: check-ir-builder-usage
+        name: Enforce IR builder usage policies
+        entry: python3 scripts/check_ir_builder_usage.py --diff
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: enforce-variable-annotations
+        name: Ensure converter module variables are annotated
+        entry: python3 scripts/check_variable_annotations.py
+        language: system
+        pass_filenames: false

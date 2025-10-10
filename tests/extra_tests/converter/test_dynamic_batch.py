@@ -1,21 +1,39 @@
+# tests/extra_tests/converter/test_dynamic_batch.py
+
+from __future__ import annotations
+
 import numpy as np
-import onnxruntime as ort
-import jax
-from jax2onnx import to_onnx
 import pytest
 
+import jax
 
-@pytest.mark.order(-1)  # run *after* the models have been produced
-def test_dynamic_batch():
+from jax2onnx.user_interface import to_onnx
+
+
+@pytest.mark.parametrize("batch_sizes", [(3, 17)])
+def test_dynamic_batch_ir(batch_sizes):
+    batch_axes = ("B", 50, 256)
+
     @jax.jit
     def get_token(x):
         return x[:, 0, :]
 
-    model = to_onnx(get_token, [("B", 50, 256)])
+    model = to_onnx(
+        get_token,
+        [batch_axes],
+        model_name="dynamic_batch_ir",
+    )
+
+    try:
+        import onnxruntime as ort
+    except ImportError:  # pragma: no cover
+        pytest.skip("onnxruntime not available")
+
     sess = ort.InferenceSession(
         model.SerializeToString(), providers=["CPUExecutionProvider"]
     )
-    for b in (3, 17):
+    input_name = sess.get_inputs()[0].name
+    for b in batch_sizes:
         x = np.random.randn(b, 50, 256).astype(np.float32)
-        out = sess.run(None, {sess.get_inputs()[0].name: x})[0]
+        (out,) = sess.run(None, {input_name: x})
         assert out.shape == (b, 256)

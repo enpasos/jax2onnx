@@ -1,10 +1,12 @@
+# tests/extra_tests/loop/test_loop_output_arity.py
+
 import pathlib
 import onnx
 import onnxruntime as ort
 import jax.numpy as jnp
 from jax import lax
 
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _assert_loops_ok(model: onnx.ModelProto) -> None:
@@ -47,7 +49,12 @@ def _make_fn_only_uses_subset_of_loop_outputs():
 
 def test_loop_output_arity_ok(tmp_path: pathlib.Path):
     fn = _make_fn_only_uses_subset_of_loop_outputs()
-    model = to_onnx(fn, inputs=[], model_name="loop_out_arity", opset=21)
+    model = to_onnx(
+        fn,
+        inputs=[],
+        model_name="loop_out_arity",
+        opset=21,
+    )
 
     # Structural check
     _assert_loops_ok(model)

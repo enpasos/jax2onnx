@@ -1,19 +1,19 @@
+# jax2onnx/plugins/examples/lax/cond_scatter_repro.py
+
+from __future__ import annotations
+
+import numpy as np
+
 import jax.numpy as jnp
 from jax import lax
-from jax2onnx.plugin_system import register_example
+
+from jax2onnx.plugins.plugin_system import register_example
 
 
 def model_with_cond_and_scatter():
-    """
-    This function reproduces the scenario where a lax.cond contains a scatter
-    operation, and the operands are constants defined within the function scope.
-    This leads to a conversion error if subgraphs do not inherit parent
-    graph initializers.
-    """
-    limit_val = float(2 * 4 * 1 * 1)
-    original_operand_val = jnp.arange(
-        start=0.0, stop=limit_val, step=1.0, dtype=jnp.float64
-    ).reshape((2, 4, 1, 1))
+    """Reproducer where lax.cond branches capture local scatter operands."""
+    base_vals = np.arange(0.0, 2 * 4 * 1 * 1, 1.0, dtype=np.float64).reshape(2, 4, 1, 1)
+    original_operand_val = jnp.asarray(base_vals, dtype=jnp.float64)
 
     raw_updates_data_val = jnp.ones((1, 4, 1, 1), dtype=jnp.float64) * 100.0
     reshaped_updates_for_slices_val = jnp.reshape(raw_updates_data_val, (1, 4, 1, 1))
@@ -55,7 +55,7 @@ register_example(
     testcases=[
         {
             "testcase": "cond_scatter_repro_f64",
-            "callable": lambda: model_with_cond_and_scatter(),
+            "callable": model_with_cond_and_scatter,
             "input_shapes": [],
             "input_dtypes": [],
             "expected_output_shapes": [(2, 4, 1, 1), ()],

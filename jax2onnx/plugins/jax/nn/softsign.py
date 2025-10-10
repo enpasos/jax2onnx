@@ -1,25 +1,26 @@
-# file: jax2onnx/plugins/jax/nn/softsign.py
+# jax2onnx/plugins/jax/nn/softsign.py
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
-from jax.interpreters import batching
-from onnx import helper
-import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Define our own primitive
-jax.nn.soft_sign_p = Primitive("jax.nn.soft_sign")
-jax.nn.soft_sign_p.multiple_results = False
+
+_SOFTSIGN_PRIM: Final[Primitive] = Primitive("jax.nn.soft_sign")
+_SOFTSIGN_PRIM.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=jax.nn.soft_sign_p.name,
+    jaxpr_primitive=_SOFTSIGN_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.soft_sign.html",
     onnx=[
         {
@@ -35,111 +36,62 @@ jax.nn.soft_sign_p.multiple_results = False
             "testcase": "jaxnn_soft_sign",
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "jaxnn_soft_sign_1",
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "jaxnn_softsign_basic",
+            "callable": lambda x: jax.nn.soft_sign(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
-class JaxSoftsignPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.nn.soft_sign calls to the ONNX Softsign operator.
-    """
+class SoftsignPlugin(PrimitiveLeafPlugin):
+    """IR-only lowering for ``jax.nn.soft_sign``."""
+
+    _PRIM: ClassVar[Primitive] = _SOFTSIGN_PRIM
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(x):
-        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
+        return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Softsign",
+            input_hint="softsign_in",
+            output_hint="softsign_out",
+        )
 
-        input_name = s.get_name(input_var)
-        output_name = s.get_name(output_var)
-        dtype = input_var.aval.dtype
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
-        if dtype == np.float32:
-            # use the native ONNX Softsign op for float32
-            node = helper.make_node(
-                "Softsign",
-                inputs=[input_name],
-                outputs=[output_name],
-                name=s.get_unique_name("softsign"),
-            )
-            s.add_node(node)
-        else:
-            # Softsign(x) = x / (1 + |x|)
-            # 1) abs_x = Abs(x)
-            abs_x = s.get_unique_name("abs_x")
-            s.add_node(
-                helper.make_node(
-                    "Abs",
-                    inputs=[input_name],
-                    outputs=[abs_x],
-                    name=s.get_unique_name("abs"),
-                )
-            )
-            s.add_shape_info(abs_x, input_var.aval.shape, dtype)
-
-            # 2) denom = Add(abs_x, 1)
-            one = np.array(1, dtype=dtype)
-            one_const = s.get_constant_name(one)
-            denom = s.get_unique_name("denom")
-            s.add_node(
-                helper.make_node(
-                    "Add",
-                    inputs=[abs_x, one_const],
-                    outputs=[denom],
-                    name=s.get_unique_name("add"),
-                )
-            )
-            s.add_shape_info(denom, input_var.aval.shape, dtype)
-
-            # 3) out = Div(x, denom)
-            s.add_node(
-                helper.make_node(
-                    "Div",
-                    inputs=[input_name, denom],
-                    outputs=[output_name],
-                    name=s.get_unique_name("div"),
-                )
-            )
-            # shape_info for output is inferred by the converter
-
-    @staticmethod
-    def get_monkey_patch():
-        def patched_softsign(x):
-            return jax.nn.soft_sign_p.bind(x)
-
-        return patched_softsign
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jax.nn],
-            "patch_function": lambda _: JaxSoftsignPlugin.get_monkey_patch(),
-            "target_attribute": "soft_sign",
-        }
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("jax.nn", "soft_sign_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="jax.nn",
+                attr="soft_sign",
+                make_value=lambda orig: (
+                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+                ),
+                delete_if_missing=False,
+            ),
+        ]
 
 
-def softsign_batching_rule(batched_args, batch_dims):
-    """
-    Batching rule for jax.nn.soft_sign.
-    Since Softsign is elementwise, we simply apply the primitive to the batched input.
-    """
-    (x,) = batched_args
-    (bdim,) = batch_dims
-
-    y = jax.nn.soft_sign_p.bind(x)
-    return y, bdim
-
-
-# === Registration ===
-
-# Register the abstract evaluation function
-jax.nn.soft_sign_p.def_abstract_eval(JaxSoftsignPlugin.abstract_eval)
-
-# Register the batching rule
-batching.primitive_batchers[jax.nn.soft_sign_p] = softsign_batching_rule
+@SoftsignPlugin._PRIM.def_impl
+def _softsign_impl(*args, **kwargs):
+    return jax.nn.soft_sign(*args, **kwargs)

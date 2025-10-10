@@ -1,11 +1,17 @@
-# tests/regression/test_nested_loop_mul_pad_slice.py
+# tests/extra_tests/loop/test_nested_loop_mul_pad_slice.py
+
+import os
+import pathlib
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault("JAX_ENABLE_X64", "True")
+
 import jax
 import jax.numpy as jnp
 import onnx
-import pathlib
-import pytest
-from jax2onnx import to_onnx
 import onnxruntime as ort
+
+from jax2onnx.user_interface import to_onnx
 
 
 def pad_then_center(x):
@@ -34,7 +40,6 @@ def make_fn():
     return fn
 
 
-@pytest.mark.xfail
 def test_nested_loop_mul_pad_slice_loads(tmp_path: pathlib.Path):
     x = jnp.ones((1, 3, 8, 8), jnp.float64)
     fn = make_fn()
@@ -42,7 +47,6 @@ def test_nested_loop_mul_pad_slice_loads(tmp_path: pathlib.Path):
         fn,
         inputs=[x],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         model_name="nested_pad_slice_mul",
     )
     onnx.checker.check_model(model)

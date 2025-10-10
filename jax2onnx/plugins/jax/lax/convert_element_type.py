@@ -1,29 +1,25 @@
-"""
-Plugin for handling the JAX convert_element_type primitive.
+# jax2onnx/plugins/jax/lax/convert_element_type.py
 
-This plugin converts JAX's convert_element_type primitive to ONNX Cast operation.
-"""
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import jax
 import numpy as np
-from onnx import helper
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.convert_element_type_p.name,
+    jaxpr_primitive="convert_element_type",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.convert_element_type.html",
     onnx=[
-        {
-            "component": "Cast",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
-        }
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"}
     ],
     since="v0.2.0",
     context="primitives.lax",
@@ -37,20 +33,35 @@ if TYPE_CHECKING:
     ],
 )
 class ConvertElementTypePlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.lax.convert_element_type to ONNX.
-    """
+    """Lower ``lax.convert_element_type`` to a single ONNX Cast."""
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX convert_element_type primitive."""
-        input_names = [s.get_name(inp) for inp in node_inputs]
-        output_name = s.get_name(node_outputs[0])  # Use s.get_name
-        new_dtype = s.builder._numpy_dtype_to_onnx(params["new_dtype"])
-        node = helper.make_node(
-            "Cast",
-            inputs=input_names,
-            outputs=[output_name],
-            name=s.get_unique_name("convert_element_type"),
-            to=new_dtype,
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        operand_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+
+        operand_val = ctx.get_value_for_var(
+            operand_var, name_hint=ctx.fresh_name("convert_in")
         )
-        s.add_node(node)
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("convert_out")
+        )
+
+        target_dtype = _dtype_to_ir(
+            np.dtype(out_var.aval.dtype), ctx.builder.enable_double_precision
+        )
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("convert_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("convert_out")
+
+        result = ctx.builder.Cast(
+            operand_val,
+            _outputs=[desired_name],
+            to=int(target_dtype.value),
+        )
+        result.type = ir.TensorType(target_dtype)
+        result.shape = operand_val.shape
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

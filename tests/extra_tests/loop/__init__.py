@@ -1,1 +1,3 @@
-# This file is intentionally left blank to mark the directory as a package.
+# tests/extra_tests/loop/__init__.py
+
+"""Loop regression tests for converter."""

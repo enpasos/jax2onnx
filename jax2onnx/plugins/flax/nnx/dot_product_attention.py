@@ -1,73 +1,99 @@
-from typing import TYPE_CHECKING, Callable
+# jax2onnx/plugins/flax/nnx/dot_product_attention.py
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable, ClassVar, Final, Tuple, Union, cast
 
 import numpy as np
 from flax import nnx
-from jax import core, numpy as jnp
+from jax import core
 from jax.extend.core import Primitive
-from onnx import TensorProto, helper
-from jax.interpreters import batching
-from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE as np2ONNX
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_info as _add_value_info,
+    _stamp_type_and_shape,
+)
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    _DynamicParamWrapper,
+    register_primitive,
+)
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-# Global variable to store the original function
-_ORIGINAL_DOT_PRODUCT_ATTENTION_CALL: Callable | None = None
-
-
-def _dpa_inputs_f64_no_full_mask():
-    rng = np.random.RandomState(0)
-    q = rng.randn(2, 8, 4, 16).astype(np.float64)
-    k = rng.randn(2, 8, 4, 16).astype(np.float64)
-    v = rng.randn(2, 8, 4, 16).astype(np.float64)
-
-    # mask shape (B, H, Q, K); start with all masked, then unmask diagonal
-    mask = np.ones((2, 4, 8, 8), dtype=bool)
-    idx = np.arange(8)
-    mask[:, :, idx, idx] = False  # guarantee at least one unmasked per row
-
-    bias = np.zeros((2, 4, 8, 8), dtype=np.float64)
-    return [q, k, v, mask, bias]
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRContext  # type: ignore
 
 
-# Callable definitions for test cases
-def dpa_with_mask(q, k, v, mask):
-    return nnx.dot_product_attention(q, k, v, mask=mask)
+DimLike = Union[int, str]
 
 
-def dpa_with_bias(q, k, v, bias):
-    return nnx.dot_product_attention(q, k, v, bias=bias)
+def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
+    if isinstance(dim, (int, np.integer)):
+        return int(dim), True
+    # JAX symbolic dims may still encode a constant value; prefer the concrete int when available.
+    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+        try:
+            if dim._is_constant():  # type: ignore[attr-defined]
+                const = dim._to_constant()  # type: ignore[attr-defined]
+                if isinstance(const, (int, np.integer)):
+                    return int(const), True
+        except Exception:
+            pass
+    return str(dim), False
 
 
-def dpa_with_mask_and_bias(q, k, v, mask, bias):
-    return nnx.dot_product_attention(q, k, v, mask=mask, bias=bias)
+def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
+    dtype = getattr(getattr(val, "type", None), "dtype", None)
+    if dtype is None:
+        raise TypeError("Missing dtype on value; ensure inputs are typed.")
+    return dtype
 
 
-nnx.dot_product_attention_p = Primitive("nnx.dot_product_attention")
-nnx.dot_product_attention_p.multiple_results = False
+DPA_PRIM: Final[Primitive] = Primitive("nnx.dot_product_attention")
+DPA_PRIM.multiple_results = False
+
+
+EXPECT_DPA_BASE: Final = EG(
+    [
+        (
+            "Transpose -> MatMul -> Mul -> Softmax -> MatMul -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 4,
+                    "MatMul": 2,
+                    "Mul": 1,
+                    "Softmax": 1,
+                }
+            },
+        )
+    ]
+)
+
+
+EXPECT_DPA_WITH_MASK: Final = EG([("Where", {"counts": {"Where": 1}})])
+EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
 
 
 @register_primitive(
-    jaxpr_primitive=nnx.dot_product_attention_p.name,
+    jaxpr_primitive=DPA_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
     onnx=[
         {
-            "component": "Shape",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+            "component": "Transpose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
         {
-            "component": "Gather",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         },
-        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
-        {"component": "Sqrt", "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html"},
-        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {
-            "component": "Einsum",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
         },
         {
             "component": "Softmax",
@@ -84,23 +110,34 @@ nnx.dot_product_attention_p.multiple_results = False
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EXPECT_DPA_BASE,
         },
         {
             "testcase": "dpa_with_tensor_mask",
-            "callable": dpa_with_mask,
+            "callable": lambda q, k, v, mask: nnx.dot_product_attention(
+                q, k, v, mask=mask
+            ),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
+            and EXPECT_DPA_WITH_MASK(m),
         },
         {
             "testcase": "dpa_with_bias",
-            "callable": dpa_with_bias,
+            "callable": lambda q, k, v, bias: nnx.dot_product_attention(
+                q, k, v, bias=bias
+            ),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
+            and EXPECT_DPA_WITH_BIAS(m),
         },
         {
             "testcase": "dpa_with_causal_mask",
-            "callable": dpa_with_mask,
+            "callable": lambda q, k, v, mask: nnx.dot_product_attention(
+                q, k, v, mask=mask
+            ),
             "input_values": [
                 np.random.randn(1, 8, 4, 16).astype(np.float32),
                 np.random.randn(1, 8, 4, 16).astype(np.float32),
@@ -109,176 +146,340 @@ nnx.dot_product_attention_p.multiple_results = False
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
+            and EXPECT_DPA_WITH_MASK(m),
         },
         {
             "testcase": "dpa_with_mask_and_bias",
-            "callable": dpa_with_mask_and_bias,
-            # switch from shapes/dtypes → concrete values to avoid fully-masked rows
-            "input_values": _dpa_inputs_f64_no_full_mask(),
-            "expected_output_shapes": [(2, 8, 4, 16)],  # optional but nice
-            "expected_output_dtypes": [np.float64],  # keep it f64
+            "callable": lambda q, k, v, mask, bias: nnx.dot_product_attention(
+                q, k, v, mask=mask, bias=bias
+            ),
+            "input_values": [
+                *(
+                    lambda rng: (
+                        rng.randn(2, 8, 4, 16).astype(np.float64),
+                        rng.randn(2, 8, 4, 16).astype(np.float64),
+                        rng.randn(2, 8, 4, 16).astype(np.float64),
+                        np.where(
+                            np.eye(8, dtype=bool)[None, None],
+                            False,
+                            True,
+                        )
+                        .repeat(2, axis=0)
+                        .repeat(4, axis=1),
+                        np.zeros((2, 4, 8, 8), dtype=np.float64),
+                    )
+                )(np.random.RandomState(0))
+            ],
+            "expected_output_shapes": [(2, 8, 4, 16)],
+            "expected_output_dtypes": [np.float64],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
+            and EXPECT_DPA_WITH_MASK(m)
+            and EXPECT_DPA_WITH_BIAS(m),
         },
     ],
 )
 class DotProductAttentionPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar[Primitive] = DPA_PRIM
+    _ORIG_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(q, k, v, *args, **kwargs):
-        # The output shape is always the same as the query's shape.
+    def abstract_eval(q, k, v, *_, **__):
         return core.ShapedArray(q.shape, q.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        # Inputs/outputs
-        q_sym = s.get_name(node_inputs[0])
-        k_sym = s.get_name(node_inputs[1])
-        v_sym = s.get_name(node_inputs[2])
-        out_sym = s.get_name(node_outputs[0])
-
-        # Figure out which optional args are present using the flags we set in bind()
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params_raw = dict(getattr(eqn, "params", {}) or {})
+        params = {
+            key: (val.value if isinstance(val, _DynamicParamWrapper) else val)
+            for key, val in params_raw.items()
+        }
         has_mask = bool(params.get("has_mask", False))
         has_bias = bool(params.get("has_bias", False))
 
-        next_idx = 3
-        mask_sym = s.get_name(node_inputs[next_idx]) if has_mask else None
-        next_idx += 1 if has_mask else 0
-        bias_sym = s.get_name(node_inputs[next_idx]) if has_bias else None
+        invars = list(eqn.invars)
+        q_var, k_var, v_var = invars[:3]
+        idx = 3
+        mask_var = invars[idx] if has_mask else None
+        idx += 1 if has_mask else 0
+        bias_var = invars[idx] if has_bias else None
 
-        # Shapes and dtypes
-        q_shape = node_inputs[0].aval.shape  # (B, T, N, H)
-        k_shape = node_inputs[1].aval.shape  # (B, T, N, H)
-        np_dtype = node_inputs[0].aval.dtype
-        B, T, N, H = q_shape
-        S = k_shape[1]  # kv_length
+        q_val = ctx.get_value_for_var(q_var, name_hint=ctx.fresh_name("dpa_q"))
+        k_val = ctx.get_value_for_var(k_var, name_hint=ctx.fresh_name("dpa_k"))
+        v_val = ctx.get_value_for_var(v_var, name_hint=ctx.fresh_name("dpa_v"))
+        out_var = eqn.outvars[0]
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dpa_out"))
 
-        # Helper: cast a tensor to a target dtype if needed
-        def _cast_to(sym: str, target_dt):
-            cur = s.builder.get_dtype(sym)
-            if cur is not None and np.dtype(cur) == np.dtype(target_dt):
-                return sym
-            out = s.builder.get_unique_name(f"{sym}_cast_{np.dtype(target_dt).name}")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[sym],
-                    outputs=[out],
-                    name=s.get_unique_name("CastDPA"),
-                    to=np2ONNX[np.dtype(target_dt)],
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for attention lowering"
+            )
+
+        q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
+        k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
+        np_dtype = np.dtype(getattr(getattr(q_var, "aval", None), "dtype", np.float32))
+
+        batch_dim, q_len, num_heads, head_dim = q_shape
+        k_len = k_shape[1]
+
+        batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
+        q_len_v, _ = _coerce_dim(q_len, "query length")
+        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        head_dim_v, head_static = _coerce_dim(head_dim, "head")
+        if not head_static:
+            raise NotImplementedError(
+                "nnx.dot_product_attention requires static head dimension"
+            )
+        k_len_v, _ = _coerce_dim(k_len, "key length")
+
+        head_dim_i = cast(int, head_dim_v)
+        num_heads_i: DimLike = num_heads_v
+        batch_dim_i: DimLike = batch_dim_v
+        q_len_i: DimLike = q_len_v
+        k_len_i: DimLike = k_len_v
+
+        q_t = builder.Transpose(
+            q_val,
+            _outputs=[ctx.fresh_name("dpa_qT")],
+            perm=[0, 2, 1, 3],
+        )
+        q_t.type = ir.TensorType(_dtype_enum_from_value(q_val))
+        _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _add_value_info(ctx, q_t)
+
+        k_t = builder.Transpose(
+            k_val,
+            _outputs=[ctx.fresh_name("dpa_kT")],
+            perm=[0, 2, 3, 1],
+        )
+        k_t.type = ir.TensorType(_dtype_enum_from_value(k_val))
+        _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_i, k_len_i))
+        _add_value_info(ctx, k_t)
+
+        logits = builder.MatMul(
+            q_t,
+            k_t,
+            _outputs=[ctx.fresh_name("dpa_logits")],
+        )
+        logits.type = ir.TensorType(_dtype_enum_from_value(q_val))
+        _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _add_value_info(ctx, logits)
+
+        scale = ctx.builder.add_initializer_from_scalar(
+            name=ctx.fresh_name("dpa_scale"),
+            value=np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
+        )
+
+        scaled = builder.Mul(
+            logits,
+            scale,
+            _outputs=[ctx.fresh_name("dpa_scaled")],
+        )
+        scaled.type = ir.TensorType(_dtype_enum_from_value(logits))
+        _stamp_type_and_shape(scaled, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _add_value_info(ctx, scaled)
+
+        current_logits: ir.Value = scaled
+
+        if has_bias and bias_var is not None:
+            bias_val = ctx.get_value_for_var(
+                bias_var, name_hint=ctx.fresh_name("dpa_bias")
+            )
+            bias_val = cast_param_like(
+                ctx, bias_val, current_logits, name_hint="dpa_bias_cast"
+            )
+            bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+            _stamp_type_and_shape(bias_val, bias_dims)
+            biased = builder.Add(
+                current_logits,
+                bias_val,
+                _outputs=[ctx.fresh_name("dpa_bias_add")],
+            )
+            biased.type = ir.TensorType(_dtype_enum_from_value(current_logits))
+            _stamp_type_and_shape(biased, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _add_value_info(ctx, biased)
+            current_logits = biased
+
+        if has_mask and mask_var is not None:
+            mask_val = ctx.get_value_for_var(
+                mask_var, name_hint=ctx.fresh_name("dpa_mask")
+            )
+            mask_shape = tuple(getattr(getattr(mask_var, "aval", None), "shape", ()))
+            mask_dims: list[DimLike] = []
+            for idx, dim in enumerate(mask_shape):
+                dim_val, _ = _coerce_dim(dim, f"mask_dim_{idx}")
+                mask_dims.append(dim_val)
+            mask_dims_tuple = tuple(mask_dims)
+            mask_dtype = np.dtype(
+                getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
+            )
+            if mask_dtype != np.bool_:
+                mask_bool = builder.Cast(
+                    mask_val,
+                    _outputs=[ctx.fresh_name("dpa_mask_bool")],
+                    to=int(ir.DataType.BOOL.value),
                 )
+                mask_val = mask_bool
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
+                _add_value_info(ctx, mask_val)
+            else:
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
+                _add_value_info(ctx, mask_val)
+
+            fill_value = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dpa_mask_fill"),
+                value=np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
             )
-            r = s.builder.get_rank(sym) or 0
-            s.add_shape_info(out, (None,) * r, target_dt)
-            return out
 
-        # q -> (B, N, T, H)
-        q_t = s.get_unique_name("q_T")
-        s.add_node(helper.make_node("Transpose", [q_sym], [q_t], perm=[0, 2, 1, 3]))
-        s.add_shape_info(q_t, (B, N, T, H), np_dtype)
+            masked_logits = builder.Where(
+                mask_val,
+                current_logits,
+                fill_value,
+                _outputs=[ctx.fresh_name("dpa_masked")],
+            )
+            masked_logits.type = ir.TensorType(_dtype_enum_from_value(current_logits))
+            _stamp_type_and_shape(
+                masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, masked_logits)
+            current_logits = masked_logits
 
-        # k -> (B, N, H, S)
-        k_t = s.get_unique_name("k_T")
-        s.add_node(helper.make_node("Transpose", [k_sym], [k_t], perm=[0, 2, 3, 1]))
-        s.add_shape_info(k_t, (B, N, H, S), np_dtype)
+        weights = builder.Softmax(
+            current_logits,
+            _outputs=[ctx.fresh_name("dpa_weights")],
+            axis=3,
+        )
+        weights.type = ir.TensorType(_dtype_enum_from_value(current_logits))
+        _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _add_value_info(ctx, weights)
 
-        # logits = (q / sqrt(H)) @ k^T   <== equivalent to (q @ k^T) * (1/sqrt(H))
-        scale_const = s.get_constant_name(np.array(1.0 / np.sqrt(H), dtype=np_dtype))
-        q_scaled = s.get_unique_name("q_scaled")
-        s.add_node(helper.make_node("Mul", [q_t, scale_const], [q_scaled]))
-        s.add_shape_info(q_scaled, (B, N, T, H), np_dtype)
+        call_param_values = getattr(ctx, "_call_param_value_by_name", {}) or {}
+        det_input = call_param_values.get("deterministic")
 
-        logits = s.get_unique_name("attn_scores")
-        s.add_node(helper.make_node("MatMul", [q_scaled, k_t], [logits]))
-        s.add_shape_info(logits, (B, N, T, S), np_dtype)
+        dropout_rate = float(params.get("dropout_rate", 0.0) or 0.0)
+        if det_input is not None:
+            training_mode = builder.Not(
+                det_input,
+                _outputs=[ctx.fresh_name("dpa_training_mode")],
+            )
+            training_mode.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(training_mode, ())
+            _add_value_info(ctx, training_mode)
+            ratio_val = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dpa_dropout_ratio"),
+                value=np.asarray(dropout_rate, dtype=np.float32),
+            )
+            dropped_weights = builder.Dropout(
+                weights,
+                ratio_val,
+                training_mode,
+                _outputs=[ctx.fresh_name("dpa_dropout_weights")],
+            )
+            dropped_weights.type = ir.TensorType(_dtype_enum_from_value(weights))
+            _stamp_type_and_shape(
+                dropped_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            _add_value_info(ctx, dropped_weights)
+            weights = dropped_weights
 
-        cur_logits = logits
+        v_t = builder.Transpose(
+            v_val,
+            _outputs=[ctx.fresh_name("dpa_vT")],
+            perm=[0, 2, 1, 3],
+        )
+        v_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
+        _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_i))
+        _add_value_info(ctx, v_t)
 
-        # + bias (added to logits; NOT scaled)
-        if has_bias and bias_sym is not None:
-            if s.builder.get_dtype(bias_sym) is None or np.dtype(
-                s.builder.get_dtype(bias_sym)
-            ) != np.dtype(np_dtype):
-                bias_sym = _cast_to(bias_sym, np_dtype)
-            add_b = s.get_unique_name("logits_plus_bias")
-            s.add_node(helper.make_node("Add", [cur_logits, bias_sym], [add_b]))
-            s.add_shape_info(add_b, (B, N, T, S), np_dtype)
-            cur_logits = add_b
+        out_t = builder.MatMul(
+            weights,
+            v_t,
+            _outputs=[ctx.fresh_name("dpa_outT")],
+        )
+        out_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
+        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _add_value_info(ctx, out_t)
 
-        # apply mask using dtype min (Flax semantics): where(mask, x, finfo(dtype).min)
-        if has_mask and mask_sym is not None:
-            mdt = s.builder.get_dtype(mask_sym)
-            if mdt is None or np.dtype(mdt) != np.dtype(bool):
-                mask_bool = s.get_unique_name("mask_bool")
-                s.add_node(
-                    helper.make_node(
-                        "Cast", [mask_sym], [mask_bool], to=TensorProto.BOOL
-                    )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
+        result = builder.Transpose(
+            out_t,
+            _outputs=[out_name],
+            perm=[0, 2, 1, 3],
+        )
+        result.type = ir.TensorType(_dtype_enum_from_value(v_val))
+        _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
+        _add_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        def _make_patch(orig):
+            cls._ORIG_CALL = orig
+
+            def patched(q, k, v, mask=None, bias=None, **kwargs):
+                operands = [q, k, v]
+                has_mask = mask is not None
+                has_bias = bias is not None
+                if has_mask:
+                    operands.append(mask)
+                if has_bias:
+                    operands.append(bias)
+                safe_kwargs = {}
+                for key, value in kwargs.items():
+                    if hasattr(value, "aval"):
+                        safe_kwargs[key] = _DynamicParamWrapper(value)
+                    else:
+                        safe_kwargs[key] = value
+                return cls._PRIM.bind(
+                    *operands,
+                    has_mask=has_mask,
+                    has_bias=has_bias,
+                    **safe_kwargs,
                 )
-                s.add_shape_info(mask_bool, (B, N, T, S), bool)
-                mask_sym = mask_bool
-            big_neg = s.get_constant_name(
-                np.array(np.finfo(np_dtype).min, dtype=np_dtype)
-            )
-            masked = s.get_unique_name("masked_logits")
-            s.add_node(
-                helper.make_node("Where", [mask_sym, cur_logits, big_neg], [masked])
-            )
-            s.add_shape_info(masked, (B, N, T, S), np_dtype)
-            cur_logits = masked
 
-        # softmax over last dim (kv_length)
-        weights = s.get_unique_name("attn_weights")
-        s.add_node(helper.make_node("Softmax", [cur_logits], [weights], axis=-1))
-        s.add_shape_info(weights, (B, N, T, S), np_dtype)
+            return patched
 
-        # v -> (B, N, S, H)
-        v_t = s.get_unique_name("v_T")
-        s.add_node(helper.make_node("Transpose", [v_sym], [v_t], perm=[0, 2, 1, 3]))
-        s.add_shape_info(v_t, (B, N, S, H), np_dtype)
+        return [
+            AssignSpec(
+                "flax.nnx", "dot_product_attention_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="flax.nnx",
+                attr="dot_product_attention",
+                make_value=_make_patch,
+                delete_if_missing=False,
+            ),
+        ]
 
-        # output: (B, N, T, H) -> (B, T, N, H)
-        out_t = s.get_unique_name("out_T")
-        s.add_node(helper.make_node("MatMul", [weights, v_t], [out_t]))
-        s.add_shape_info(out_t, (B, N, T, H), np_dtype)
-
-        s.add_node(helper.make_node("Transpose", [out_t], [out_sym], perm=[0, 2, 1, 3]))
-        s.add_shape_info(out_sym, q_shape, np_dtype)
-
-    @staticmethod
-    def get_monkey_patch():
-        def patched(q, k, v, mask=None, bias=None, **kwargs):
-            has_mask = mask is not None
-            has_bias = bias is not None
-            inputs = [q, k, v]
-            if has_mask:
-                inputs.append(mask)
-            if has_bias:
-                inputs.append(bias)
-            # Pass kwargs through to the primitive binding
-            return nnx.dot_product_attention_p.bind(
-                *inputs, has_mask=has_mask, has_bias=has_bias, **kwargs
-            )
-
-        return patched
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [nnx],
-            "patch_function": lambda _: DotProductAttentionPlugin.get_monkey_patch(),
-            "target_attribute": "dot_product_attention",
-        }
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-nnx.dot_product_attention_p.def_abstract_eval(DotProductAttentionPlugin.abstract_eval)
+@DotProductAttentionPlugin._PRIM.def_impl
+def _dpa_impl(q, k, v, *extra, **params):
+    has_mask = bool(params.pop("has_mask", False))
+    has_bias = bool(params.pop("has_bias", False))
+    idx = 0
+    mask = extra[idx] if has_mask else None
+    idx += 1 if has_mask else 0
+    bias = extra[idx] if has_bias else None
+
+    if DotProductAttentionPlugin._ORIG_CALL is None:
+        raise RuntimeError("Original nnx.dot_product_attention not captured")
+
+    call_kwargs = dict(params)
+    if mask is not None:
+        call_kwargs["mask"] = mask
+    if bias is not None:
+        call_kwargs["bias"] = bias
+    return DotProductAttentionPlugin._ORIG_CALL(q, k, v, **call_kwargs)
 
 
-def dpa_batch(xs, dims, **params):
-    bdim = next((d for d in dims if d is not None), None)
-    if bdim is not None:
-        xs = [jnp.moveaxis(x, d, 0) if d is not None else x for x, d in zip(xs, dims)]
-    return nnx.dot_product_attention_p.bind(*xs, **params), 0
-
-
-batching.primitive_batchers[nnx.dot_product_attention_p] = dpa_batch
+DotProductAttentionPlugin.ensure_abstract_eval_bound()

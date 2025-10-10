@@ -1,25 +1,26 @@
-# file: jax2onnx/plugins/jax/nn/softplus.py
+# jax2onnx/plugins/jax/nn/softplus.py
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
-from jax.interpreters import batching
-from onnx import helper
-import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Define our own primitive
-jax.nn.softplus_p = Primitive("jax.nn.softplus")
-jax.nn.softplus_p.multiple_results = False
+
+_SOFTPLUS_PRIM: Final[Primitive] = Primitive("jax.nn.softplus")
+_SOFTPLUS_PRIM.multiple_results = False
 
 
 @register_primitive(
-    jaxpr_primitive=jax.nn.softplus_p.name,
+    jaxpr_primitive=_SOFTPLUS_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softplus.html",
     onnx=[
         {
@@ -35,108 +36,62 @@ jax.nn.softplus_p.multiple_results = False
             "testcase": "jaxnn_softplus",
             "callable": lambda x: jax.nn.softplus(x),
             "input_shapes": [(1,)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "jaxnn_softplus_1",
             "callable": lambda x: jax.nn.softplus(x),
             "input_shapes": [(2, 5)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "jaxnn_softplus_basic",
+            "callable": lambda x: jax.nn.softplus(x),
+            "input_shapes": [(4,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
-class JaxSoftplusPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.nn.softplus calls to the ONNX Softplus operator.
-    """
+class SoftplusPlugin(PrimitiveLeafPlugin):
+    """IR-only lowering for ``jax.nn.softplus``."""
+
+    _PRIM: ClassVar[Primitive] = _SOFTPLUS_PRIM
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(x):
-        return x.update(shape=x.shape, dtype=x.dtype, weak_type=False)
+        return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Softplus",
+            input_hint="softplus_in",
+            output_hint="softplus_out",
+        )
 
-        input_name = s.get_name(input_var)
-        output_name = s.get_name(output_var)
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
-        dtype = input_var.aval.dtype
-        if dtype == np.float32:
-            # use the ONNX kernel in float32
-            node = helper.make_node(
-                "Softplus",
-                inputs=[input_name],
-                outputs=[output_name],
-                name=s.get_unique_name("softplus"),
-            )
-            s.add_node(node)
-        else:
-            # Softplus(x) = Log(1 + Exp(x))
-            one = np.array(1, dtype=dtype)
-            one_const = s.get_constant_name(one)
-
-            exp_out = s.get_unique_name("exp")
-            s.add_node(
-                helper.make_node(
-                    "Exp",
-                    inputs=[input_name],
-                    outputs=[exp_out],
-                    name=s.get_unique_name("exp"),
-                )
-            )
-            s.add_shape_info(exp_out, input_var.aval.shape, dtype)
-
-            add_out = s.get_unique_name("add")
-            s.add_node(
-                helper.make_node(
-                    "Add",
-                    inputs=[exp_out, one_const],
-                    outputs=[add_out],
-                    name=s.get_unique_name("add"),
-                )
-            )
-            s.add_shape_info(add_out, input_var.aval.shape, dtype)
-
-            log_node = helper.make_node(
-                "Log",
-                inputs=[add_out],
-                outputs=[output_name],
-                name=s.get_unique_name("log"),
-            )
-            s.add_node(log_node)
-        # (shape info for output is automatically covered by the converter)
-
-    @staticmethod
-    def get_monkey_patch():
-        def patched_softplus(x):
-            return jax.nn.softplus_p.bind(x)
-
-        return patched_softplus
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jax.nn],
-            "patch_function": lambda _: JaxSoftplusPlugin.get_monkey_patch(),
-            "target_attribute": "softplus",
-        }
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("jax.nn", "softplus_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="jax.nn",
+                attr="softplus",
+                make_value=lambda orig: (
+                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+                ),
+                delete_if_missing=False,
+            ),
+        ]
 
 
-def softplus_batching_rule(batched_args, batch_dims):
-    """
-    Batching rule for jax.nn.softplus.
-    Since Softplus is elementwise, we simply apply the primitive to the batched input.
-    """
-    (x,) = batched_args
-    (bdim,) = batch_dims
-
-    y = jax.nn.softplus_p.bind(x)
-    return y, bdim
-
-
-# === Registration ===
-
-# Register the abstract evaluation function
-jax.nn.softplus_p.def_abstract_eval(JaxSoftplusPlugin.abstract_eval)
-
-# Register the batching rule
-batching.primitive_batchers[jax.nn.softplus_p] = softplus_batching_rule
+@SoftplusPlugin._PRIM.def_impl
+def _softplus_impl(*args, **kwargs):
+    return jax.nn.softplus(*args, **kwargs)

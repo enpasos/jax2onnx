@@ -1,126 +1,157 @@
-# file: jax2onnx/plugins/jax/numpy/shape.py
+# jax2onnx/plugins/jax/numpy/shape.py
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-import jax.core as core
+from typing import TYPE_CHECKING, ClassVar, Final
+
+import jax
+import jax.numpy as jnp
 import numpy as np
-import onnx
-from jax import numpy as jnp
-from jax.extend.core import Primitive  # If defined in this file
-from onnx import helper
+import onnx_ir as ir
+from jax import core
+
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-# --- Primitive Definition (copy from above if defining here) ---
-shape_p = Primitive("jnp.shape")
-shape_p.multiple_results = False
+_SHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.shape")
 
 
-def shape_impl(operand):
-    # Return the dynamic shape as a 1-D JAX array of int64
-    # (pull shape directly from the operand to avoid a host→device round-trip)
-    return jnp.asarray(operand.shape, dtype=jnp.int64)
-
-
-def shape_abstract_eval(operand_aval):
-    rank = len(operand_aval.shape)
-    return core.ShapedArray((rank,), np.dtype(np.int64))
-
-
-shape_p.def_impl(shape_impl)
-shape_p.def_abstract_eval(shape_abstract_eval)
-# --- End Primitive Definition ---
+def _shape_eval(x):
+    orig = getattr(_SHAPE_PRIM, "__orig_impl__shape", jnp.shape)
+    result = jax.eval_shape(
+        lambda arr: orig(arr), jax.ShapeDtypeStruct(x.shape, x.dtype)
+    )
+    return result
 
 
 @register_primitive(
-    # Use the name of the primitive we defined
-    jaxpr_primitive=shape_p.name,
-    # Link to JAX docs for np.shape (or jnp.shape)
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.shape.html",
+    jaxpr_primitive=_SHAPE_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.shape.html",
     onnx=[
-        {
-            "component": "Shape",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
-        }
+        {"component": "Shape", "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html"}
     ],
-    # Assign appropriate version, context, component
-    since="0.4.0",
+    since="v0.9.0",
     context="primitives.jnp",
     component="shape",
     testcases=[
         {
             "testcase": "shape_basic",
-            "callable": lambda x: jnp.shape(x),
-            "input_shapes": [(3, 4, 5)],
-            "expected_output_shapes": [(3,)],  # Output is 1D tensor of length = rank
+            "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
+            "input_shapes": [(2, 3, 4)],
         },
         {
             "testcase": "shape_dynamic",
-            "callable": lambda x: jnp.shape(x),
-            "input_shapes": [("B", 10)],
-            "expected_output_shapes": [
-                (2,)
-            ],  # Output rank is fixed, value depends on B
+            "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
+            "input_shapes": [("B", 12, "T", "T")],
         },
     ],
 )
-class ShapePlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jnp.shape to ONNX Shape."""
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles ONNX conversion for jnp.shape."""
-
-        if len(node_inputs) != 1:
-            raise ValueError(f"Shape expects 1 input, got {len(node_inputs)}")
-        if len(node_outputs) != 1:
-            raise ValueError(f"Shape expects 1 output, got {len(node_outputs)}")
-
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_name(node_outputs[0])  # Use get_name for output var
-
-        # Create the ONNX Shape node
-        shape_node = helper.make_node(
-            "Shape",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("shape"),  # Unique node name
-        )
-        s.add_node(shape_node)
-
-        # Register metadata for the output shape tensor (1D, rank, int64)
-        input_aval = node_inputs[0].aval
-        output_rank = len(input_aval.shape)
-        output_shape_tuple = (output_rank,)
-        # ONNX Shape outputs INT64
-        output_dtype_enum = onnx.TensorProto.INT64
-
-        # Register output metadata (ONNX Shape outputs a 1-D int64 tensor)
-        s.builder.register_value_info_metadata(
-            output_name, shape=output_shape_tuple, dtype=output_dtype_enum
-        )
-
-    # --- Monkey Patching Setup ---
-    # This tells the plugin system to replace jnp.shape with our patched version
-    # that uses the shape_p primitive.
+class JnpShapePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _SHAPE_PRIM
+    _FUNC_NAME: ClassVar[str] = "shape"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _patched_jnp_shape(a):
-        # Bind the primitive to the input operand
-        # This ensures jax.make_jaxpr records our custom primitive
-        return shape_p.bind(a)
+    def abstract_eval(x):
+        result = _shape_eval(x)
+        if isinstance(result, tuple):
+            rank = len(result)
+            if rank == 0:
+                return core.ShapedArray((0,), jnp.int32)
+            dtype = getattr(result[0], "dtype", jnp.int32)
+            return core.ShapedArray((rank,), dtype)
+        return core.ShapedArray(result.shape, result.dtype)
 
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],  # Target module is jax.numpy
-            "patch_function": lambda _: ShapePlugin._patched_jnp_shape,  # The function to patch with
-            "target_attribute": "shape",  # The attribute name in the target module
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        (arr_var,) = eqn.invars
+        (out_var,) = eqn.outvars
+
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("shape_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shape_out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for shape lowering")
+
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        target_dtype = getattr(getattr(out_var, "aval", None), "dtype", jnp.int32)
+        try:
+            np_dtype = np.dtype(target_dtype)
+        except TypeError:
+            np_dtype = np.dtype("int32")
+
+        dtype_map = {
+            np.dtype("int64"): ir.DataType.INT64,
+            np.dtype("int32"): ir.DataType.INT32,
+            np.dtype("int16"): ir.DataType.INT16,
+            np.dtype("int8"): ir.DataType.INT8,
+            np.dtype("uint8"): ir.DataType.UINT8,
         }
+        desired = dtype_map.get(np_dtype, ir.DataType.INT32)
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("Shape")
+        if desired == ir.DataType.INT64:
+            result = builder.Shape(
+                arr_val,
+                _outputs=[out_name],
+            )
+            result.type = ir.TensorType(ir.DataType.INT64)
+        else:
+            raw_out = builder.Shape(
+                arr_val,
+                _outputs=[ctx.fresh_name("shape_raw")],
+            )
+            raw_out.type = ir.TensorType(ir.DataType.INT64)
+            result = builder.Cast(
+                raw_out,
+                _outputs=[out_name],
+                to=int(desired.value),
+            )
+            result.type = ir.TensorType(desired)
+        _stamp_type_and_shape(result, target_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.shape not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(a):
+                arr = jnp.asarray(a)
+                return cls._PRIM.bind(arr)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-_original_jnp_shape = jnp.shape
-jnp.shape = ShapePlugin._patched_jnp_shape
+@JnpShapePlugin._PRIM.def_impl
+def _shape_impl(a):
+    orig = get_orig_impl(JnpShapePlugin._PRIM, JnpShapePlugin._FUNC_NAME)
+    return orig(a)
+
+
+JnpShapePlugin._PRIM.def_abstract_eval(JnpShapePlugin.abstract_eval)

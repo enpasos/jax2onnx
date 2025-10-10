@@ -1,223 +1,148 @@
-# file: jax2onnx/plugins/jax/lax/scan.py
+# jax2onnx/plugins/jax/lax/scan.py
+
 from __future__ import annotations
 
-import logging
 import os
-import numpy as _np
-from typing import Any, Sequence, Union, Optional
+from typing import TYPE_CHECKING, Final, Union
 
 import jax
 import jax.numpy as jnp
-from jax import core, lax
-from onnx import helper, TensorProto
-from onnx.mapping import (
-    NP_TYPE_TO_TENSOR_TYPE as _NP2ONNX,
-    TENSOR_TYPE_TO_NP_TYPE as _ONNX2NP,
+import numpy as np
+import onnx_ir as ir
+from jax import core as jax_core
+from jax import lax
+
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
+    builder_loop,
+    clone_input_for_subgraph,
+    clone_value_for_subgraph,
+    create_loop_header_inputs,
+    lower_jaxpr_eqns,
+    make_subgraph_context,
+    relax_value_to_rank_only,
+)
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _gather_int_scalar,
+    _scalar_i64,
+    _shape_of,
 )
 
-from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax.extend.core import ClosedJaxpr, Var
+import jax.extend.core as jax_core_ext
+import jax._src.core as jax_core_internal
 
-logger = logging.getLogger("jax2onnx.plugins.jax.lax.scan")
-
-
-INT64 = TensorProto.INT64
-i64 = _np.int64
-# unique id for every Scan node – used when generating helper names
-_SCAN_INSTANCE_COUNTER: int = 0
+if TYPE_CHECKING:  # pragma: no cover - import only for type checking
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# --- Utility: make all internal VIs rank-only (shape dims unknown) -----------
-def _loosen_value_infos_to_rank_only(bld: OnnxBuilder) -> None:
-    """Make *internal* value_infos rank-only (all dims dynamic).
-    Inputs/outputs are handled explicitly elsewhere. Always on."""
-    # Rebuild value_info with same dtype but fully dynamic dims.
-    vis = list(bld.value_info)
-    bld.value_info[:] = [vi for vi in bld.value_info if False]  # clear
-    for vi in vis:
-        name = vi.name
-        dt = bld.get_dtype(name)
-        # Prefer known rank; fall back to rank from the existing VI if needed
-        rank = bld.get_rank(name)
-        if rank is None:
-            # try to peek the proto
-            tt = vi.type.tensor_type
-            rank = len(tt.shape.dim) if tt.HasField("shape") else 0
-        bld.add_value_info(name, (None,) * (rank or 0), dt)
+def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
+    aval = getattr(var, "aval", None)
+    if aval is None:
+        return None
+    aval_dtype = getattr(aval, "dtype", None)
+    if aval_dtype is None:
+        return None
+    try:
+        np_dtype = np.dtype(aval_dtype)
+    except TypeError:
+        return None
+    if np.issubdtype(np_dtype, np.floating):
+        return _dtype_to_ir(np_dtype, enable_double)
+    return _dtype_to_ir(np_dtype, enable_double)
 
 
-# --- Utility: retag body value_info dtypes to match producer inputs ----------
-def _retag_value_infos_to_input_dtype(bld: OnnxBuilder) -> None:
-    """
-    Ensure outputs of common shape/index/passthrough/binop nodes inherit the dtype
-    of their first input. IMPORTANT: iterate over *nodes*, not just existing VIs,
-    so we also cover symbols that don't yet have a value_info entry.
-    """
-    passthrough = {
-        "Squeeze",
-        "Unsqueeze",
-        "Identity",
-        "Reshape",
-        "Transpose",
-        "Flatten",
-        "Expand",
-    }
-    index_like = {"Gather", "GatherND", "GatherElements", "Slice"}
-    binops = {"Add", "Sub", "Mul", "Div"}
-    same_as_first = passthrough | index_like | {"Concat"} | binops
-
-    for n in list(bld.nodes):
-        if n.op_type not in same_as_first or not n.input:
-            continue
-        exp_dt = bld.get_dtype(n.input[0])
-        if exp_dt is None:
-            continue
-        for o in n.output:
-            cur_dt = bld.get_dtype(o)
-            if cur_dt is not None and _np.dtype(cur_dt) == _np.dtype(exp_dt):
-                continue
-            # pick a sensible rank for `o`
-            r = bld.get_rank(o)
-            if r is None:
-                r = bld.get_rank(n.input[0]) or 0
-            # replace any stale VI and set dtype to the input's dtype
-            bld.value_info[:] = [vi for vi in bld.value_info if vi.name != o]
-            bld.add_value_info(o, (None,) * r, exp_dt)
-
-
-# --- Utility: make all internal VIs rank-only (shape dims unknown) -----------
-def _loosen_graph_value_infos_to_rank_only(g) -> None:
-    """Always-on sanitization for Loop/Scan bodies:
-    - drop value_info for any *node output* (let ORT infer dtypes)
-    - drop value_info that mirrors any graph input/output
-    - keep the rest but clear all concrete dims → rank-only
-    """
-    produced = {o for n in g.node for o in n.output}
-    io_names = {i.name for i in g.input} | {o.name for o in g.output}
-    keep = []
-    for vi in list(g.value_info):
-        name = vi.name
-        # Remove VIs for node outputs and any that mirror graph IO
-        if name in produced or name in io_names:
-            continue
-        # Keep dtype, but clear all fixed dim info → rank-only
-        tt = vi.type.tensor_type
-        if tt.HasField("shape"):
-            for d in tt.shape.dim:
-                if d.HasField("dim_value"):
-                    d.ClearField("dim_value")
-                if d.HasField("dim_param"):
-                    d.ClearField("dim_param")
-        keep.append(vi)
-    del g.value_info[:]
-    g.value_info.extend(keep)
-
-
-# place near other top-level utilities (AFTER _loosen_graph_value_infos_to_rank_only)
-
-
-def _infer_dtype_from_producer(bld: OnnxBuilder, sym: str):
-    """Walk to the producing node and return the first available input dtype."""
-    for n in reversed(bld.nodes):
-        if sym in n.output:
-            for inp in n.input:
-                dt = bld.get_dtype(inp)
-                if dt is not None:
-                    return dt
-            return None
-    return None
-
-
-def _dtype_or_infer(bld: OnnxBuilder, sym: str, fallback=None):
-    dt = bld.get_dtype(sym)
-    return dt if dt is not None else (_infer_dtype_from_producer(bld, sym) or fallback)
-
-
-# --- Utility: harmonize numeric binops to a common promoted dtype -----------
-def _harmonize_numeric_binops(
-    bld: OnnxBuilder, prefer_input_prefixes: tuple[str, ...] = ()
-) -> None:
-    """
-    Cast inputs of {Add, Sub, Mul, Div} to a common promoted dtype to avoid
-    ORT type-inference errors when mixed dtypes reach a single node.
-    Controlled by env var JAX2ONNX_DISABLE_LOOP_BINOP_CAST.
-    If prefer_input_prefixes is set, prefer the dtype of inputs whose name starts
-    with any of those prefixes when resolving dtype conflicts.
-    """
-    _disable = os.getenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "").lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    if _disable:
+def _set_value_dtype_from_var(ctx, value: ir.Value, var) -> None:
+    aval = getattr(var, "aval", None)
+    aval_dtype = getattr(aval, "dtype", None)
+    if aval_dtype is None:
         return
-
-    _binops = {"Add", "Sub", "Mul", "Div"}
-
-    def _has_pref(name: str) -> bool:
-        return any(name.startswith(pfx) for pfx in prefer_input_prefixes)
-
-    for n in list(bld.nodes):  # list() so we can insert Casts while iterating
-        if n.op_type not in _binops or len(n.input) < 2:
-            continue
-        a, b = n.input[0], n.input[1]
-        ta = _dtype_or_infer(bld, a, None)
-        tb = _dtype_or_infer(bld, b, None)
-
-        # Skip if both unknown or non-numeric
-        if ta is None and tb is None:
-            continue
-        if ta is not None and not _np.issubdtype(_np.dtype(ta), _np.number):
-            continue
-        if tb is not None and not _np.issubdtype(_np.dtype(tb), _np.number):
-            continue
-
-        # Decide common target dtype:
-        # - If dtypes differ and exactly one input is a preferred one (e.g. a Loop state),
-        #   choose that input's dtype to avoid unexpected upcasts (int32 vs int64).
-        # - Otherwise fall back to NumPy promotion.
-        if ta is not None and tb is not None:
-            dta, dtb = _np.dtype(ta), _np.dtype(tb)
-            if dta != dtb and (_has_pref(a) ^ _has_pref(b)):
-                target = dta if _has_pref(a) else dtb
-            else:
-                target = dta if dta == dtb else _np.promote_types(dta, dtb)
-        else:
-            target = _np.dtype(ta) if ta is not None else _np.dtype(tb)
-
-        def _ensure_cast(inp_sym: str, cur_dt):
-            if cur_dt is not None and _np.dtype(cur_dt) == _np.dtype(target):
-                return inp_sym
-            cast_out = bld.get_unique_name(f"{inp_sym}_cast_{_np.dtype(target).name}")
-            to_enum = _NP2ONNX[_np.dtype(target)]
-            cast_node = helper.make_node(
-                "Cast",
-                inputs=[inp_sym],
-                outputs=[cast_out],
-                name=bld.get_unique_name("CastAlignBinOp"),
-                to=to_enum,
-            )
-            # Insert Cast immediately before current node
-            idx = bld.nodes.index(n)
-            bld.nodes.insert(idx, cast_node)
-            # Preserve rank if known; otherwise infer from sibling input
-            r = bld.get_rank(inp_sym)
-            if r is None:
-                sib = a if inp_sym == b else b
-                r = bld.get_rank(sib) or 0
-            bld.add_value_info(cast_out, (None,) * r, target)
-            return cast_out
-
-        n.input[0] = _ensure_cast(a, ta)
-        n.input[1] = _ensure_cast(b, tb)
+    try:
+        np_dtype = np.dtype(aval_dtype)
+    except TypeError:
+        return
+    promote_flag = getattr(ctx.builder, "enable_double_precision", False)
+    if np.issubdtype(np_dtype, np.floating):
+        promote_flag = False
+    dtype_enum = _dtype_to_ir(np_dtype, promote_flag)
+    try:
+        value.type = ir.TensorType(dtype_enum, getattr(value, "shape", None))
+    except Exception:
+        value.type = ir.TensorType(dtype_enum)
+    _ensure_value_info(ctx, value)
 
 
-# ----------------------------------------------------------------------
-# helpers used by test-cases
-# ----------------------------------------------------------------------
+def _maybe_cast_value(
+    ctx, value: ir.Value, target_enum: ir.DataType, *, force: bool = False
+) -> ir.Value:
+    current_enum = getattr(getattr(value, "type", None), "dtype", None)
+    if not force and (current_enum is None or current_enum == target_enum):
+        return value
+    cast_val = builder_cast(
+        ctx,
+        value,
+        target_enum,
+        name_hint="scan_dtype_fix",
+    )
+    _ensure_value_info(ctx, cast_val)
+    return cast_val
+
+
+def _maybe_var_type(mod):
+    if mod is None:
+        return None
+    try:
+        return getattr(mod, "Var")
+    except AttributeError:
+        return None
+
+
+_JAX_VAR_TYPES: Final[tuple[type, ...]] = tuple(
+    t
+    for t in (
+        _maybe_var_type(jax_core),
+        _maybe_var_type(jax_core_ext),
+        _maybe_var_type(jax_core_internal),
+    )
+    if t is not None
+)
+
+
+def _maybe_dropvar_type(mod):
+    if mod is None:
+        return None
+    try:
+        return getattr(mod, "DropVar")
+    except AttributeError:
+        return None
+
+
+_DROP_VAR_TYPES: Final[tuple[type, ...]] = tuple(
+    t
+    for t in (
+        _maybe_dropvar_type(jax_core),
+        _maybe_dropvar_type(jax_core_ext),
+        _maybe_dropvar_type(jax_core_internal),
+    )
+    if t is not None
+)
+
+
+def _is_dropvar(obj) -> bool:
+    return bool(_DROP_VAR_TYPES) and isinstance(obj, _DROP_VAR_TYPES)
+
+
+def _is_jax_var(obj) -> bool:
+    return (
+        bool(_JAX_VAR_TYPES)
+        and isinstance(obj, _JAX_VAR_TYPES)
+        and not _is_dropvar(obj)
+    )
+
+
 def scan_fn(x):
     def body(carry, _):
         carry = carry + 1
@@ -228,8 +153,6 @@ def scan_fn(x):
 
 
 def _scan_jit_no_xs() -> jax.Array:
-    """Mimics the ‘simulate → jax.jit(main)’ pattern."""
-
     def simulate():
         def step_fn(carry, _):
             return carry + 1, carry * 2
@@ -240,14 +163,35 @@ def _scan_jit_no_xs() -> jax.Array:
     return jax.jit(simulate)()
 
 
-# ----------------------------------------------------------------------
-# regression helpers – two scans with different trip-counts
-# ----------------------------------------------------------------------
+def _nested_scan_len_mismatch_f32():
+    xs_outer = jnp.arange(100, dtype=jnp.float32)
+
+    def inner(carry, x):
+        x = x.astype(carry.dtype)
+        _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
+        return carry + x, ys[-1]
+
+    _, ys = lax.scan(inner, jnp.asarray(0.0, dtype=jnp.float32), xs_outer)
+    return ys
+
+
+def _nested_scan_len_mismatch_f64():
+    xs_outer = jnp.arange(100, dtype=jnp.float64)
+
+    def inner(carry, x):
+        x = x.astype(carry.dtype)
+        _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
+        return carry + x, ys[-1]
+
+    _, ys = lax.scan(inner, jnp.asarray(0.0, dtype=jnp.float64), xs_outer)
+    return ys
+
+
 def _two_scans_diff_len_f32():
-    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))
-    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))
-    fill_small = jnp.asarray(_np.full(xs_small.shape, 0.1, dtype=_np.float32))
-    fill_big = jnp.asarray(_np.full(xs_big.shape, 0.1, dtype=_np.float32))
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
+    fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float32))
+    fill_big = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float32))
 
     _, y1 = lax.scan(
         lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
@@ -256,48 +200,11 @@ def _two_scans_diff_len_f32():
     return y1, y2
 
 
-# ----------------------------------------------------------------------
-# regression -- nested scan: inner length 5, outer length 100
-# ----------------------------------------------------------------------
-def _nested_scan_len_mismatch_f32():
-    xs_outer = jnp.asarray(_np.arange(100, dtype=_np.float32))
-    xs_inner = jnp.asarray(_np.arange(5, dtype=_np.float32))
-    fill_inn = jnp.broadcast_to(0.1, xs_inner.shape)
-
-    def inner(c, xs):
-        c = c + xs[0] + xs[1]
-        return c, c
-
-    def outer(c, x):
-        _, ys = lax.scan(inner, c, xs=(xs_inner, fill_inn))
-        return c + x, ys[-1]
-
-    _, ys_out = lax.scan(outer, 0.0, xs_outer)
-    return ys_out
-
-
-def _nested_scan_len_mismatch_f64():
-    xs_outer = jnp.asarray(_np.arange(100, dtype=_np.float64))
-    xs_inner = jnp.asarray(_np.arange(5, dtype=_np.float64))
-    fill_inn = jnp.broadcast_to(0.1, xs_inner.shape)
-
-    def inner(c, xs):
-        c = c + xs[0] + xs[1]
-        return c, c
-
-    def outer(c, x):
-        _, ys = lax.scan(inner, c, xs=(xs_inner, fill_inn))
-        return c + x, ys[-1]
-
-    _, ys_out = lax.scan(outer, 0.0, xs_outer)
-    return ys_out
-
-
 def _two_scans_diff_len_f64():
-    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float64))
-    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float64))
-    fill_small = jnp.asarray(_np.full(xs_small.shape, 0.1, dtype=_np.float64))
-    fill_big = jnp.asarray(_np.full(xs_big.shape, 0.1, dtype=_np.float64))
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
+    fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float64))
+    fill_big = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float64))
 
     _, y1 = lax.scan(
         lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
@@ -307,36 +214,36 @@ def _two_scans_diff_len_f64():
 
 
 def _two_scans_len_mismatch_broadcast_f32():
-    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))
-    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))
-
-    fill_small = jnp.asarray(_np.full(5, 0.1, dtype=_np.float32))
-    fill_big = jnp.asarray(_np.full(100, 0.1, dtype=_np.float32))
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
+    fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float32))
 
     _, y1 = lax.scan(
-        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, jnp.broadcast_to(0.1, xs_small.shape)),
     )
-    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill))
     return y1, y2
 
 
 def _two_scans_len_mismatch_broadcast_f64():
-    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float64))
-    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float64))
-
-    fill_small = jnp.asarray(_np.full(5, 0.1, dtype=_np.float64))
-    fill_big = jnp.asarray(_np.full(100, 0.1, dtype=_np.float64))
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
+    fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float64))
 
     _, y1 = lax.scan(
-        lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_small, fill_small)
+        lambda c, xs: (c + xs[0] + xs[1], c),
+        0.0,
+        xs=(xs_small, jnp.broadcast_to(0.1, xs_small.shape)),
     )
-    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill_big))
+    _, y2 = lax.scan(lambda c, xs: (c + xs[0] + xs[1], c), 0.0, xs=(xs_big, fill))
     return y1, y2
 
 
 def _two_scans_diff_len_with_broadcast_f32():
-    xs_small = jnp.asarray(_np.arange(5, dtype=_np.float32))
-    xs_big = jnp.asarray(_np.arange(100, dtype=_np.float32))
+    xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
+    xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
 
     _, y1 = lax.scan(
         lambda c, xs: (c + xs[0] + xs[1], c),
@@ -351,118 +258,93 @@ def _two_scans_diff_len_with_broadcast_f32():
     return y1, y2
 
 
-# ----------------------------------------------------------------------
-# post-conversion graph checks
-# ----------------------------------------------------------------------
-def _assert_scan_io_consistent(onnx_model) -> bool:
-    def _elem_type_of(g, name):
-        for vi in list(g.input) + list(g.value_info) + list(g.output):
-            if vi.name == name and vi.type.tensor_type.elem_type:
-                return vi.type.tensor_type.elem_type
-        for init in g.initializer:
-            if init.name == name:
-                return init.data_type
-        return None
-
-    for n in onnx_model.graph.node:
-        if n.op_type != "Scan":
-            continue
-        num_scan_inputs = None
-        body_graph = None
-        for a in n.attribute:
-            if a.name == "num_scan_inputs":
-                num_scan_inputs = a.i
-            elif a.name == "body":
-                body_graph = a.g
-        assert (
-            body_graph is not None and num_scan_inputs is not None
-        ), "Scan missing body/num_scan_inputs"
-
-        total_scan_inputs = len(n.input)
-        body_inputs = len(body_graph.input)
-        assert (
-            total_scan_inputs == body_inputs
-        ), f"Scan/body input arity mismatch: node has {total_scan_inputs}, body has {body_inputs}"
-
-        # dtype equality check
-        for i in range(total_scan_inputs):
-            et_node = _elem_type_of(onnx_model.graph, n.input[i])
-            et_body = _elem_type_of(body_graph, body_graph.input[i].name)
-            assert (
-                (et_node is None) or (et_body is None) or (et_node == et_body)
-            ), f"Scan/body input dtype mismatch at index {i}: node={et_node}, body={et_body}"
-
-        M = body_inputs - num_scan_inputs
-        assert (
-            len(body_graph.output) >= M
-        ), f"Scan body must return >= M state outputs; got {len(body_graph.output)} < {M}"
-    return True
-
-
-# ---------------------- plugin registration (metadata trimmed) ----------------------
 @register_primitive(
-    jaxpr_primitive=lax.scan_p.name,
+    jaxpr_primitive=jax.lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
     onnx=[
-        {"component": "Scan", "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html"}
+        {
+            "component": "Scan",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html",
+        }
     ],
     since="v0.5.1",
     context="primitives.lax",
     component="scan",
     testcases=[
         {
+            "testcase": "scan_identity_slice_helper",
+            "callable": lambda x: jax.lax.scan(
+                lambda c, xt: (c, jnp.squeeze(xt[None, ...][0:1, :, :, :], axis=0)),
+                jnp.zeros(x.shape[1:], dtype=x.dtype),
+                x,
+            )[1],
+            "input_shapes": [(2, 3, 4, 5)],
+        },
+        {
             "testcase": "scan_cumsum",
-            "callable": lambda xs: lax.scan(lambda c, x: (c + x, c + x), 0.0, xs)[1],
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c + x),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[1],
             "input_shapes": [(5,)],
-            "expected_output_shapes": [(5,)],
         },
         {
             "testcase": "scan_carry_only",
-            "callable": lambda xs: lax.scan(lambda c, x: (c + x, c), 0.0, xs)[0],
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c + x, c),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+            )[0],
             "input_shapes": [(3,)],
-            "expected_output_shapes": [()],
         },
         {
             "testcase": "scan_multiple_sequences",
-            "callable": lambda xs, ys: lax.scan(
-                lambda c, xy: (c + xy[0] * xy[1], c + xy[0]), 0.0, (xs, ys)
+            "callable": lambda xs, ys: jax.lax.scan(
+                lambda c, xy: (c + xy[0] * xy[1], c + xy[0]),
+                jnp.zeros((), dtype=xs.dtype),
+                (xs, ys),
             )[1],
             "input_shapes": [(4,), (4,)],
-            "expected_output_shapes": [(4,)],
         },
         {
             "testcase": "scan_multiple_carry",
-            "callable": lambda xs: lax.scan(
-                lambda carry, x: ((carry[0] + x, carry[1] * x), carry[0] + carry[1]),
-                (0.0, 1.0),
+            "callable": lambda xs: jax.lax.scan(
+                lambda carry, x: (
+                    (carry[0] + x, carry[1] * x),
+                    carry[0] + carry[1],
+                ),
+                (
+                    jnp.zeros((), dtype=xs.dtype),
+                    jnp.ones((), dtype=xs.dtype),
+                ),
                 xs,
             )[1],
             "input_shapes": [(3,)],
-            "expected_output_shapes": [(3,)],
         },
         {
             "testcase": "scan_matrix_carry_multidim_xs",
-            "callable": lambda init_carry, xs_seq: lax.scan(
+            "callable": lambda init_carry, xs_seq: jax.lax.scan(
                 lambda c_mat, x_slice: (c_mat + x_slice, jnp.sum(c_mat + x_slice)),
                 init_carry,
                 xs_seq,
             )[1],
             "input_shapes": [(3, 2), (5, 3, 2)],
-            "expected_output_shapes": [(5,)],
         },
         {
             "testcase": "scan_no_xs",
-            "callable": lambda x: lax.scan(
-                lambda carry, _: (carry + 1, carry), x, None, length=5
+            "callable": lambda x: jax.lax.scan(
+                lambda carry, _: (carry + 1, carry), x, xs=None, length=5
             )[1],
             "input_shapes": [()],
             "input_dtypes": [jnp.float32],
-            "expected_output_shapes": [(5,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
         {
             "testcase": "scan_fn",
             "callable": scan_fn,
             "input_values": [jnp.array(0.0, dtype=jnp.float32)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
         },
         {
             "testcase": "scan_jit_no_xs",
@@ -484,7 +366,7 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
             "testcase": "scan_captured_scalar",
             "callable": (
                 lambda dt=jnp.asarray(0.1, dtype=jnp.float32): (
-                    lax.scan(
+                    jax.lax.scan(
                         lambda carry, _: (carry + dt, carry + dt),
                         jnp.asarray(0.0, dtype=jnp.float32),
                         xs=None,
@@ -493,7 +375,7 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
                 )
             ),
             "input_shapes": [],
-            "expected_output_shapes": [(3,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
         },
@@ -501,7 +383,7 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
             "testcase": "scan_captured_scalar_f64",
             "callable": (
                 lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
-                    lax.scan(
+                    jax.lax.scan(
                         lambda carry, _: (carry + dt, carry + dt),
                         jnp.asarray(0.0, dtype=jnp.float64),
                         xs=None,
@@ -510,45 +392,46 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
                 )
             ),
             "input_shapes": [],
-            "expected_output_shapes": [(3,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
         },
         {
             "testcase": "scan_rank0_sequence_vectorized",
             "callable": (
-                lambda xs_vec=jnp.arange(4, dtype=jnp.float32): lax.scan(
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float32): jax.lax.scan(
                     lambda carry, xs: (carry + xs[0] + xs[1], carry),
                     0.0,
                     xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float32)),
                 )[1]
             ),
             "input_shapes": [],
-            "expected_output_shapes": [(4,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
-            "check_onnx_load": True,
         },
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
             "callable": (
-                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): lax.scan(
+                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): jax.lax.scan(
                     lambda carry, xs: (carry + xs[0] + xs[1], carry),
                     0.0,
                     xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
                 )[1]
             ),
             "input_shapes": [],
-            "expected_output_shapes": [(4,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
-            "check_onnx_load": True,
         },
         {
             "testcase": "scan_two_diff_lengths",
             "callable": _two_scans_diff_len_f32,
             "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
@@ -557,44 +440,11 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
             "testcase": "scan_two_diff_lengths_f64",
             "callable": _two_scans_diff_len_f64,
             "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
-            "run_only_f64_variant": True,
-            "check_onnx_load": True,
-        },
-        {
-            "testcase": "scan_two_diff_lengths",
-            "callable": _two_scans_diff_len_f32,
-            "input_shapes": [],  # <- no inputs, everything is static
-            "expected_output_shapes": [(5,), (100,)],
-            "expected_output_dtypes": [jnp.float32, jnp.float32],
-            "run_only_f32_variant": True,
-            "check_onnx_load": True,
-        },
-        {
-            "testcase": "scan_two_diff_lengths_f64",
-            "callable": _two_scans_diff_len_f64,
-            "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
-            "expected_output_dtypes": [jnp.float64, jnp.float64],
-            "run_only_f64_variant": True,
-            "check_onnx_load": True,
-        },
-        {
-            "testcase": "scan_nested_len_mismatch",
-            "callable": _nested_scan_len_mismatch_f32,
-            "input_shapes": [],
-            "expected_output_shapes": [(100,)],
-            "expected_output_dtypes": [jnp.float32],
-            "run_only_f32_variant": True,
-            "check_onnx_load": True,
-        },
-        {
-            "testcase": "scan_nested_len_mismatch_f64",
-            "callable": _nested_scan_len_mismatch_f64,
-            "input_shapes": [],
-            "expected_output_shapes": [(100,)],
-            "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
         },
@@ -602,7 +452,10 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
             "testcase": "scan_two_diff_lengths_broadcast",
             "callable": _two_scans_len_mismatch_broadcast_f32,
             "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
             "check_onnx_load": True,
@@ -611,1056 +464,948 @@ def _assert_scan_io_consistent(onnx_model) -> bool:
             "testcase": "scan_two_diff_lengths_broadcast_f64",
             "callable": _two_scans_len_mismatch_broadcast_f64,
             "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
             "check_onnx_load": True,
         },
-        # ── regression: scalar-broadcast + two different scan lengths ───────────
         {
             "testcase": "scan_two_diff_lengths_with_broadcast",
-            "callable": _two_scans_diff_len_with_broadcast_f32,  # Updated to the new function name
-            "input_shapes": [],  # <- no inputs, everything is static
-            "expected_output_shapes": [(5,), (100,)],
+            "callable": _two_scans_diff_len_with_broadcast_f32,
+            "input_shapes": [],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL",),
+            ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
-            "run_only_f32_variant": True,  # do **not** run in "double" mode
+            "run_only_f32_variant": True,
         },
         {
-            "testcase": "scan_two_diff_lengths_f64",
-            "callable": _two_scans_diff_len_f64,
+            "testcase": "scan_nested_len_mismatch",
+            "callable": _nested_scan_len_mismatch_f32,
             "input_shapes": [],
-            "expected_output_shapes": [(5,), (100,)],
-            "expected_output_dtypes": [jnp.float64, jnp.float64],
-            "run_only_f64_variant": True,
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float32],
+            "run_only_f32_variant": True,
+            "check_onnx_load": True,
         },
-        # ── regression: consts + xs must be threaded as state into the body ───
+        {
+            "testcase": "scan_nested_len_mismatch_f64",
+            "callable": _nested_scan_len_mismatch_f64,
+            "input_shapes": [],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_dtypes": [jnp.float64],
+            "run_only_f64_variant": True,
+            "check_onnx_load": True,
+        },
         {
             "testcase": "scan_captured_scalar_with_xs",
             "callable": (
-                # dt is a captured constant (→ scan consts) and xs is the scanned input
                 lambda xs, dt=jnp.asarray(0.1, dtype=jnp.float32): (
-                    lax.scan(
-                        lambda c, x: (c + dt * x, c + dt * x),  # uses dt and x
-                        jnp.asarray(0.0, dtype=jnp.float32),  # scalar carry
+                    jax.lax.scan(
+                        lambda carry, x: (carry + dt * x, carry + dt * x),
+                        jnp.asarray(0.0, dtype=jnp.float32),
                         xs,
                     )[1]
                 )
             ),
-            "input_shapes": [(8,)],  # xs length 8
-            "expected_output_shapes": [(8,)],
+            "input_shapes": [(8,)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
-            "run_only_f32_variant": True,  # match dt dtype
+            "run_only_f32_variant": True,
             "check_onnx_load": True,
-            "post_check_onnx_graph": _assert_scan_io_consistent,
         },
         {
             "testcase": "scan_captured_vector_with_xs_f64",
             "callable": (
-                # vector consts + vector xs at each step
                 lambda xs, dt=jnp.asarray([0.1, -0.2], dtype=jnp.float64): (
-                    lax.scan(
-                        lambda c, x: (c + dt * x, c + dt * x),
-                        jnp.zeros((2,), dtype=jnp.float64),  # vector carry
+                    jax.lax.scan(
+                        lambda carry, x: (carry + dt * x, carry + dt * x),
+                        jnp.zeros((2,), dtype=jnp.float64),
                         xs,
                     )[1]
                 )
             ),
-            "input_shapes": [(5, 2)],  # 5 steps, each x is (2,)
-            "expected_output_shapes": [(5, 2)],
+            "input_shapes": [(5, 2)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2)],
             "expected_output_dtypes": [jnp.float64],
-            "run_only_f64_variant": True,  # match dt dtype
+            "run_only_f64_variant": True,
             "check_onnx_load": True,
-            "post_check_onnx_graph": _assert_scan_io_consistent,
         },
     ],
 )
 class ScanPlugin(PrimitiveLeafPlugin):
-    """Lower `lax.scan` to an ONNX Scan operator."""
-
-    def _scalar_const(self, s, value, dtype, base):
-        """
-        Create a scalar Constant of `dtype` in the current graph.
-        Register shape+dtype (value_info) and return the produced name.
-        """
-        out = s.get_unique_name(base)
-        if dtype == TensorProto.BOOL:
-            vals = [1 if bool(value) else 0]
-        elif dtype in (
-            TensorProto.INT64,
-            TensorProto.INT32,
-            TensorProto.INT16,
-            TensorProto.UINT64,
-            TensorProto.UINT32,
-            TensorProto.UINT16,
-            TensorProto.INT8,
-            TensorProto.UINT8,
-        ):
-            vals = [int(value)]
-        else:
-            vals = [float(value)]
-        t = helper.make_tensor(name=f"{out}_value", data_type=dtype, dims=[], vals=vals)
-        s.add_node(
-            helper.make_node(
-                "Constant",
-                inputs=[],
-                outputs=[out],
-                value=t,
-                name=s.get_unique_name(f"{base}_const"),
-            )
-        )
-        # Always register shape+dtype using builder's canonical path.
-        # `add_shape_info` expects NumPy dtypes; map from TensorProto if needed.
-        try:
-            np_dt = _ONNX2NP[dtype] if isinstance(dtype, int) else dtype
-        except Exception:
-            # Very defensive fallback (should not trigger in practice)
-            np_dt = (
-                _np.bool_
-                if dtype == TensorProto.BOOL
-                else (_np.int64 if dtype == TensorProto.INT64 else _np.float32)
-            )
-        s.add_shape_info(out, (), np_dt)
-
-        # Also try legacy value_info registrations if available (harmless duplicates).
-        b = getattr(s, "builder", None)
-        if b is not None:
-            if hasattr(b, "register_value_info_metadata"):
-                try:
-                    b.register_value_info_metadata(out, [], dtype)
-                except Exception:
-                    pass
-            elif hasattr(b, "add_value_info"):
-                try:
-                    b.add_value_info(out, [], dtype)
-                except Exception:
-                    pass
-        return out
-
-    # --------------------------- abstract_eval ---------------------------
-    @staticmethod
-    def abstract_eval(
-        *in_avals_flat: core.AbstractValue,
-        jaxpr: ClosedJaxpr,
-        length: int,
-        reverse: bool,
-        unroll: Union[int, bool],
-        num_carry: int,
-        num_xs: Optional[int] = None,
-        num_consts: Optional[int] = None,
-        **unused_params,
-    ) -> Sequence[core.AbstractValue]:
-        total_in = len(in_avals_flat)
-        if num_xs is None:
-            num_xs = max(0, total_in - num_carry)
-        if num_carry is None:
-            num_carry = max(0, total_in - num_xs)
-
-        carry_avals = in_avals_flat[:num_carry]
-        stacked: list[core.AbstractValue] = []
-        for var in jaxpr.jaxpr.outvars[num_carry:]:
-            aval = var.aval
-            shape = tuple(aval.shape) if hasattr(aval, "shape") else ()
-            stacked.append(core.ShapedArray((length,) + shape, aval.dtype))
-        return tuple(carry_avals) + tuple(stacked)
-
-    # ------------------------------ to_onnx ------------------------------
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Var],
-        node_outputs: Sequence[Var],
-        params: dict[str, Any],
-    ) -> None:
-        global _SCAN_INSTANCE_COUNTER
-        scan_id = _SCAN_INSTANCE_COUNTER
-        _SCAN_INSTANCE_COUNTER += 1
-
+    def lower(self, ctx: IRContext, eqn):  # type: ignore[name-defined]
+        params = eqn.params
         closed_jaxpr = params["jaxpr"]
-        num_carry = params["num_carry"]
-        length = params["length"]
-        # JAX scan has extra non-scanned args ("consts"). In ONNX we must thread them as state.
+        num_carry = int(params.get("num_carry", 0))
         num_consts = int(params.get("num_consts", 0) or 0)
-
-        # Helper used in both Loop and Scan paths: decide if an output is a stacked y-output.
-        # Avoid tuple indexing so mypy won't flag "Tuple index out of range".
-        def _is_y_output(var: Var) -> bool:
-            shp_any = getattr(var.aval, "shape", ())
-            # Treat as an iterable; first dimension defines whether it is a stacked output.
-            first_dim = next(iter(shp_any), None)
-            return (
-                first_dim is not None
-                and isinstance(length, (int, _np.integer))
-                and isinstance(first_dim, (int, _np.integer))
-                and int(first_dim) == int(length)
+        if params.get("reverse", False):
+            raise NotImplementedError("Reverse scan is not supported in IR pipeline.")
+        if params.get("unroll", 1) != 1:
+            raise NotImplementedError(
+                "Scan with unroll > 1 is not supported in IR pipeline."
             )
 
-        # Number of true scanned inputs (exclude carry and consts).
-        # Prefer JAX-provided `num_xs` if present to avoid misclassification in edge cases.
-        total_invars = len(closed_jaxpr.jaxpr.invars)
-        num_scan = int(
-            params.get("num_xs", max(0, total_invars - num_carry - num_consts))
-        )
-        if num_scan < 0 or num_scan > total_invars:
-            raise ValueError(
-                f"Invalid num_scan={num_scan} for Scan with total_invars={total_invars}"
-            )
-
-        # ------------------------------------------------------------------
-        # Special-case: no scan-inputs → Loop
-        # Thread consts **and** carry as Loop state (M = num_consts + num_carry)
-        # ------------------------------------------------------------------
-        if num_scan == 0:
-            # Create Loop control scalars as Constant nodes (not initializers/inputs).
-            # Also registers value_info so the top-level graph is fully annotated.
-            trip_name = self._scalar_const(
-                s, int(length), TensorProto.INT64, "trip_count"
-            )
-            cond_name = self._scalar_const(s, True, TensorProto.BOOL, "cond_init")
-
-            prefix = s.builder.name_generator.get("loop")
-            body_builder = OnnxBuilder(
-                name_generator=s.builder.name_generator,
-                opset=s.builder.opset,
-                model_name=s.builder.get_unique_name(f"{prefix}_body"),
-            )
-            body_builder.enable_double_precision = getattr(
-                s.builder, "enable_double_precision", False
-            )
-            # IMPORTANT: keep subgraph symbol mapping isolated to avoid cross-scan leakage
-            body_builder.var_to_symbol_map = {}  # do not share with outer builder
-            body_conv = Jaxpr2OnnxConverter(body_builder)
-            # Propagate symbolic-dimension origins from the outer converter, so that
-            # Shape()/broadcast ops inside the Loop body can resolve symbols (e.g., "B").
-            if not hasattr(body_conv, "symbolic_dim_to_origin"):
-                body_conv.symbolic_dim_to_origin = {}
-            body_conv.symbolic_dim_to_origin.update(
-                getattr(s, "symbolic_dim_to_origin", {}) or {}
-            )
-
-            body_builder.add_input("iter_count", (), _np.int64)
-            cond_in = body_builder.get_unique_name("cond_in")
-            body_builder.add_input(cond_in, (), _np.bool_)
-
-            # Body inputs: iter, cond, then all state in the order [consts..., carry...]
-            for i, var in enumerate(
-                closed_jaxpr.jaxpr.invars[: num_consts + num_carry]
-            ):
-                nm = body_builder.get_unique_name(f"state_in_{i}")
-                # IMPORTANT: rank-only (all dynamic) to avoid ORT fixing concrete sizes
-                # that can conflict with broadcasted shapes inside the Loop body.
-                dyn_shape = (None,) * len(getattr(var.aval, "shape", ()))
-                # Keep body input dtypes equal to the jaxpr aval dtypes; we Cast outer
-                # symbols to these dtypes just before wiring the Loop inputs.
-                body_builder.add_input(nm, dyn_shape, var.aval.dtype)
-                body_conv.var_to_name[var] = nm
-                # Seed symbolic-dimension origin for any dynamic (non-int) axis.
-                # Write both the raw DimExpr object key and its string form, because
-                # some sites query with the object and others with str(sym_dim).
-                for axis, d in enumerate(getattr(var.aval, "shape", ())):
-                    if not isinstance(d, (int, _np.integer)):
-                        body_conv.symbolic_dim_to_origin[d] = (nm, axis)
-                        body_conv.symbolic_dim_to_origin[str(d)] = (nm, axis)
-
-            for var, val in zip(closed_jaxpr.jaxpr.constvars, closed_jaxpr.consts):
-                body_conv.var_to_name[var] = body_conv.get_constant_name(val)
-
-            body_conv._process_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts)
-
-            # Normalize numeric binop dtypes inside the Loop body.
-            # Prefer the dtype of Loop state inputs (e.g. carry) over promoting to a wider const.
-            _harmonize_numeric_binops(
-                body_builder, prefer_input_prefixes=("state_in_",)
-            )
-            # --- end harmonization ---
-            _retag_value_infos_to_input_dtype(body_builder)
-            # Make internal shapes rank-only to avoid ORT Loop-body broadcast clashes.
-            _loosen_value_infos_to_rank_only(body_builder)
-            body_builder.outputs.clear()
-            cond_out = body_builder.get_unique_name("cond_out")
-            idn = helper.make_node(
-                "Identity",
-                inputs=[cond_in],
-                outputs=[cond_out],
-                name=body_builder.get_unique_name("id_cond"),
-            )
-            body_builder.add_node(idn)
-            body_builder.add_output(cond_out, (), _np.bool_)
-
-            # Emit body state outputs first: passthrough consts, then computed carries
-            # 1) consts passthrough
-            for ci in range(num_consts):
-                in_sym = body_conv.get_name(closed_jaxpr.jaxpr.invars[ci])
-                out_sym = body_builder.get_unique_name(f"const_out_{ci}")
-                body_builder.add_node(
-                    helper.make_node(
-                        "Identity",
-                        inputs=[in_sym],
-                        outputs=[out_sym],
-                        name=body_builder.get_unique_name("Identity_const_passthrough"),
-                    )
-                )
-                aval = closed_jaxpr.jaxpr.invars[ci].aval
-                # keep dtype identical to the body input (which we may have coerced)
-                out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-                # rank-only output (avoid fixed sizes in Scan body outputs)
-                body_builder.add_output(
-                    out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
-                )
-
-            # 2) computed carry(s)
-            seen_body = set()
-            for cj in range(num_carry):
-                carr_sym = body_conv.get_name(closed_jaxpr.jaxpr.outvars[cj])
-                out_sym = (
-                    carr_sym
-                    if carr_sym not in seen_body
-                    else body_builder.get_unique_name(f"{carr_sym}_dup")
-                )
-                if out_sym != carr_sym:
-                    body_builder.add_node(
-                        helper.make_node(
-                            "Identity",
-                            inputs=[carr_sym],
-                            outputs=[out_sym],
-                            name=body_builder.get_unique_name("Identity_carry_dup"),
-                        )
-                    )
-                seen_body.add(out_sym)
-                aval = closed_jaxpr.jaxpr.outvars[cj].aval
-                # Use the actual dtype on the symbol if known (after any Cast we inserted).
-                out_dt = body_builder.get_dtype(carr_sym) or aval.dtype
-                # rank-only carry output
-                body_builder.add_output(
-                    out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
-                )
-
-            # 3) per-iter y outputs (no duplication of carry)
-            #    Also avoid aliasing a graph *input* name as an output name.
-            input_name_set = {i.name for i in body_builder.inputs}
-            for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
-                orig = body_conv.get_name(var)
-                out_name = (
-                    orig
-                    if orig not in seen_body
-                    else body_builder.get_unique_name(f"{orig}_dup")
-                )
-                # duplicate if (a) we already used this name, or (b) it equals a graph input
-                if out_name == orig and orig in input_name_set:
-                    out_name = body_builder.get_unique_name(f"{orig}_dup")
-                if out_name != orig:
-                    body_builder.add_node(
-                        helper.make_node(
-                            "Identity",
-                            inputs=[orig],
-                            outputs=[out_name],
-                            name=body_builder.get_unique_name("Identity_dup_scan0"),
-                        )
-                    )
-                seen_body.add(out_name)
-                # If the current symbol dtype differs from the aval dtype, cast to aval dtype
-                src_dt = body_builder.get_dtype(out_name) or body_builder.get_dtype(
-                    orig
-                )
-                tgt_dt = getattr(var.aval, "dtype", src_dt)
-                final_sym = out_name
-                if (
-                    src_dt is not None
-                    and tgt_dt is not None
-                    and _np.dtype(src_dt) != _np.dtype(tgt_dt)
-                ):
-                    cast_sym = body_builder.get_unique_name(
-                        f"{out_name}_cast_{_np.dtype(tgt_dt).name}"
-                    )
-                    to_enum = _NP2ONNX[_np.dtype(tgt_dt)]
-                    body_builder.add_node(
-                        helper.make_node(
-                            "Cast",
-                            inputs=[out_name],
-                            outputs=[cast_sym],
-                            name=body_builder.get_unique_name("CastAlignYOut"),
-                            to=to_enum,
-                        )
-                    )
-                    r = body_builder.get_rank(out_name) or len(
-                        getattr(var.aval, "shape", ())
-                    )
-                    body_builder.add_value_info(cast_sym, (None,) * r, tgt_dt)
-                    final_sym = cast_sym
-                # rank-only per-iteration output (Loop stacks them outside / Scan stacks inside)
-                body_builder.add_output(
-                    final_sym, (None,) * len(getattr(var.aval, "shape", ())), tgt_dt
-                )
-
-            loop_body = body_builder.create_graph(
-                body_builder.model_name, is_subgraph=True
-            )
-
-            # Final pass to sanitize the Loop body VIs (always on)
-            _loosen_graph_value_infos_to_rank_only(loop_body)
-
-            # Pass state inputs = [consts..., carry...]
-            # Ensure the symbols we feed into Loop match the body input (aval) dtypes.
-            raw_state_syms = [
-                s.get_name(v) for v in node_inputs[: num_consts + num_carry]
-            ]
-            state_in_syms: list[str] = []
-            for i, sym in enumerate(raw_state_syms):
-                aval_dt = getattr(closed_jaxpr.jaxpr.invars[i].aval, "dtype", None)
-                sym_dt = s.builder.get_dtype(sym)
-                # Always align state input dtype to aval dtype if aval dtype is known and
-                # (a) upstream dtype is unknown, or (b) they differ.
-                if aval_dt is not None and (
-                    sym_dt is None or _np.dtype(sym_dt) != _np.dtype(aval_dt)
-                ):
-                    cast_out = s.builder.get_unique_name(
-                        f"{sym}_cast_{_np.dtype(aval_dt).name}"
-                    )
-                    to_enum = _NP2ONNX.get(_np.dtype(aval_dt), TensorProto.FLOAT)
-                    s.add_node(
-                        helper.make_node(
-                            "Cast",
-                            inputs=[sym],
-                            outputs=[cast_out],
-                            name=s.get_unique_name("CastLoopStateIn"),
-                            to=to_enum,
-                        )
-                    )
-                    # Preserve rank info if we have it; otherwise make fully dynamic
-                    rank = s.builder.get_rank(sym)
-                    if rank is None:
-                        rank = len(
-                            getattr(closed_jaxpr.jaxpr.invars[i].aval, "shape", ())
-                        )
-                    s.add_shape_info(cast_out, (None,) * rank, aval_dt)
-                    state_in_syms.append(cast_out)
-                else:
-                    state_in_syms.append(sym)
-
-            loop_inputs = [trip_name, cond_name] + state_in_syms
-
-            # Body returns [carry, y1, y2, ...] per iteration → primitive returns
-            # [final_carry, ystack_1, ystack_2, ...]. We'll need this count to size Loop outs.
-            jax_body_outvars = list(closed_jaxpr.jaxpr.outvars)
-            num_y = len(jax_body_outvars) - num_carry
-            if num_y < 0:
-                raise ValueError("Internal error: num_y < 0 in Loop lowering.")
-
-            # Create Loop node outputs in ONNX order: [const_state..., carry_state..., scan...]
-            loop_tmp_outs: list[str] = []
-            # state outs: consts passthrough first
-            for ci in range(num_consts):
-                var_in = closed_jaxpr.jaxpr.invars[ci]
-                tmp = s.builder.get_unique_name(f"loop_const_raw_{ci}")
-                inner_rank = len(getattr(var_in.aval, "shape", ()))
-                # match dtype of the (possibly cast) symbol we feed into Loop for this const
-                const_sym = state_in_syms[ci]
-                const_dt = s.builder.get_dtype(const_sym) or getattr(
-                    var_in.aval, "dtype", _np.float32
-                )
-                s.add_shape_info(tmp, (None,) * inner_rank, const_dt)
-                loop_tmp_outs.append(tmp)
-            # then computed carries
-            for i in range(num_carry):
-                var = jax_body_outvars[i]
-                tmp = s.builder.get_unique_name(f"loop_state_raw_{i}")
-                inner_rank = len(getattr(var.aval, "shape", ()))
-                # Carry state out dtype must match its corresponding (possibly cast) state input
-                carry_in_sym = state_in_syms[num_consts + i]
-                carry_dt = s.builder.get_dtype(carry_in_sym) or getattr(
-                    var.aval, "dtype", _np.float32
-                )
-                s.add_shape_info(tmp, (None,) * inner_rank, carry_dt)
-                loop_tmp_outs.append(tmp)
-
-            # scan (stacked) outs
-            for k, var in enumerate(jax_body_outvars[num_carry:]):
-                tmp = s.builder.get_unique_name(f"loop_scan_raw_{k}")
-                inner_rank = len(getattr(var.aval, "shape", ()))
-                s.add_shape_info(
-                    tmp,
-                    (None,) * (inner_rank + 1),
-                    getattr(var.aval, "dtype", _np.float32),
-                )
-                loop_tmp_outs.append(tmp)
-
-            loop_node = helper.make_node(
-                "Loop",
-                inputs=loop_inputs,
-                outputs=loop_tmp_outs,
-                name=s.get_unique_name("Loop"),
-                body=loop_body,
-            )
-            s.add_node(loop_node)
-
-            # ----- Forward ONLY the requested primitive outputs (skip const passthroughs) -----
-            # Primitive results: [carry_0..carry_{C-1}, ystack_0..ystack_{K-1}]
-            # Loop outputs:      [const_0..const_{S-1}, carry_0..carry_{C-1}, ystack_0..ystack_{K-1}]
-            #
-            # Node may request any subsequence (often drops the carry). Classify by shape:
-            # a y-output is stacked along trip axis => leading dim == `length` (when static).
-            def _is_y_output(var: Var) -> bool:
-                shp_any = getattr(var.aval, "shape", ())
-                # Treat as an iterable; first dimension defines whether it is a stacked output.
-                first_dim = next(iter(shp_any), None)
-                return (
-                    first_dim is not None
-                    and isinstance(length, (int, _np.integer))
-                    and isinstance(first_dim, (int, _np.integer))
-                    and int(first_dim) == int(length)
-                )
-
-            carry_idx = 0
-            y_idx = 0
-            for out_var in node_outputs:
-                if not isinstance(out_var, Var):
-                    continue  # DropVar or equivalent
-                if _is_y_output(out_var):
-                    src_name = loop_tmp_outs[num_consts + num_carry + y_idx]
-                    y_idx += 1
-                else:
-                    src_name = loop_tmp_outs[num_consts + carry_idx]
-                    carry_idx += 1
-                final_name = s.get_name(out_var)
-                s.add_node(
-                    helper.make_node(
-                        "Identity",
-                        inputs=[src_name],
-                        outputs=[final_name],
-                        name=s.get_unique_name("LoopOut"),
-                    )
-                )
-                # Replace any stale VI and attach rank/dtype consistent with the var
-                s.builder.value_info[:] = [
-                    vi for vi in s.builder.value_info if vi.name != final_name
-                ]
-                inner_rank = len(getattr(out_var.aval, "shape", ()))
-                # carry preserves rank; y has the stacked leading axis already present in aval
-                out_rank = inner_rank
-                dtype = s.builder.get_dtype(src_name) or getattr(
-                    out_var.aval, "dtype", _np.float32
-                )
-                # Prefer the aval dtype for the outward contract; VI dtype is only a fallback
-                s.add_shape_info(
-                    final_name,
-                    (None,) * out_rank,
-                    getattr(out_var.aval, "dtype", dtype),
-                )
-
-            return
-
-        # ------------------------------------------------------------------
-        # Build Scan body graph (identical to previous version)
-        # ------------------------------------------------------------------
         jaxpr = closed_jaxpr.jaxpr
-        consts = closed_jaxpr.consts
-
-        body_builder = OnnxBuilder(
-            name_generator=s.builder.name_generator,
-            opset=s.builder.opset,
-            model_name=s.builder.get_unique_name("scan_body"),
-        )
-        body_builder.enable_double_precision = getattr(
-            s.builder, "enable_double_precision", False
-        )
-        # IMPORTANT: keep subgraph symbol mapping isolated to avoid cross-scan leakage
-        body_builder.var_to_symbol_map = {}  # do not share with outer builder
-        body_conv = Jaxpr2OnnxConverter(body_builder)
-        # Propagate symbolic-dimension origins so body ops can resolve symbols like "B".
-        if not hasattr(body_conv, "symbolic_dim_to_origin"):
-            body_conv.symbolic_dim_to_origin = {}
-        body_conv.symbolic_dim_to_origin.update(
-            getattr(s, "symbolic_dim_to_origin", {}) or {}
-        )
-
-        # declare inputs (exactly the jaxpr.invars; order is [consts, carry, xs])
-        for i, var in enumerate(jaxpr.invars):
-            nm = body_builder.get_unique_name(f"scan_body_in_{i}")
-            dyn_shp = (None,) * len(var.aval.shape)
-            # Always use the jaxpr aval dtype for body inputs (both state and xs).
-            body_builder.add_input(nm, dyn_shp, var.aval.dtype)
-            body_conv.var_to_name[var] = nm
-            # Seed symbolic-dimension origin for any dynamic (non-int) axis.
-            # Write both the raw DimExpr object key and its string form, because
-            # some sites query with the object and others with str(sym_dim).
-            for axis, d in enumerate(getattr(var.aval, "shape", ())):
-                if not isinstance(d, (int, _np.integer)):
-                    body_conv.symbolic_dim_to_origin[d] = (nm, axis)
-                    body_conv.symbolic_dim_to_origin[str(d)] = (nm, axis)
-
-        body_conv._process_jaxpr(jaxpr, consts)
-
-        # --- dtype harmonization for binary numeric ops in Scan body ---
-        _harmonize_numeric_binops(body_builder)
-
-        # Re-emit body outputs in ONNX-required order:
-        #   1) state outputs:   consts (passthrough)  +  **computed carries**
-        #   2) stacked y-outputs (ONLY jaxpr.outvars[num_carry:]) → fully dynamic dims
-        body_builder.outputs.clear()
-        num_carry + num_consts
-        # 1) consts passthrough
-        for ci in range(num_consts):
-            in_sym = body_conv.get_name(closed_jaxpr.jaxpr.invars[ci])
-            out_sym = body_builder.get_unique_name(f"const_out_{ci}")
-            body_builder.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[in_sym],
-                    outputs=[out_sym],
-                    name=body_builder.get_unique_name("Identity_const_passthrough"),
-                )
+        total_invars = len(jaxpr.invars)
+        num_scan = int(params.get("num_xs", total_invars - num_carry - num_consts))
+        if num_scan < 0 or (num_carry + num_scan + num_consts) != total_invars:
+            raise ValueError(
+                "Inconsistent Scan arity: expected consts/carry/scan to match jaxpr invars"
             )
-            aval = closed_jaxpr.jaxpr.invars[ci].aval
-            # keep dtype identical to the body input (which we may have coerced)
-            out_dt = body_builder.get_dtype(in_sym) or aval.dtype
-            # rank-only output (avoid fixed sizes in Scan body outputs)
-            body_builder.add_output(
-                out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
+        length = params.get("length")
+
+        if num_scan == 0:
+            node_outputs = self._lower_without_scan_inputs(
+                ctx, eqn, closed_jaxpr, num_carry, num_consts, length
+            )
+        else:
+            node_outputs = self._lower_with_scan_inputs(
+                ctx, eqn, closed_jaxpr, num_carry, num_consts, num_scan, length
             )
 
-        # 2) computed carry(s)
-        seen_body = set()
-        for cj in range(num_carry):
-            carr_sym = body_conv.get_name(closed_jaxpr.jaxpr.outvars[cj])
-            out_sym = (
-                carr_sym
-                if carr_sym not in seen_body
-                else body_builder.get_unique_name(f"{carr_sym}_dup")
-            )
-            if out_sym != carr_sym:
-                body_builder.add_node(
-                    helper.make_node(
-                        "Identity",
-                        inputs=[carr_sym],
-                        outputs=[out_sym],
-                        name=body_builder.get_unique_name("Identity_carry_dup"),
+        carry_outvars = list(closed_jaxpr.jaxpr.outvars[:num_carry])
+        scan_outvars = list(closed_jaxpr.jaxpr.outvars[num_carry:])
+        output_indices: list[int] = []
+        eqn_idx = 0
+        for i, carry_var in enumerate(carry_outvars):
+            if not _is_dropvar(carry_var):
+                output_indices.append(num_consts + i)
+                eqn_idx += 1
+        for j, _ in enumerate(scan_outvars):
+            output_indices.append(num_consts + num_carry + num_scan + j)
+
+        carry_invars = eqn.invars[num_consts : num_consts + num_carry]
+        scan_invars = eqn.invars[
+            num_consts + num_carry : num_consts + num_carry + num_scan
+        ]
+        has_dynamic_inputs = any(_is_jax_var(v) for v in carry_invars + scan_invars)
+
+        for idx, var in enumerate(eqn.outvars):
+            out_idx = output_indices[idx]
+            val = node_outputs[out_idx]
+            aval = getattr(var, "aval", None)
+            if aval is not None:
+                aval_shape = tuple(getattr(aval, "shape", ()))
+                if idx >= num_carry and aval_shape:
+                    first_dim = aval_shape[0]
+                    first_dim_resolved: Union[int, str]
+                    if (
+                        num_consts == 0
+                        and not has_dynamic_inputs
+                        and isinstance(first_dim, (int, np.integer))
+                    ):
+                        first_dim_resolved = int(first_dim)
+                    elif (
+                        num_consts == 0
+                        and not has_dynamic_inputs
+                        and isinstance(length, (int, np.integer))
+                    ):
+                        first_dim_resolved = int(length)
+                    else:
+                        first_dim_resolved = _DYNAMIC_DIM_SENTINEL
+                    desired_shape = (first_dim_resolved,) + aval_shape[1:]
+                else:
+                    desired_shape = aval_shape
+                desired_np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
+                if np.issubdtype(desired_np_dtype, np.integer):
+                    target_enum = (
+                        ir.DataType.INT64
+                        if ctx.builder.enable_double_precision
+                        else ir.DataType.INT32
                     )
-                )
-            seen_body.add(out_sym)
-            aval = closed_jaxpr.jaxpr.outvars[cj].aval
-            # Use the actual dtype on the symbol if known (after any Cast we inserted).
-            out_dt = body_builder.get_dtype(carr_sym) or aval.dtype
-            # rank-only carry output
-            body_builder.add_output(
-                out_sym, (None,) * len(getattr(aval, "shape", ())), out_dt
-            )
-
-        # 3) per-iter y outputs (no duplication of carry)
-        #    Also avoid aliasing a graph *input* name as an output name.
-        input_name_set = {i.name for i in body_builder.inputs}
-        for var in closed_jaxpr.jaxpr.outvars[num_carry:]:
-            orig = body_conv.get_name(var)
-            out_name = (
-                orig
-                if orig not in seen_body
-                else body_builder.get_unique_name(f"{orig}_dup")
-            )
-            # duplicate if (a) we already used this name, or (b) it equals a graph input
-            if out_name == orig and orig in input_name_set:
-                out_name = body_builder.get_unique_name(f"{orig}_dup")
-            if out_name != orig:
-                body_builder.add_node(
-                    helper.make_node(
-                        "Identity",
-                        inputs=[orig],
-                        outputs=[out_name],
-                        name=body_builder.get_unique_name("Identity_dup_scan0"),
+                    cast_val = builder_cast(
+                        ctx,
+                        val,
+                        target_enum,
+                        name_hint="scan_out_cast",
                     )
-                )
-            seen_body.add(out_name)
-            # If the current symbol dtype differs from the aval dtype, cast to aval dtype
-            src_dt = body_builder.get_dtype(out_name) or body_builder.get_dtype(orig)
-            tgt_dt = getattr(var.aval, "dtype", src_dt)
-            final_sym = out_name
-            if (
-                src_dt is not None
-                and tgt_dt is not None
-                and _np.dtype(src_dt) != _np.dtype(tgt_dt)
-            ):
-                cast_sym = body_builder.get_unique_name(
-                    f"{out_name}_cast_{_np.dtype(tgt_dt).name}"
-                )
-                to_enum = _NP2ONNX[_np.dtype(tgt_dt)]
-                body_builder.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[out_name],
-                        outputs=[cast_sym],
-                        name=body_builder.get_unique_name("CastAlignYOut"),
-                        to=to_enum,
-                    )
-                )
-                r = body_builder.get_rank(out_name) or len(
-                    getattr(var.aval, "shape", ())
-                )
-                body_builder.add_value_info(cast_sym, (None,) * r, tgt_dt)
-                final_sym = cast_sym
-            # rank-only per-iteration output (Loop stacks them outside / Scan stacks inside)
-            body_builder.add_output(
-                final_sym, (None,) * len(getattr(var.aval, "shape", ())), tgt_dt
+                    _ensure_value_info(ctx, cast_val)
+                    node_outputs[out_idx] = cast_val
+                    try:
+                        ctx.builder._var2val[var] = cast_val
+                    except TypeError:
+                        pass
+                    val = cast_val
+                _stamp_type_and_shape(val, desired_shape)
+
+    def _lower_without_scan_inputs(
+        self,
+        ctx: IRContext,  # type: ignore[name-defined]
+        eqn,
+        closed_jaxpr,
+        num_carry: int,
+        num_consts: int,
+        length,
+    ) -> list[ir.Value]:
+        if not isinstance(length, (int, np.integer)):
+            raise NotImplementedError(
+                "Scan without xs requires a static length in the IR pipeline."
             )
 
-        body_graph = body_builder.create_graph(
-            body_builder.model_name, is_subgraph=True
-        )
-
-        # Final pass to sanitize the Scan body VIs (always on, like Loop)
-        _loosen_graph_value_infos_to_rank_only(body_graph)
-
-        if os.getenv("JAX2ONNX_SSA_DIAG") == "1":
-            # local import to avoid cycles
-            from jax2onnx.converter.onnx_builder import _walk_graphs_and_assert_ssa
-
-            _walk_graphs_and_assert_ssa(body_graph, path="Loop.body")
-
-        # Debug-only invariants for early detection of wiring errors
-        if os.getenv("JAX2ONNX_DEBUG_SCAN_ASSERTS", "").lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
+        jaxpr = closed_jaxpr.jaxpr
+        loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if (
+            dtypes
+            and any(dt == np.float32 for dt in dtypes)
+            and not any(dt == np.float64 for dt in dtypes)
         ):
-            # Inputs: [consts..., carry..., xs...]
-            expected_in = num_consts + num_carry + num_scan
-            assert (
-                len(body_graph.input) == expected_in
-            ), f"Scan body input arity mismatch: got {len(body_graph.input)}, expected {expected_in}"
-            # Outputs: [consts..., carries..., y...]
-            num_y = len(jaxpr.outvars) - num_carry
-            expected_out = num_consts + num_carry + num_y
-            assert (
-                len(body_graph.output) == expected_out
-            ), f"Scan body output arity mismatch: got {len(body_graph.output)}, expected {expected_out}"
+            setattr(loop_ctx, "_keep_function_float32", True)
+        const_float32 = any(
+            hasattr(var, "aval")
+            and getattr(var.aval, "dtype", None) is not None
+            and np.dtype(var.aval.dtype) == np.float32
+            for var in jaxpr.invars[:num_consts]
+        )
+        if const_float32:
+            setattr(loop_ctx, "_keep_function_float32", True)
+        # Only retain float32 when there are no scanned inputs (handled in the no-xs code path).
 
-        # ------------------------------------------------------------------
-        # Broadcast rank-0 sequence inputs  (operate ONLY on xs, not carries)
-        # ------------------------------------------------------------------
-        # State = consts + carry (they are part of node_inputs, in that order).
-        # Cast incoming state to the JAX aval dtype to keep Scan body math precise.
-        state_syms_raw = [s.get_name(v) for v in node_inputs[: num_consts + num_carry]]
-        state_syms: list[str] = []
-        for i, sym in enumerate(state_syms_raw):
-            aval_dt = jaxpr.invars[i].aval.dtype
-            sym_dt = s.builder.get_dtype(sym)
-            # Cast when upstream dtype is unknown OR differs. Works for floats and ints.
-            if aval_dt is not None and (
-                sym_dt is None or _np.dtype(aval_dt) != _np.dtype(sym_dt)
-            ):
-                cast_out = s.builder.get_unique_name(
-                    f"{sym}_cast_{_np.dtype(aval_dt).name}"
+        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
+            np_c = np.asarray(cval)
+            aval = getattr(cv, "aval", None)
+            if aval is not None:
+                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
+            loop_ctx.bind_const_for_var(cv, np_c)
+
+        iter_in, cond_in = create_loop_header_inputs(
+            loop_ctx,
+            prefix="scan_loop",
+        )
+
+        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
+        allow_double_consts = (
+            ctx.builder.enable_double_precision and not function_keep_float32
+        )
+
+        state_inputs: list[ir.Value] = []
+        for idx, var in enumerate(jaxpr.invars):
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            if idx < num_consts:
+                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
+                if casted is not state_input:
+                    loop_ctx.bind_value_for_var(var, casted)
+                    state_input = casted
+            _set_value_dtype_from_var(loop_ctx, state_input, var)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
+        if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+            print(
+                "[scan_no_xs_state]",
+                [
+                    (
+                        idx,
+                        getattr(getattr(var, "aval", None), "dtype", None),
+                        getattr(
+                            getattr(state_inputs[idx], "type", None), "dtype", None
+                        ),
+                    )
+                    for idx, var in enumerate(jaxpr.invars)
+                ],
+                flush=True,
+            )
+
+        keep_float32 = function_keep_float32
+        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
+
+        lower_jaxpr_eqns(loop_ctx, jaxpr)
+
+        body_outputs: list[ir.Value] = []
+
+        cond_out = builder_identity(
+            loop_ctx,
+            cond_in,
+            name_hint="loop_cond_out",
+        )
+        cond_out.type = ir.TensorType(ir.DataType.BOOL)
+        body_outputs.append(cond_out)
+
+        for i in range(num_consts):
+            inp_val = state_inputs[i]
+            out_val = builder_identity(
+                loop_ctx,
+                inp_val,
+                name_hint="loop_const_out",
+            )
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        for out_var in jaxpr.outvars[:num_carry]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_out_carry]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
                 )
-                to_enum = _NP2ONNX.get(_np.dtype(aval_dt), TensorProto.FLOAT)
-                s.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[sym],
-                        outputs=[cast_out],
-                        name=s.get_unique_name("CastScanStateIn"),
-                        to=to_enum,
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        carry_outputs_start = 1 + num_consts
+        for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
+            value = body_outputs[carry_outputs_start + rel_idx]
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if target_enum is None:
+                continue
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[carry_outputs_start + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+
+        for out_var in jaxpr.outvars[num_carry:]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_out_seq]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        outputs_start_no_xs = 1 + num_consts + num_carry
+        for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
+            value = body_outputs[outputs_start_no_xs + rel_idx]
+            _set_value_dtype_from_var(loop_ctx, value, out_var)
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[outputs_start_no_xs + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_body_output]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    getattr(getattr(casted, "type", None), "dtype", None),
+                    flush=True,
+                )
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_no_xs_body_output]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    getattr(getattr(value, "type", None), "dtype", None),
+                    flush=True,
+                )
+
+        loop_ctx.builder.outputs = body_outputs
+
+        body_graph = ir.Graph(
+            inputs=list(loop_ctx.builder.inputs),
+            outputs=list(loop_ctx.builder.outputs),
+            nodes=list(loop_ctx.builder.nodes),
+            initializers=list(loop_ctx.builder.initializers),
+            name=ctx.fresh_name("scan_loop_body"),
+            opset_imports={"": getattr(ctx.builder, "opset", 21)},
+        )
+
+        trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
+
+        cond_init = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("scan_cond_init"),
+            array=np.asarray(True, dtype=np.bool_),
+        )
+
+        node_inputs = [trip_count, cond_init]
+        inbound_vals: list[ir.Value] = []
+        for idx, v in enumerate(eqn.invars):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and ctx.builder.enable_double_precision
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    top_val = builder_cast(
+                        ctx,
+                        top_val,
+                        expected_enum,
+                        name_hint="scan_state_cast",
+                    )
+                    _ensure_value_info(ctx, top_val)
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
+
+        node_outputs: list[ir.Value] = []
+
+        const_body_outs = body_outputs[1 : 1 + num_consts]
+        for body_out in const_body_outs:
+            node_outputs.append(
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_const_unused",
+                )
+            )
+
+        carry_body_outs = body_outputs[1 + num_consts : 1 + num_consts + num_carry]
+        for idx, body_out in enumerate(carry_body_outs):
+            out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
+            if out_var is not None and not _is_dropvar(out_var):
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+                if expected_enum is None:
+                    expected_enum = getattr(
+                        getattr(body_out, "type", None), "dtype", None
+                    )
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
+            else:
+                node_outputs.append(
+                    clone_value_for_subgraph(
+                        ctx,
+                        body_out,
+                        name_hint="loop_state_unused",
                     )
                 )
-                rank = s.builder.get_rank(sym)
-                if rank is None:
-                    rank = len(getattr(jaxpr.invars[i].aval, "shape", ()))
-                s.add_shape_info(cast_out, (None,) * rank, aval_dt)
-                state_syms.append(cast_out)
-            else:
-                state_syms.append(sym)
 
-        xs_syms = [
-            s.get_name(v)
-            for v in node_inputs[
-                num_consts + num_carry : num_consts + num_carry + num_scan
-            ]
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("loop_out")
+            )
+            expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if expected_enum is None:
+                expected_enum = getattr(
+                    getattr(
+                        body_outputs[1 + num_consts + num_carry + rel_idx],
+                        "type",
+                        None,
+                    ),
+                    "dtype",
+                    None,
+                )
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=top_val.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
+
+        output_names = [
+            getattr(val, "name", None) or ctx.fresh_name("scan_out")
+            for val in node_outputs
         ]
 
-        trip_shape_sym: str | None = None  # will hold a 1-D [trip] tensor
-
-        for i in range(num_scan):
-            var = node_inputs[num_consts + num_carry + i]
-            if len(var.aval.shape) == 0:
-                ref_var = None
-                # look for a reference among *real* scan inputs
-                for cand in node_inputs[
-                    num_consts + num_carry : num_consts + num_carry + num_scan
-                ]:
-                    if len(cand.aval.shape) > 0:
-                        ref_var = cand
-                        break
-
-                if ref_var is not None:
-                    ref_sym = s.get_name(ref_var)
-                    shape_sym = s.builder.get_unique_name(f"shape_scan{scan_id}_{i}")
-                    s.add_node(
-                        helper.make_node(
-                            "Shape",
-                            inputs=[ref_sym],
-                            outputs=[shape_sym],
-                            name=s.get_unique_name("Shape_trip"),
-                        )
-                    )
-                    s.add_shape_info(shape_sym, (None,), i64)
-
-                    trip_dim = s.builder.get_unique_name(f"trip_dim_scan{scan_id}_{i}")
-                    s.builder.add_initializer(trip_dim, [0], data_type=INT64, dims=[])
-
-                    gather_sym = s.builder.get_unique_name(
-                        f"trip_len_scan{scan_id}_{i}"
-                    )
-                    s.add_node(
-                        helper.make_node(
-                            "Gather",
-                            inputs=[shape_sym, trip_dim],
-                            outputs=[gather_sym],
-                            name=s.get_unique_name("Gather_trip"),
-                            axis=0,
-                        )
-                    )
-                    s.add_shape_info(gather_sym, (), i64)
-
-                    axes_sym = s.builder.get_unique_name(f"axes_scan{scan_id}_{i}")
-                    s.builder.add_initializer(axes_sym, [0], data_type=INT64, dims=[1])
-                    unsq_sym = s.builder.get_unique_name(
-                        f"trip_len_vec_scan{scan_id}_{i}"
-                    )
-                    s.add_node(
-                        helper.make_node(
-                            "Unsqueeze",
-                            inputs=[gather_sym, axes_sym],
-                            outputs=[unsq_sym],
-                            name=s.get_unique_name("Unsqueeze_trip"),
-                        )
-                    )
-                    s.add_shape_info(unsq_sym, (1,), i64)
-
-                    broadcast_shape = unsq_sym
-                    trip_shape_sym = trip_shape_sym or unsq_sym
-                    exsym = s.builder.get_unique_name(f"{xs_syms[i]}_exp")
-                    s.add_node(
-                        helper.make_node(
-                            "Expand",
-                            inputs=[xs_syms[i], broadcast_shape],
-                            outputs=[exsym],
-                            name=s.get_unique_name("Expand_broadcast"),
-                        )
-                    )
-                    s.add_shape_info(exsym, (None,), var.aval.dtype)
-                    xs_syms[i] = exsym
-                else:
-                    gather_sym = s.builder.get_unique_name(
-                        f"trip_len_vec_scan{scan_id}_{i}"
-                    )
-                    init_val = (
-                        int(length) if isinstance(length, (int, _np.integer)) else 1
-                    )
-                    s.builder.add_initializer(
-                        gather_sym, [init_val], data_type=INT64, dims=[1]
-                    )
-                    s.add_shape_info(gather_sym, (1,), i64)
-                    broadcast_shape = gather_sym
-                    trip_shape_sym = trip_shape_sym or gather_sym
-                    exsym = s.builder.get_unique_name(f"{xs_syms[i]}_exp")
-                    s.add_node(
-                        helper.make_node(
-                            "Expand",
-                            inputs=[xs_syms[i], broadcast_shape],
-                            outputs=[exsym],
-                            name=s.get_unique_name("Expand_broadcast"),
-                        )
-                    )
-                    s.add_shape_info(exsym, (None,), var.aval.dtype)
-                    xs_syms[i] = exsym
-
-        # Pass 2: scalar initializers that are still rank-0
-        if trip_shape_sym is None:
-            trip_shape_sym = s.builder.get_unique_name(f"trip_len_scan{scan_id}")
-            safe_len = int(length) if isinstance(length, (int, _np.integer)) else 1
-            s.builder.add_initializer(
-                trip_shape_sym, [safe_len], data_type=INT64, dims=[1]
-            )
-            s.add_shape_info(trip_shape_sym, (1,), i64)
-
-        # Expand any rank-0 scanned inputs. Choose fallback dtype consistently
-        # with the jaxpr aval dtype (so body inputs & node inputs match).
-        for i in range(num_scan):
-            sym = xs_syms[i]
-            if s.builder.get_rank(sym) == 0:
-                dtype = jaxpr.invars[num_consts + num_carry + i].aval.dtype
-                exsym = s.builder.get_unique_name(f"{sym}_exp")
-                s.add_node(
-                    helper.make_node(
-                        "Expand",
-                        inputs=[sym, trip_shape_sym],
-                        outputs=[exsym],
-                        name=s.get_unique_name("Expand_broadcast_init"),
-                    )
-                )
-                s.add_shape_info(exsym, (None,), dtype)
-                xs_syms[i] = exsym
-
-        # NOTE: Do NOT pass model inputs directly into Scan. ORT will merge their concrete
-        # shapes (from graph.input) with Scan’s inferred trip axis and can produce conflicts.
-        # Instead, feed dynamic-shape proxies via Identity.
-        xs_syms_dyn: list[str] = []
-        for i, sym in enumerate(xs_syms):
-            proxy = s.builder.get_unique_name(f"{sym}_dyn")
-            s.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[sym],
-                    outputs=[proxy],
-                    name=s.get_unique_name("ScanXSProxy"),
-                )
-            )
-            rank = s.builder.get_rank(sym)
-            if rank is None:
-                rank = len(node_inputs[num_consts + num_carry + i].aval.shape)
-            dtype = s.builder.get_dtype(sym) or getattr(
-                node_inputs[num_consts + num_carry + i].aval,
-                "dtype",
-                jaxpr.invars[num_consts + num_carry + i].aval.dtype,
-            )
-            s.add_shape_info(proxy, (None,) * rank, dtype)
-            xs_syms_dyn.append(proxy)
-
-        # Align scanned input dtypes to body aval dtypes as well (mirrors state alignment).
-        xs_syms_aligned: list[str] = []
-        for i, sym in enumerate(xs_syms_dyn):
-            aval_dt = jaxpr.invars[num_consts + num_carry + i].aval.dtype
-            sym_dt = s.builder.get_dtype(sym)
-            if aval_dt is not None and (
-                sym_dt is None or _np.dtype(aval_dt) != _np.dtype(sym_dt)
-            ):
-                cast_out = s.builder.get_unique_name(
-                    f"{sym}_cast_{_np.dtype(aval_dt).name}"
-                )
-                to_enum = _NP2ONNX.get(_np.dtype(aval_dt), TensorProto.FLOAT)
-                s.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[sym],
-                        outputs=[cast_out],
-                        name=s.get_unique_name("CastScanXSIn"),
-                        to=to_enum,
-                    )
-                )
-                rank = s.builder.get_rank(sym)
-                if rank is None:
-                    rank = len(
-                        getattr(
-                            jaxpr.invars[num_consts + num_carry + i].aval, "shape", ()
-                        )
-                    )
-                s.add_shape_info(cast_out, (None,) * rank, aval_dt)
-                xs_syms_aligned.append(cast_out)
-            else:
-                xs_syms_aligned.append(sym)
-
-        onnx_inputs = state_syms + xs_syms_aligned
-
-        # ------------------------------------------------------------------
-        # Build top-level Scan node
-        # ------------------------------------------------------------------
-        jaxpr = closed_jaxpr.jaxpr
-        num_y = len(jaxpr.outvars) - num_carry
-        num_carry + num_consts
-
-        # 1) Allocate temporary outputs in ONNX order
-        scan_tmp_outs: list[str] = []
-
-        # a) consts-as-state (no direct mapping to final outputs)
-        for ci in range(num_consts):
-            tmp = s.builder.get_unique_name(f"scan_const_raw_{ci}")
-            scan_tmp_outs.append(tmp)
-            # Const state out dtype must match the const state *input*
-            const_in_sym = state_syms[ci]
-            const_dt = s.builder.get_dtype(const_in_sym) or jaxpr.invars[ci].aval.dtype
-            s.add_shape_info(tmp, (None,) * len(jaxpr.invars[ci].aval.shape), const_dt)
-
-        # b) real carry outputs
-        for j in range(num_carry):
-            tmp = s.builder.get_unique_name(f"scan_carry_raw_{j}")
-            scan_tmp_outs.append(tmp)
-            aval_src = jaxpr.outvars[j].aval
-            # Carry state out dtype must match carry state *input*
-            carry_in_sym = state_syms[num_consts + j]
-            carry_dt = s.builder.get_dtype(carry_in_sym) or aval_src.dtype
-            s.add_shape_info(tmp, (None,) * len(aval_src.shape), carry_dt)
-
-        # c) stacked y-outputs (make dims fully dynamic; keep only rank)
-        for k in range(num_y):
-            tmp = s.builder.get_unique_name(f"scan_y_raw_{k}")
-            scan_tmp_outs.append(tmp)
-            y_aval_body = jaxpr.outvars[num_carry + k].aval
-            s.add_shape_info(
-                tmp,
-                (None,) * (len(y_aval_body.shape) + 1),
-                y_aval_body.dtype,
-            )
-
-        # Debug-only invariant: the Scan node outs must match body outs
-        if os.getenv("JAX2ONNX_DEBUG_SCAN_ASSERTS", "").lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-        ):
-            assert len(scan_tmp_outs) == len(body_graph.output), (
-                f"Scan node/output arity mismatch: node outs={len(scan_tmp_outs)}, "
-                f"body outs={len(body_graph.output)}"
-            )
-
-        # Build Scan node attributes
-        attrs: dict[str, Any] = {
-            "body": body_graph,
-            "num_scan_inputs": num_scan,
-        }
-        if num_scan:
-            attrs["scan_input_axes"] = [0] * num_scan
-        # Number of scan (stacked) outputs N = total outs - state outs (consts + carries)
-        N = len(scan_tmp_outs) - (num_carry + num_consts)
-        if N:
-            attrs["scan_output_axes"] = [0] * N
-
-        scan_node = helper.make_node(
-            "Scan",
-            inputs=onnx_inputs,
-            outputs=scan_tmp_outs,
-            name=s.get_unique_name("scan"),
-            **attrs,
+        loop_results = builder_loop(
+            ctx,
+            *node_inputs,
+            body=body_graph,
+            output_names=output_names,
         )
-        s.add_node(scan_node)
 
-        carry_idx = 0
-        y_idx = 0
-        for out_var in node_outputs:
-            if not isinstance(out_var, Var):
-                continue  # dropped output
-            if _is_y_output(out_var):
-                src_name = scan_tmp_outs[num_consts + num_carry + y_idx]
-                y_idx += 1
+        if not isinstance(loop_results, tuple):
+            loop_results = (loop_results,)
+
+        for template, produced in zip(node_outputs, loop_results):
+            tmpl_type = getattr(template, "type", None)
+            if tmpl_type is not None:
+                produced.type = tmpl_type
+            tmpl_shape = getattr(template, "shape", None)
+            if tmpl_shape is not None:
+                produced.shape = tmpl_shape
+            _ensure_value_info(ctx, produced)
+
+        const_count = len(const_body_outs)
+        carry_count = num_carry
+        seq_count = 0
+
+        carry_results = loop_results[const_count : const_count + carry_count]
+        value_results = loop_results[const_count + carry_count + seq_count :]
+
+        for idx, res in enumerate(carry_results):
+            if idx >= len(eqn.outvars):
+                break
+            out_var = eqn.outvars[idx]
+            if _is_dropvar(out_var):
+                continue
+            ctx.bind_value_for_var(out_var, res)
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            if rel_idx >= len(value_results):
+                break
+            ctx.bind_value_for_var(out_var, value_results[rel_idx])
+
+        return list(loop_results)
+
+    def _lower_with_scan_inputs(
+        self,
+        ctx: IRContext,  # type: ignore[name-defined]
+        eqn,
+        closed_jaxpr,
+        num_carry: int,
+        num_consts: int,
+        num_scan: int,
+        length,
+    ) -> list[ir.Value]:
+        jaxpr = closed_jaxpr.jaxpr
+
+        seq_invars = list(
+            eqn.invars[num_consts + num_carry : num_consts + num_carry + num_scan]
+        )
+        if not seq_invars:
+            raise ValueError("Expected at least one scanned input when num_scan > 0")
+
+        if length is None:
+            first_seq_aval = getattr(seq_invars[0], "aval", None)
+            if first_seq_aval is None or not getattr(first_seq_aval, "shape", ()):  # type: ignore[arg-type]
+                trip_count_int = None
             else:
-                src_name = scan_tmp_outs[num_consts + carry_idx]
-                carry_idx += 1
-            final_name = s.get_name(out_var)
-            s.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[src_name],
-                    outputs=[final_name],
-                    name=s.get_unique_name("ScanOut"),
+                dim0 = first_seq_aval.shape[0]
+                trip_count_int = (
+                    int(dim0) if isinstance(dim0, (int, np.integer)) else None
+                )
+        elif isinstance(length, (int, np.integer)):
+            trip_count_int = int(length)
+        else:
+            trip_count_int = None
+
+        for seq_var in seq_invars:
+            aval = getattr(seq_var, "aval", None)
+            if aval is None or not getattr(aval, "shape", ()):  # type: ignore[arg-type]
+                continue
+            dim0 = aval.shape[0]
+            if trip_count_int is not None and isinstance(dim0, (int, np.integer)):
+                if int(dim0) != trip_count_int:
+                    raise ValueError(
+                        "All scanned inputs must share the same leading dimension"
+                    )
+
+        loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        jaxpr = closed_jaxpr.jaxpr
+        dtypes = [
+            np.dtype(getattr(var.aval, "dtype"))
+            for var in list(jaxpr.invars) + list(jaxpr.outvars)
+            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
+        ]
+        if (
+            dtypes
+            and any(dt == np.float32 for dt in dtypes)
+            and not any(dt == np.float64 for dt in dtypes)
+        ):
+            setattr(loop_ctx, "_keep_function_float32", True)
+
+        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
+            np_c = np.asarray(cval)
+            aval = getattr(cv, "aval", None)
+            if aval is not None:
+                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
+            loop_ctx.bind_const_for_var(cv, np_c)
+
+        iter_in, cond_in = create_loop_header_inputs(
+            loop_ctx,
+            prefix="scan_loop",
+        )
+
+        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
+        allow_double_consts = (
+            ctx.builder.enable_double_precision and not function_keep_float32
+        )
+
+        state_inputs: list[ir.Value] = []
+        for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
+            state_input = loop_ctx.add_input_for_invar(var, idx + 2)
+            if idx < num_consts:
+                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
+                if casted is not state_input:
+                    loop_ctx.bind_value_for_var(var, casted)
+                    state_input = casted
+            _set_value_dtype_from_var(loop_ctx, state_input, var)
+            relax_value_to_rank_only(state_input)
+            state_inputs.append(state_input)
+        if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+            print(
+                "[scan_with_inputs_state]",
+                [
+                    (
+                        idx,
+                        getattr(getattr(var, "aval", None), "dtype", None),
+                        getattr(
+                            getattr(state_inputs[idx], "type", None), "dtype", None
+                        ),
+                    )
+                    for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry])
+                ],
+                flush=True,
+            )
+
+        sequence_states: list[ir.Value] = []
+        for seq_eqn_var in seq_invars:
+            outer_seq_val = ctx.get_value_for_var(seq_eqn_var)
+            seq_state = clone_input_for_subgraph(
+                loop_ctx,
+                outer_seq_val,
+                name_hint="scan_seq_state",
+            )
+            sequence_states.append(seq_state)
+
+        scan_input_vars = jaxpr.invars[
+            num_consts + num_carry : num_consts + num_carry + num_scan
+        ]
+        keep_float32 = function_keep_float32
+        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
+        for seq_state, per_step_var in zip(sequence_states, scan_input_vars):
+            per_step_val = loop_ctx.get_value_for_var(
+                per_step_var, name_hint=loop_ctx.fresh_name("scan_elem")
+            )
+            per_step_val = loop_ctx.builder.Gather(
+                seq_state,
+                iter_in,
+                axis=0,
+                _outputs=[loop_ctx.fresh_name("GatherScanInput")],
+            )
+            loop_ctx.bind_value_for_var(per_step_var, per_step_val)
+            aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
+            if aval_dtype is not None:
+                try:
+                    np_dtype = np.dtype(aval_dtype)
+                except TypeError:
+                    np_dtype = None
+                if np_dtype is not None and np.issubdtype(np_dtype, np.floating):
+                    target_enum = ir.DataType.DOUBLE
+                    if keep_float32:
+                        target_enum = ir.DataType.FLOAT
+                    per_step_val.type = ir.TensorType(target_enum)
+                    _ensure_value_info(loop_ctx, per_step_val)
+                    loop_ctx.bind_value_for_var(per_step_var, per_step_val)
+
+        lower_jaxpr_eqns(loop_ctx, jaxpr)
+
+        body_outputs: list[ir.Value] = []
+
+        cond_out = builder_identity(
+            loop_ctx,
+            cond_in,
+            name_hint="loop_cond_out",
+        )
+        cond_out.type = ir.TensorType(ir.DataType.BOOL)
+        body_outputs.append(cond_out)
+
+        for i in range(num_consts):
+            inp_val = state_inputs[i]
+            out_val = builder_identity(
+                loop_ctx,
+                inp_val,
+                name_hint="loop_const_out",
+            )
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        for out_var in jaxpr.outvars[:num_carry]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_with_inputs_out_carry]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        carry_outputs_start = 1 + num_consts
+        for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
+            value = body_outputs[carry_outputs_start + rel_idx]
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            if target_enum is None:
+                continue
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[carry_outputs_start + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+
+        for seq_state in sequence_states:
+            seq_passthrough = builder_identity(
+                loop_ctx,
+                seq_state,
+                name_hint="loop_seq_out",
+            )
+            body_outputs.append(seq_passthrough)
+
+        for out_var in jaxpr.outvars[num_carry:]:
+            out_val = loop_ctx.get_value_for_var(out_var)
+            if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                print(
+                    "[scan_with_inputs_out_seq]",
+                    getattr(getattr(out_var, "aval", None), "dtype", None),
+                    flush=True,
+                )
+            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
+            relax_value_to_rank_only(out_val)
+            body_outputs.append(out_val)
+
+        outputs_start_with_seq = 1 + num_consts + num_carry + len(sequence_states)
+        for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
+            value = body_outputs[outputs_start_with_seq + rel_idx]
+            _set_value_dtype_from_var(loop_ctx, value, out_var)
+            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
+            if casted is not value:
+                body_outputs[outputs_start_with_seq + rel_idx] = casted
+                loop_ctx.bind_value_for_var(out_var, casted)
+                if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
+                    print(
+                        "[scan_with_inputs_body_output]",
+                        getattr(getattr(out_var, "aval", None), "dtype", None),
+                        getattr(getattr(casted, "type", None), "dtype", None),
+                        flush=True,
+                    )
+
+        loop_ctx.builder.outputs = body_outputs
+
+        body_graph = ir.Graph(
+            inputs=list(loop_ctx.builder.inputs),
+            outputs=list(loop_ctx.builder.outputs),
+            nodes=list(loop_ctx.builder.nodes),
+            initializers=list(loop_ctx.builder.initializers),
+            name=ctx.fresh_name("scan_loop_body"),
+            opset_imports={"": getattr(ctx.builder, "opset", 21)},
+        )
+
+        if trip_count_int is not None:
+            trip_count_val = _scalar_i64(ctx, trip_count_int, "scan_trip_count")
+        else:
+            first_seq_val = ctx.get_value_for_var(seq_invars[0])
+            shape_val = _shape_of(ctx, first_seq_val, "scan_seq_shape")
+            trip_count_val = _gather_int_scalar(ctx, shape_val, 0, "scan_trip_dynamic")
+
+        cond_init = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("scan_cond_init"),
+            array=np.asarray(True, dtype=np.bool_),
+        )
+
+        node_inputs = [trip_count_val, cond_init]
+        inbound_vals = []
+        limit = num_consts + num_carry + num_scan
+        for idx, v in enumerate(eqn.invars[:limit]):
+            top_val = ctx.get_value_for_var(v)
+            if idx < len(state_inputs):
+                state_enum = getattr(
+                    getattr(state_inputs[idx], "type", None), "dtype", None
+                )
+                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                if expected_enum is None:
+                    expected_enum = state_enum
+                else:
+                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
+                    if aval_dtype is not None:
+                        try:
+                            np_dtype = np.dtype(aval_dtype)
+                        except TypeError:
+                            np_dtype = None
+                        else:
+                            if (
+                                state_enum is not None
+                                and expected_enum != state_enum
+                                and allow_double_consts
+                                and np_dtype is not None
+                                and np.issubdtype(np_dtype, np.floating)
+                            ):
+                                expected_enum = state_enum
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    top_val = builder_cast(
+                        ctx,
+                        top_val,
+                        expected_enum,
+                        name_hint="scan_state_cast",
+                    )
+                    _ensure_value_info(ctx, top_val)
+            inbound_vals.append(top_val)
+        node_inputs.extend(inbound_vals)
+
+        node_outputs: list[ir.Value] = []
+
+        const_body_outs = body_outputs[1 : 1 + num_consts]
+        for body_out in const_body_outs:
+            node_outputs.append(
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_const_unused",
                 )
             )
-            # Replace any stale VI and set rank/dtype from the requested var
-            s.builder.value_info[:] = [
-                vi for vi in s.builder.value_info if vi.name != final_name
-            ]
-            out_rank = len(getattr(out_var.aval, "shape", ()))
-            out_dt = s.builder.get_dtype(src_name) or getattr(
-                out_var.aval, "dtype", _np.float32
-            )
-            # Prefer the aval dtype for the outward contract; VI dtype is only a fallback
-            s.add_shape_info(
-                final_name, (None,) * out_rank, getattr(out_var.aval, "dtype", out_dt)
+
+        carry_body_start = 1 + num_consts
+        for idx in range(num_carry):
+            body_out = body_outputs[carry_body_start + idx]
+            out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
+            if out_var is not None and not _is_dropvar(out_var):
+                top_val = ctx.get_value_for_var(out_var)
+                expected_enum = _dtype_enum_for_var(
+                    out_var, ctx.builder.enable_double_precision
+                )
+                if expected_enum is None:
+                    expected_enum = getattr(
+                        getattr(body_out, "type", None), "dtype", None
+                    )
+                top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+                if (
+                    expected_enum is not None
+                    and top_dtype is not None
+                    and expected_enum != top_dtype
+                ):
+                    replacement = ir.Value(
+                        name=ctx.fresh_name("loop_out"),
+                        type=ir.TensorType(expected_enum),
+                        shape=body_out.shape,
+                    )
+                    ctx.bind_value_for_var(out_var, replacement)
+                    node_outputs.append(replacement)
+                else:
+                    node_outputs.append(top_val)
+            else:
+                node_outputs.append(
+                    clone_value_for_subgraph(
+                        ctx,
+                        body_out,
+                        name_hint="loop_state_unused",
+                    )
+                )
+
+        seq_body_start = carry_body_start + num_carry
+        for seq_idx in range(num_scan):
+            body_out = body_outputs[seq_body_start + seq_idx]
+            node_outputs.append(
+                clone_value_for_subgraph(
+                    ctx,
+                    body_out,
+                    name_hint="loop_seq_unused",
+                )
             )
 
-        return
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            top_val = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("loop_out")
+            )
+            body_out = body_outputs[seq_body_start + num_scan + rel_idx]
+            expected_enum = _dtype_enum_for_var(
+                out_var, ctx.builder.enable_double_precision
+            )
+            if expected_enum is None:
+                expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
+            top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
+            if (
+                expected_enum is not None
+                and top_dtype is not None
+                and expected_enum != top_dtype
+            ):
+                replacement = ir.Value(
+                    name=ctx.fresh_name("loop_out"),
+                    type=ir.TensorType(expected_enum),
+                    shape=body_out.shape,
+                )
+                ctx.bind_value_for_var(out_var, replacement)
+                node_outputs.append(replacement)
+            else:
+                node_outputs.append(top_val)
+
+        output_names = [
+            getattr(val, "name", None) or ctx.fresh_name("scan_out")
+            for val in node_outputs
+        ]
+
+        loop_results = builder_loop(
+            ctx,
+            *node_inputs,
+            body=body_graph,
+            output_names=output_names,
+        )
+
+        if not isinstance(loop_results, tuple):
+            loop_results = (loop_results,)
+
+        for template, produced in zip(node_outputs, loop_results):
+            tmpl_type = getattr(template, "type", None)
+            if tmpl_type is not None:
+                produced.type = tmpl_type
+            tmpl_shape = getattr(template, "shape", None)
+            if tmpl_shape is not None:
+                produced.shape = tmpl_shape
+            _ensure_value_info(ctx, produced)
+
+        const_count = len(const_body_outs)
+        carry_count = num_carry
+        seq_count = num_scan
+
+        carry_results = loop_results[const_count : const_count + carry_count]
+        value_results = loop_results[const_count + carry_count + seq_count :]
+
+        for idx, res in enumerate(carry_results):
+            if idx >= len(eqn.outvars):
+                break
+            out_var = eqn.outvars[idx]
+            if _is_dropvar(out_var):
+                continue
+            ctx.bind_value_for_var(out_var, res)
+
+        for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
+            if rel_idx >= len(value_results):
+                break
+            ctx.bind_value_for_var(out_var, value_results[rel_idx])
+
+        return list(loop_results)
+
+
+_DYNAMIC_DIM_SENTINEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"

@@ -1,20 +1,27 @@
-# file: jax2onnx/examples/autoencoder.py
+# jax2onnx/plugins/examples/nnx/autoencoder.py
+
+from __future__ import annotations
+
 import jax
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
-def Encoder(rngs):
+def Encoder(rngs: nnx.Rngs) -> nnx.Linear:
     return nnx.Linear(2, 10, rngs=rngs)
 
 
-def Decoder(rngs):
+def Decoder(rngs: nnx.Rngs) -> nnx.Linear:
     return nnx.Linear(10, 2, rngs=rngs)
 
 
 class AutoEncoder(nnx.Module):
-    def __init__(self, rngs):
+    def __init__(self, *, rngs: nnx.Rngs):
         self.encoder = Encoder(rngs)
         self.decoder = Decoder(rngs)
 
@@ -27,7 +34,7 @@ class AutoEncoder(nnx.Module):
 
 register_example(
     component="AutoEncoder",
-    description="A simple autoencoder example.",
+    description="A simple autoencoder example (converter pipeline).",
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.2.0",
     context="examples.nnx",
@@ -35,8 +42,9 @@ register_example(
     testcases=[
         {
             "testcase": "simple_autoencoder",
-            "callable": AutoEncoder(rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(AutoEncoder, rngs=with_rng_seed(0)),
             "input_shapes": [(1, 2)],
+            "expected_output_shapes": [(1, 2)],
         }
     ],
 )

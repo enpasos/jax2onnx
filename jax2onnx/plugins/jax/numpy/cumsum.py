@@ -1,204 +1,269 @@
-# file: jax2onnx/plugins/jax/numpy/cumsum.py
+# jax2onnx/plugins/jax/numpy/cumsum.py
+
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Optional
 
-import numpy as np
+import jax
 import jax.numpy as jnp
-from jax import core
-from jax.extend.core import Primitive
-from onnx import helper as onnx_helper
+import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.converter.patched_callable_wrapper import PatchedCallableWrapper
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins._patching import AssignSpec
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-logger = logging.getLogger("jax2onnx.plugins.jax.numpy.cumsum")
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-jnp.cumsum_p = Primitive("jnp.cumsum")
-jnp.cumsum_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# ---------- Small helpers for the tests in the register block ----------
-def _mk_i32_input(shape=(2, 8, 4, 1)):
-    size = int(np.prod(shape))
-    return np.arange(size, dtype=np.int32).reshape(shape)
-
-
-def _cumsum_axis2_i32(x):
-    return jnp.cumsum(x, axis=2)
-
-
-def _cumsum_axis2_reverse_i32_direct(x):
-    # Let the plugin see reverse=True during tracing.
-    return jnp.cumsum(x, axis=2, reverse=True)
+_CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
 
 
 @register_primitive(
-    jaxpr_primitive="jnp.cumsum",
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cumsum.html#jax.numpy.cumsum",
+    jaxpr_primitive=_CUMSUM_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cumsum.html",
     onnx=[
         {
             "component": "CumSum",
             "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
         }
     ],
+    since="v0.8.0",
     context="primitives.jnp",
     component="cumsum",
-    since="v0.7.4",
     testcases=[
         {
-            "testcase": "cumsum_axis2_i32",
-            "callable": _cumsum_axis2_i32,
-            "input_values": [_mk_i32_input()],
-            "expected_output_shapes": [(2, 8, 4, 1)],
-            "expected_output_dtypes": [jnp.int32],
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "CumSum" for n in m.graph.node
+            "testcase": "jnp_cumsum_axis1",
+            "callable": lambda x: jnp.cumsum(x, axis=1),
+            "input_shapes": [(2, 3, 4)],
+        },
+        {
+            "testcase": "jnp_cumsum_reverse_dtype",
+            "callable": lambda x: jnp.cumsum(
+                x, axis=-1, reverse=True, dtype=jnp.float64
             ),
+            "input_shapes": [(1, 5)],
+            "enable_double_precision": True,
+        },
+        {
+            "testcase": "cumsum_axis2_i32",
+            "callable": lambda x: jnp.cumsum(x, axis=2),
+            "input_shapes": [(2, 3, 4)],
+            "input_dtypes": [np.int32],
         },
         {
             "testcase": "cumsum_axis2_reverse_i32",
-            "callable": _cumsum_axis2_reverse_i32_direct,  # <-- not flip; pass reverse=True
-            "input_values": [_mk_i32_input()],
-            "expected_output_shapes": [(2, 8, 4, 1)],
-            "expected_output_dtypes": [jnp.int32],
-            "skip_numeric_validation": True,  # <-- important
-            "post_check_onnx_graph": lambda m: any(
-                n.op_type == "CumSum"
-                and any(a.name == "reverse" and a.i == 1 for a in n.attribute)
-                for n in m.graph.node
-            ),
+            "callable": lambda x: jnp.cumsum(x, axis=2, reverse=True),
+            "input_shapes": [(2, 3, 4)],
+            "input_dtypes": [np.int32],
         },
     ],
 )
-class CumSumPlugin(PrimitiveLeafPlugin):
-    """
-    Symbolic-shape aware converter for `jax.numpy.cumsum`.
+class JnpCumSumPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _CUMSUM_PRIM
+    _FUNC_NAME: ClassVar[str] = "cumsum"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    We intercept Python calls to jnp.cumsum and bind our custom primitive
-    `jnp.cumsum_p` via PatchedCallableWrapper, just like the concatenate plugin.
-    """
-
-    # Keep a pointer to the original jnp.cumsum in case you want eval_shape later.
-    _ORIGINAL_CUMSUM = None
-
-    # -------------------------------------------------------------------------
-    # abstract_eval: output has same shape; dtype is input dtype unless
-    # a `dtype` kwarg is provided (then we use that).
-    # -------------------------------------------------------------------------
     @staticmethod
     def abstract_eval(
-        x_av: core.ShapedArray,
-        *,
-        axis: int | None = None,  # jnp.cumsum allows axis=None (flatten)
-        reverse: bool = False,
-        dtype: Any | None = None,
-        **kwargs: Any,
-    ) -> core.ShapedArray:
-        # Shape is unchanged (even if axis=None, JAX flattens then reshapes back).
-        out_shape = x_av.shape
-        out_dtype = dtype if dtype is not None else x_av.dtype
-        return core.ShapedArray(out_shape, out_dtype)
+        x, *, axis: int | None = None, reverse: bool = False, dtype=None, **_
+    ):
+        out_shape = x.shape
+        out_dtype = np.dtype(dtype) if dtype is not None else x.dtype
+        return jax.core.ShapedArray(out_shape, out_dtype)
 
-    # -------------------------------------------------------------------------
-    # to_onnx: ONNX CumSum(x, axis) with attributes exclusive=0, reverse={0,1}.
-    # If dtype override is provided and differs from input, we insert a Cast
-    # before CumSum so the ONNX output dtype matches the requested dtype.
-    # -------------------------------------------------------------------------
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
-        params: dict[str, Any],
-    ) -> None:
-        x_var = node_inputs[0]
-        out_var = node_outputs[0]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        (operand_var,) = eqn.invars
+        (out_var,) = eqn.outvars
 
-        x_name = s.get_name(x_var)
-        out_name = s.get_name(out_var)
-
-        axis = params.get("axis", 0)
+        params = getattr(eqn, "params", {})
+        axis_param = params.get("axis", 0)
         reverse = bool(params.get("reverse", False))
         req_dtype = params.get("dtype", None)
+        exclusive = bool(params.get("exclusive", False))
 
-        # Normalize axis: jnp.cumsum(axis=None) means flatten+cum+reshape;
-        # our abstract_eval keeps shape, so treat None as last axis for ONNX,
-        # which is a reasonable default for masked-attention use. If you need
-        # exact NumPy semantics for axis=None, we’d add explicit Flatten/Reshape.
-        if axis is None:
-            axis = -1
+        operand_val = ctx.get_value_for_var(
+            operand_var, name_hint=ctx.fresh_name("jnp_cumsum_in")
+        )
+        out_val = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("jnp_cumsum_out")
+        )
 
-        # 🔧 Normalize negative axis to non-negative for ONNX
-        rank = node_inputs[0].aval.ndim
-        if axis < 0:
-            axis = axis % rank
+        operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
+        rank = len(operand_shape)
 
-        # If a dtype override is provided, cast input to that dtype.
-        x_for_cumsum = x_name
-        if req_dtype is not None:
-            onnx_dtype = s.builder._numpy_dtype_to_onnx(jnp.dtype(req_dtype))
-            cast_in = s.get_unique_name("Cast_CumSumInput")
-            s.add_node(
-                onnx_helper.make_node(
-                    "Cast",
-                    inputs=[x_name],
-                    outputs=[cast_in],
-                    to=onnx_dtype,
-                    name=cast_in,
-                )
+        if axis_param is None:
+            axis = rank - 1 if rank else 0
+        else:
+            axis = int(axis_param)
+            if axis < 0 and rank:
+                axis = axis % rank
+
+        input_for_cumsum = operand_val
+        target_dtype = (
+            np.dtype(req_dtype)
+            if req_dtype is not None
+            else np.dtype(getattr(operand_var.aval, "dtype", np.float32))
+        )
+        operand_dtype = np.dtype(getattr(operand_var.aval, "dtype", target_dtype))
+
+        if operand_dtype != target_dtype:
+            target_enum = _dtype_to_ir(
+                target_dtype, ctx.builder.enable_double_precision
             )
-            x_for_cumsum = cast_in
+            cast_val = ctx.builder.Cast(
+                operand_val,
+                _outputs=[ctx.fresh_name("jnp_cumsum_cast")],
+                to=int(target_enum.value),
+            )
+            cast_val.type = ir.TensorType(target_enum)
+            _stamp_type_and_shape(cast_val, operand_shape)
+            _ensure_value_info(ctx, cast_val)
+            input_for_cumsum = cast_val
+        else:
+            target_enum = _dtype_to_ir(
+                operand_dtype, ctx.builder.enable_double_precision
+            )
 
-        # axis input: scalar INT64 initializer
-        axis_name = s.builder.get_constant_name(np.asarray(int(axis), dtype=np.int64))
+        axis_val = _const_i64(ctx, np.asarray(axis, dtype=np.int64), "cumsum_axis")
+        _stamp_type_and_shape(axis_val, ())
+        _ensure_value_info(ctx, axis_val)
 
-        # Create CumSum node
-        cumsum_node = onnx_helper.make_node(
-            "CumSum",
-            inputs=[x_for_cumsum, axis_name],
-            outputs=[out_name],
-            exclusive=0,  # jnp.cumsum is inclusive
-            reverse=1 if reverse else 0,
-            name=s.builder.get_unique_name("CumSum"),
+        desired_name = getattr(out_val, "name", None) or ctx.fresh_name("CumSum")
+        producer = getattr(out_val, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("CumSum")
+
+        result = ctx.builder.CumSum(
+            input_for_cumsum,
+            axis_val,
+            _outputs=[desired_name],
+            exclusive=int(bool(exclusive)),
+            reverse=int(bool(reverse)),
         )
-        s.add_node(cumsum_node)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        result.type = ir.TensorType(target_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
-        # Register shape/dtype for output
-        aval_out = out_var.aval
-        s.builder.register_value_info_metadata(
-            out_name,
-            tuple(
-                int(d) if isinstance(d, (int, np.integer)) else d
-                for d in aval_out.shape
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
             ),
-            s.builder._numpy_dtype_to_onnx(aval_out.dtype),
+        ]
+
+
+@JnpCumSumPlugin._PRIM.def_impl
+def _cumsum_impl(
+    x,
+    *rest,
+    axis=None,
+    dtype=None,
+    reverse=False,
+    precision=None,
+    exclusive=False,
+    out=None,
+    method=None,
+    **kwargs,
+):
+    if rest:
+        raise TypeError("jnp.cumsum expects a single positional argument")
+    if out is not None:
+        raise NotImplementedError("jnp.cumsum with 'out' is not supported")
+    if method is not None:
+        raise NotImplementedError("jnp.cumsum 'method' argument is not supported")
+    if kwargs:
+        raise TypeError(
+            f"Unsupported keyword arguments for jnp.cumsum: {tuple(kwargs.keys())}"
         )
 
-    # -------------------------------------------------------------------------
-    # patch_info: capture original jnp.cumsum and inject a wrapper that binds
-    # our custom primitive, mirroring the concatenate pattern.
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def patch_info() -> dict[str, Any]:
-        def _creator(orig_fn):
-            logger.info("Storing original jnp.cumsum reference")
-            CumSumPlugin._ORIGINAL_CUMSUM = orig_fn
-            # Bind all kwargs as static params so they appear in eqn.params:
-            # axis, reverse, dtype (others ignored if added by JAX later)
-            return PatchedCallableWrapper(orig_fn, jnp.cumsum_p)
+    arr = jnp.asarray(x)
+    target_dtype = np.dtype(dtype) if dtype is not None else arr.dtype
+    if arr.dtype != target_dtype:
+        arr = arr.astype(target_dtype)
 
-        return {
-            "patch_targets": [jnp],
-            "patch_function": _creator,
-            "target_attribute": "cumsum",
-        }
+    cumsum_kwargs = {}
+    if precision is not None:
+        cumsum_kwargs["precision"] = precision
+    if exclusive:
+        cumsum_kwargs["exclusive"] = True
+
+    rank = arr.ndim
+    if axis is None:
+        orig_shape = arr.shape
+        flattened = arr.reshape((-1,)) if arr.size else arr.reshape((0,))
+        if flattened.ndim == 0:
+            flattened = flattened.reshape((1,))
+        result = jax.lax.cumsum(flattened, axis=0, reverse=reverse, **cumsum_kwargs)
+        return result.reshape(orig_shape)
+
+    if rank == 0:
+        arr_1d = arr.reshape((1,))
+        result = jax.lax.cumsum(arr_1d, axis=0, reverse=reverse, **cumsum_kwargs)
+        return result.reshape(())
+
+    axis_index = int(axis)
+    if axis_index < 0:
+        axis_index = axis_index % rank
+
+    result = jax.lax.cumsum(arr, axis=axis_index, reverse=reverse, **cumsum_kwargs)
+    return result
 
 
-# Register abstract eval with the primitive
-jnp.cumsum_p.def_abstract_eval(CumSumPlugin.abstract_eval)
+_ORIGINAL_JNP_CUMSUM: Final[Optional[Callable[..., Any]]] = getattr(jnp, "cumsum", None)
+
+
+def _runtime_cumsum(
+    x,
+    *rest,
+    axis=None,
+    dtype=None,
+    reverse=False,
+    precision=None,
+    exclusive=False,
+    out=None,
+    method=None,
+    **kwargs,
+):
+    if rest:
+        raise TypeError("jnp.cumsum expects a single positional argument")
+    if out is not None:
+        raise NotImplementedError("jnp.cumsum with 'out' is not supported")
+    if method is not None:
+        raise NotImplementedError("jnp.cumsum 'method' argument is not supported")
+    if kwargs:
+        raise TypeError(
+            f"Unsupported keyword arguments for jnp.cumsum: {tuple(kwargs.keys())}"
+        )
+
+    if (
+        not reverse
+        and not exclusive
+        and precision is None
+        and _ORIGINAL_JNP_CUMSUM is not None
+    ):
+        return _ORIGINAL_JNP_CUMSUM(x, axis=axis, dtype=dtype, out=out)
+
+    return JnpCumSumPlugin._PRIM.bind(
+        x,
+        axis=axis,
+        dtype=dtype,
+        reverse=reverse,
+        precision=precision,
+        exclusive=exclusive,
+    )
+
+
+if getattr(jnp, "cumsum", None) is not _runtime_cumsum:
+    setattr(jnp, "cumsum", _runtime_cumsum)
+    setattr(jnp, "cumsum_p", JnpCumSumPlugin._PRIM)
+
+
+JnpCumSumPlugin.ensure_abstract_eval_bound()

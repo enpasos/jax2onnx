@@ -1,9 +1,15 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_006.py
+# jax2onnx/plugins/examples/onnx_functions/onnx_functions_006.py
 
+from __future__ import annotations
 
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 # class MLPBlock(nnx.Module):
 #     """MLP block for Transformer layers."""
@@ -28,8 +34,7 @@ from jax2onnx.plugin_system import onnx_function, register_example
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
-        rngs = nnx.Rngs(0)
+    def __init__(self, *, rngs: nnx.Rngs):
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
 
     # self.mlp = MLPBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
@@ -48,7 +53,7 @@ register_example(
     testcases=[
         {
             "testcase": "006_one_function_outer",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock, rngs=with_rng_seed(0)),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,

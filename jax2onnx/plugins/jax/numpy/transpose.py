@@ -1,31 +1,62 @@
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/jax/numpy/transpose.py
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
+
+import jax.numpy as jnp
 from jax import core
-from jax import numpy as jnp
-from jax.extend.core import Primitive
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Define the Transpose primitive
-jnp.transpose_p = Primitive("jnp.transpose")
-jnp.transpose_p.multiple_results = False  # Correct initialization
+
+_TRANSPOSE_PRIM: Final = make_jnp_primitive("jax.numpy.transpose")
+
+
+def _normalize_axes(axes: Sequence[int] | int | None, rank: int) -> tuple[int, ...]:
+    if axes is None:
+        return tuple(reversed(range(rank)))
+    if isinstance(axes, int):
+        canonical = [axes]
+        canonical.extend(i for i in range(rank) if i != axes)
+        axes_seq: Iterable[int] = canonical
+    else:
+        axes_seq = axes
+    norm: list[int] = []
+    seen: set[int] = set()
+    for ax in axes_seq:
+        ax_int = int(ax)
+        if ax_int < 0:
+            ax_int += rank
+        if ax_int < 0 or ax_int >= rank:
+            raise ValueError(f"transpose axis {ax} out of bounds for rank {rank}")
+        if ax_int in seen:
+            raise ValueError("transpose axes must be a permutation")
+        seen.add(ax_int)
+        norm.append(ax_int)
+    if len(norm) != rank:
+        raise ValueError(
+            f"transpose axes length {len(norm)} does not match input rank {rank}"
+        )
+    return tuple(norm)
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.transpose_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.transpose.html",
+    jaxpr_primitive=_TRANSPOSE_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html",
     onnx=[
         {
             "component": "Transpose",
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.9.0",
     context="primitives.jnp",
     component="transpose",
     testcases=[
@@ -35,19 +66,9 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
             "input_shapes": [(2, 3)],
         },
         {
-            "testcase": "transpose_reverse",
-            "callable": lambda a: jnp.transpose(a, axes=(2, 1, 0)),
+            "testcase": "transpose_reverse_default",
+            "callable": lambda a: jnp.transpose(a),
             "input_shapes": [(2, 3, 4)],
-        },
-        {
-            "testcase": "transpose_4d",
-            "callable": lambda a: jnp.transpose(a, axes=(0, 2, 3, 1)),
-            "input_shapes": [("B", 2, 3, 4)],
-        },
-        {
-            "testcase": "transpose_square_matrix",
-            "callable": lambda a: jnp.transpose(a, axes=(1, 0)),
-            "input_shapes": [(5, 5)],
         },
         {
             "testcase": "transpose_high_dim",
@@ -55,105 +76,119 @@ jnp.transpose_p.multiple_results = False  # Correct initialization
             "input_shapes": [(2, 3, 4, 5, 6)],
         },
         {
-            "testcase": "transpose_no_axes",  # Test case for default axes (reversal)
-            "callable": lambda a: jnp.transpose(a),
+            "testcase": "transpose_3d",
+            "callable": lambda a: jnp.transpose(a, axes=(0, 2, 1)),
+            "input_shapes": [(3, 4, 5)],
+        },
+        {
+            "testcase": "transpose_4d",
+            "callable": lambda a: jnp.transpose(a, axes=(0, 2, 3, 1)),
+            "input_shapes": [(2, 3, 4, 5)],
+        },
+        {
+            "testcase": "transpose_no_axes",
+            "callable": lambda a: jnp.transpose(a, axes=None),
+            "input_shapes": [(4, 5, 6)],
+        },
+        {
+            "testcase": "transpose_reverse",
+            "callable": lambda a: jnp.transpose(a, axes=(2, 1, 0)),
             "input_shapes": [(2, 3, 4)],
         },
         {
-            "testcase": "transpose_3d",
-            "callable": lambda a: jnp.transpose(a, axes=(0, 2, 1)),
-            "input_shapes": [("B", 3, 4)],  # Dynamic batch dimension
+            "testcase": "transpose_square_matrix",
+            "callable": lambda a: jnp.transpose(a),
+            "input_shapes": [(5, 5)],
         },
     ],
 )
-class TransposePlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.numpy.transpose to ONNX.
-    """
+class JnpTransposePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _TRANSPOSE_PRIM
+    _FUNC_NAME: ClassVar[str] = "transpose"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _transpose_abstract_eval(x, axes: tuple[int, ...] | None):
-        """Computes the output shape for jnp.transpose, robust to tracers."""
-        x_shape = list(x.shape)
-        if axes is None:
-            axes = tuple(reversed(range(len(x_shape))))
-        if len(axes) != len(x_shape):
-            raise ValueError(
-                f"Axes length {len(axes)} does not match input rank {len(x_shape)}"
-            )
+    def abstract_eval(x, axes=None):
+        rank = len(x.shape)
+        axes_tuple = _normalize_axes(axes, rank)
+        out_shape = tuple(x.shape[i] for i in axes_tuple)
+        return core.ShapedArray(out_shape, x.dtype)
 
-        def safe_dim(dim):
-            # Accept int, str, or use -1 for tracers/unhashable
-            try:
-                hash(dim)
-                return dim
-            except Exception:
-                return -1
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        (arr_var,) = eqn.invars
+        (out_var,) = eqn.outvars
+        params = getattr(eqn, "params", {})
+        axes_param = params.get("axes")
 
-        output_shape = tuple(safe_dim(x_shape[i]) for i in axes)
-        return core.ShapedArray(output_shape, x.dtype)
+        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
+        rank = len(arr_shape)
+        axes_tuple = _normalize_axes(axes_param, rank)
 
-    @staticmethod
-    def abstract_eval(x, axes: tuple[int, ...] | None):
-        return TransposePlugin._transpose_abstract_eval(x, axes)
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles ONNX conversion for jnp.transpose."""
-        axes = params["axes"]
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_name(node_outputs[0])
-        input_shape = node_inputs[0].aval.shape
-
-        # If axes is None, default to reversing the axes.
-        if axes is None:
-            axes = tuple(reversed(range(len(input_shape))))
-        else:
-            axes = tuple(axes)  # Ensure axes is a tuple.
-
-        transpose_node = helper.make_node(
-            "Transpose",
-            inputs=[input_name],
-            outputs=[output_name],
-            perm=list(axes),  # ONNX expects a list
-            name=s.get_unique_name("transpose"),
+        arr_val = ctx.get_value_for_var(
+            arr_var, name_hint=ctx.fresh_name("transpose_in")
         )
-        s.add_node(transpose_node)
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("transpose_out")
+        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for transpose")
 
-        output_shape = tuple(input_shape[i] for i in axes)
-        s.add_shape_info(output_name, output_shape)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
+            "transpose_out"
+        )
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("transpose_out")
 
-    @staticmethod
-    def _transpose(a, axes: Sequence[int] | int | None = None):
-        """Defines the primitive binding for Transpose."""
-        n = len(a.shape)
-        if axes is None:
-            axes = tuple(reversed(range(n)))
-        elif isinstance(axes, int):
-            axes = (axes,) + tuple(i for i in range(n) if i != axes)
-        else:
-            axes = tuple(axes)
-        if len(axes) != n:
-            raise ValueError(f"Axes length {len(axes)} does not match input rank {n}")
-        return jnp.transpose_p.bind(a, axes=axes)
+        result = builder.Transpose(
+            arr_val,
+            _outputs=[desired_name],
+            perm=list(map(int, axes_tuple)),
+        )
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        elif getattr(arr_val, "type", None) is not None:
+            result.type = arr_val.type
+        out_shape = tuple(arr_shape[i] for i in axes_tuple)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
-    @staticmethod
-    def get_monkey_patch():
-        """Provides patching information for Transpose."""
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def patched_transpose(a, axes: Sequence[int] | int | None = None):
-            return TransposePlugin._transpose(a, axes)
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.transpose not found")
+            setattr(cls._PRIM, storage_slot, orig)
 
-        return patched_transpose
+            def _patched(a, axes=None):
+                arr = jnp.asarray(a)
+                axes_tuple = _normalize_axes(axes, arr.ndim)
+                return cls._PRIM.bind(arr, axes=axes_tuple)
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information for Transpose."""
-        return {
-            "patch_targets": [jnp],
-            "patch_function": lambda _: TransposePlugin.get_monkey_patch(),
-            "target_attribute": "transpose",
-        }
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-# Register abstract evaluation function
-jnp.transpose_p.def_abstract_eval(TransposePlugin.abstract_eval)
+@JnpTransposePlugin._PRIM.def_impl
+def _transpose_impl(a, axes=None):
+    orig = get_orig_impl(JnpTransposePlugin._PRIM, JnpTransposePlugin._FUNC_NAME)
+    return orig(a, axes=axes)
+
+
+JnpTransposePlugin._PRIM.def_abstract_eval(JnpTransposePlugin.abstract_eval)

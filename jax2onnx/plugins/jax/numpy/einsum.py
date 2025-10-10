@@ -1,44 +1,44 @@
-# file: jax2onnx/plugins/jax/numpy/einsum.py
+# jax2onnx/plugins/jax/numpy/einsum.py
 
-from typing import (
-    Any,
-    Callable,
-    Sequence,
-    TYPE_CHECKING,
-    Dict,
-    Tuple,
-)
-import importlib
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar, Final
+
+import jax
+import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
+from jax import core
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-from jax import core, numpy as jnp
-from jax.interpreters import batching
-from jax.extend.core import Primitive
-from onnx import helper
-from jax import eval_shape, ShapeDtypeStruct
-
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-jnp.einsum_p = Primitive("einsum")
-jnp.einsum_p.multiple_results = False
+_EINSUM_PRIM: Final = make_jnp_primitive("jax.numpy.einsum")
+
+
+def _einsum_shape(avals, equation: str):
+    specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
+    orig = getattr(_EINSUM_PRIM, "__orig_impl__einsum", jnp.einsum)
+    result = jax.eval_shape(lambda *args: orig(equation, *args), *specs)
+    return result.shape, result.dtype
 
 
 @register_primitive(
-    primitive_obj=jnp.einsum_p,
-    binding_factory=lambda: jnp.einsum,
-    jaxpr_primitive=jnp.einsum_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.einsum.html",
+    jaxpr_primitive=_EINSUM_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.einsum.html",
     onnx=[
         {
             "component": "Einsum",
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.9.0",
     context="primitives.jnp",
     component="einsum",
     testcases=[
@@ -116,220 +116,177 @@ jnp.einsum_p.multiple_results = False
         },
     ],
 )
-class EinsumPlugin(PrimitiveLeafPlugin):
-    _ORIG_CALL: Callable[..., Any] | None = None
+class JnpEinsumPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _EINSUM_PRIM
+    _FUNC_NAME: ClassVar[str] = "einsum"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*avals, equation: str, **_):
-        out_shape = EinsumPlugin._checked_shape(avals, equation)
-        return core.ShapedArray(out_shape, avals[0].dtype)
+    def abstract_eval(
+        *avals,
+        equation: str,
+        precision: Any | None = None,
+        optimize: Any | None = None,
+        preferred_element_type: Any | None = None,
+    ):
+        shape, dtype = _einsum_shape(avals, equation)
+        return core.ShapedArray(shape, dtype)
 
-    @staticmethod
-    def _get_dynamic_output_shape_manual(
-        input_shapes: list[tuple[Any, ...]], equation: str
-    ) -> tuple[Any, ...]:
-        if "->" not in equation:
-            raise NotImplementedError(
-                "Implicit einsum output shape calculation is not supported."
-            )
-
-        input_specs_str, output_spec_str = equation.split("->")
-        input_specs = input_specs_str.split(",")
-
-        if len(input_specs) != len(input_shapes):
-            raise ValueError(
-                f"Einsum specs count ({len(input_specs)}) mismatches inputs count ({len(input_shapes)})."
-            )
-
-        dim_map: Dict[str, Any] = {}
-        batch_shapes = []
-
-        for spec, shape in zip(input_specs, input_shapes):
-            core_spec = spec.replace("...", "")
-
-            if "..." in spec:
-                num_core_dims = len(core_spec)
-                num_batch_dims = len(shape) - num_core_dims
-                if num_batch_dims < 0:
-                    raise ValueError(
-                        f"Ellipsis mismatch in spec '{spec}' for shape {shape}."
-                    )
-                batch_shapes.append(shape[:num_batch_dims])
-                core_shape = shape[num_batch_dims:]
-            else:
-                batch_shapes.append(())
-                core_shape = shape
-
-            if len(core_spec) != len(core_shape):
-                raise ValueError(
-                    f"Core spec '{core_spec}' rank mismatches core shape {core_shape}."
-                )
-
-            for label, size in zip(core_spec, core_shape):
-                if label in dim_map and dim_map[label] != size:
-                    if dim_map[label] == 1:
-                        dim_map[label] = size
-                    elif size != 1:
-                        try:
-                            if dim_map[label] == size:
-                                continue
-                        except Exception:
-                            pass
-                        raise ValueError(
-                            f"Inconsistent size for label '{label}': {dim_map[label]} vs {size}."
-                        )
-                else:
-                    dim_map[label] = size
-
-        broadcasted_batch_shape = ()
-        non_empty_batch_shapes = [bs for bs in batch_shapes if bs]
-        if non_empty_batch_shapes:
-            broadcasted_batch_shape = np.broadcast_shapes(*non_empty_batch_shapes)
-
-        output_core_spec = output_spec_str.replace("...", "")
-        output_core_shape = [dim_map[label] for label in output_core_spec]
-
-        return tuple(broadcasted_batch_shape) + tuple(output_core_shape)
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        # Original equation and its parts
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
         equation = params["equation"]
+
+        input_vals = []
+        for var in eqn.invars:
+            val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("einsum_in"))
+            input_vals.append(val)
+        out_var = eqn.outvars[0]
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("einsum_out")
+        )
+
         lhs, rhs = equation.split("->")
         in_specs = lhs.split(",")
 
-        ellipsis_ranks = []
-        for spec, v in zip(in_specs, node_inputs):
+        var_shapes = [tuple(getattr(var.aval, "shape", ())) for var in eqn.invars]
+
+        ellipsis_ranks: list[int] = []
+        for spec, shape in zip(in_specs, var_shapes):
             core_spec = spec.replace("...", "")
-            if "..." in spec:
-                core_rank = len(core_spec)
-                ellipsis_ranks.append(len(v.aval.shape) - core_rank)
-            else:
-                ellipsis_ranks.append(0)
+            core_rank = len(core_spec)
+            ellipsis_rank = len(shape) - core_rank
+            if ellipsis_rank < 0:
+                raise ValueError(
+                    f"Einsum spec '{spec}' expects rank >= {core_rank} but got shape {shape}"
+                )
+            ellipsis_ranks.append(ellipsis_rank if "..." in spec else 0)
 
         max_ellipsis_rank = max(ellipsis_ranks) if ellipsis_ranks else 0
 
-        # --- NEW: rewrite equation so that any spec we pad also gets '...' ---
-        new_specs = []
+        adjusted_specs: list[str] = []
         for spec, er in zip(in_specs, ellipsis_ranks):
-            if ("..." not in spec) and (er < max_ellipsis_rank):
-                # we're about to pad this operand, so give it an ellipsis
-                new_specs.append("..." + spec)
+            if "..." not in spec and er < max_ellipsis_rank:
+                adjusted_specs.append("..." + spec)
             else:
-                new_specs.append(spec)
-        new_equation = ",".join(new_specs) + "->" + rhs
+                adjusted_specs.append(spec)
 
-        input_names = []
-
-        for spec, v, er in zip(in_specs, node_inputs, ellipsis_ranks):
-            base_name = s.get_name(v)
+        adjusted_inputs: list[ir.Value] = []
+        for spec, val, shape, er in zip(
+            in_specs, input_vals, var_shapes, ellipsis_ranks
+        ):
             if er < max_ellipsis_rank:
                 pad = max_ellipsis_rank - er
-                # compute the statically-known padded shape
-                new_shape = (1,) * pad + v.aval.shape
-                # make a constant tensor [0,1,2,...] for the Unsqueeze‐axes input
-                axes_const = s.get_constant_name(np.arange(pad, dtype=np.int64))
-                padded = s.get_unique_name(base_name + "_pad")
-                s.add_node(
-                    helper.make_node(
-                        "Unsqueeze",
-                        inputs=[base_name, axes_const],
-                        outputs=[padded],
-                        name=s.get_unique_name("unsqueeze"),
+                if pad > 0:
+                    axes = np.arange(pad, dtype=np.int64)
+                    axes_const = _const_i64(
+                        ctx, axes, ctx.fresh_name("einsum_pad_axes")
                     )
-                )
-                # *** KEY FIX *** register both metadata & value_info so ONNX shape‐inference
-                # can see that padded has rank = max_ellipsis_rank + core_rank
-                s.builder.register_value_info_metadata(
-                    padded, shape=new_shape, dtype=v.aval.dtype
-                )
-                s.builder.add_value_info(padded, shape=new_shape, dtype=v.aval.dtype)
-                input_names.append(padded)
-            else:
-                input_names.append(base_name)
+                    _stamp_type_and_shape(axes_const, tuple(axes.shape))
+                    _ensure_value_info(ctx, axes_const)
+                    padded_shape = tuple([1] * pad + list(shape))
+                    padded_val = ctx.builder.Unsqueeze(
+                        val,
+                        axes_const,
+                        _outputs=[ctx.fresh_name("einsum_pad")],
+                    )
+                    val_dtype = getattr(getattr(val, "type", None), "dtype", None)
+                    if val_dtype is not None:
+                        padded_val.type = ir.TensorType(val_dtype)
+                    _stamp_type_and_shape(padded_val, padded_shape)
+                    _ensure_value_info(ctx, padded_val)
+                    adjusted_inputs.append(padded_val)
+                    continue
+            adjusted_inputs.append(val)
 
-        out_var = node_outputs[0]
-        out_name = s.get_name(out_var)
+        adjusted_equation = ",".join(adjusted_specs) + "->" + rhs
 
-        # emit the Einsum with the adjusted equation
-        s.add_node(
-            helper.make_node(
-                "Einsum",
-                inputs=input_names,
-                outputs=[out_name],
-                name=s.get_unique_name("einsum"),
-                equation=new_equation,
-            )
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("einsum_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("einsum_out")
+
+        result = ctx.builder.Einsum(
+            *adjusted_inputs,
+            equation=adjusted_equation,
+            _outputs=[desired_name],
         )
-        inferred_shape = EinsumPlugin._checked_shape(
-            [v.aval for v in node_inputs], equation
-        )
-        s.add_shape_info(out_name, inferred_shape, out_var.aval.dtype)
-
-    @staticmethod
-    def _einsum_binding(*args: Any, equation: str, **kwargs: Any) -> Any:
-        bind_kwargs = {
-            "equation": equation,
-            "precision": kwargs.get("precision"),
-            "preferred_element_type": kwargs.get("preferred_element_type"),
-            "_numeric_decoder": kwargs.get("_numeric_decoder"),
-        }
-        bind_kwargs = {k: v for k, v in bind_kwargs.items() if v is not None}
-        return jnp.einsum_p.bind(*args, **bind_kwargs)
-
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        EinsumPlugin._ORIG_CALL = orig_fn
-
-        def patched_einsum(subscripts: str, *operands: Any, **kwargs: Any) -> Any:
-            return EinsumPlugin._einsum_binding(
-                *operands, equation=subscripts, **kwargs
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            inferred_dtype = next(
+                (
+                    getattr(getattr(v, "type", None), "dtype", None)
+                    for v in adjusted_inputs
+                    if getattr(getattr(v, "type", None), "dtype", None) is not None
+                ),
+                None,
             )
+            if inferred_dtype is not None:
+                result.type = ir.TensorType(inferred_dtype)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
-        return patched_einsum
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "einsum",
-            "patch_function": EinsumPlugin.get_monkey_patch,
-        }
+        allowed_kwargs = {"precision", "optimize", "preferred_element_type"}
 
-    @staticmethod
-    def _checked_shape(
-        arg_avals: Sequence[core.AbstractValue], equation: str
-    ) -> Tuple[Any, ...]:
-        try:
-            return EinsumPlugin._get_dynamic_output_shape_manual(
-                [a.shape for a in arg_avals], equation
-            )
-        except Exception:
-            orig_einsum = EinsumPlugin._ORIG_CALL or jnp.einsum
-            dummies = [ShapeDtypeStruct(a.shape, a.dtype) for a in arg_avals]
-            return eval_shape(lambda *xs: orig_einsum(equation, *xs), *dummies).shape
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.einsum not found")
+            setattr(cls._PRIM, storage_slot, orig)
 
+            def _patched(equation, *operands, **kwargs):
+                unknown = set(kwargs) - allowed_kwargs
+                if unknown:
+                    raise NotImplementedError(
+                        f"Unsupported kwargs for jnp.einsum: {tuple(sorted(unknown))}"
+                    )
 
-try:
-    _std_rule = importlib.import_module("jax._src.numpy.einsum").einsum_batching_rule
-    batching.primitive_batchers[jnp.einsum_p] = _std_rule
-except (ModuleNotFoundError, AttributeError):
+                bind_kwargs = {"equation": str(equation)}
+                for key in allowed_kwargs:
+                    value = kwargs.get(key, None)
+                    if value is not None:
+                        bind_kwargs[key] = value
 
-    def _fallback_einsum_batching_rule(args, batch_axes, **params):
-        equation = params["equation"]
-        in_specs, out_spec = equation.split("->")
-        new_in_specs = [
-            spec if spec.startswith("...") else f"...{spec}"
-            for spec in in_specs.split(",")
+                return cls._PRIM.bind(*operands, **bind_kwargs)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
-        out_spec_new = out_spec
-        if any(s.startswith("...") for s in new_in_specs) and not out_spec.startswith(
-            "..."
-        ):
-            out_spec_new = f"...{out_spec}"
-        params = dict(params, equation=f"{','.join(new_in_specs)}->{out_spec_new}")
-        res = jnp.einsum_p.bind(*args, **params)
-        return res, 0
 
-    batching.primitive_batchers[jnp.einsum_p] = _fallback_einsum_batching_rule
 
-jnp.einsum_p.def_abstract_eval(EinsumPlugin.abstract_eval)
+@JnpEinsumPlugin._PRIM.def_impl
+def _einsum_impl(
+    equation,
+    *operands,
+    precision=None,
+    optimize=None,
+    preferred_element_type=None,
+):
+    orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
+    kwargs = {}
+    if precision is not None:
+        kwargs["precision"] = precision
+    if optimize is not None:
+        kwargs["optimize"] = optimize
+    if preferred_element_type is not None:
+        kwargs["preferred_element_type"] = preferred_element_type
+    return orig(equation, *operands, **kwargs)
+
+
+JnpEinsumPlugin._PRIM.def_abstract_eval(JnpEinsumPlugin.abstract_eval)

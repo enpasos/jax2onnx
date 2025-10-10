@@ -1,3 +1,5 @@
+# tests/extra_tests/loop/test_loop_gathernd_nested_dtype_regression.py
+
 """
 Regression: nested Loop bodies with a float32 GatherND feeding float64 outputs.
 
@@ -13,7 +15,7 @@ import jax.numpy as jnp
 import pytest
 from jax import lax
 
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 onnx = pytest.importorskip("onnx", reason="onnx is required for this test")
 ort = pytest.importorskip("onnxruntime", reason="onnxruntime is required for this test")

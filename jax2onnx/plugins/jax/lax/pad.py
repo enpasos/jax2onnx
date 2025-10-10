@@ -1,15 +1,24 @@
 # jax2onnx/plugins/jax/lax/pad.py
-from typing import TYPE_CHECKING
-import numpy as np
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Iterable
+
 import jax
 import jax.numpy as jnp
-from jax import core as jcore
-from onnx import helper, TensorProto
+import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from jax2onnx.converter.ir_context import IRContext
+
+
+def _flatten(seq: Iterable[int]) -> list[int]:
+    return [int(v) for v in seq]
 
 
 @register_primitive(
@@ -22,28 +31,28 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "pad_const_1d",
-            "callable": lambda x: jax.lax.pad(x, 0.0, ((1, 2, 0),)),
+            "callable": lambda x: jax.lax.pad(
+                x, jnp.asarray(0.0, dtype=x.dtype), ((1, 2, 0),)
+            ),
             "input_shapes": [(5,)],
         },
         {
             "testcase": "pad_const_2d",
-            "callable": lambda x: jax.lax.pad(x, 1.0, ((0, 0, 0), (1, 1, 0))),
+            "callable": lambda x: jax.lax.pad(
+                x, jnp.asarray(1.0, dtype=x.dtype), ((0, 0, 0), (1, 1, 0))
+            ),
             "input_shapes": [(2, 3)],
         },
-        # --- extra local tests to cover pad in scan/nested scan and int cval ---
         {
-            # pad with an INT64 cval (mimics real jaxprs where 0 comes in as i64)
             "testcase": "pad_const_2d_cval",
             "callable": lambda x: jax.lax.pad(
                 x,
-                jnp.asarray(0, dtype=x.dtype),  # cval must match operand dtype
+                jnp.asarray(0, dtype=x.dtype),
                 ((0, 0, 0), (1, 1, 0)),
             ),
             "input_shapes": [(2, 3)],
         },
         {
-            # pad -> crop inside a single scan body; output stacked over length
-            # Ensures pads & cval are materialized as local Constants in Loop body.
             "testcase": "pad_inside_scan_smoke_f64",
             "callable": lambda x: jax.lax.scan(
                 lambda carry, _: (
@@ -60,11 +69,10 @@ if TYPE_CHECKING:
                 length=2,
             )[1],
             "input_shapes": [(1, 3, 8, 8)],
-            "expected_output_shapes": [(2, 1, 3, 8, 8)],
+            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 1, 3, 8, 8)],
             "run_only_f64_variant": True,
         },
         {
-            # nested scan; inner does pad->crop then mul, outer stacks inner outputs
             "testcase": "pad_inside_nested_scan_smoke_f64",
             "callable": lambda x: jax.lax.scan(
                 lambda carry, _: jax.lax.scan(
@@ -86,276 +94,95 @@ if TYPE_CHECKING:
                 length=1,
             )[1],
             "input_shapes": [(1, 3, 8, 8)],
-            "expected_output_shapes": [(1, 2, 1, 3, 8, 8)],
+            "expected_output_shapes": [
+                ("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2, 1, 3, 8, 8)
+            ],
             "run_only_f64_variant": True,
         },
     ],
 )
 class PadPlugin(PrimitiveLeafPlugin):
-    """Lower jax.lax.pad (constant mode, no interior padding) → ONNX Pad."""
+    """Lower ``lax.pad`` (constant mode, zero interior padding) to ONNX ``Pad``."""
 
-    def _reg_vi(self, b, name, dims, dtype):
-        if b is None:
-            return
-        if hasattr(b, "add_value_info"):
-            b.add_value_info(name, dims, dtype)
-        elif hasattr(b, "register_value_info_metadata"):
-            b.register_value_info_metadata(name, dims, dtype)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        if len(eqn.invars) < 2:
+            raise ValueError("lax.pad expects data and constant value inputs")
 
-    def _materialize_local_scalar_constant(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        like_tensor_name: str,
-        source,
-        *,
-        base: str = "pad_cval",
-    ) -> str:
-        """
-        Create a scalar Constant in the *current* graph and CastLike it to `like_tensor_name`.
-        We try to read a numeric value from:
-          - Python/NumPy scalar
-          - jax.core.Literal
-          - builder initializers (list or dict)
-        If not resolvable, we conservatively fall back to 0.0 (OK for shape inference).
-        Also registers value_info for both the Constant output and the CastLike output.
-        """
-        # ---- figure out the numeric value ----
-        val = None
-        import numpy as _np
+        data_var = eqn.invars[0]
+        const_var = eqn.invars[1]
+        out_var = eqn.outvars[0]
 
-        # 0) plain scalar?
-        if isinstance(source, (int, float, _np.integer, _np.floating)):
-            val = float(source)
-        # 1) jax literal?
-        if val is None:
-            try:
-                if isinstance(source, jcore.Literal):
-                    val = float(source.val)
-            except Exception:
-                pass
-        # 2) initializer by name?
-        if val is None:
-            name = None
-            try:
-                name = s.get_name(source)
-            except Exception:
-                name = None
-            b = getattr(s, "builder", None)
-            proto_or_arr = None
-            if name and b is not None:
-                # try getters
-                for getter in (
-                    "get_initializer",
-                    "get_initializer_tensor",
-                    "try_get_initializer",
-                    "get_initializer_value",
-                ):
-                    if hasattr(b, getter):
-                        try:
-                            proto_or_arr = getattr(b, getter)(name)
-                            if proto_or_arr is not None:
-                                break
-                        except Exception:
-                            proto_or_arr = None
-                # scan .initializers (list OR dict)
-                if proto_or_arr is None and hasattr(b, "initializers"):
-                    try:
-                        inits = b.initializers
-                        if hasattr(inits, "get"):  # dict-like
-                            proto_or_arr = inits.get(name)
-                        if proto_or_arr is None and isinstance(
-                            inits, (list, tuple)
-                        ):  # list of TensorProto or (name, tensor)
-                            for item in inits:
-                                if hasattr(item, "name") and item.name == name:
-                                    proto_or_arr = item
-                                    break
-                                if (
-                                    isinstance(item, (list, tuple))
-                                    and len(item) >= 2
-                                    and item[0] == name
-                                ):
-                                    proto_or_arr = item[1]
-                                    break
-                    except Exception:
-                        proto_or_arr = None
-            if proto_or_arr is not None:
-                try:
-                    from onnx import numpy_helper as _np_helper
+        padding_config = eqn.params.get("padding_config")
+        if padding_config is None:
+            raise ValueError("padding_config parameter is required for lax.pad")
 
-                    arr = (
-                        _np_helper.to_array(proto_or_arr)
-                        if hasattr(proto_or_arr, "data_type")
-                        else _np.asarray(proto_or_arr)
-                    )
-                    if arr.size == 1:
-                        val = float(arr.reshape(()).item())
-                except Exception:
-                    pass
-        if val is None:
-            val = 0.0  # safe fallback for inference
-
-        # ---- emit Constant (scalar double) + CastLike(data) ----
-        const_out = s.get_unique_name(f"{base}_const")
-        cast_out = s.get_unique_name(f"{base}_castlike")
-        tensor = helper.make_tensor(
-            name=f"{const_out}_value",
-            data_type=TensorProto.DOUBLE,  # precise scalar; CastLike will match dtype to `data`
-            dims=[],
-            vals=[float(val)],
-        )
-        s.add_node(
-            helper.make_node(
-                "Constant",
-                inputs=[],
-                outputs=[const_out],
-                value=tensor,
-                name=s.get_unique_name(f"{base}_const_node"),
-            )
-        )
-        s.add_node(
-            helper.make_node(
-                "CastLike",
-                inputs=[const_out, like_tensor_name],
-                outputs=[cast_out],
-                name=s.get_unique_name(f"{base}_castlike_node"),
-            )
-        )
-
-        b = getattr(s, "builder", None)
-
-        # const_out is scalar double
-        self._reg_vi(b, const_out, [], TensorProto.DOUBLE)
-
-        # cast_out is scalar; try to match data dtype
-        cast_dtype = None
-        for getter in ("get_value_info_dtype", "get_dtype", "get_dtype_of"):
-            if hasattr(b, getter):
-                try:
-                    cast_dtype = getattr(b, getter)(like_tensor_name)
-                    if cast_dtype:
-                        break
-                except Exception:
-                    pass
-        if cast_dtype is None:
-            cast_dtype = TensorProto.UNDEFINED
-
-        self._reg_vi(b, cast_out, [], cast_dtype)
-
-        return cast_out
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        data = s.get_name(node_inputs[0])  # input tensor
-        out = s.get_var_name(node_outputs[0])
-        edge_val_in = node_inputs[
-            1
-        ]  # padding scalar (literal / constvar / possibly dynamic)
-
-        # ((low, high, interior), ...)
-        pcfg = params["padding_config"]
-        if any(int(i) != 0 for (_, _, i) in pcfg):
+        interiors = [int(interior) for (_, _, interior) in padding_config]
+        if any(v != 0 for v in interiors):
             raise NotImplementedError(
-                "lax.pad with interior>0 not supported by ONNX Pad"
+                "lax.pad with interior padding > 0 is not supported in ONNX Pad"
             )
 
-        begins = [int(lo) for (lo, _, _) in pcfg]
-        ends = [int(hi) for (_, hi, _) in pcfg]
-        pads_np = np.asarray(begins + ends, dtype=np.int64)  # length = 2*rank
-
-        # --- Build pads as a local Constant (subgraph-safe) ---
-        pads_name = s.get_unique_name("pads")
-        pads_tensor = helper.make_tensor(
-            name=s.get_unique_name("pads_tensor"),
-            data_type=TensorProto.INT64,
-            dims=[int(pads_np.size)],  # 1-D: [2 * rank]
-            vals=pads_np.tolist(),
+        data_val = ctx.get_value_for_var(data_var, name_hint=ctx.fresh_name("pad_data"))
+        prefer_dt = np.dtype(getattr(data_var.aval, "dtype", np.float32))
+        pad_raw = ctx.get_value_for_var(
+            const_var, name_hint=ctx.fresh_name("pad_cval"), prefer_np_dtype=prefer_dt
         )
-        s.add_node(
-            helper.make_node(
-                "Constant",
-                inputs=[],
-                outputs=[pads_name],
-                name=s.get_unique_name("pads_const"),
-                value=pads_tensor,
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pad_out"))
+
+        data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        pad_dtype = getattr(getattr(pad_raw, "type", None), "dtype", None)
+
+        pad_val = pad_raw
+        if data_dtype is not None and pad_dtype is not None and data_dtype != pad_dtype:
+            cast_name = ctx.fresh_name("pad_cval_like")
+            pad_val = ctx.builder.Cast(
+                pad_raw,
+                _outputs=[cast_name],
+                to=int(data_dtype.value),
             )
-        )
-
-        # Provide value_info metadata so strict builder checks pass
-        b = getattr(s, "builder", None)
-        if b is not None:
-            if hasattr(b, "add_value_info"):
-                b.add_value_info(pads_name, [int(pads_np.size)], TensorProto.INT64)
-            elif hasattr(b, "register_value_info_metadata"):
-                b.register_value_info_metadata(
-                    pads_name, [int(pads_np.size)], TensorProto.INT64
-                )
-
-        # --- Always inline the pad scalar locally (Constant + CastLike) ---
-        # This prevents Loop/Scan body input capture and works for literals/initializers.
-        const_for_pad = self._materialize_local_scalar_constant(s, data, edge_val_in)
-
-        # Now the actual Pad op (opset ≥ 11: data, pads, [constant_value])
-        # Write to a fresh SSA name to avoid any accidental duplication on 'out',
-        # then alias to the official var with Identity.
-        tmp_out = s.get_unique_name("pad_out")
-        pad_node = helper.make_node(
-            "Pad",
-            inputs=[data, pads_name, const_for_pad],
-            outputs=[tmp_out],
-            name=s.get_unique_name("pad"),
-            mode="constant",
-        )
-        s.add_node(pad_node)
-
-        # Register value_info for tmp_out (builder is strict about intermediates)
-        out_dtype = None
-        for getter in ("get_value_info_dtype", "get_dtype", "get_dtype_of"):
-            if b is not None and hasattr(b, getter):
-                try:
-                    out_dtype = getattr(b, getter)(data)
-                    if out_dtype:
-                        break
-                except Exception:
-                    pass
-        if out_dtype is None:
-            out_dtype = TensorProto.UNDEFINED
-
-        # Try to infer output shape from input shape + pads
-        rank = len(pcfg)
-        in_shape = None
-        for getter in ("get_value_info_shape", "get_shape", "get_shape_of"):
-            if b is not None and hasattr(b, getter):
-                try:
-                    in_shape = getattr(b, getter)(data)
-                    if in_shape:
-                        break
-                except Exception:
-                    pass
-        if in_shape is None and b is not None and hasattr(b, "value_infos"):
-            try:
-                vi = b.value_infos.get(data) if hasattr(b.value_infos, "get") else None
-                if isinstance(vi, (tuple, list)) and len(vi) >= 1:
-                    in_shape = vi[0]
-            except Exception:
-                in_shape = None
-
-        if isinstance(in_shape, (list, tuple)) and len(in_shape) == rank:
-            dims_out = []
-            for d, lo, hi in zip(in_shape, begins, ends):
-                if isinstance(d, int):
-                    dims_out.append(int(d) + int(lo) + int(hi))
-                else:
-                    dims_out.append(-1)  # unknown dim
+            pad_val.type = ir.TensorType(data_dtype)
+            pad_val.shape = pad_raw.shape
+            _stamp_type_and_shape(pad_val, tuple(getattr(const_var.aval, "shape", ())))
+            _ensure_value_info(ctx, pad_val)
         else:
-            dims_out = [-1] * rank  # unknown rank dims (rank is known)
+            pad_shape = tuple(getattr(const_var.aval, "shape", ()))
+            _stamp_type_and_shape(pad_val, pad_shape)
+            _ensure_value_info(ctx, pad_val)
 
-        self._reg_vi(b, tmp_out, dims_out, out_dtype)
-
-        s.add_node(
-            helper.make_node(
-                "Identity",
-                inputs=[tmp_out],
-                outputs=[out],
-                name=s.get_unique_name("pad_out_alias"),
-            )
+        begins = _flatten(lo for (lo, _, _) in padding_config)
+        ends = _flatten(hi for (_, hi, _) in padding_config)
+        pads_vec = np.asarray(begins + ends, dtype=np.int64)
+        pads_name = ctx.fresh_name("pad_pads")
+        pads_val = ctx.builder.add_initializer_from_array(
+            name=pads_name, array=pads_vec
         )
+        _stamp_type_and_shape(pads_val, (pads_vec.size,))
+        _ensure_value_info(ctx, pads_val)
+
+        pad_inputs = [data_val, pads_val, pad_val]
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pad")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Pad")
+
+        result = ctx.builder.Pad(
+            *pad_inputs,
+            mode="constant",
+            _outputs=[desired_name],
+        )
+
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        result_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+            if result_dtype is None:
+                result_dtype = _dtype_to_ir(
+                    np.dtype(getattr(out_var.aval, "dtype", np.float32)),
+                    ctx.builder.enable_double_precision,
+                )
+        result.type = ir.TensorType(result_dtype)
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

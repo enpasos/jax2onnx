@@ -1,13 +1,14 @@
+# jax2onnx/plugins/jax/lax/lt.py
+
 from typing import TYPE_CHECKING
 
 import jax
+import numpy as np
 
-from onnx import helper
-
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -25,31 +26,33 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "lt",
-            "callable": lambda x1, x2: x1 < x2,
+            "callable": lambda x1, x2: jax.lax.lt(x1, x2),
             "input_shapes": [(3,), (3,)],
-            # --- FIX: Use shape tuple only ---
-            # "expected_output_shapes": [(3,)],
-        },
-        # {
-        #     "testcase": "lt_int32_int64",
-        #     "callable": lambda x1, x2: x1 < x2,
-        #     "input_shapes": [((), np.int32), ((), np.int64)],
-        #     # --- FIX: Use shape tuple only ---
-        #     "expected_output_shapes": [()],
-        # },
+        }
     ],
 )
 class LtPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.lt to ONNX Less."""
+    def lower(self, ctx, eqn):
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX lt primitive."""
-        input_names = [s.get_name(inp) for inp in node_inputs]
-        output_name = s.get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Less",
-            inputs=input_names,
-            outputs=[output_name],
-            name=s.get_unique_name("less"),
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("lt_lhs"))
+        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        rhs_val = ctx.get_value_for_var(
+            rhs_var,
+            name_hint=ctx.fresh_name("lt_rhs"),
+            prefer_np_dtype=prefer_dtype,
         )
-        s.add_node(node)
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("lt_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("lt_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("lt_out")
+
+        result = ctx.builder.Less(lhs_val, rhs_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

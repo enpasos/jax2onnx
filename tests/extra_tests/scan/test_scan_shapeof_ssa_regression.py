@@ -1,59 +1,45 @@
 # tests/extra_tests/scan/test_scan_shapeof_ssa_regression.py
 
+from __future__ import annotations
+
+import collections
 import numpy as np
 import jax
 import jax.numpy as jnp
 import pytest
-
+import onnx
 from jax import lax
-from jax2onnx import to_onnx
 
-# We’ll also add a local SSA guard by monkeypatching the builder,
-# so we fail at export time if duplicate output names appear.
-from jax2onnx.converter.onnx_builder import OnnxBuilder
+from jax2onnx.user_interface import to_onnx
 
 
-def _ssa_guard_builder(monkeypatch):
-    orig_add_node = OnnxBuilder.add_node
-
-    def add_node_ssa(self, node):
-        # check dup outputs in this graph _before_ adding
-        existing = {o for n in self.nodes for o in n.output}
-        dups = [o for o in node.output if o in existing]
-        if dups:
-            raise AssertionError(
-                f"[SSA regression] Duplicate output symbol(s): {dups} in node {node.name or node.op_type}"
-            )
-        return orig_add_node(self, node)
-
-    monkeypatch.setattr(OnnxBuilder, "add_node", add_node_ssa, raising=True)
+def _all_node_outputs_recursive(g):
+    outs = []
+    for n in g.node:
+        outs.extend([o for o in n.output if o])
+        for a in n.attribute:
+            if a.type == onnx.AttributeProto.GRAPH and a.g is not None:
+                outs.extend(_all_node_outputs_recursive(a.g))
+            elif a.type == onnx.AttributeProto.GRAPHS and a.graphs:
+                for sg in a.graphs:
+                    outs.extend(_all_node_outputs_recursive(sg))
+    return outs
 
 
-# Body that creates a single 'add' and queries its shape multiple times
 def _scan_body_multi_shape(carry, _):
-    a = carry
-    add = a + 1.0  # the producer whose shape will be requested repeatedly
-
-    # two broadcasts that each need Shape(add)
+    add = carry + 1.0
     z0 = add + jnp.broadcast_to(0.0, (add.shape[0], add.shape[1]))
     z1 = add + jnp.broadcast_to(1.0, (add.shape[0], add.shape[1]))
-
-    # a reshape that consults Shape(add) again
     z2 = jnp.reshape(add, (add.shape[0], add.shape[1]))
-
-    # return a scan output too, to mimic real scan lowering
     return add, (z0 + z1 + z2)
 
 
 def _scan_wrapper(x):
-    # 2 steps, no xs to keep things small; produces Loop with scan outputs
     carry_out, ys = lax.scan(_scan_body_multi_shape, x, xs=None, length=2)
-    # Return both a carried state and a scan output to stress the body graph
     return carry_out + ys[-1]
 
 
 def _nested_fori_scan_wrapper(x):
-    # Put the scan in a fori_loop body to mirror feed-forward style composition
     def body(_, state):
         return _scan_wrapper(state)
 
@@ -62,25 +48,25 @@ def _nested_fori_scan_wrapper(x):
 
 class TestScanShapeOfSSARegression:
     def test_scan_shapeof_ssa_regression(self, tmp_path, monkeypatch):
-        _ssa_guard_builder(monkeypatch)
+        ort = pytest.importorskip("onnxruntime")
 
         spec = jax.ShapeDtypeStruct(("B", 4), jnp.float32)
-
         model = to_onnx(
             _scan_wrapper,
             inputs=[spec],
-            loosen_internal_shapes=True,  # increase Shape() usage
             opset=21,
             model_name="scan_shapeof_ssa_regression",
         )
 
-        # Try to load and run in ORT – should succeed (will fail on the bug)
-        try:
-            import onnxruntime as ort
-        except Exception:
-            pytest.skip("onnxruntime not installed")
+        outs = _all_node_outputs_recursive(model.graph)
+        dupes = [
+            n
+            for n, c in collections.Counter(outs).items()
+            if c > 1 and n.endswith("__shape")
+        ]
+        assert not dupes, f"Duplicate '*__shape' helpers detected: {dupes}"
 
-        path = tmp_path / "m.onnx"
+        path = tmp_path / "scan_ssa.onnx"
         path.write_bytes(model.SerializeToString())
 
         sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
@@ -91,25 +77,18 @@ class TestScanShapeOfSSARegression:
         got = sess.run(None, {sess.get_inputs()[0].name: x})[0]
         np.testing.assert_allclose(ref, got, rtol=1e-5, atol=1e-6)
 
-    def test_nested_fori_scan_shapeof_ssa_regression(self, tmp_path, monkeypatch):
-        _ssa_guard_builder(monkeypatch)
+    def test_nested_fori_scan_shapeof_ssa_regression(self, tmp_path):
+        ort = pytest.importorskip("onnxruntime")
 
         spec = jax.ShapeDtypeStruct(("B", 4), jnp.float32)
-
         model = to_onnx(
             _nested_fori_scan_wrapper,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="nested_fori_scan_shapeof_ssa_regression",
         )
 
-        try:
-            import onnxruntime as ort
-        except Exception:
-            pytest.skip("onnxruntime not installed")
-
-        path = tmp_path / "m2.onnx"
+        path = tmp_path / "nested_scan_ssa.onnx"
         path.write_bytes(model.SerializeToString())
 
         sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])

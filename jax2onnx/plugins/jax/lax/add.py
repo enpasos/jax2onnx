@@ -1,12 +1,31 @@
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/jax/lax/add.py
 
+from typing import TYPE_CHECKING, Optional
 import jax
-from onnx import helper, TensorProto  # <-- Import TensorProto
-
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+import numpy as np
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass  # for type hints
+
+
+def lower_add(ctx, eqn) -> None:
+    """Shared lowering routine for lax/jnp Add plugins."""
+
+    x_var, y_var = eqn.invars
+    out_var = eqn.outvars[0]
+
+    prefer_dt: Optional[np.dtype] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+
+    a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_lhs"))
+    b_val = ctx.get_value_for_var(
+        y_var, name_hint=ctx.fresh_name("add_rhs"), prefer_np_dtype=prefer_dt
+    )
+    out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
+    result = ctx.builder.Add(a_val, b_val, _outputs=[out_spec.name])
+    result.type = out_spec.type
+    result.shape = out_spec.shape
+    ctx.bind_value_for_var(out_var, result)
 
 
 @register_primitive(
@@ -26,88 +45,14 @@ if TYPE_CHECKING:
             "testcase": "add",
             "callable": lambda x1, x2: x1 + x2,
             "input_shapes": [(3,), (3,)],
-        }
+        },
+        {
+            "testcase": "add_const",
+            "callable": lambda x: x + 1.0,
+            "input_shapes": [(3,)],
+        },
     ],
 )
 class AddPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.lax.add to ONNX.
-    """
-
-    # --- abstract_eval (if needed, otherwise inherit/omit) ---
-    # @staticmethod
-    # def abstract_eval(input0, input1):
-    #     # JAX handles abstract eval for basic ops
-    #     # You might need this if behavior diverges significantly
-    #     pass
-
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX add primitive."""
-        # --- Setup ---
-        input0_v, input1_v = node_inputs
-        output_v = node_outputs[0]
-        input0_name = s.get_name(input0_v)
-        input1_name = s.get_name(input1_v)
-        output_name = s.get_var_name(output_v)
-
-        # --- Determine ONNX Input Types (Enums) ---
-        # Try to get dtype from metadata, fallback to input_v.aval.dtype if missing
-        def get_dtype_enum(name, var):
-            try:
-                _, dtype_enum = s.builder.get_shape_dtype(name)
-                return dtype_enum
-            except Exception:
-                # Fallback: use the JAX dtype and convert to ONNX enum
-                return s.builder._numpy_dtype_to_onnx(var.aval.dtype)
-
-        input0_dtype_enum = get_dtype_enum(input0_name, input0_v)
-        input1_dtype_enum = get_dtype_enum(input1_name, input1_v)
-
-        # --- Determine Expected ONNX Output Type (based on ONNX Add spec) ---
-        if (
-            input0_dtype_enum == TensorProto.DOUBLE
-            or input1_dtype_enum == TensorProto.DOUBLE
-        ):
-            onnx_output_dtype_enum = TensorProto.DOUBLE
-        elif (
-            input0_dtype_enum == TensorProto.FLOAT
-            or input1_dtype_enum == TensorProto.FLOAT
-        ):
-            onnx_output_dtype_enum = TensorProto.FLOAT
-        elif (
-            input0_dtype_enum == TensorProto.UINT64
-            or input1_dtype_enum == TensorProto.UINT64
-        ):
-            onnx_output_dtype_enum = TensorProto.UINT64
-        elif (
-            input0_dtype_enum == TensorProto.INT64
-            or input1_dtype_enum == TensorProto.INT64
-        ):
-            onnx_output_dtype_enum = TensorProto.INT64
-        elif (
-            input0_dtype_enum == TensorProto.UINT32
-            or input1_dtype_enum == TensorProto.UINT32
-        ):
-            onnx_output_dtype_enum = TensorProto.UINT32
-        elif (
-            input0_dtype_enum == TensorProto.INT32
-            or input1_dtype_enum == TensorProto.INT32
-        ):
-            onnx_output_dtype_enum = TensorProto.INT32
-        else:
-            onnx_output_dtype_enum = input0_dtype_enum
-
-        # --- Create the Add node ---
-        node = helper.make_node(
-            "Add",
-            inputs=[input0_name, input1_name],
-            outputs=[output_name],
-            name=s.get_unique_name("add"),
-        )
-        s.add_node(node)
-
-        s.add_shape_info(
-            output_name,
-            output_v.aval.shape,
-            onnx_output_dtype_enum,
-        )
+    def lower(self, ctx, eqn):
+        lower_add(ctx, eqn)

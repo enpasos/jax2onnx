@@ -1,12 +1,13 @@
+# jax2onnx/plugins/jax/lax/sin.py
+
 from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -30,16 +31,14 @@ if TYPE_CHECKING:
     ],
 )
 class SinPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.sin to ONNX Sin."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX sin primitive."""
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Sin",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("sin"),
-        )
-        s.add_node(node)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sin_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sin_out"))
+
+        result = ctx.builder.Sin(x_val, _outputs=[out_spec.name])
+        result.type = out_spec.type
+        result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

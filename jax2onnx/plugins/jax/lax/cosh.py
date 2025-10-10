@@ -1,13 +1,14 @@
+# jax2onnx/plugins/jax/lax/cosh.py
+
 from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -31,57 +32,51 @@ if TYPE_CHECKING:
     ],
 )
 class CoshPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.cosh to ONNX Cosh."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX cosh primitive."""
-        (x,) = node_inputs
-        (out_var,) = node_outputs
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("cosh_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("cosh_out"))
 
-        x_name = s.get_name(x)
-        out_name = s.get_name(out_var)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("cosh_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("cosh_out")
 
-        # Correctly get the dtype from the input variable's abstract value (aval)
-        dtype = x.aval.dtype
+        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        if x_dtype == np.float32:
+            result = ctx.builder.Cosh(x_val, _outputs=[desired_name])
+            if getattr(out_spec, "type", None) is not None:
+                result.type = out_spec.type
+            if getattr(out_spec, "shape", None) is not None:
+                result.shape = out_spec.shape
+            ctx.bind_value_for_var(out_var, result)
+            return
 
-        if dtype == np.float32:
-            # For float32, we can just emit the native ONNX Cosh operator
-            node = helper.make_node("Cosh", inputs=[x_name], outputs=[out_name])
-            s.add_node(node)
-        else:
-            # For double (and other fp types), lower to (exp(x) + exp(-x)) / 2
+        exp_x = ctx.builder.Exp(x_val, _outputs=[ctx.fresh_name("cosh_exp")])
+        exp_x.type = x_val.type
+        exp_x.shape = x_val.shape
 
-            # exp(x)
-            exp_x_name = s.get_unique_name("exp_x")
-            s.add_node(helper.make_node("Exp", inputs=[x_name], outputs=[exp_x_name]))
-            s.add_shape_info(exp_x_name, x.aval.shape, dtype)
+        neg_x = ctx.builder.Neg(x_val, _outputs=[ctx.fresh_name("cosh_neg")])
+        neg_x.type = x_val.type
+        neg_x.shape = x_val.shape
 
-            # -x
-            neg_x_name = s.get_unique_name("neg_x")
-            s.add_node(helper.make_node("Neg", inputs=[x_name], outputs=[neg_x_name]))
-            s.add_shape_info(neg_x_name, x.aval.shape, dtype)
+        exp_neg_x = ctx.builder.Exp(neg_x, _outputs=[ctx.fresh_name("cosh_exp_neg")])
+        exp_neg_x.type = x_val.type
+        exp_neg_x.shape = x_val.shape
 
-            # exp(-x)
-            exp_neg_x_name = s.get_unique_name("exp_neg_x")
-            s.add_node(
-                helper.make_node("Exp", inputs=[neg_x_name], outputs=[exp_neg_x_name])
-            )
-            s.add_shape_info(exp_neg_x_name, x.aval.shape, dtype)
+        sum_val = ctx.builder.Add(
+            exp_x, exp_neg_x, _outputs=[ctx.fresh_name("cosh_sum")]
+        )
+        sum_val.type = x_val.type
+        sum_val.shape = x_val.shape
 
-            # exp(x) + exp(-x)
-            sum_name = s.get_unique_name("sum")
-            s.add_node(
-                helper.make_node(
-                    "Add", inputs=[exp_x_name, exp_neg_x_name], outputs=[sum_name]
-                )
-            )
-            s.add_shape_info(sum_name, x.aval.shape, dtype)
+        half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=x_dtype))
 
-            # constant 0.5
-            half_const_name = s.get_constant_name(np.array(0.5, dtype=dtype))
-
-            # (exp(x) + exp(-x)) * 0.5
-            node = helper.make_node(
-                "Mul", inputs=[sum_name, half_const_name], outputs=[out_name]
-            )
-            s.add_node(node)
+        result = ctx.builder.Mul(sum_val, half, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

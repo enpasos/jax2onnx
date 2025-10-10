@@ -1,37 +1,52 @@
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/jax/numpy/matmul.py
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Final
+
+import jax
+import jax.numpy as jnp
+import onnx_ir as ir
 from jax import core
-from jax import numpy as jnp
-from jax.extend.core import Primitive
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
-# Define the MatMul primitive
-jnp.matmul_p = Primitive("jnp.matmul")
-jnp.matmul_p.multiple_results = False  # Correct initialization
+
+_MATMUL_PRIM: Final = make_jnp_primitive("jax.numpy.matmul")
+
+
+def _matmul_shape(a_shape, b_shape, a_dtype):
+    spec_a = jax.ShapeDtypeStruct(a_shape, a_dtype)
+    # Assume dtype broadcast already handled; use same dtype for b
+    spec_b = jax.ShapeDtypeStruct(b_shape, a_dtype)
+    orig = getattr(_MATMUL_PRIM, "__orig_impl__matmul", jnp.matmul)
+    result = jax.eval_shape(lambda x, y: orig(x, y), spec_a, spec_b)
+    return result.shape, result.dtype
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.matmul_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.matmul.html",
+    jaxpr_primitive=_MATMUL_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.matmul.html",
     onnx=[
         {
             "component": "MatMul",
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         }
     ],
-    since="v0.1.0",
+    since="v0.9.0",
     context="primitives.jnp",
     component="matmul",
     testcases=[
         {
-            "testcase": "matmul_2d",
+            "testcase": "matmul_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
-            "input_shapes": [(3, 4), (4, 5)],
+            "input_shapes": [(4,), (4,)],
         },
         {
             "testcase": "matmul_1d_2d",
@@ -39,9 +54,19 @@ jnp.matmul_p.multiple_results = False  # Correct initialization
             "input_shapes": [(4,), (4, 5)],
         },
         {
+            "testcase": "matmul_2d",
+            "callable": lambda a, b: jnp.matmul(a, b),
+            "input_shapes": [(3, 4), (4, 5)],
+        },
+        {
             "testcase": "matmul_2d_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4,)],
+        },
+        {
+            "testcase": "matmul_3d",
+            "callable": lambda a, b: jnp.matmul(a, b),
+            "input_shapes": [(2, 3, 4), (2, 4, 5)],
         },
         {
             "testcase": "matmul_dynamic",
@@ -53,145 +78,85 @@ jnp.matmul_p.multiple_results = False  # Correct initialization
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [("B", 3), (3, 4)],
         },
-        {
-            "testcase": "matmul_1d",
-            "callable": lambda a, b: jnp.matmul(a, b),
-            "input_shapes": [(4,), (4,)],
-        },
-        {
-            "testcase": "matmul_3d",
-            "callable": lambda a, b: jnp.matmul(a, b),
-            "input_shapes": [(2, 3, 4), (2, 4, 5)],
-        },
     ],
 )
-class MatMulPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.numpy.matmul to ONNX.
-    """
-
-    @staticmethod
-    def _get_dynamic_output_shape(
-        a_shape: tuple[int | str, ...], b_shape: tuple[int | str, ...]
-    ) -> tuple[int | str, ...]:
-        """Calculates the output shape of jnp.matmul while handling dynamic dimensions and tracers."""
-
-        def safe_eq(x, y):
-            try:
-                return x == y
-            except Exception:
-                return False
-
-        def safe_is_one(x):
-            try:
-                return x == 1
-            except Exception:
-                return False
-
-        a_rank, b_rank = len(a_shape), len(b_shape)
-
-        if a_rank == 1 and b_rank == 1:
-            if (
-                safe_eq(a_shape[0], b_shape[0])
-                or isinstance(a_shape[0], str)
-                or isinstance(b_shape[0], str)
-            ):
-                return ()  # Scalar output
-            raise ValueError("Incompatible shapes for matmul")
-
-        a_shape_norm = a_shape if a_rank > 1 else (1,) + a_shape
-        b_shape_norm = b_shape if b_rank > 1 else b_shape + (1,)
-
-        a_rows, a_cols = a_shape_norm[-2], a_shape_norm[-1]
-        b_rows, b_cols = b_shape_norm[-2], b_shape_norm[-1]
-
-        if not (isinstance(a_cols, str) or isinstance(b_rows, str)):
-            if not safe_eq(a_cols, b_rows):
-                raise ValueError(
-                    f"Incompatible shapes for matmul: {a_shape} and {b_shape}"
-                )
-
-        batch_dims: list[int | str] = []
-        max_rank = max(a_rank, b_rank)
-        for i in range(max_rank - 2):
-            a_dim = a_shape[i] if i < a_rank - 2 else 1
-            b_dim = b_shape[i] if i < b_rank - 2 else 1
-            if isinstance(a_dim, str) or isinstance(b_dim, str):
-                batch_dims.append(
-                    a_dim if isinstance(b_dim, int) and safe_is_one(b_dim) else b_dim
-                )
-            else:
-                batch_dims.append(a_dim if not safe_is_one(a_dim) else b_dim)
-
-        output_shape = tuple(batch_dims) + (a_rows, b_cols)
-
-        if a_rank == 1:
-            output_shape = output_shape[1:]
-        if b_rank == 1:
-            output_shape = output_shape[:-1]
-
-        return output_shape
+class JnpMatmulPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _MATMUL_PRIM
+    _FUNC_NAME: ClassVar[str] = "matmul"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(a, b):
-        """Abstract evaluation function for MatMul, robust to tracers."""
-        output_shape = MatMulPlugin._get_dynamic_output_shape(a.shape, b.shape)
+        shape, dtype = _matmul_shape(a.shape, b.shape, a.dtype)
+        return core.ShapedArray(shape, dtype)
 
-        def safe_dim(dim):
-            try:
-                hash(dim)
-                return dim
-            except Exception:
-                return -1
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        a_var, b_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-        output_shape_safe = tuple(safe_dim(d) for d in output_shape)
-        return core.ShapedArray(output_shape_safe, a.dtype)
+        a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("matmul_a"))
+        b_val = ctx.get_value_for_var(b_var, name_hint=ctx.fresh_name("matmul_b"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("matmul_out")
+        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for matmul lowering")
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of MatMul to ONNX format."""
-        input_names = [s.get_name(var) for var in node_inputs]
-        output_name = s.get_name(node_outputs[0])
-
-        input_shapes = [inp.aval.shape for inp in node_inputs]
-        output_shape = MatMulPlugin._get_dynamic_output_shape(
-            input_shapes[0], input_shapes[1]
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
+        result = builder.MatMul(
+            a_val,
+            b_val,
+            _outputs=[out_name],
         )
 
-        matmul_node = helper.make_node(
-            "MatMul",
-            inputs=input_names,
-            outputs=[output_name],
-            name=s.get_unique_name("matmul"),
-        )
-        s.add_node(matmul_node)
-        s.add_shape_info(
-            output_name,
-            tuple(int(dim) for dim in output_shape if isinstance(dim, (int, str))),
-        )
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            a_dtype = getattr(getattr(a_val, "type", None), "dtype", None)
+            if a_dtype is not None:
+                result.type = ir.TensorType(a_dtype)
 
-    @staticmethod
-    def _matmul(a, b):
-        """Defines the primitive binding for MatMul."""
-        return jnp.matmul_p.bind(a, b)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_info(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
 
-    @staticmethod
-    def get_monkey_patch():
-        """Provides patching information for MatMul."""
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def patched_matmul(a, b):
-            return MatMulPlugin._matmul(a, b)
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.matmul not found")
+            setattr(cls._PRIM, storage_slot, orig)
 
-        return patched_matmul
+            def _patched(a, b):
+                return cls._PRIM.bind(a, b)
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information for MatMul."""
-        return {
-            "patch_targets": [jnp],
-            "patch_function": lambda _: MatMulPlugin.get_monkey_patch(),
-            "target_attribute": "matmul",
-        }
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-# Register abstract evaluation function
-jnp.matmul_p.def_abstract_eval(MatMulPlugin.abstract_eval)
+@JnpMatmulPlugin._PRIM.def_impl
+def _matmul_impl(a, b):
+    orig = get_orig_impl(JnpMatmulPlugin._PRIM, JnpMatmulPlugin._FUNC_NAME)
+    return orig(a, b)
+
+
+JnpMatmulPlugin._PRIM.def_abstract_eval(JnpMatmulPlugin.abstract_eval)

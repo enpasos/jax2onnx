@@ -1,13 +1,13 @@
+# jax2onnx/plugins/jax/lax/square.py
+
 from typing import TYPE_CHECKING
 
 import jax
-import numpy as np
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -31,18 +31,23 @@ if TYPE_CHECKING:
     ],
 )
 class SquarePlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.square to ONNX Mul."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX square primitive."""
-        input_name = s.get_name(node_inputs[0])
-        output_name = s.get_var_name(node_outputs[0])
-        power_value = np.array(2, dtype=np.int32)
-        power_name = s.get_constant_name(power_value)
-        node = helper.make_node(
-            "Pow",
-            inputs=[input_name, power_name],
-            outputs=[output_name],
-            name=s.get_unique_name("square"),
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("square_in"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("square_out")
         )
-        s.add_node(node)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("square_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("square_out")
+
+        result = ctx.builder.Mul(x_val, x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

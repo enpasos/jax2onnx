@@ -1,16 +1,14 @@
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/jax/lax/add_any.py
+
+from __future__ import annotations
+
 import jax
 
-# Reuse the existing Add implementation; this file just registers the alias name.
-from jax2onnx.plugins.jax.lax.add import AddPlugin
-from jax2onnx.plugin_system import register_primitive
-
-if TYPE_CHECKING:
-    pass
+from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
+from jax2onnx.plugins.plugin_system import register_primitive
 
 
 @register_primitive(
-    # Internal JAX primitive used by AD rules to sum tangents of different dtypes.
     jaxpr_primitive="add_any",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html",
     onnx=[{"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"}],
@@ -20,8 +18,6 @@ if TYPE_CHECKING:
     testcases=[
         {
             "testcase": "add_any_via_jvp_on_mul",
-            # JVP of f(a,b)=a*b is: t = (ta*b) + (a*tb)  → emits 'add_any'
-            # We return the tangent (index 1 of jvp's output tuple).
             "callable": lambda x1, x2: jax.jvp(lambda a, b: a * b, (x1, x2), (x1, x2))[
                 1
             ],
@@ -30,6 +26,7 @@ if TYPE_CHECKING:
     ],
 )
 class AddAnyPlugin(AddPlugin):
-    """Alias for JAX's internal 'add_any' primitive; identical lowering to Add."""
+    """Alias for JAX's internal ``add_any`` primitive."""
 
-    pass
+    def lower(self, ctx, eqn):
+        lower_add(ctx, eqn)

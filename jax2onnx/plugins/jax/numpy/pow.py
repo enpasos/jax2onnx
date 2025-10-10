@@ -1,190 +1,139 @@
-# file: jax2onnx/plugins/jax/numpy/pow.py
+# jax2onnx/plugins/jax/numpy/pow.py
 
+from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final
 
-import numpy as np
+import jax
 import jax.numpy as jnp
-from jax import core
-from jax.extend.core import Primitive
-from onnx import helper
+import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.lax.pow import lower_pow
+from jax2onnx.plugins.jax.numpy._common import (
+    get_orig_impl,
+    jnp_binding_specs,
+    make_jnp_primitive,
+)
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-# Define custom primitives we bind to via monkey patching.
-jnp.power_p = Primitive("jnp.power")
-jnp.power_p.multiple_results = False
-jnp.pow_p = Primitive("jnp.pow")
-jnp.pow_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-def _broadcast_shape_like_add(
-    x_shape: Sequence[Any], y_shape: Sequence[Any]
-) -> tuple[Any, ...]:
-    """Minimal, tracer-friendly broadcast shape (same logic used in jnp.add plugin)."""
-    if len(x_shape) != len(y_shape):
-        raise ValueError("x and y must have the same rank for simple broadcast here.")
-    out: list[Any] = []
-    for xs, ys in zip(x_shape, y_shape):
-        # If either is symbolic/-1, pick the other (optimistic)
-        if xs == -1 or ys == -1:
-            out.append(xs if ys == -1 else ys)
-        elif xs != ys and xs != 1 and ys != 1:
-            raise ValueError(f"Shapes {x_shape} and {y_shape} are not broadcastable.")
-        else:
-            out.append(xs if ys == 1 else ys)
-    return tuple(out)
-
-
-class _PowBase(PrimitiveLeafPlugin):
-    """Shared ONNX lowering for jnp.power/jnp.pow."""
-
-    @staticmethod
-    def abstract_eval(x: core.ShapedArray, y: core.ShapedArray) -> core.ShapedArray:
-        # Keep dtype = base dtype (matches JAX's typical float behavior).
-        out_shape = _broadcast_shape_like_add(x.shape, y.shape)
-        return core.ShapedArray(out_shape, x.dtype)
-
-    def to_onnx(
-        self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params
-    ) -> None:
-        base_v, exp_v = node_inputs
-        out_v = node_outputs[0]
-
-        base_name = s.get_name(base_v)
-        exp_name = s.get_name(exp_v)
-        out_name = s.get_name(out_v)
-
-        base_dt = np.dtype(base_v.aval.dtype)
-        exp_dt = np.dtype(exp_v.aval.dtype)
-
-        # Cast exponent to base dtype to satisfy ONNX Pow input requirements
-        if exp_dt != base_dt:
-            cast_out = s.get_unique_name("jnp_pow_exp_cast_out")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[exp_name],
-                    outputs=[cast_out],
-                    name=s.get_unique_name("jnp_pow_exp_cast"),
-                    to=int(s.builder._numpy_dtype_to_onnx(base_dt)),
+def _broadcast_shape(x_shape, y_shape):
+    try:
+        return tuple(np.broadcast_shapes(tuple(x_shape), tuple(y_shape)))  # type: ignore[arg-type]
+    except ValueError:
+        max_rank = max(len(x_shape), len(y_shape))
+        x = (1,) * (max_rank - len(x_shape)) + tuple(x_shape)
+        y = (1,) * (max_rank - len(y_shape)) + tuple(y_shape)
+        dims = []
+        for xs, ys in zip(x, y):
+            if xs == ys:
+                dims.append(xs)
+            elif xs == 1:
+                dims.append(ys)
+            elif ys == 1:
+                dims.append(xs)
+            elif xs == -1 or ys == -1:
+                dims.append(xs if ys == 1 or ys == -1 else ys)
+            else:
+                raise ValueError(
+                    f"Shapes {x_shape} and {y_shape} are not broadcastable."
                 )
-            )
-            # Ensure builder knows the cast tensor's shape/dtype (important in subgraphs)
-            s.add_shape_info(cast_out, exp_v.aval.shape, base_dt)
-            exp_name = cast_out
+        # Remove any leading broadcast dims we artificially introduced when both were 1.
+        while dims and dims[0] == 1 and max(len(x_shape), len(y_shape)) > 0:
+            dims = dims[1:]
+        return tuple(dims) if dims else (1,)
 
-        s.add_node(
-            helper.make_node(
-                "Pow",
-                inputs=[base_name, exp_name],
-                outputs=[out_name],
-                name=s.get_unique_name("jnp_pow"),
-            )
-        )
-        s.add_shape_info(out_name, out_v.aval.shape, base_dt)
 
-    # ----- monkey patch helpers (bind fixed-arity primitive) -----
-    # (Pattern: like jnp.add)
+class _BaseJnpPow(PrimitiveLeafPlugin):
+    _FUNC_NAME: ClassVar[str]
+
     @staticmethod
-    def _bind_primitive(prim: Primitive, x, y):
-        x = jnp.asarray(x)
-        y = jnp.asarray(y)
-        return prim.bind(x, y)
+    def abstract_eval(x, y):
+        shape = _broadcast_shape(x.shape, y.shape)
+        return jax.core.ShapedArray(shape, x.dtype)
+
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        lower_pow(ctx, eqn)
+
+    @classmethod
+    def binding_specs(cls):
+        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+
+
+_POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.power_p.name,
+    jaxpr_primitive=_POWER_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.power.html",
     onnx=[{"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"}],
-    since="v0.8.1",
+    since="v0.8.0",
     context="primitives.jnp",
     component="power",
     testcases=[
         {
-            "testcase": "pow_jnp_power",
-            "callable": lambda x1, x2: jnp.power(x1, x2),
+            "testcase": "jnp_power_vector",
+            "callable": lambda x, y: jnp.power(x, y),
             "input_shapes": [(3,), (3,)],
-        }
+        },
+        {
+            "testcase": "pow_jnp_power",
+            "callable": lambda: jnp.power(
+                np.array([1.0, 2.0, 3.0], dtype=np.float32), 2.0
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+        },
     ],
 )
-class JnpPowerPlugin(_PowBase):
-    """Patch jnp.power → custom primitive 'jnp.power' and lower to ONNX Pow."""
+class JnpPowerPlugin(_BaseJnpPow):
+    _PRIM: ClassVar = _POWER_PRIM
+    _FUNC_NAME: ClassVar[str] = "power"
 
-    @staticmethod
-    def _power(x, y):
-        """Defines the primitive binding for jnp.power."""
-        return _PowBase._bind_primitive(jnp.power_p, x, y)
 
-    @staticmethod
-    def get_monkey_patch():
-        def patched_power(x, y):
-            return JnpPowerPlugin._power(x, y)
+@JnpPowerPlugin._PRIM.def_impl
+def _power_impl(*args, **kwargs):
+    orig = get_orig_impl(JnpPowerPlugin._PRIM, JnpPowerPlugin._FUNC_NAME)
+    return orig(*args, **kwargs)
 
-        return patched_power
 
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "patch_function": lambda _: JnpPowerPlugin.get_monkey_patch(),
-            "target_attribute": "power",
-        }
+_POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.pow_p.name,
+    jaxpr_primitive=_POW_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.power.html",
     onnx=[{"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"}],
-    since="v0.8.1",
+    since="v0.8.0",
     context="primitives.jnp",
     component="pow",
     testcases=[
         {
-            "testcase": "pow_jnp_pow",
-            "callable": lambda x1, x2: jnp.pow(x1, x2),
+            "testcase": "jnp_pow_vector",
+            "callable": lambda x, y: jnp.pow(x, y),
             "input_shapes": [(3,), (3,)],
-        }
+        },
+        {
+            "testcase": "pow_jnp_pow",
+            "callable": lambda: jnp.pow(
+                np.array([1.0, 2.0, 3.0], dtype=np.float32), 3.0
+            ),
+            "input_values": [],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.float32],
+        },
     ],
 )
-class JnpPowAliasPlugin(_PowBase):
-    """
-    Patch jnp.pow (alias of jnp.power) → custom primitive 'jnp.pow' and lower to ONNX Pow.
-    If a JAX version lacks jnp.pow, this patch will fail at import time — which would
-    surface quickly when running tests; in that case, drop this class and rely on 'power'.
-    """
-
-    @staticmethod
-    def _pow(x, y):
-        """Defines the primitive binding for jnp.pow."""
-        return _PowBase._bind_primitive(jnp.pow_p, x, y)
-
-    @staticmethod
-    def get_monkey_patch():
-        def patched_pow(x, y):
-            return JnpPowAliasPlugin._pow(x, y)
-
-        return patched_pow
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "patch_function": lambda _: JnpPowAliasPlugin.get_monkey_patch(),
-            "target_attribute": "pow",
-        }
-
-    # Optional: keep abstract eval identical to base
-    @staticmethod
-    def abstract_eval(x: core.ShapedArray, y: core.ShapedArray) -> core.ShapedArray:
-        return _PowBase.abstract_eval(x, y)
+class JnpPowPlugin(_BaseJnpPow):
+    _PRIM: ClassVar = _POW_PRIM
+    _FUNC_NAME: ClassVar[str] = "pow"
 
 
-#
-# Register abstract evaluation functions (pattern: like jnp.add)
-#
-jnp.power_p.def_abstract_eval(JnpPowerPlugin.abstract_eval)
-jnp.pow_p.def_abstract_eval(JnpPowAliasPlugin.abstract_eval)
+@JnpPowPlugin._PRIM.def_impl
+def _pow_impl(*args, **kwargs):
+    orig = get_orig_impl(JnpPowPlugin._PRIM, JnpPowPlugin._FUNC_NAME)
+    return orig(*args, **kwargs)

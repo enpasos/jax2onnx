@@ -1,9 +1,11 @@
+# tests/extra_tests/loop/test_loop_shapeof_ssa_regression_stricter.py
+
 import numpy as np
 import jax
 import jax.numpy as jnp
 import pytest
 from jax import lax
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 # Body forces multiple Shape-of on the SAME intermediate 'add'
@@ -32,7 +34,6 @@ class TestLoopShapeOfSSARegressionStricter:
         model = to_onnx(
             _model,
             inputs=[spec],
-            loosen_internal_shapes=True,
             opset=21,
             model_name="loop_shapeof_ssa_stricter",
         )

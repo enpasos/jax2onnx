@@ -1,39 +1,47 @@
-import onnx
+# tests/extra_tests/pad/test_pad_initializer_in_loop.py
+
+from __future__ import annotations
+
 import jax
 import jax.numpy as jnp
 import numpy as np
+import onnx
+import onnx.shape_inference as shape_inference
 import pytest
 
-from jax2onnx.converter.user_interface import to_onnx
-
-HAS_ORT = True
-try:
-    import onnxruntime as ort  # noqa: F401
-except Exception:
-    HAS_ORT = False
+from jax2onnx.user_interface import to_onnx
 
 
-def pad_in_loop_fn(x):
-    # pad last dim by (1,1) with constant 0 and slice it back (Pad→Slice pattern)
-    def body(i, carry):
-        y = jax.lax.pad(carry, jnp.array(0, dtype=carry.dtype), ((0, 0, 0), (1, 1, 0)))
-        return y[:, 1:-1]
+def _pad_in_loop_fn(x: jax.Array) -> jax.Array:
+    """Pad last dim by (1, 1) inside a loop and slice it away again."""
+
+    def body(_, carry):
+        padded = jax.lax.pad(
+            carry,
+            jnp.array(0, dtype=carry.dtype),
+            ((0, 0, 0), (1, 1, 0)),
+        )
+        return padded[:, 1:-1]
 
     return jax.lax.fori_loop(0, 1, body, x)
 
 
-@pytest.mark.skipif(not HAS_ORT, reason="onnxruntime not installed")
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
-def test_pad_inside_loop_builds_and_infers(dtype):
-    x = jnp.ones((2, 3), dtype=dtype)
-    m = to_onnx(
-        pad_in_loop_fn,
-        inputs=[x],
+def test_pad_inside_loop_ir_pipeline(dtype):
+    """converter should emit a Loop that shape-infers successfully."""
+
+    spec = jnp.ones((2, 3), dtype=dtype)
+    model = to_onnx(
+        _pad_in_loop_fn,
+        inputs=[spec],
         enable_double_precision=(dtype == jnp.float64),
         opset=21,
-        loosen_internal_shapes=True,
         model_name=f"pad_in_loop_{np.dtype(dtype).name}",
     )
-    onnx.checker.check_model(m)
-    # This used to fail with: Graph has 4 inputs but 3 were provided
-    onnx.shape_inference.infer_shapes(m, strict_mode=True)
+
+    # structural sanity
+    onnx.checker.check_model(model)
+
+    # regression: ONNX strict shape inference should also succeed
+    inferred = shape_inference.infer_shapes(model, strict_mode=True)
+    assert inferred is not None

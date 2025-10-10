@@ -1,44 +1,49 @@
-# jax2onnx/examples/nnx/gru_cell.py
+# jax2onnx/plugins/examples/nnx/gru_cell.py
 
+from __future__ import annotations
+
+import numpy as np
+import jax
 from flax import nnx
 from flax.nnx.nn.activations import tanh
-from jax2onnx.plugin_system import register_example
-import numpy as np
+
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
-# Helper to create a GRUCell instance.
-def _gru(in_feat=3, hid_feat=4):
-    return nnx.GRUCell(
-        in_features=in_feat,
-        hidden_features=hid_feat,
-        # gate_fn is sigmoid by default, which maps to lax.logistic
-        activation_fn=tanh,
-        rngs=nnx.Rngs(0),
-    )
+class GRUCellWrapper(nnx.Module):
+    def __init__(
+        self,
+        *,
+        in_feat: int = 3,
+        hid_feat: int = 4,
+        rngs: nnx.Rngs,
+    ):
+        self.cell = nnx.GRUCell(
+            in_features=in_feat,
+            hidden_features=hid_feat,
+            activation_fn=tanh,
+            rngs=rngs,
+        )
 
-
-# Wrapper to ensure JAX tracer sees two distinct outputs.
-# The nnx.GRUCell returns the same object twice, which gets optimized
-# to a single output in the jaxpr. Adding zero creates a new `add`
-# primitive and thus a distinct output variable.
-_gru_instance = _gru()
-
-
-def _gru_wrapper(carry, inputs):
-    new_h, y = _gru_instance(carry, inputs)
-    return new_h, y + 0.0
+    def __call__(
+        self,
+        carry: jax.Array,
+        inputs: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        new_hidden, output = self.cell(carry, inputs)
+        return new_hidden, output + 0.0
 
 
 register_example(
     component="GRUCell",
-    context="examples.nnx",
-    description=(
-        "Vanilla gated-recurrent-unit cell from **Flax/nnx**. "
-        "There is no 1-to-1 ONNX operator, so the converter decomposes it "
-        "into MatMul, Add, Sigmoid, Tanh, etc."
-    ),
-    since="v0.7.2",
+    description="Flax/nnx GRUCell lowered through converter primitives.",
     source="https://flax.readthedocs.io/en/latest/",
+    since="v0.7.2",
+    context="examples.nnx",
     children=[
         "nnx.Linear",
         "jax.lax.split",
@@ -48,12 +53,17 @@ register_example(
     testcases=[
         {
             "testcase": "gru_cell_basic",
-            "callable": _gru_wrapper,
+            "callable": construct_and_call(
+                GRUCellWrapper,
+                in_feat=3,
+                hid_feat=4,
+                rngs=with_rng_seed(0),
+            ),
             "input_values": [
-                np.zeros((2, 4), np.float32),  # carry   h₀
-                np.ones((2, 3), np.float32),  # inputs  x₀
+                np.zeros((2, 4), np.float32),
+                np.ones((2, 3), np.float32),
             ],
-            "expected_output_shapes": [(2, 4), (2, 4)],  # (new_h, y)
+            "expected_output_shapes": [(2, 4), (2, 4)],
             "run_only_f32_variant": True,
         },
     ],

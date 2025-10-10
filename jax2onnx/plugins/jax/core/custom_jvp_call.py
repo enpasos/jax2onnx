@@ -1,60 +1,81 @@
-# file: jax2onnx/plugins/jax/core/custom_jvp_call.py
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/jax/core/custom_jvp_call.py
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
+
+import numpy as np
+
+from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
+    register_primitive,
+)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
+
+
 import jax
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    pass
+try:  # JAX 0.4+ lives in jax.extend.core
+    from jax.extend.core import Primitive as JaxPrimitive  # type: ignore
+except ImportError:  # pragma: no cover - fallback for older JAX
+    from jax.core import Primitive as JaxPrimitive  # type: ignore
 
 
-# ---------- tiny custom-JVP function used by the testcase ----------
 @jax.custom_jvp
-def square(x):
+def _square(x):
     return x * x
 
 
-@square.defjvp
-def square_jvp(primals, tangents):
+@_square.defjvp
+def _square_jvp(primals, tangents):
     (x,), (t,) = primals, tangents
-    return square(x), 2 * x * t
-
-
-# -------------------------------------------------------------------
+    return _square(x), 2 * x * t
 
 
 @register_primitive(
     jaxpr_primitive="custom_jvp_call",
     jax_doc="Generic passthrough for custom JVP calls",
-    onnx=[{"component": "CustomJvp", "doc": ""}],
+    onnx=[],
+    since="v0.9.0",
     context="primitives.core",
     component="custom_jvp_generic",
-    since="v0.7.1",
     testcases=[
         {
             "testcase": "custom_jvp_square",
-            "callable": lambda x: square(x),
+            "callable": lambda x: _square(x),
             "input_shapes": [(3,)],
-        },
+        }
     ],
 )
-class GenericCustomJvpPlugin(PrimitiveLeafPlugin):
-    @staticmethod
-    def abstract_eval(*xs, **params):
-        return params["out_abstract_vals"]
+class CustomJvpCallPlugin(PrimitiveLeafPlugin):
+    """Inline the body of a ``custom_jvp_call`` primitive into the current IR."""
 
-    def to_onnx(self, s, node_inputs, node_outputs, params):
-        # 1) peel apart the ClosedJaxpr
-        closed = params["call_jaxpr"]
-        sub_jaxpr = closed.jaxpr
-        sub_consts = getattr(closed, "consts", [])
+    _PRIM: ClassVar[JaxPrimitive | None] = None
 
-        # 2) hook up sub-invars → outer inputs
-        for sub_var, outer_var in zip(sub_jaxpr.invars, node_inputs):
-            s.var_to_name[sub_var] = s.get_name(outer_var)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        closed = eqn.params.get("call_jaxpr")
+        if closed is None:
+            raise ValueError("custom_jvp_call missing call_jaxpr parameter")
+        inner_jaxpr = closed.jaxpr if hasattr(closed, "jaxpr") else closed
+        consts = getattr(closed, "consts", eqn.params.get("consts", ()))
 
-        # 3) inline the sub-Jaxpr
-        s._process_jaxpr(sub_jaxpr, sub_consts)
+        for const_var, const_val in zip(inner_jaxpr.constvars, consts):
+            ctx.bind_const_for_var(const_var, np.asarray(const_val))
 
-        # 4) hook up sub-outvars → outer outputs
-        for sub_var, outer_var in zip(sub_jaxpr.outvars, node_outputs):
-            s.var_to_name[outer_var] = s.get_name(sub_var)
+        for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
+            ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
+
+        for inner_eqn in inner_jaxpr.eqns:
+            prim_name = inner_eqn.primitive.name
+            plugin = PLUGIN_REGISTRY.get(prim_name)
+            if plugin is None:
+                raise NotImplementedError(
+                    f"No plugins registered for primitive '{prim_name}' inside custom_jvp body"
+                )
+            plugin.lower(ctx, inner_eqn)
+
+        for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
+            ctx.bind_value_for_var(outer_var, ctx.get_value_for_var(inner_var))

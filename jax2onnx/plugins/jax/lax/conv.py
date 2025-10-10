@@ -1,42 +1,56 @@
-from typing import TYPE_CHECKING, Any, Tuple
+# jax2onnx/plugins/jax/lax/conv.py
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Final, Sequence, cast
 
 import jax
-import numpy as np  # Fixed import: 'np' instead of 'numpy' if was alias, but standard is np
-from onnx import helper
+import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-def compute_same_pads(input_size, filter_size, stride):
-    out_size = int(np.ceil(float(input_size) / float(stride)))
-    pad_total = max((out_size - 1) * stride + filter_size - input_size, 0)
-    pad_before = pad_total // 2
-    pad_after = pad_total - pad_before
-    return pad_before, pad_after
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-def _get_perm_from_layout(source_layout: str, target_layout: str) -> list[int] | None:
-    """Returns the permutation to transpose from source to target layout."""
-    if source_layout == target_layout:
-        return None
-    source_indices = {axis: i for i, axis in enumerate(source_layout)}
-    return [source_indices[axis] for axis in target_layout]
+_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2, 3): "NCHW",
+    (0, 3, 1, 2): "NHWC",
+    "NCHW": "NCHW",
+    "NHWC": "NHWC",
+}
+_FILTER_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2, 3): "OIHW",
+    (3, 2, 0, 1): "HWIO",
+    "OIHW": "OIHW",
+    "HWIO": "HWIO",
+}
+_OUTPUT_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2, 3): "NCHW",
+    (0, 3, 1, 2): "NHWC",
+    "NCHW": "NCHW",
+    "NHWC": "NHWC",
+}
 
 
-def _get_spatial_dims_from_spec(spec: Tuple[int, ...]) -> Tuple[int, int]:
-    """Extracts spatial dimension indices from an integer-based layout spec."""
-    # This is based on the assumption that H and W are the last two spatial dims
-    # in JAX's tuple representation, which holds for standard layouts.
-    # Example: NCHW is (0,1,2,3), NHWC is (0,3,1,2). H and W are always at indices > 1.
-    return spec[2], spec[3]
+def _layout_from_spec(spec, mapping) -> str:
+    key = spec
+    if isinstance(spec, str):
+        key = spec.upper()
+    return mapping.get(key)
 
 
-def _get_spatial_dims(layout: str) -> list[int]:
-    """Returns the indices of spatial dimensions (H, W) in a given layout string."""
-    return [i for i, char in enumerate(layout) if char in "HW"]
+def _perm(src_layout: str, dst_layout: str) -> list[int]:
+    return [src_layout.index(axis) for axis in dst_layout]
+
+
+def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
+    befores = [int(before) for before, _ in pads]
+    afters = [int(after) for _, after in pads]
+    return befores + afters
 
 
 @register_primitive(
@@ -53,23 +67,43 @@ def _get_spatial_dims(layout: str) -> list[int]:
     component="conv",
     testcases=[
         {
-            "testcase": "conv",  # NCHW & OIHW: no transposition needed.
-            "callable": lambda x, y: jax.lax.conv(
-                x, y, window_strides=(1, 1), padding="VALID"
+            "testcase": "conv",
+            "callable": lambda x, w: jax.lax.conv(
+                x, w, window_strides=(1, 1), padding="VALID"
             ),
             "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
             "run_only_f32_variant": True,
         },
         {
-            "testcase": "conv2",  # NHWC & HWIO: transposition required.
-            "callable": lambda x, y: jax.lax.conv_general_dilated(
+            "testcase": "conv2",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
                 x,
-                y,
+                w,
                 window_strides=(1, 1),
                 padding="VALID",
                 dimension_numbers=("NHWC", "HWIO", "NHWC"),
             ),
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "conv_nchw",
+            "callable": lambda x, w: jax.lax.conv(
+                x, w, window_strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [(1, 2, 5, 5), (3, 2, 3, 3)],
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "conv_nhwc",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding="SAME",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_shapes": [(1, 5, 5, 3), (3, 3, 3, 4)],
             "run_only_f32_variant": True,
         },
         {
@@ -91,153 +125,151 @@ def _get_spatial_dims(layout: str) -> list[int]:
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting jax.lax.conv_general_dilated to ONNX.
-    """
+    """Lower ``lax.conv_general_dilated`` to ONNX ``Conv`` (2D, NHWC/NCHW)."""
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        input_name = s.get_name(node_inputs[0])
-        filter_var = node_inputs[1]
-        output_name = s.get_name(node_outputs[0])
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        lhs_var, rhs_var = eqn.invars[:2]
+        out_var = eqn.outvars[0]
 
-        dimension_numbers = params["dimension_numbers"]
-        window_strides = params["window_strides"]
-        padding = params["padding"]
+        params = getattr(eqn, "params", {})
+        dimension_numbers = params.get("dimension_numbers")
+        if dimension_numbers is None:
+            raise ValueError("conv_general_dilated missing dimension_numbers")
 
         lhs_spec, rhs_spec, out_spec = dimension_numbers
-
-        # -----------------------------------------------------------------
-        # 1) Resolve layout permutations
-        # -----------------------------------------------------------------
-        if lhs_spec == (0, 3, 1, 2):  # NHWC
-            # input NHWC → NCHW
-            input_perm = [0, 3, 1, 2]
-        elif lhs_spec == (0, 1, 2, 3):  # NCHW
-            input_perm = None
-        else:
-            raise ValueError(f"Unhandled lhs_spec: {lhs_spec}")
-
-        # -----------------------------------------------------------------
-        # 2) Map the kernel to ONNX’s OIHW by *always* transposing with
-        #    perm = rhs_spec.  (If that happens to be identity, we skip.)
-        # -----------------------------------------------------------------
-        kernel_perm = list(rhs_spec)
-        need_kernel_transpose = kernel_perm != [0, 1, 2, 3]
-
-        # output is always returned to NHWC when caller asked for NHWC
-        output_perm = [0, 2, 3, 1] if out_spec == (0, 3, 1, 2) else None
-
-        conv_input = input_name
-        if input_perm:
-            transposed_input = s.get_unique_name("input_transposed")
-            input_shape = node_inputs[0].aval.shape
-            transposed_input_shape = tuple(input_shape[i] for i in input_perm)
-            s.add_node(
-                helper.make_node(
-                    "Transpose",
-                    inputs=[input_name],
-                    outputs=[transposed_input],
-                    perm=input_perm,
-                    name=s.get_unique_name("Transpose_input"),
-                )
+        lhs_layout = _layout_from_spec(lhs_spec, _LAYOUT_MAP)
+        rhs_layout = _layout_from_spec(rhs_spec, _FILTER_LAYOUT_MAP)
+        out_layout = _layout_from_spec(out_spec, _OUTPUT_LAYOUT_MAP)
+        if lhs_layout is None or rhs_layout is None or out_layout is None:
+            raise NotImplementedError(
+                f"Unsupported conv layouts: lhs={lhs_spec}, rhs={rhs_spec}, out={out_spec}"
             )
-            s.add_shape_info(transposed_input, transposed_input_shape)
 
-            conv_input = transposed_input
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("conv_lhs"))
+        rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("conv_rhs"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("conv_out"))
 
-        filter_name = s.get_name(filter_var)
+        lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
+        rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
-        # -----  1. Get / create an OIHW‑ordered weight tensor  -----
-        if not need_kernel_transpose:
-            transposed_kernel_name = filter_name
-            final_kernel_shape = filter_var.aval.shape
-        else:
-            if filter_name in s.name_to_const:
-                k_const = np.transpose(s.name_to_const[filter_name], kernel_perm)
-                transposed_kernel_name = s.get_constant_name(k_const)
-                s.name_to_const[transposed_kernel_name] = k_const
-                final_kernel_shape = k_const.shape
-            else:
-                transposed_kernel_name = s.get_unique_name("kernel_transposed")
-                s.add_node(
-                    helper.make_node(
-                        "Transpose",
-                        inputs=[filter_name],
-                        outputs=[transposed_kernel_name],
-                        perm=kernel_perm,
-                        name=s.get_unique_name("Transpose_kernel"),
-                    )
-                )
-                final_kernel_shape = tuple(
-                    np.array(filter_var.aval.shape)[kernel_perm].tolist()
-                )
-                s.add_shape_info(transposed_kernel_name, final_kernel_shape)
+        canonical_input = lhs_val
+        if lhs_layout != "NCHW":
+            perm = _perm(lhs_layout, "NCHW")
+            transposed = ctx.builder.Transpose(
+                lhs_val,
+                _outputs=[ctx.fresh_name("conv_lhs_nchw")],
+                perm=perm,
+            )
+            lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
+            if lhs_dtype is not None:
+                transposed.type = ir.TensorType(lhs_dtype)
+            _stamp_type_and_shape(transposed, tuple(lhs_shape[i] for i in perm))
+            _ensure_value_info(ctx, transposed)
+            canonical_input = transposed
 
-        kernel_shape = final_kernel_shape[2:]  # (H, W) in OIHW
+        canonical_kernel = rhs_val
+        if rhs_layout != "OIHW":
+            perm = _perm(rhs_layout, "OIHW")
+            transposed = ctx.builder.Transpose(
+                rhs_val,
+                _outputs=[ctx.fresh_name("conv_rhs_oihw")],
+                perm=perm,
+            )
+            rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
+            if rhs_dtype is not None:
+                transposed.type = ir.TensorType(rhs_dtype)
+            _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
+            _ensure_value_info(ctx, transposed)
+            canonical_kernel = transposed
 
-        conv_output = s.get_unique_name("conv_output")
+        need_output_transpose = out_layout != "NCHW"
+        perm_to_nchw: Sequence[int] | None = (
+            _perm(out_layout, "NCHW") if need_output_transpose else None
+        )
 
-        # ----------  Build Conv attributes ----------
-        conv_attrs: dict[str, Any] = {
-            "kernel_shape": kernel_shape,
-            "strides": window_strides,
-        }
+        conv_kwargs: dict[str, object] = {}
+        strides = params.get("window_strides", (1, 1))
+        conv_kwargs["strides"] = [int(s) for s in strides]
 
+        padding = params.get("padding", "VALID")
         if isinstance(padding, str):
             pad_mode = padding.upper()
-            if pad_mode == "SAME":
-                conv_attrs["auto_pad"] = "SAME_UPPER"
+            if pad_mode in ("SAME", "SAME_UPPER"):
+                conv_kwargs["auto_pad"] = "SAME_UPPER"
             elif pad_mode == "VALID":
-                conv_attrs["pads"] = [0, 0, 0, 0]
+                conv_kwargs["pads"] = [0, 0, 0, 0]
             else:
-                raise ValueError("Unsupported padding string: " + padding)
+                raise NotImplementedError(f"Unsupported padding mode {padding}")
         else:
-            # JAX gives padding as ((H_before, H_after), (W_before, W_after)).
-            (h_before, h_after), (w_before, w_after) = padding
-            # ONNX expects [H_begin, W_begin, H_end, W_end].
-            conv_attrs["pads"] = [
-                int(h_before),
-                int(w_before),
-                int(h_after),
-                int(w_after),
-            ]
+            num_spatial = max(len(lhs_shape) - 2, 0)
+            if padding is None:
+                pad_pairs: Sequence[Sequence[int]] = tuple(
+                    (0, 0) for _ in range(num_spatial)
+                )
+            else:
+                if not isinstance(padding, Sequence):
+                    raise TypeError(f"Unsupported padding spec type: {type(padding)!r}")
+                padding_seq = tuple(padding)
+                if not padding_seq:
+                    pad_pairs = tuple((0, 0) for _ in range(num_spatial))
+                else:
+                    first_entry = padding_seq[0]
+                    if not isinstance(first_entry, Sequence):
+                        raise NotImplementedError(
+                            "Expected padding as sequence of (low, high) pairs"
+                        )
+                    pad_pairs = cast(Sequence[Sequence[int]], padding_seq)
+            conv_kwargs["pads"] = _flatten_padding(pad_pairs)
 
-        conv_node = helper.make_node(
-            "Conv",
-            inputs=[conv_input, transposed_kernel_name],
-            outputs=[conv_output],
-            name=s.get_unique_name("Conv"),
-            **conv_attrs,  # ← the *only* attributes we pass
+        rhs_dilation = params.get("rhs_dilation")
+        if rhs_dilation:
+            conv_kwargs["dilations"] = [int(d) for d in rhs_dilation]
+
+        groups = params.get("feature_group_count", 1)
+        if groups != 1:
+            conv_kwargs["group"] = int(groups)
+
+        conv_output_name = (
+            ctx.fresh_name("conv_out_nchw")
+            if need_output_transpose
+            else (getattr(out_spec, "name", None) or ctx.fresh_name("Conv"))
         )
-        s.add_node(conv_node)
+        conv_result = ctx.builder.Conv(
+            canonical_input,
+            canonical_kernel,
+            _outputs=[conv_output_name],
+            **conv_kwargs,
+        )
 
-        if output_perm:
-            # The conv_output is in NCHW format. We need to calculate this shape
-            # by transposing the final NHWC shape from JAX.
-            nhwc_shape = node_outputs[0].aval.shape
-            nchw_shape = (nhwc_shape[0], nhwc_shape[3], nhwc_shape[1], nhwc_shape[2])
-            s.add_shape_info(conv_output, nchw_shape)
-
-            s.add_node(
-                helper.make_node(
-                    "Transpose",
-                    inputs=[conv_output],
-                    outputs=[output_name],
-                    perm=output_perm,
-                    name=s.get_unique_name("Transpose_output"),
+        conv_dtype_enum = _dtype_to_ir(
+            np.dtype(
+                getattr(
+                    out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)
                 )
-            )
+            ),
+            ctx.builder.enable_double_precision,
+        )
+        if need_output_transpose:
+            assert perm_to_nchw is not None
+            conv_shape_intermediate = tuple(out_shape[i] for i in perm_to_nchw)
         else:
-            # No output permutation, so the conv_output shape is the final shape.
-            s.add_shape_info(conv_output, node_outputs[0].aval.shape)
-            if conv_output != output_name:
-                # This happens if the name was already taken, just add an Identity
-                s.add_node(
-                    helper.make_node(
-                        "Identity",
-                        inputs=[conv_output],
-                        outputs=[output_name],
-                        name=s.get_unique_name("Identity_output"),
-                    )
-                )
-        s.add_shape_info(output_name, node_outputs[0].aval.shape)
+            conv_shape_intermediate = tuple(out_shape)
+        conv_result.type = ir.TensorType(conv_dtype_enum)
+        _stamp_type_and_shape(conv_result, conv_shape_intermediate)
+        _ensure_value_info(ctx, conv_result)
+
+        if need_output_transpose:
+            perm_back = _perm("NCHW", out_layout)
+            final_name = getattr(out_spec, "name", None) or ctx.fresh_name("conv_out")
+            final_val = ctx.builder.Transpose(
+                conv_result,
+                _outputs=[final_name],
+                perm=perm_back,
+            )
+            final_val.type = ir.TensorType(conv_dtype_enum)
+            _stamp_type_and_shape(final_val, out_shape)
+            _ensure_value_info(ctx, final_val)
+            ctx.bind_value_for_var(out_var, final_val)
+        else:
+            ctx.bind_value_for_var(out_var, conv_result)
