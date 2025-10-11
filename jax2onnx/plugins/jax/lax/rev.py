@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import (
     _gather_int_scalar,
     _scalar_i64,
@@ -67,7 +67,7 @@ class RevPlugin(PrimitiveLeafPlugin):
             if src_dtype is not None:
                 identity.type = ir.TensorType(src_dtype)
             _stamp_type_and_shape(identity, input_shape)
-            _ensure_value_info(ctx, identity)
+            _ensure_value_metadata(ctx, identity)
             ctx.bind_value_for_var(out_var, identity)
             return
 
@@ -101,7 +101,7 @@ class RevPlugin(PrimitiveLeafPlugin):
             )
             start_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_val, ())
-            _ensure_value_info(ctx, start_val)
+            _ensure_value_metadata(ctx, start_val)
 
             range_val = ctx.builder.Range(
                 start_val,
@@ -111,7 +111,7 @@ class RevPlugin(PrimitiveLeafPlugin):
             )
             range_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_val, (None,))
-            _ensure_value_info(ctx, range_val)
+            _ensure_value_metadata(ctx, range_val)
 
             gather_name = (
                 final_name
@@ -129,7 +129,7 @@ class RevPlugin(PrimitiveLeafPlugin):
             if target_dtype is not None:
                 target_val.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(target_val, input_shape)
-            _ensure_value_info(ctx, target_val)
+            _ensure_value_metadata(ctx, target_val)
 
             current_val = target_val
 

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -133,7 +133,7 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
             if getattr(arr_val, "type", None) is not None:
                 split_val.type = arr_val.type
             _stamp_type_and_shape(split_val, tuple(split_shape))
-            _ensure_value_info(ctx, split_val)
+            _ensure_value_metadata(ctx, split_val)
 
         axes_val = _const_i64(
             ctx, np.asarray([axis], dtype=np.int64), "unstack_squeeze_axes"
@@ -157,7 +157,7 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
                 squeezed.type = arr_val.type
             target_shape = tuple(getattr(out_var.aval, "shape", ()))
             _stamp_type_and_shape(squeezed, target_shape)
-            _ensure_value_info(ctx, squeezed)
+            _ensure_value_metadata(ctx, squeezed)
             bind_value(out_var, squeezed)
 
     @classmethod

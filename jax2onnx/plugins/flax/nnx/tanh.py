@@ -14,7 +14,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _stamp_type_and_shape,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ class TanhPlugin(PrimitiveLeafPlugin):
                 for i in range(len(x_shape))
             ]
             _stamp_type_and_shape(result, tuple(dims))
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if callable(bind_value):

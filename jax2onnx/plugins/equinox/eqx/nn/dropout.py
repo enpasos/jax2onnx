@@ -12,7 +12,7 @@ from jax.extend.core import Primitive
 from jax.core import ShapedArray
 from jax.interpreters import batching
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -186,7 +186,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             if getattr(not_val, "type", None) is None:
                 not_val.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(not_val, ())
-            _ensure_value_info(ctx, not_val)
+            _ensure_value_metadata(ctx, not_val)
             return not_val
 
         if call_time:
@@ -240,7 +240,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
             if x_shape:
                 _stamp_type_and_shape(dropout_val, x_shape)
-        _ensure_value_info(ctx, dropout_val)
+        _ensure_value_metadata(ctx, dropout_val)
         ctx.bind_value_for_var(out_var, dropout_val)
 
     @classmethod

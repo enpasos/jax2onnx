@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _cast_to_i64, _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 import jax.numpy as jnp
@@ -139,7 +139,7 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             if dtype is not None:
                 value.type = ir.TensorType(dtype)
             _stamp_type_and_shape(value, shape)
-            _ensure_value_info(ctx, value)
+            _ensure_value_metadata(ctx, value)
 
         # --- Boolean two-case path -------------------------------------------------
         if len(case_vars) == 2 and np.issubdtype(selector_var.aval.dtype, np.bool_):

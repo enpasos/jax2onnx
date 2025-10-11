@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -62,7 +62,7 @@ class SplitPlugin(PrimitiveLeafPlugin):
 
         splits_val = _const_i64(ctx, np.asarray(sizes, dtype=np.int64), "split_sizes")
         _stamp_type_and_shape(splits_val, (len(sizes),))
-        _ensure_value_info(ctx, splits_val)
+        _ensure_value_metadata(ctx, splits_val)
 
         out_vals = [
             ctx.get_value_for_var(var, name_hint=ctx.fresh_name("split_out"))
@@ -86,5 +86,5 @@ class SplitPlugin(PrimitiveLeafPlugin):
             if data_dtype is not None:
                 res.type = ir.TensorType(data_dtype)
             _stamp_type_and_shape(res, out_shape)
-            _ensure_value_info(ctx, res)
+            _ensure_value_metadata(ctx, res)
             ctx.bind_value_for_var(var, res)

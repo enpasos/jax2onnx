@@ -14,7 +14,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 if TYPE_CHECKING:
@@ -115,7 +115,7 @@ class ReluPlugin(PrimitiveLeafPlugin):
             result.type = ir.TensorType(dtype)
 
         _stamp_type_and_shape(result, tuple(final_dims))
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if callable(bind_value):
             bind_value(y_var, result)

@@ -21,7 +21,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
@@ -301,7 +301,7 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             if x_ir_dtype is not None:
                 gn_input.type = ir.TensorType(x_ir_dtype)
             _stamp_type_and_shape(gn_input, nchw_dims)
-            _add_value_info(ctx, gn_input)
+            _ensure_value_metadata(ctx, gn_input)
 
         gn_out = builder.GroupNormalization(
             gn_input,
@@ -314,7 +314,7 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         if x_ir_dtype is not None:
             gn_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(gn_out, nchw_dims if need_layout_convert else nhwc_dims)
-        _add_value_info(ctx, gn_out)
+        _ensure_value_metadata(ctx, gn_out)
 
         if need_layout_convert:
             final_val = builder.Transpose(
@@ -325,11 +325,11 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             if x_ir_dtype is not None:
                 final_val.type = ir.TensorType(x_ir_dtype)
             _stamp_type_and_shape(final_val, nhwc_dims)
-            _add_value_info(ctx, final_val)
+            _ensure_value_metadata(ctx, final_val)
         else:
             final_val = gn_out
             _stamp_type_and_shape(final_val, nhwc_dims)
-            _add_value_info(ctx, final_val)
+            _ensure_value_metadata(ctx, final_val)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):

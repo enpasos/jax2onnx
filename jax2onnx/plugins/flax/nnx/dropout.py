@@ -17,7 +17,7 @@ import onnx_ir as ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -200,7 +200,7 @@ def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
     v = ir.Value(name=name, type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
     inputs.append(v)
     _stamp_type_and_shape(v, ())
-    _add_value_info(ctx, v)
+    _ensure_value_metadata(ctx, v)
     return v
 
 
@@ -230,7 +230,7 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
             const_val = builder.add_initializer_from_array(name=init_name, array=arr)
     const_val.type = ir.TensorType(_ir_dtype_from_numpy(arr.dtype))
     _stamp_type_and_shape(const_val, arr.shape if arr.shape else ())
-    _add_value_info(ctx, const_val)
+    _ensure_value_metadata(ctx, const_val)
     return const_val
 
 
@@ -362,7 +362,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 )
                 not_out.type = ir.TensorType(ir.DataType.BOOL)
                 _stamp_type_and_shape(not_out, ())
-                _add_value_info(ctx, not_out)
+                _ensure_value_metadata(ctx, not_out)
                 train_v = not_out
         else:
             # Try to read deterministic as a Python literal.
@@ -387,7 +387,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 )
                 not_out.type = ir.TensorType(ir.DataType.BOOL)
                 _stamp_type_and_shape(not_out, ())
-                _add_value_info(ctx, not_out)
+                _ensure_value_metadata(ctx, not_out)
                 train_v = not_out
         # Dropout has optional 2nd/3rd outputs; we only wire the first (y)
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
@@ -419,7 +419,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             dropout_res.type = ir.TensorType(x_dtype_enum)
         if x_dims_meta:
             _stamp_type_and_shape(dropout_res, tuple(x_dims_meta))
-        _add_value_info(ctx, dropout_res)
+        _ensure_value_metadata(ctx, dropout_res)
         ctx.bind_value_for_var(out_var, dropout_res)
 
     @staticmethod

@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -114,7 +114,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
             )
             result.type = ir.TensorType(desired)
         _stamp_type_and_shape(result, target_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")

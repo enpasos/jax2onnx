@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
 import jax.numpy as jnp
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -153,7 +153,7 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
             result.type = arr_val.type
         out_shape = tuple(arr_shape[i] for i in axes_tuple)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

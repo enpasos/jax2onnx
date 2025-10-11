@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax.extend.core import Primitive
 import numpy as np
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info as _add_value_info
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -115,7 +115,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         zeros = np.zeros(shape, dtype=np_dtype)
         out_val = ctx.bind_const_for_var(out_var, zeros)
         _stamp_type_and_shape(out_val, shape)
-        _add_value_info(ctx, out_val)
+        _ensure_value_metadata(ctx, out_val)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):

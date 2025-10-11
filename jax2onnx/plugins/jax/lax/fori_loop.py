@@ -12,7 +12,7 @@ from jax import tree_util
 from jax.extend.core import Primitive
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
@@ -84,7 +84,7 @@ def _build_body_graph(
             name_hint="loop_iter_cast",
         )
         _stamp_type_and_shape(cast_iter, ())
-        _ensure_value_info(body_ctx, cast_iter)
+        _ensure_value_metadata(body_ctx, cast_iter)
         iter_value = cast_iter
     body_ctx.bind_value_for_var(iter_var, iter_value)
 
@@ -113,7 +113,7 @@ def _build_body_graph(
             body_ctx._sym_origin_str[str(dim)] = (state_input, axis)
         state_input.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(state_input, shape_tuple)
-        _ensure_value_info(body_ctx, state_input)
+        _ensure_value_metadata(body_ctx, state_input)
         relax_value_to_rank_only(state_input)
 
     # Lower body equations inside the nested context.
@@ -134,7 +134,7 @@ def _build_body_graph(
             )
             out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, out_shape)
-        _ensure_value_info(body_ctx, out_val)
+        _ensure_value_metadata(body_ctx, out_val)
         relax_value_to_rank_only(out_val)
         loop_outputs.append(out_val)
 
@@ -146,7 +146,7 @@ def _build_body_graph(
     )
     cond_out.type = ir.TensorType(ir.DataType.BOOL)
     _stamp_type_and_shape(cond_out, ())
-    _ensure_value_info(body_ctx, cond_out)
+    _ensure_value_metadata(body_ctx, cond_out)
 
     body_ctx.builder.outputs = [cond_out, *loop_outputs]
 
@@ -301,7 +301,7 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             )
             val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(val, out_shape)
-            _ensure_value_info(ctx, val)
+            _ensure_value_metadata(ctx, val)
             ctx.bind_value_for_var(var, val)
 
     @classmethod

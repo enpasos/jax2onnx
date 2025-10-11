@@ -46,7 +46,6 @@ class IRBuilder:
         self.outputs: list[ir.Value] = []
         self.nodes: list[ir.Node] = []
         self.initializers: list[ir.Value] = []
-        self.value_info: list[ir.Value] = []
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
         self.initializers_by_name: dict[str, ir.Value] = {}
         # Intermediate ValueInfo entries (propagated to ir.Graph)
@@ -89,8 +88,6 @@ class IRBuilder:
             if init_name is not None:
                 self.initializers_by_name[init_name] = value
         self._tape_initializer_index = len(tape_initializers)
-        # Builder exposes value_info as a helper function rather than a container; leave
-        # IRBuilder.value_info under local control for compatibility with existing code.
 
     # ---------- values ----------
     def _make_value(

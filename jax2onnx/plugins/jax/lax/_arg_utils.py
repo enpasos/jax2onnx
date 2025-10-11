@@ -11,7 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
-    _ensure_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
@@ -56,7 +56,7 @@ def lower_arg_reduction(
             name_hint=f"{name_prefix}_bool_cast",
         )
         _stamp_type_and_shape(arg_input, operand_shape)
-        _ensure_value_info(ctx, arg_input)
+        _ensure_value_metadata(ctx, arg_input)
 
     reduced_shape = tuple(
         _to_ir_dim_for_shape(dim) for dim in getattr(out_var.aval, "shape", ())
@@ -92,7 +92,7 @@ def lower_arg_reduction(
         )
 
     _stamp_type_and_shape(out_val, tuple(getattr(out_var.aval, "shape", ())))
-    _ensure_value_info(ctx, out_val)
+    _ensure_value_metadata(ctx, out_val)
     out_val.type = ir.TensorType(target_enum)
     ctx.bind_value_for_var(out_var, out_val)
 

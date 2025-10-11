@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -197,7 +197,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
                 )
                 cast_val.type = ir.TensorType(target_enum)
                 _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
-                _ensure_value_info(ctx, cast_val)
+                _ensure_value_metadata(ctx, cast_val)
                 inputs.append(cast_val)
             else:
                 inputs.append(val)
@@ -219,7 +219,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         result.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

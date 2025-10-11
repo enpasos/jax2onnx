@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict
 import jax
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -82,7 +82,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             )
             shape_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_val, (rank,))
-            _ensure_value_info(ctx, shape_val)
+            _ensure_value_metadata(ctx, shape_val)
             shape_cache[src] = shape_val
             return shape_val
 
@@ -133,7 +133,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             )
             unsqueezed.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(unsqueezed, (1,))
-            _ensure_value_info(ctx, unsqueezed)
+            _ensure_value_metadata(ctx, unsqueezed)
             starts_vec_parts.append(unsqueezed)
 
         starts_concat = ctx.builder.Concat(
@@ -143,7 +143,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         )
         starts_concat.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(starts_concat, (rank,))
-        _ensure_value_info(ctx, starts_concat)
+        _ensure_value_metadata(ctx, starts_concat)
 
         slice_sizes = eqn.params.get("slice_sizes", ())
         try:
@@ -181,7 +181,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                     )
                     slice_sizes_val.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(slice_sizes_val, (len(slice_sizes),))
-                    _ensure_value_info(ctx, slice_sizes_val)
+                    _ensure_value_metadata(ctx, slice_sizes_val)
 
         ends_val = ctx.builder.Add(
             starts_concat,
@@ -190,7 +190,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         )
         ends_val.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(ends_val, (rank,))
-        _ensure_value_info(ctx, ends_val)
+        _ensure_value_metadata(ctx, ends_val)
 
         axes_val = _const_i64(ctx, list(range(rank)), "dyn_slice_axes")
 
@@ -216,5 +216,5 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
         if result_dtype is not None:
             result.type = ir.TensorType(result_dtype)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

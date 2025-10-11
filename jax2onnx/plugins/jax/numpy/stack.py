@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -155,7 +155,7 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
             if dtype_enum is not None:
                 unsqueezed.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(unsqueezed, tuple(out_shape))
-            _ensure_value_info(ctx, unsqueezed)
+            _ensure_value_metadata(ctx, unsqueezed)
             unsqueezed_vals.append(unsqueezed)
 
         out_var = eqn.outvars[0]
@@ -185,7 +185,7 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         else:
             result.type = out_spec.type
         _stamp_type_and_shape(result, tuple(out_shape_tuple))
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

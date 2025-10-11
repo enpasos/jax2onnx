@@ -9,7 +9,7 @@ import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
@@ -205,12 +205,12 @@ class CondPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
             )
-            _ensure_value_info(ctx, cond_val)
+            _ensure_value_metadata(ctx, cond_val)
         else:
             _stamp_type_and_shape(
                 cond_val, tuple(getattr(getattr(cond_var, "aval", None), "shape", ()))
             )
-            _ensure_value_info(ctx, cond_val)
+            _ensure_value_metadata(ctx, cond_val)
 
         branch_input_vals = [
             ctx.get_value_for_var(v, name_hint=ctx.fresh_name("cond_operand"))
@@ -220,7 +220,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 val, tuple(getattr(getattr(var, "aval", None), "shape", ()))
             )
-            _ensure_value_info(ctx, val)
+            _ensure_value_metadata(ctx, val)
 
         (true_jaxpr, true_consts), (false_jaxpr, false_consts) = _extract_branches(
             eqn.params
@@ -266,7 +266,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             if dtype_enum is not None:
                 out_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(out_val, tuple(getattr(aval, "shape", ()) or ()))
-            _ensure_value_info(ctx, out_val)
+            _ensure_value_metadata(ctx, out_val)
             ctx.bind_value_for_var(var, out_val)
 
     def _build_branch_graph(
@@ -300,7 +300,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 capture, tuple(getattr(getattr(inner_var, "aval", None), "shape", ()))
             )
-            _ensure_value_info(branch_ctx, capture)
+            _ensure_value_metadata(branch_ctx, capture)
             branch_ctx.bind_value_for_var(inner_var, capture)
             branch_inputs.append(capture)
 
@@ -320,7 +320,7 @@ class CondPlugin(PrimitiveLeafPlugin):
                     val.type = orig_type
             branch_outputs.append(val)
             _stamp_type_and_shape(val, tuple(getattr(out_var.aval, "shape", ())))
-            _ensure_value_info(branch_ctx, val)
+            _ensure_value_metadata(branch_ctx, val)
 
         branch_ctx.builder.outputs = branch_outputs
 

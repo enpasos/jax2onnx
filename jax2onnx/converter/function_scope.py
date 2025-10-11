@@ -185,12 +185,6 @@ class FunctionScope:
             name=self.name,
             opset_imports=opset_imports,
         )
-        value_info = list(self.ctx.builder.value_info)
-        if value_info:
-            if hasattr(g, "value_info"):
-                g.value_info = value_info
-            elif hasattr(g, "_value_info"):
-                g._value_info = value_info
         # Create the Function (domain/name must match the call-site)
         fn = ir.Function(
             domain=self.domain,

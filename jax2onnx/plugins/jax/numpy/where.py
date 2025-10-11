@@ -11,7 +11,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -192,7 +192,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             )
             cond_val.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
-            _ensure_value_info(ctx, cond_val)
+            _ensure_value_metadata(ctx, cond_val)
 
         target_dtype = np.promote_types(
             np.dtype(getattr(x_var.aval, "dtype", np.float32)),
@@ -225,7 +225,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         )
         result.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")
@@ -266,7 +266,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         )
         cast_val.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_info(ctx, cast_val)
+        _ensure_value_metadata(ctx, cast_val)
         return cast_val
 
     @classmethod

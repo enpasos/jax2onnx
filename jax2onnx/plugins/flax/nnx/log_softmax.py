@@ -14,7 +14,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 if TYPE_CHECKING:
@@ -148,7 +148,7 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
                 final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
 
         _stamp_type_and_shape(result, tuple(final_dims))
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")

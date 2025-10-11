@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
 
 
@@ -48,7 +48,7 @@ def _maybe_cast_input(
     cast_val.type = ir.TensorType(dtype_enum)
     cast_val.shape = tensor.shape
     _stamp_type_and_shape(cast_val, tuple(aval_shape))
-    _ensure_value_info(ctx, cast_val)
+    _ensure_value_metadata(ctx, cast_val)
     return cast_val
 
 
@@ -114,7 +114,7 @@ def lower_reduction(
     result.shape = ir.Shape(out_shape)
     _stamp_type_and_shape(result, out_shape)
 
-    _ensure_value_info(ctx, result)
+    _ensure_value_metadata(ctx, result)
     ctx.bind_value_for_var(out_var, result)
 
 
@@ -159,7 +159,7 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
     reduce_out.type = ir.TensorType(ir.DataType.INT64)
     reduce_out.shape = ir.Shape(tuple(out_shape))
     _stamp_type_and_shape(reduce_out, out_shape)
-    _ensure_value_info(ctx, reduce_out)
+    _ensure_value_metadata(ctx, reduce_out)
 
     if mode == "reduce_xor":
         two_const = _scalar_i64(ctx, 2, f"{mode}_two")
@@ -172,7 +172,7 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
         mod_out.type = ir.TensorType(ir.DataType.INT64)
         mod_out.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(mod_out, out_shape)
-        _ensure_value_info(ctx, mod_out)
+        _ensure_value_metadata(ctx, mod_out)
 
         one_const = _scalar_i64(ctx, 1, f"{mode}_one")
         result = ctx.builder.Equal(
@@ -183,7 +183,7 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
         result.type = ir.TensorType(ir.DataType.BOOL)
         result.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
         return
     else:
@@ -195,5 +195,5 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
         result.type = ir.TensorType(ir.DataType.BOOL)
         result.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

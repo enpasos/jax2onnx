@@ -63,7 +63,8 @@ That’s it. The contract is tiny and uniform across all primitives.
 To keep conversions portable across `onnx_ir` variants, every plugin lowering must observe these project-wide rules:
 
 - **Builder-first**: emit ops via `ctx.builder` (see [ONNX IR Builder Guide](dev_guides/onnx_ir_builder.md)). `_outputs` must always be a sequence; constants come from `builder.initializer(...)` or `ctx.bind_const_for_var(...)`.
-- **Metadata stamping**: after every builder call, stamp dtype/shape on the produced value and register it with `_ensure_value_info(...)` so downstream eqns see consistent metadata.
+- **Metadata stamping**: after every builder call, stamp dtype/shape on the produced value and run `_ensure_value_metadata(...)` to normalize the `ir.Value` metadata (there is no separate `value_info` registry).
+  *Legacy reminder:* the converter removed `builder.value_info`; all shape/type metadata must travel with the values themselves.
 - **Single-use RNG / module construction**: never seed at import time. Expose stochastic callables with `construct_and_call(...).with_rng_seed(...)` / `.with_requested_dtype(...)` so the test harness can rebuild modules for both f32/f64 variants without clashes (see `AGENTS.md`).
 - **No protobuf in converters/plugins**: only the top-level adapters touch `onnx` (protobuf types). Policy tests under `tests/extra_tests` enforce this.
 

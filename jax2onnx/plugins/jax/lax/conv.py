@@ -9,7 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -165,7 +165,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             if lhs_dtype is not None:
                 transposed.type = ir.TensorType(lhs_dtype)
             _stamp_type_and_shape(transposed, tuple(lhs_shape[i] for i in perm))
-            _ensure_value_info(ctx, transposed)
+            _ensure_value_metadata(ctx, transposed)
             canonical_input = transposed
 
         canonical_kernel = rhs_val
@@ -180,7 +180,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             if rhs_dtype is not None:
                 transposed.type = ir.TensorType(rhs_dtype)
             _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
-            _ensure_value_info(ctx, transposed)
+            _ensure_value_metadata(ctx, transposed)
             canonical_kernel = transposed
 
         need_output_transpose = out_layout != "NCHW"
@@ -257,7 +257,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             conv_shape_intermediate = tuple(out_shape)
         conv_result.type = ir.TensorType(conv_dtype_enum)
         _stamp_type_and_shape(conv_result, conv_shape_intermediate)
-        _ensure_value_info(ctx, conv_result)
+        _ensure_value_metadata(ctx, conv_result)
 
         if need_output_transpose:
             perm_back = _perm("NCHW", out_layout)
@@ -269,7 +269,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             )
             final_val.type = ir.TensorType(conv_dtype_enum)
             _stamp_type_and_shape(final_val, out_shape)
-            _ensure_value_info(ctx, final_val)
+            _ensure_value_metadata(ctx, final_val)
             ctx.bind_value_for_var(out_var, final_val)
         else:
             ctx.bind_value_for_var(out_var, conv_result)

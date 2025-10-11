@@ -13,7 +13,7 @@ from jax import core as jax_core
 from jax import lax
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
@@ -72,7 +72,7 @@ def _set_value_dtype_from_var(ctx, value: ir.Value, var) -> None:
         value.type = ir.TensorType(dtype_enum, getattr(value, "shape", None))
     except Exception:
         value.type = ir.TensorType(dtype_enum)
-    _ensure_value_info(ctx, value)
+    _ensure_value_metadata(ctx, value)
 
 
 def _maybe_cast_value(
@@ -87,7 +87,7 @@ def _maybe_cast_value(
         target_enum,
         name_hint="scan_dtype_fix",
     )
-    _ensure_value_info(ctx, cast_val)
+    _ensure_value_metadata(ctx, cast_val)
     return cast_val
 
 
@@ -624,7 +624,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         target_enum,
                         name_hint="scan_out_cast",
                     )
-                    _ensure_value_info(ctx, cast_val)
+                    _ensure_value_metadata(ctx, cast_val)
                     node_outputs[out_idx] = cast_val
                     try:
                         ctx.builder._var2val[var] = cast_val
@@ -857,7 +857,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         expected_enum,
                         name_hint="scan_state_cast",
                     )
-                    _ensure_value_info(ctx, top_val)
+                    _ensure_value_metadata(ctx, top_val)
             inbound_vals.append(top_val)
         node_inputs.extend(inbound_vals)
 
@@ -960,7 +960,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             tmpl_shape = getattr(template, "shape", None)
             if tmpl_shape is not None:
                 produced.shape = tmpl_shape
-            _ensure_value_info(ctx, produced)
+            _ensure_value_metadata(ctx, produced)
 
         const_count = len(const_body_outs)
         carry_count = num_carry
@@ -1123,7 +1123,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     if keep_float32:
                         target_enum = ir.DataType.FLOAT
                     per_step_val.type = ir.TensorType(target_enum)
-                    _ensure_value_info(loop_ctx, per_step_val)
+                    _ensure_value_metadata(loop_ctx, per_step_val)
                     loop_ctx.bind_value_for_var(per_step_var, per_step_val)
 
         lower_jaxpr_eqns(loop_ctx, jaxpr)
@@ -1271,7 +1271,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         expected_enum,
                         name_hint="scan_state_cast",
                     )
-                    _ensure_value_info(ctx, top_val)
+                    _ensure_value_metadata(ctx, top_val)
             inbound_vals.append(top_val)
         node_inputs.extend(inbound_vals)
 
@@ -1383,7 +1383,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             tmpl_shape = getattr(template, "shape", None)
             if tmpl_shape is not None:
                 produced.shape = tmpl_shape
-            _ensure_value_info(ctx, produced)
+            _ensure_value_metadata(ctx, produced)
 
         const_count = len(const_body_outs)
         carry_count = num_carry

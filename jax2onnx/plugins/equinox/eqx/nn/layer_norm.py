@@ -14,7 +14,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
-    _ensure_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -124,7 +124,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
         if x_dtype is not None:
             result.type = ir.TensorType(x_dtype)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

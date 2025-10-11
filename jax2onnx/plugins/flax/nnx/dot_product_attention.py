@@ -11,7 +11,7 @@ from jax.extend.core import Primitive
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import (
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -249,7 +249,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         q_t.type = ir.TensorType(_dtype_enum_from_value(q_val))
         _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
-        _add_value_info(ctx, q_t)
+        _ensure_value_metadata(ctx, q_t)
 
         k_t = builder.Transpose(
             k_val,
@@ -258,7 +258,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         k_t.type = ir.TensorType(_dtype_enum_from_value(k_val))
         _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_i, k_len_i))
-        _add_value_info(ctx, k_t)
+        _ensure_value_metadata(ctx, k_t)
 
         logits = builder.MatMul(
             q_t,
@@ -267,7 +267,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         logits.type = ir.TensorType(_dtype_enum_from_value(q_val))
         _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
-        _add_value_info(ctx, logits)
+        _ensure_value_metadata(ctx, logits)
 
         scale = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("dpa_scale"),
@@ -281,7 +281,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         scaled.type = ir.TensorType(_dtype_enum_from_value(logits))
         _stamp_type_and_shape(scaled, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
-        _add_value_info(ctx, scaled)
+        _ensure_value_metadata(ctx, scaled)
 
         current_logits: ir.Value = scaled
 
@@ -301,7 +301,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             biased.type = ir.TensorType(_dtype_enum_from_value(current_logits))
             _stamp_type_and_shape(biased, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
-            _add_value_info(ctx, biased)
+            _ensure_value_metadata(ctx, biased)
             current_logits = biased
 
         if has_mask and mask_var is not None:
@@ -325,10 +325,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 )
                 mask_val = mask_bool
                 _stamp_type_and_shape(mask_val, mask_dims_tuple)
-                _add_value_info(ctx, mask_val)
+                _ensure_value_metadata(ctx, mask_val)
             else:
                 _stamp_type_and_shape(mask_val, mask_dims_tuple)
-                _add_value_info(ctx, mask_val)
+                _ensure_value_metadata(ctx, mask_val)
 
             fill_value = ctx.builder.add_initializer_from_scalar(
                 name=ctx.fresh_name("dpa_mask_fill"),
@@ -345,7 +345,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
             )
-            _add_value_info(ctx, masked_logits)
+            _ensure_value_metadata(ctx, masked_logits)
             current_logits = masked_logits
 
         weights = builder.Softmax(
@@ -355,7 +355,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         weights.type = ir.TensorType(_dtype_enum_from_value(current_logits))
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
-        _add_value_info(ctx, weights)
+        _ensure_value_metadata(ctx, weights)
 
         call_param_values = getattr(ctx, "_call_param_value_by_name", {}) or {}
         det_input = call_param_values.get("deterministic")
@@ -368,7 +368,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             training_mode.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(training_mode, ())
-            _add_value_info(ctx, training_mode)
+            _ensure_value_metadata(ctx, training_mode)
             ratio_val = ctx.builder.add_initializer_from_scalar(
                 name=ctx.fresh_name("dpa_dropout_ratio"),
                 value=np.asarray(dropout_rate, dtype=np.float32),
@@ -383,7 +383,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 dropped_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
             )
-            _add_value_info(ctx, dropped_weights)
+            _ensure_value_metadata(ctx, dropped_weights)
             weights = dropped_weights
 
         v_t = builder.Transpose(
@@ -393,7 +393,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         v_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
         _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_i))
-        _add_value_info(ctx, v_t)
+        _ensure_value_metadata(ctx, v_t)
 
         out_t = builder.MatMul(
             weights,
@@ -402,7 +402,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         out_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
         _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
-        _add_value_info(ctx, out_t)
+        _ensure_value_metadata(ctx, out_t)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
         result = builder.Transpose(
@@ -412,7 +412,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         result.type = ir.TensorType(_dtype_enum_from_value(v_val))
         _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

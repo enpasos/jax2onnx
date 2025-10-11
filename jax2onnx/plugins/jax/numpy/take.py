@@ -11,7 +11,7 @@ import onnx_ir as ir
 from flax import nnx
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
@@ -62,7 +62,7 @@ def _as_int64(
     current_dtype = getattr(current_type, "dtype", None)
     if current_dtype == ir.DataType.INT64:
         _stamp_type_and_shape(value, shape)
-        _ensure_value_info(ctx, value)
+        _ensure_value_metadata(ctx, value)
         return value
 
     cast_val = ctx.builder.Cast(
@@ -72,7 +72,7 @@ def _as_int64(
     )
     cast_val.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(cast_val, shape)
-    _ensure_value_info(ctx, cast_val)
+    _ensure_value_metadata(ctx, cast_val)
     return cast_val
 
 
@@ -170,7 +170,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         result.type = ir.TensorType(getattr(arr_val.type, "dtype", ir.DataType.FLOAT))
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

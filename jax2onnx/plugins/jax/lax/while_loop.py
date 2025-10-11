@@ -11,7 +11,7 @@ import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
@@ -204,7 +204,7 @@ def _evaluate_closed_jaxpr(
             )
             out_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(out_val, shape)
-            _ensure_value_info(ctx, out_val)
+            _ensure_value_metadata(ctx, out_val)
         outputs.append(out_val)
     return outputs
 
@@ -282,7 +282,7 @@ def _build_loop_body_graph(
             )
             out_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(out_val, shape)
-            _ensure_value_info(body_ctx, out_val)
+            _ensure_value_metadata(body_ctx, out_val)
 
     for var, val in zip(cond_jaxpr.invars, state_outputs):
         body_ctx.bind_value_for_var(var, val)
@@ -303,7 +303,7 @@ def _build_loop_body_graph(
         dims = getattr(getattr(tmpl_val, "shape", IRShape(())), "dims", None)
         tuple_dims = tuple(dims) if dims is not None else tuple()
         _stamp_type_and_shape(passthrough, tuple_dims)
-        _ensure_value_info(body_ctx, passthrough)
+        _ensure_value_metadata(body_ctx, passthrough)
         const_outputs.append(passthrough)
 
     body_ctx.builder.outputs = [cond_out] + const_outputs + state_outputs
@@ -582,7 +582,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
             tuple_dims = tuple(dims) if dims is not None else tuple()
             _stamp_type_and_shape(const_out, tuple_dims)
-            _ensure_value_info(ctx, const_out)
+            _ensure_value_metadata(ctx, const_out)
 
         for var, val in zip(eqn.outvars, value_outputs):
             aval = getattr(var, "aval", None)
@@ -595,7 +595,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             )
             val.type = ir.TensorType(dtype)
             _stamp_type_and_shape(val, shape)
-            _ensure_value_info(ctx, val)
+            _ensure_value_metadata(ctx, val)
             ctx.bind_value_for_var(var, val)
 
         if eqn.invars and all(_is_literal(v) for v in eqn.invars):
@@ -621,5 +621,5 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                     name_hint="while_int64",
                 )
                 _stamp_type_and_shape(promoted, tuple(getattr(aval, "shape", ())))
-                _ensure_value_info(ctx, promoted)
+                _ensure_value_metadata(ctx, promoted)
                 ctx.bind_value_for_var(var, promoted)

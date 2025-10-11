@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -80,7 +80,7 @@ class SortPlugin(PrimitiveLeafPlugin):
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         _stamp_type_and_shape(values, out_shape)
-        _ensure_value_info(ctx, values)
+        _ensure_value_metadata(ctx, values)
 
         result_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
         result = ctx.builder.Identity(
@@ -90,5 +90,5 @@ class SortPlugin(PrimitiveLeafPlugin):
         if arr_dtype is not None:
             result.type = ir.TensorType(arr_dtype)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

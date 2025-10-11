@@ -8,7 +8,7 @@ from jax import lax
 import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import (
-    _ensure_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
@@ -112,5 +112,5 @@ class TransposePlugin(PrimitiveLeafPlugin):
                 result, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
             )
 
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(y_var, result)
