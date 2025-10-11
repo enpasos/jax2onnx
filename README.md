@@ -112,7 +112,7 @@ to_onnx(
  
 * **Upcoming**
 
-  * Advanced ONNX function support, including function reuse, optimized internal graph structure, and improved variable naming for clarity and readability
+  * Advanced ONNX function support, including function reuse, and improved variable naming
 
 
 
