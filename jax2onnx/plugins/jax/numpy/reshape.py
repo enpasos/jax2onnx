@@ -59,7 +59,7 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         }
     ],
-    since="v0.9.0",
+    since="v0.1.0",
     context="primitives.jnp",
     component="reshape",
     testcases=[

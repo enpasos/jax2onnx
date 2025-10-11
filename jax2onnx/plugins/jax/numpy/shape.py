@@ -36,7 +36,7 @@ def _shape_eval(x):
     onnx=[
         {"component": "Shape", "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html"}
     ],
-    since="v0.9.0",
+    since="v0.4.0",
     context="primitives.jnp",
     component="shape",
     testcases=[

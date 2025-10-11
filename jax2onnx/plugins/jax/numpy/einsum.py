@@ -38,7 +38,7 @@ def _einsum_shape(avals, equation: str):
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
         }
     ],
-    since="v0.9.0",
+    since="v0.1.0",
     context="primitives.jnp",
     component="einsum",
     testcases=[

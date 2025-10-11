@@ -35,7 +35,7 @@ def _sort_eval(x, axis=-1):
     onnx=[
         {"component": "Sort", "doc": "https://onnx.ai/onnx/operators/onnx__Sort.html"}
     ],
-    since="v0.9.0",
+    since="v0.5.2",
     context="primitives.jnp",
     component="sort",
     testcases=[

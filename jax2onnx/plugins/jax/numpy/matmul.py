@@ -39,7 +39,7 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         }
     ],
-    since="v0.9.0",
+    since="v0.1.0",
     context="primitives.jnp",
     component="matmul",
     testcases=[

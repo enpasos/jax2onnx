@@ -85,7 +85,7 @@ def _as_int64(
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="v0.9.0",
+    since="v0.7.0",
     context="primitives.jnp",
     component="take",
     testcases=[

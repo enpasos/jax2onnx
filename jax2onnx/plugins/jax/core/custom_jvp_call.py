@@ -39,7 +39,7 @@ def _square_jvp(primals, tangents):
     jaxpr_primitive="custom_jvp_call",
     jax_doc="Generic passthrough for custom JVP calls",
     onnx=[],
-    since="v0.9.0",
+    since="v0.7.1",
     context="primitives.core",
     component="custom_jvp_generic",
     testcases=[

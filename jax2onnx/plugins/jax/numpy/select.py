@@ -35,7 +35,7 @@ def _promote_dtype(*dtypes):
     onnx=[
         {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
     ],
-    since="v0.9.0",
+    since="v0.7.1",
     context="primitives.jnp",
     component="select",
     testcases=[
