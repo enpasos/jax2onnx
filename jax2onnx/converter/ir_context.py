@@ -606,8 +606,7 @@ class IRContext:
                         and current_enum.is_floating_point()
                     )
                     keep_int64 = (
-                        target_enum.is_integer()
-                        and current_enum == ir.DataType.INT64
+                        target_enum.is_integer() and current_enum == ir.DataType.INT64
                     )
                     if promote_float:
                         target_enum = current_enum

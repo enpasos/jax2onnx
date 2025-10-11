@@ -9,6 +9,7 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
+
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     """
     Map numpy dtype to onnx_ir.DataType.
