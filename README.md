@@ -103,17 +103,11 @@ to_onnx(
 
 ## 📅 Roadmap and Releases
 
-### **Planned Versions**
+### **Planned**
 
-* **Ongoing**
-
-  * Expanding coverage of JAX, Flax (NNX) and Equinox components
+  * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
- 
-* **Upcoming**
-
   * Advanced ONNX function support, including function reuse, and improved variable naming
-
 
 
 ### **Upcoming Version**
