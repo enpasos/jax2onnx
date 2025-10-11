@@ -7,16 +7,16 @@
 
 ## ✨ Key Features
 
-- **Simple API**  
+- **simple API**  
   Easily convert JAX callables—including Flax NNX and Equinox models—into ONNX format using `to_onnx(...)`.
 
-- **Model structure preserved**  
+- **model structure preserved**  
   With `@onnx_function`, submodules appear as named functions in the ONNX graph (e.g. in Netron). Useful for readability and reuse.
 
-- **Dynamic input support**  
+- **dynamic input support**  
   Use abstract dimensions like `'B'` or pass scalars as runtime inputs. Models stay flexible without retracing.
 
-- **Plugin-based extensibility**  
+- **plugin-based extensibility**  
   Add support for new primitives by writing small, local plugins.
 
 - **onnx-ir native pipeline**  
