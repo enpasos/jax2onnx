@@ -108,27 +108,6 @@ class _InitializerProxy(MutableSequence[ir.Value]):
 
 # ---- literal + dtype bookkeeping -------------------------------------------------
 _LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
-_FLOAT_TYPE_NAMES: tuple[str, ...] = ("FLOAT", "DOUBLE", "FLOAT16", "BFLOAT16")
-_FLOAT_DTYPES: set[ir.DataType] = {
-    ir.DataType.__members__[name]
-    for name in _FLOAT_TYPE_NAMES
-    if name in ir.DataType.__members__
-}
-_INT_TYPE_NAMES: tuple[str, ...] = (
-    "INT8",
-    "INT16",
-    "INT32",
-    "INT64",
-    "UINT8",
-    "UINT16",
-    "UINT32",
-    "UINT64",
-)
-_INT_DTYPES: set[ir.DataType] = {
-    ir.DataType.__members__[name]
-    for name in _INT_TYPE_NAMES
-    if name in ir.DataType.__members__
-}
 
 
 # ---- shape coercion: int stays int; otherwise stringify (safe for onnx_ir) --------
@@ -145,14 +124,6 @@ def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
     return ir.Shape(tuple(out))
 
 
-def _is_float_dtype_enum(enum: ir.DataType) -> bool:
-    return enum in _FLOAT_DTYPES
-
-
-def _is_int_dtype_enum(enum: ir.DataType) -> bool:
-    return enum in _INT_DTYPES
-
-
 def _maybe_attr(obj: Any, attr: str) -> Any | None:
     if obj is None:
         return None
@@ -167,13 +138,6 @@ def _maybe_attr(obj: Any, attr: str) -> Any | None:
             return getattr(obj, attr)
         except Exception:
             return None
-
-
-def _maybe_str_attr(obj: Any, attr: str) -> Optional[str]:
-    value = _maybe_attr(obj, attr)
-    if isinstance(value, str) and value:
-        return value
-    return None
 
 
 def _maybe_literal_value(literal: Any) -> Any | None:
@@ -633,17 +597,16 @@ class IRContext:
                 if target_enum != current_enum:
                     promote_float = (
                         self.builder.enable_double_precision
-                        and _is_float_dtype_enum(target_enum)
-                        and _is_float_dtype_enum(current_enum)
+                        and target_enum.is_floating_point()
+                        and current_enum.is_floating_point()
                     )
                     downcast_float = (
                         not self.builder.enable_double_precision
-                        and _is_float_dtype_enum(target_enum)
-                        and _is_float_dtype_enum(current_enum)
+                        and target_enum.is_floating_point()
+                        and current_enum.is_floating_point()
                     )
                     keep_int64 = (
-                        _is_int_dtype_enum(target_enum)
-                        and _is_int_dtype_enum(current_enum)
+                        target_enum.is_integer()
                         and current_enum == ir.DataType.INT64
                     )
                     if promote_float:
@@ -687,10 +650,6 @@ class IRContext:
             self.builder.add_opset_import(domain, version)
 
     def to_model_proto(self, *, name: str, ir_version: int = 10) -> ir.Model:
-        if hasattr(self.builder, "to_model_proto"):
-            result = self.builder.to_model_proto(name=name, ir_version=ir_version)
-            if isinstance(result, ir.Model):
-                return result
         return self.builder.to_ir_model(name=name, ir_version=ir_version)
 
 
