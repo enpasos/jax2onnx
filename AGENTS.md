@@ -7,7 +7,7 @@ This page is the quick briefing for automated agents (or humans) dropping into t
 ## Project Snapshot
 
 - **Pipeline:** Everything runs through the IR-only converter. `converter/` builds `onnx_ir` graphs; `plugins/` land primitive-specific lowering; `tests/` cover both policy and regression cases.
-- **Docs map:** Start with `docs/design.md` for the architecture overview. Technical playbooks live under `docs/dev_guides/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, etc.). Release assets, coverage tables, and images are under `docs/readme/`.
+- **Docs map:** Start with `docs/design.md` for the architecture overview. Technical playbooks live under `docs/dev_guides/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, reflection guardrails, etc.). Release assets, coverage tables, and images are under `docs/readme/`.
 - **Tooling:** Python 3.11+, Poetry, Ruff (lint + format), mypy, pytest. Supported runtime stack is **JAX ≥0.7.2** and **Flax/NNX ≥0.12.0**.
 - **Recent heads-up (2025-10-02):**
   - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under JAX 0.7.
