@@ -114,7 +114,7 @@ to_onnx(
  
 * **0.9.0**:
 
-  * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py).
+  * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py), slashing peak memory during conversion—especially noticeable on large models.
   * added a `return_mode` option in `to_onnx`:
 
     * `"proto"` (default) → returns an `onnx.ModelProto`
