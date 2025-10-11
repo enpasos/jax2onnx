@@ -75,17 +75,21 @@ def parse_pytest_results() -> dict[tuple[str, str, str], str]:
         if len(partAs) < 2 or partAs[1] not in {"examples", "primitives"}:
             continue
 
-        testcase_name = (
-            partC.replace("test_", "") if partC.startswith("test_") else partC
-        )
+        if partC.startswith("test_"):
+            testcase_name = partC[len("test_") :]
+        else:
+            testcase_name = partC
         situation = partAs[1]  # "examples" or "primitives"
         context = partAs[-1]
-        context = (
-            context.replace("test_", "") if context.startswith("test_") else context
-        )
-        context = context.replace(".py", "") if context.endswith(".py") else context
+        if context.startswith("test_"):
+            context = context[len("test_") :]
+        if context.endswith(".py"):
+            context = context[: -len(".py")]
         context = situation + "." + context
-        plugin = partB.replace("Test_", "") if partB.startswith("Test_") else partB
+        if partB.startswith("Test_"):
+            plugin = partB[len("Test_") :]
+        else:
+            plugin = partB
 
         status = "✅" if test["outcome"] == "passed" else "❌"
         key = (context, plugin, testcase_name)
