@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import onnx
 
 from flax import nnx
@@ -58,6 +60,14 @@ class TestQuickstart:
         graph = loaded.graph
         assert len(graph.input) == 1
         assert len(graph.output) == 1
+
+    def test_quickstart_docs_models_exist(self):
+        docs_dir = Path(__file__).resolve().parents[2] / "docs" / "onnx"
+        for filename in ("my_callable.onnx", "model_with_function.onnx"):
+            onnx_path = docs_dir / filename
+            assert onnx_path.exists(), f"{onnx_path} is missing"
+            loaded = onnx.load(onnx_path)
+            onnx.checker.check_model(loaded)
 
 
 class TestQuickstartFunctions:

@@ -24,5 +24,5 @@ my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 # Convert to ONNX
 onnx_model = to_onnx(my_callable, [("B", 30)])
 
-# Save the model
+# Save the model in the repo docs folder
 onnx.save_model(onnx_model, "docs/onnx/my_callable.onnx")
