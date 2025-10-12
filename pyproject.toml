@@ -19,6 +19,7 @@ dependencies = [
     "einops>=0.8.1",
     "equinox>=0.13.1",
     "onnx-ir>=0.1.10",
+    "onnxscript>=0.5.3"
 ]
 
 [tool.poetry.group.test]

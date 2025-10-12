@@ -1,6 +1,7 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
 from typing import TYPE_CHECKING, Any, Final, Optional, Set
+import os
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -296,7 +297,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         bdims = tuple(eqn.params["broadcast_dimensions"])
 
         hints = getattr(ctx, "_scatter_window_hints", None)
-        allow_hints = bool(bdims)
+        allow_hints = bool(hints)
+        debug_hints = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
         op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
@@ -314,6 +316,18 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 return None
             return values[-1]
 
+        if debug_hints:
+            print(
+                "[broadcast_in_dim]",
+                dict(
+                    shape=shape,
+                    bdims=bdims,
+                    allow_hints=allow_hints,
+                    hint_axes=list(hints.keys()) if isinstance(hints, dict) else None,
+                ),
+                flush=True,
+            )
+
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
@@ -321,6 +335,15 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             if allow_hints and hints and axis not in bdims:
                 override_val = _peek_scatter_hint(axis)
                 if override_val is not None:
+                    if debug_hints:
+                        print(
+                            "[broadcast_in_dim::target]",
+                            dict(
+                                axis=axis,
+                                override=getattr(override_val, "name", None),
+                            ),
+                            flush=True,
+                        )
                     dim_pieces.append(override_val)
                     continue
             if isinstance(d, (int, np.integer)):
@@ -401,6 +424,15 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 if allow_hints and hints and axis not in bdims:
                     override_val = _peek_scatter_hint(axis)
                 if override_val is not None:
+                    if debug_hints:
+                        print(
+                            "[broadcast_in_dim::reshape]",
+                            dict(
+                                axis=axis,
+                                override=getattr(override_val, "name", None),
+                            ),
+                            flush=True,
+                        )
                     reshape_dim_pieces.append(override_val)
                     continue
                 reshape_dim_pieces.append(
