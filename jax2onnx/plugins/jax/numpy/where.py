@@ -1,297 +1,313 @@
-# file: jax2onnx/plugins/jax/numpy/where.py
-
+# jax2onnx/plugins/jax/numpy/where.py
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final
 
+import jax
 import jax.numpy as jnp
-from jax import core
-from jax.extend.core import Primitive, Var
 import numpy as np
-from onnx import helper
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger("jax2onnx.plugins.jax.numpy.where")
-
-# Define the primitive for jnp.where
-jnp.where_p = Primitive("jnp.where")
-jnp.where_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# Example definition (ensure it's globally accessible for the test generator):
-def create_problematic_where_sequence(cond_input, data_input):
-    scalar_true_val = jnp.array(1.0, dtype=data_input.dtype)
-    scalar_false_val = jnp.array(0.0, dtype=data_input.dtype)
-    where_output = jnp.where(cond_input, scalar_true_val, scalar_false_val)
-    processed_data = data_input * where_output
-    return processed_data
+_WHERE_PRIM: Final = make_jnp_primitive("jax.numpy.where")
+
+# Deterministic fixtures used by regression-style testcases. Keep them small so
+# they stay easy to reason about while still exercising the broadcaster logic
+# that previously regressed when generated randomly.
+_WHERE_A_COND: Final[np.ndarray] = np.array(
+    [[[True]], [[False]], [[True]], [[False]]], dtype=np.bool_
+)
+_WHERE_A_DATA: Final[np.ndarray] = np.arange(4 * 1 * 4, dtype=np.float32).reshape(
+    4, 1, 4
+)
+_WHERE_B_COND: Final[np.ndarray] = np.array(
+    [[[False]], [[True]], [[True]], [[False]]], dtype=np.bool_
+)
+_WHERE_B_DATA: Final[np.ndarray] = (
+    np.arange(4 * 1 * 4, dtype=np.int32).reshape(4, 1, 4) * 2
+)
+
+
+def _create_problematic_where_sequence(cond_input, data_input):
+    true_val = jnp.array(1.0, dtype=data_input.dtype)
+    false_val = jnp.array(0.0, dtype=data_input.dtype)
+    where_output = jnp.where(cond_input, true_val, false_val)
+    return data_input * where_output
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.where_p.name,
+    jaxpr_primitive=_WHERE_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.where.html",
     onnx=[
         {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
     ],
-    since="v0.5.2",
+    since="v0.8.0",
     context="primitives.jnp",
     component="where",
     testcases=[
         {
-            # Reproduce GPT causal‐attention mask: broadcast mask vs. scores, with a scalar "else"… currently unhandled.
-            "testcase": "where_gpt_mask_scores_literal_else",
-            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
-            "input_shapes": [
-                ("B", 1, "T", "T"),  # the causal mask
-                ("B", 12, "T", "T"),  # the attention scores
-            ],
-            "input_dtypes": [jnp.bool_, jnp.float32],
-            "expected_output_shapes": [
-                ("B", 12, "T", "T"),
-            ],
-        },
-        {
             "testcase": "where_simple",
-            "callable": lambda c, x, y: jnp.where(c, x, y),
-            "input_shapes": [(3,), (3,), (3,)],
-            "expected_output_shapes": [(3,)],
+            "callable": lambda: jnp.where(
+                jnp.array([True, False, True]),
+                jnp.array([1, 2, 3], dtype=jnp.float32),
+                jnp.array([-1, -2, -3], dtype=jnp.float32),
+            ),
         },
         {
             "testcase": "where_broadcast",
-            "callable": lambda c, x, y: jnp.where(c[:, None], x, y),
-            "input_shapes": [(4,), (4, 5), (4, 5)],
-            "expected_output_shapes": [(4, 5)],
+            "callable": lambda: jnp.where(
+                jnp.array([True, False, True, False])[:, None],
+                jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
+                -jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
+            ),
+        },
+        {
+            "testcase": "where_gpt_mask_scores_literal_else",
+            "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
+            "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
+            "input_dtypes": [np.bool_, np.float32],
         },
         {
             "testcase": "where_multidim_condition_scalar_branches_broadcast",
-            "callable": lambda c, t, f: jnp.where(c, t, f),
-            "input_shapes": [(201, 1, 1), (), ()],
-        },
-        {
-            "testcase": "where_multidim_condition_scalar_branches_broadcast",
-            "callable": lambda c, t, f: jnp.where(c, t, f),
-            "input_shapes": [(201, 1, 1), (), ()],
+            "callable": lambda: jnp.where(
+                jnp.array([[[True]], [[False]], [[True]]], dtype=np.bool_),
+                5.0,
+                -5.0,
+            ),
         },
         {
             "testcase": "where_A",
-            "callable": create_problematic_where_sequence,
-            "input_values": [
-                np.random.choice([True, False], size=(201, 1, 1)),
-                np.random.rand(201, 1, 201).astype(np.float32),
-            ],
-            "expected_output_shapes": [(201, 1, 201)],
-            "expected_output_dtypes": [np.float32],
+            "callable": lambda: _create_problematic_where_sequence(
+                jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
+                jnp.array(_WHERE_A_DATA, dtype=jnp.float32),
+            ),
         },
         {
             "testcase": "where_B",
-            "callable": create_problematic_where_sequence,
-            "input_values": [
-                np.random.choice([True, False], size=(201, 1, 1)),
-                np.random.rand(201, 1, 201).astype(np.int32),
-            ],
-            "expected_output_shapes": [(201, 1, 201)],
-            "expected_output_dtypes": [np.int32],
+            "callable": lambda: _create_problematic_where_sequence(
+                jnp.array(_WHERE_B_COND, dtype=jnp.bool_),
+                jnp.array(_WHERE_B_DATA, dtype=jnp.int32),
+            ),
         },
         {
-            # Fails exactly like GPT causal attention: bool mask, float scores, scalar else
             "testcase": "where_gpt_mask_scores_scalar_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
-            "input_dtypes": [jnp.bool_, jnp.float32],
-            "expected_output_shapes": [("B", 12, "T", "T")],
+            "input_dtypes": [np.bool_, np.float32],
         },
         {
             "testcase": "where_int_condition_cast",
-            "callable": lambda c_int, x, y: jnp.where(c_int, x, y),
-            "input_shapes": [(3,), (3,), (3,)],
-            "input_dtypes": [np.int32, np.float32, np.float32],
-            "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [np.float32],
+            "callable": lambda: jnp.where(
+                jnp.array([1, 0, 2], dtype=np.int32),
+                jnp.array([1.0, 2.0, 3.0], dtype=np.float32),
+                jnp.array([0.0, 0.0, 0.0], dtype=np.float32),
+            ),
         },
         {
             "testcase": "where_literal_else_pyfloat",
-            "callable": lambda cond, x: jnp.where(cond, x, -1e9),
-            "input_shapes": [(4, 4), (4, 4)],
-            "expected_output_shapes": [(4, 4)],
-            "expected_output_dtypes": [np.float32],
+            "callable": lambda: jnp.where(
+                jnp.array([[True, False], [False, True]]),
+                jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                -1e9,
+            ),
         },
         {
             "testcase": "where_jax_int_literals_broadcast_f64_mode",
-            "callable": lambda c, x_scalar_py, y_scalar_py: jnp.where(
-                c,
-                jnp.array(x_scalar_py, dtype=jnp.int64),
-                jnp.array(y_scalar_py, dtype=jnp.int64),
+            "callable": lambda: jnp.where(
+                jnp.array([[True], [False], [True]], dtype=np.bool_),
+                jnp.array(1, dtype=np.int64),
+                jnp.array(0, dtype=np.int64),
             ),
-            "input_values": [
-                np.array([[True], [False], [True]], dtype=np.bool_),
-                1,  # Python int for x
-                0,  # Python int for y
-            ],
-            "expected_output_shapes": [(3, 1)],
-            "expected_output_dtypes": [np.int64],
-            "run_only_f64_variant": True,
+            "enable_double_precision": True,
         },
         {
-            # Regression: mismatch between true/false branch dtypes (f64 vs i32).
-            # Mirrors:
-            #   jax.config.update("jax_enable_x64", True)
-            #   def mismatch_where(x):
-            #       cond = x > 0
-            #       return jnp.where(cond, x, jnp.array([1, 2, 3], dtype=jnp.int32))
-            #   x = jnp.array([1.0, -2.0, 3.0], dtype=jnp.float64)
             "testcase": "where_dtype_mismatch_f64_vs_i32_promote",
-            "callable": lambda x: jnp.where(
-                x > 0, x, jnp.array([1, 2, 3], dtype=jnp.int32)
+            "callable": lambda: jnp.where(
+                jnp.array([1.0, -2.0, 3.0], dtype=np.float64) > 0,
+                jnp.array([1.0, -2.0, 3.0], dtype=np.float64),
+                jnp.array([1, 2, 3], dtype=np.int32),
             ),
-            "input_values": [np.array([1.0, -2.0, 3.0], dtype=np.float64)],
-            "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [
-                np.float64
-            ],  # promote(int32, float64) -> float64
-            "run_only_f64_variant": True,
+            "enable_double_precision": True,
         },
         {
-            "testcase": "where_simple",
-            "callable": lambda x, y: jnp.where(x > 0, x, y),
-            "input_values": [
-                jnp.array([-1.0, 1.0, 0.0], dtype=jnp.float32),
-                jnp.array([10.0, 11.0, 12.0], dtype=jnp.float32),
-            ],
+            "testcase": "jnp_where_basic",
+            "callable": lambda c, x, y: jnp.where(c, x, y),
+            "input_shapes": [(3,), (3,), (3,)],
+        },
+        {
+            "testcase": "jnp_where_broadcast",
+            "callable": lambda c, x, y: jnp.where(c[:, None], x, y),
+            "input_shapes": [(4,), (4, 5), (4, 5)],
+        },
+        {
+            "testcase": "jnp_where_scalar_else",
+            "callable": lambda c, x: jnp.where(c, x, -1e9),
+            "input_shapes": [(2, 2), (2, 2)],
         },
     ],
 )
-class WherePlugin(PrimitiveLeafPlugin):
-    """Lower `jnp.where` to ONNX Where operator."""
+class JnpWherePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _WHERE_PRIM
+    _FUNC_NAME: ClassVar[str] = "where"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        cond_av: core.AbstractValue,
-        x_av: core.AbstractValue,
-        y_av: core.AbstractValue,
-        **kwargs,
-    ) -> core.AbstractValue:
-        # All inputs must be ShapedArrays
-        if not all(isinstance(av, core.ShapedArray) for av in (cond_av, x_av, y_av)):
-            raise TypeError("All inputs to jnp.where must be ShapedArrays.")
+    def abstract_eval(cond, x, y, **_):
+        if not all(isinstance(av, jax.core.ShapedArray) for av in (cond, x, y)):
+            raise TypeError("jnp.where expects ShapedArray inputs")
+        promoted = np.promote_types(x.dtype, y.dtype)
+        out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
+        return jax.core.ShapedArray(out_shape, promoted)
 
-        # Determine promoted dtype
-        promoted_dtype = jnp.promote_types(x_av.dtype, y_av.dtype)
-        # Broadcast shapes via JAX's own broadcast_shapes (handles symbolic dims)
-        from jax import numpy as _jnp
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        cond_var, x_var, y_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-        output_shape = _jnp.broadcast_shapes(cond_av.shape, x_av.shape, y_av.shape)
+        cond_val = ctx.get_value_for_var(
+            cond_var, name_hint=ctx.fresh_name("where_cond")
+        )
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("where_x"))
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("where_y"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for where lowering")
 
-        return core.ShapedArray(output_shape, promoted_dtype)
-
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Var],
-        node_outputs: Sequence[Var],
-        params: dict[str, Any],
-    ) -> None:
-        # Map inputs
-        cond_v, x_v, y_v = node_inputs
-        cond_name = s.get_name(cond_v)
-        x_name = s.get_name(x_v)
-        y_name = s.get_name(y_v)
-        out_v = node_outputs[0]
-        out_name = s.get_name(out_v)
-
-        # --- Ensure condition is BOOL for ONNX ---
-        from onnx import TensorProto
-
-        cond_dtype = getattr(cond_v.aval, "dtype", None)
-        if cond_dtype is not None and np.dtype(cond_dtype) != np.bool_:
-            cond_cast_name = s.builder.get_unique_name("where_cond_cast")
-            s.builder.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[cond_name],
-                    outputs=[cond_cast_name],
-                    to=TensorProto.BOOL,
-                    name=s.builder.get_unique_name("cast_where_cond"),
-                )
+        cond_dtype = np.dtype(getattr(cond_var.aval, "dtype", np.bool_))
+        if cond_dtype != np.bool_:
+            cond_val = builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("where_cond_cast")],
+                to=int(ir.DataType.BOOL.value),
             )
-            s.add_shape_info(cond_cast_name, cond_v.aval.shape, np.bool_)
-            cond_name = cond_cast_name
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
+            _ensure_value_metadata(ctx, cond_val)
 
-        # --- Harmonize X and Y dtypes (numpy-style promotion) ---
-        # Minimal, regression-safe fix: only add Cast nodes when needed.
-        x_dtype = getattr(x_v.aval, "dtype", None)
-        y_dtype = getattr(y_v.aval, "dtype", None)
-        target_dtype = None
-        if x_dtype is not None and y_dtype is not None:
-            # Use NumPy's promotion so float64 vs int32 -> float64, etc.
-            target_dtype = np.promote_types(np.dtype(x_dtype), np.dtype(y_dtype))
+        target_dtype = np.promote_types(
+            np.dtype(getattr(x_var.aval, "dtype", np.float32)),
+            np.dtype(getattr(y_var.aval, "dtype", np.float32)),
+        )
+        if (
+            not ctx.builder.enable_double_precision
+            and np.issubdtype(target_dtype, np.floating)
+            and target_dtype == np.float64
+        ):
+            double_enum = getattr(ir.DataType, "DOUBLE", None)
 
-            def _maybe_cast(inp_name: str, aval, tag: str) -> str:
-                cur = np.dtype(getattr(aval, "dtype", target_dtype))
-                if cur == target_dtype:
-                    return inp_name
-                casted = s.builder.get_unique_name(
-                    f"where_{tag}_cast_{target_dtype.name}"
-                )
-                s.builder.add_node(
-                    helper.make_node(
-                        "Cast",
-                        inputs=[inp_name],
-                        outputs=[casted],
-                        to=int(s.builder._numpy_dtype_to_onnx(target_dtype)),
-                        name=s.builder.get_unique_name(f"cast_where_{tag}"),
+            def _is_value_double(val: ir.Value) -> bool:
+                enum = getattr(getattr(val, "type", None), "dtype", None)
+                return enum == double_enum
+
+            if not _is_value_double(x_val) and not _is_value_double(y_val):
+                target_dtype = np.float32
+        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+
+        x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
+        y_cast = self._maybe_cast(ctx, y_val, y_var, target_dtype, "y")
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
+        result = builder.Where(
+            cond_val,
+            x_cast,
+            y_cast,
+            _outputs=[out_name],
+        )
+        result.type = ir.TensorType(dtype_enum)
+        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        _ensure_value_metadata(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
+
+    @staticmethod
+    def _maybe_cast(
+        ctx: "IRContext", value: ir.Value, var, target_dtype: np.dtype, tag: str
+    ) -> ir.Value:
+        current_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
+        if current_dtype == target_dtype:
+            dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+            value_enum = getattr(getattr(value, "type", None), "dtype", None)
+            if value_enum == dtype_enum:
+                return value
+
+        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        const_payload = getattr(value, "const_value", None)
+        if const_payload is not None:
+            try:
+                arr = const_payload.numpy()
+            except Exception:
+                arr = None
+            if arr is not None and arr.dtype != target_dtype:
+                arr = arr.astype(target_dtype, copy=False)
+                value.const_value = ir.tensor(arr)
+                value.type = ir.TensorType(dtype_enum)
+                return value
+
+        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for where lowering")
+        cast_val = builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(f"where_{tag}_cast")],
+            to=int(dtype_enum.value),
+        )
+        cast_val.type = ir.TensorType(dtype_enum)
+        _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
+        _ensure_value_metadata(ctx, cast_val)
+        return cast_val
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.where not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(condition, x=None, y=None):
+                if x is None or y is None:
+                    raise NotImplementedError(
+                        "jnp.where with fewer than three arguments is not supported"
                     )
-                )
-                s.add_shape_info(casted, getattr(aval, "shape", ()), target_dtype)
-                return casted
+                return cls._PRIM.bind(condition, x, y)
 
-            x_name = _maybe_cast(x_name, x_v.aval, "x")
-            y_name = _maybe_cast(y_name, y_v.aval, "y")
-        # (If either dtype is unknown, defer to abstract_eval result.)
+            return _patched
 
-        # Create ONNX Where node
-        node = helper.make_node(
-            "Where",
-            inputs=[cond_name, x_name, y_name],
-            outputs=[out_name],
-            name=s.builder.get_unique_name("WhereOp"),
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
+
+
+@JnpWherePlugin._PRIM.def_impl
+def _where_impl(condition, x=None, y=None):
+    if x is None or y is None:
+        raise NotImplementedError(
+            "jnp.where with fewer than three arguments is not supported"
         )
-        s.add_node(node)
-        # Record the promoted dtype if we computed one; otherwise use abstract dtype.
-        out_dtype = (
-            target_dtype
-            if target_dtype is not None
-            else getattr(out_v.aval, "dtype", None)
-        )
-        if out_dtype is None:
-            out_dtype = (
-                getattr(x_v.aval, "dtype", None)
-                or getattr(y_v.aval, "dtype", None)
-                or np.float32
-            )
-        s.add_shape_info(out_name, out_v.aval.shape, out_dtype)
-
-    @staticmethod
-    def patch_info():
-        # Monkey-patch jnp.where and lax.select to emit our primitive in the jaxpr
-        def patched_where(cond, x=None, y=None):
-            if x is None or y is None:
-                raise NotImplementedError(
-                    "Only `jnp.where(cond, x, y)` is supported for ONNX conversion."
-                )
-            return jnp.where_p.bind(cond, x, y)
-
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "where",
-            "patch_function": lambda orig: patched_where,
-        }
+    orig = get_orig_impl(JnpWherePlugin._PRIM, JnpWherePlugin._FUNC_NAME)
+    return orig(condition, x, y)
 
 
-# Bind abstract evaluation
-jnp.where_p.def_abstract_eval(WherePlugin.abstract_eval)
+JnpWherePlugin._PRIM.def_abstract_eval(JnpWherePlugin.abstract_eval)

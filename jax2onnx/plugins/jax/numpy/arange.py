@@ -1,207 +1,189 @@
-# In jax2onnx/plugins/jax/numpy/arange.py
+# jax2onnx/plugins/jax/numpy/arange.py
 
 from __future__ import annotations
 
-import logging  # Ensure logging is imported in this file
-from typing import TYPE_CHECKING, Any, Sequence, Callable
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 
-import numpy as np
+import jax
 import jax.numpy as jnp
-
+import numpy as np
+import onnx_ir as ir
 from jax import core
-from jax import config as jax_config
+from jax.extend.core import Literal as JaxLiteral
 
-# STRICTLY keep the following line unchanged
-from jax.extend.core import Primitive, Literal  # This Literal should be used for checks
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-from onnx import helper, TensorProto
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-logger = logging.getLogger("jax2onnx.plugins.jax.numpy.arange")
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# --- JAX-side Sentinel for Data-Dependent Dynamic Dimensions ---
-class Jax2OnnxDynamicDimSentinel:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Jax2OnnxDynamicDimSentinel, cls).__new__(cls)
-        return cls._instance
-
-    def __repr__(self):
-        return "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
-
-    def dimension_as_value(self):
-        logger.error("Jax2OnnxDynamicDimSentinel.dimension_as_value() called.")
-        raise TypeError(
-            "Jax2OnnxDynamicDimSentinel cannot be converted to a concrete dimension value."
-        )
-
-    def __hash__(self):
-        return hash(self.__repr__())
-
-    def __eq__(self, other):
-        return isinstance(other, Jax2OnnxDynamicDimSentinel)
+_DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 
 
-DATA_DEPENDENT_DYNAMIC_DIM = Jax2OnnxDynamicDimSentinel()
-# --- End Sentinel Definition ---
+class _DynamicDimSentinel:
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - simple helper
+        return _DYNAMIC_DIM_LABEL
+
+    __str__ = __repr__
+
+    def __hash__(self) -> int:
+        return hash(_DYNAMIC_DIM_LABEL)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _DynamicDimSentinel)
+
+    def dimension_as_value(self):  # pragma: no cover - compatibility helper
+        msg = "Dynamic dimension sentinel cannot be materialized as a value"
+        raise TypeError(msg)
 
 
-if not hasattr(jnp, "arange_p_jax2onnx"):
-    jnp.arange_p_jax2onnx = Primitive("jnp.arange_jax2onnx")
-    jnp.arange_p_jax2onnx.multiple_results = False
-else:
-    jnp.arange_p_jax2onnx = getattr(jnp, "arange_p_jax2onnx")
+DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
 
 
-def abstract_eval_arange_dynamic(*in_avals: core.AbstractValue, dtype: Any = None):
-    logger.debug("--- ARANGE abstract_eval_arange_dynamic (direct log) ---")
-    logger.debug(f"Called with jax_enable_x64: {jax_config.jax_enable_x64}")
-    logger.debug(f"Explicit dtype parameter: {dtype}")
-    logger.debug(f"Number of in_avals: {len(in_avals)}")
-    for i, aval_item in enumerate(in_avals):
-        logger.debug(
-            f"  in_avals[{i}]: type={type(aval_item)}, aval={aval_item}, "
-            f"is_jax_extend_core_Literal={isinstance(aval_item, Literal)}, "
-            f"val={getattr(aval_item, 'val', 'N/A')}, dtype={getattr(aval_item, 'dtype', 'N/A')}"
-        )
-    logger.debug(f"Checking against Literal type: {Literal} (from jax.extend.core)")
+_ARANGE_PRIM: Final = make_jnp_primitive("jax.numpy.arange")
 
-    x64_enabled = jax_config.jax_enable_x64
-    final_dtype: np.dtype
 
-    # Determine dtype as before...
-    if dtype is not None:
-        _temp_dtype = np.dtype(dtype)
-        if jnp.issubdtype(_temp_dtype, np.floating):
-            if x64_enabled:
-                final_dtype = np.dtype(np.float64)
-                if _temp_dtype != final_dtype:
-                    logger.debug(
-                        f"Arange abstract_eval: Explicit float dtype {_temp_dtype} promoted to {final_dtype} due to jax_enable_x64=True."
-                    )
-            elif _temp_dtype == np.dtype(np.float64):
-                final_dtype = np.dtype(np.float32)
-                logger.debug(
-                    f"Arange abstract_eval: Explicit float64 dtype {_temp_dtype} demoted to {final_dtype} due to jax_enable_x64=False."
-                )
-            else:
-                final_dtype = _temp_dtype
-        else:
-            final_dtype = _temp_dtype
-    else:
-        # Infer dtype from avals as before...
-        is_float_inferred = False
-        for aval in in_avals:
-            val_to_check = None
-            if isinstance(aval, Literal):
-                val_to_check = aval.val
-            elif hasattr(aval, "dtype") and jnp.issubdtype(aval.dtype, np.floating):
-                is_float_inferred = True
-            elif not aval.shape and hasattr(aval, "val"):
-                val_to_check = aval.val
-            if isinstance(val_to_check, (float, np.floating)):
-                is_float_inferred = True
-                break
-        if is_float_inferred:
-            final_dtype = np.dtype(np.float64) if x64_enabled else np.dtype(np.float32)
-        else:
-            final_dtype = np.dtype(np.int32)
-        logger.debug(
-            f"Arange abstract_eval: dtype inferred as {final_dtype} from input avals (x64={x64_enabled})."
-        )
+def _as_scalar(aval) -> float | int | None:
+    """Best-effort extraction of a scalar literal from an abstract value."""
+    if aval is None:
+        return None
+    val = getattr(aval, "val", None)
+    if val is None:
+        return None
+    arr = np.asarray(val)
+    if arr.shape:
+        return None
+    return arr.item()
 
+
+def _all_scalars(avals: Sequence[core.AbstractValue]):
+    scalars: list[float | int] = []
+    for aval in avals:
+        if isinstance(aval, JaxLiteral):
+            arr = np.asarray(aval.val)
+            if arr.shape:
+                return None
+            scalars.append(arr.item())
+            continue
+        scalar = _as_scalar(aval)
+        if scalar is None:
+            return None
+        scalars.append(scalar)
+    return scalars
+
+
+def _normalize_args(values: Sequence[float | int]) -> tuple[float, float, float]:
+    if len(values) == 1:
+        return 0.0, float(values[0]), 1.0
+    if len(values) == 2:
+        return float(values[0]), float(values[1]), 1.0
+    if len(values) == 3:
+        start, stop, step = values
+        return float(start), float(stop), float(step)
+    raise TypeError(
+        f"jnp.arange expects 1 to 3 positional arguments, got {len(values)}"
+    )
+
+
+def _determine_length(values: Sequence[float | int]) -> int | None:
+    start, stop, step = _normalize_args(values)
+    if step == 0:
+        return None
     try:
-        # --- New: accept any concrete scalar aval ---
-        concrete_vals: list[float] = []
-        all_concrete = True
-        for i, aval in enumerate(in_avals):
-            # 1) Literal from either core or extend.core
-            if isinstance(aval, (core.Literal, Literal)):
-                concrete_vals.append(float(aval.val))
-                continue
-
-            # 2) Any scalar-shaped aval with a .val attribute
-            if not aval.shape and hasattr(aval, "val"):
-                v = aval.val
-                if np.isscalar(v):
-                    concrete_vals.append(float(v))
-                    continue
-
-            all_concrete = False
-            logger.debug(
-                f"in_aval[{i}] of type {type(aval)} is not concrete; falling back to dynamic."
-            )
-            break
-
-        if not all_concrete:
-            logger.warning(
-                "Arange abstract_eval: inputs not all concrete; defaulting to dynamic shape."
-            )
-            dyn_dtype = (
-                np.dtype(np.int64)
-                if np.issubdtype(final_dtype, np.integer)
-                else final_dtype
-            )
-            return core.ShapedArray(
-                (DATA_DEPENDENT_DYNAMIC_DIM,), dyn_dtype, weak_type=False
-            )
-
-        logger.debug("All inputs are concrete. Proceeding with concrete evaluation.")
-        # Determine size by numpy semantics
-        start = concrete_vals[0] if len(concrete_vals) > 1 else 0.0
-        if len(concrete_vals) == 1:
-            stop = concrete_vals[0]
-            step = 1.0
-        elif len(concrete_vals) == 2:
-            stop = concrete_vals[1]
-            step = 1.0
+        if len(values) == 1:
+            arr = np.arange(stop)
+        elif len(values) == 2:
+            arr = np.arange(start, stop)
         else:
-            stop = concrete_vals[1]
-            step = concrete_vals[2]
-
-        if step == 0.0:
-            return core.ShapedArray(
-                (DATA_DEPENDENT_DYNAMIC_DIM,), final_dtype, weak_type=False
-            )
-
-        # Compute size
-        num = max(0, int(np.ceil((stop - start) / step)))
-        return core.ShapedArray((num,), final_dtype, weak_type=False)
-
+            arr = np.arange(start, stop, step)
     except Exception:
-        # Fallback to dynamic on any error
-        err_dtype = (
-            np.dtype(np.int64)
-            if np.issubdtype(final_dtype, np.integer)
-            else final_dtype
-        )
-        return core.ShapedArray(
-            (DATA_DEPENDENT_DYNAMIC_DIM,), err_dtype, weak_type=False
-        )
+        return None
+    return int(arr.size)
 
 
-jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
+def _resolve_result_dtype(
+    avals: Sequence[core.AbstractValue], dtype_param, enable_x64: bool
+) -> np.dtype:
+    if dtype_param is not None:
+        requested = np.dtype(dtype_param)
+        if np.issubdtype(requested, np.floating):
+            return np.dtype(np.float64 if enable_x64 else np.float32)
+        return requested
+
+    float_detected = False
+    for aval in avals:
+        aval_dtype = getattr(aval, "dtype", None)
+        if aval_dtype is not None and np.issubdtype(np.dtype(aval_dtype), np.floating):
+            float_detected = True
+            break
+        scalar = _as_scalar(aval)
+        if isinstance(scalar, (float, np.floating)):
+            float_detected = True
+            break
+    if float_detected:
+        return np.dtype(np.float64 if enable_x64 else np.float32)
+    return np.dtype(np.int64 if enable_x64 else np.int32)
+
+
+def _maybe_cast_value(
+    ctx: IRContext,
+    value: ir.Value,
+    target_enum: ir.DataType,
+    name_hint: str,
+) -> ir.Value:
+    current_type = getattr(value, "type", None)
+    current_dtype = getattr(current_type, "dtype", None)
+    if current_dtype == target_enum:
+        return value
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for arange lowering")
+    cast = builder.Cast(
+        value,
+        _outputs=[ctx.fresh_name(name_hint)],
+        to=int(target_enum.value),
+    )
+    cast.type = ir.TensorType(target_enum)
+    shape_obj = getattr(value, "shape", None)
+    dims = None
+    if shape_obj is not None:
+        dims = getattr(shape_obj, "dims", None)
+        if dims is None:
+            try:
+                dims = tuple(shape_obj)
+            except TypeError:
+                dims = None
+    _stamp_type_and_shape(cast, tuple(dims) if dims is not None else ())
+    _ensure_value_metadata(ctx, cast)
+    return cast
+
+
+def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
+    return tuple(
+        _DYNAMIC_DIM_LABEL if dim is DATA_DEPENDENT_DYNAMIC_DIM else dim
+        for dim in shape
+    )
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.arange_p_jax2onnx.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.arange.html",
+    jaxpr_primitive=_ARANGE_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.arange.html",
     onnx=[
-        {"component": "Range", "doc": "https://onnx.ai/onnx/operators/onnx__Range.html"}
+        {
+            "component": "Range",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
+        }
     ],
     since="v0.5.2",
     context="primitives.jnp",
     component="arange",
     testcases=[
-        # ------------------------------------------------------------------
-        # Data‐dependent stop: arange(x.shape[1]) should produce a dynamic Range
         {
             "testcase": "arange_data_dependent_indices",
             "callable": lambda x: jnp.arange(x.shape[1]),
@@ -209,12 +191,11 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
         },
-        # ------------------------------------------------------------------
         {
             "testcase": "arange_stop_only_concrete_input_val",
             "callable": lambda stop: jnp.arange(stop, dtype=jnp.float32),
             "input_values": [np.array(5.0, dtype=np.float32)],
-            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_start_stop_concrete_input_val",
@@ -223,7 +204,7 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
                 np.array(2.0, dtype=np.float32),
                 np.array(7.0, dtype=np.float32),
             ],
-            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_start_stop_step_concrete_input_val",
@@ -235,7 +216,7 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
                 np.array(7.0, dtype=np.float32),
                 np.array(2.0, dtype=np.float32),
             ],
-            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_float_concrete_input_val",
@@ -247,15 +228,14 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
                 np.array(4.5, dtype=np.float32),
                 np.array(0.5, dtype=np.float32),
             ],
-            "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_stop_only_int",
             "callable": lambda: jnp.arange(5),
             "input_values": [],
-            # "expected_output_shapes": [(5,)],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_stop_only_float",
@@ -267,36 +247,36 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
             "testcase": "arange_static_start_stop_int",
             "callable": lambda: jnp.arange(2, 7),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_start_stop_step_int",
             "callable": lambda: jnp.arange(1, 10, 2),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_empty_result_pos_step",
             "callable": lambda: jnp.arange(5, 2, 1),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_empty_result_neg_step",
             "callable": lambda: jnp.arange(2, 5, -1),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_negative_step",
             "callable": lambda: jnp.arange(5, 0, -1),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_float_step_explicit_dtype",
@@ -306,7 +286,7 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
         },
         {
             "testcase": "arange_static_float_step_inferred_dtype",
-            "callable": lambda: jnp.arange(0.0, 1.0, 0.3),  # Should infer float
+            "callable": lambda: jnp.arange(0.0, 1.0, 0.3),
             "input_values": [],
             "expected_output_shapes": [(4,)],
         },
@@ -314,156 +294,172 @@ jnp.arange_p_jax2onnx.def_abstract_eval(abstract_eval_arange_dynamic)
             "testcase": "arange_static_stop_zero",
             "callable": lambda: jnp.arange(0),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_start_equals_stop",
             "callable": lambda: jnp.arange(5, 5, 1),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
         {
             "testcase": "arange_static_large_numbers_int",
             "callable": lambda: jnp.arange(1000, 1010, 1, dtype=jnp.int32),
             "input_values": [],
-            "x64_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
-            "x32_expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
         },
     ],
 )
-class ArangePlugin(PrimitiveLeafPlugin):
-    _ORIGINAL_ARANGE: Callable[..., Any] | None = None
+class JnpArangePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _ARANGE_PRIM
+    _FUNC_NAME: ClassVar[str] = "arange"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(*in_avals, dtype=None):
-        return jnp.arange_p_jax2onnx.abstract_eval(*in_avals, dtype=dtype)
-
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable[..., Any]):
-        ArangePlugin._ORIGINAL_ARANGE = orig_fn
-
-        def patched_arange(*args, **kwargs):
-            dtype_param = kwargs.pop("dtype", None)
-            if kwargs:
-                logger.warning(
-                    f"jnp.arange patched call received unexpected kwargs: {kwargs}."
-                )
-            num_pos = len(args)
-            if not (1 <= num_pos <= 3):
-                if ArangePlugin._ORIGINAL_ARANGE:
-                    return ArangePlugin._ORIGINAL_ARANGE(
-                        *args, dtype=dtype_param, **kwargs
-                    )
-                raise TypeError(
-                    f"arange takes 1 to 3 positional arguments but {num_pos} were given"
-                )
-            return jnp.arange_p_jax2onnx.bind(*args[:num_pos], dtype=dtype_param)
-
-        return patched_arange
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "arange",
-            "patch_function": ArangePlugin.get_monkey_patch,
-        }
-
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
-        params: dict[str, Any],
-    ) -> None:
-        output_var = node_outputs[0]
-        output_aval = output_var.aval
-        # Pick up the JAX‐inferred dtype
-        dtype_np = np.dtype(output_aval.dtype)
-        # ONNX Range only supports int64 for integer outputs, so promote any integer dtype
-        if np.issubdtype(dtype_np, np.integer):
-            dtype_np = np.dtype(np.int64)
-        output_name = s.get_name(output_var)
-
-        output_shape_tuple_from_aval = output_aval.shape
-        onnx_shape_representation: tuple[Any, ...] = output_shape_tuple_from_aval
-
-        if DATA_DEPENDENT_DYNAMIC_DIM in output_shape_tuple_from_aval:
-            logger.info(
-                f"arange.to_onnx: Output '{output_name}' has a data-dependent dynamic dimension. "
-                f"ONNX shape info: {output_shape_tuple_from_aval}."
-            )
+        enable_x64 = bool(jax.config.jax_enable_x64)
+        result_dtype = _resolve_result_dtype(in_avals, dtype, enable_x64)
+        scalars = _all_scalars(in_avals)
+        if scalars is None:
+            shape = (DATA_DEPENDENT_DYNAMIC_DIM,)
         else:
-            logger.debug(
-                f"arange.to_onnx: Output shape for '{output_name}' is concrete: {output_shape_tuple_from_aval}."
-            )
+            length = _determine_length(scalars)
+            shape = DATA_DEPENDENT_DYNAMIC_DIM if length is None else int(length)
+            shape = (shape,)
+        return jax.core.ShapedArray(shape, result_dtype)
 
-        input_vars = list(node_inputs)
-        onnx_input_names: list[str] = []
-
-        def _ensure_typed_onnx_input(
-            var: core.Var | None, default_py_value: Any | None
-        ) -> str:
-            if var is not None:
-                if isinstance(
-                    var.aval, Literal
-                ):  # Check against jax.extend.core.Literal
-                    typed_const_val = np.array(var.aval.val, dtype=dtype_np)
-                    return s.get_constant_name(typed_const_val)
-                else:
-                    original_name = s.get_name(var)
-                    # if JAX dtype doesn't match our target (INT64), insert a Cast
-                    if var.aval.dtype != dtype_np:
-                        # Insert a Cast to the promoted integer dtype (int64) or float dtype
-                        cast_name = s.get_unique_name(f"{original_name}_cast")
-                        s.add_node(
-                            helper.make_node(
-                                "Cast",
-                                inputs=[original_name],
-                                outputs=[cast_name],
-                                to=(
-                                    TensorProto.INT64
-                                    if np.issubdtype(dtype_np, np.integer)
-                                    else TensorProto.FLOAT
-                                ),
-                            )
-                        )
-                        # preserve shape info on the casted tensor
-                        s.add_shape_info(cast_name, var.aval.shape, dtype_np)
-                        return cast_name
-                    return original_name
-            elif default_py_value is not None:
-                return s.get_constant_name(np.array(default_py_value, dtype=dtype_np))
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        dtype_param = params.get("dtype")
+        avals: list[core.AbstractValue] = []
+        for var in eqn.invars:
+            if isinstance(var, JaxLiteral):
+                avals.append(var.aval)
             else:
-                raise ValueError(
-                    "Internal error in _ensure_typed_onnx_input: requires var or default_py_value."
-                )
+                avals.append(getattr(var, "aval", None))
+        enable_x64 = bool(ctx.builder.enable_double_precision)
+        result_dtype = _resolve_result_dtype(avals, dtype_param, enable_x64)
+        target_enum = _dtype_to_ir(result_dtype, ctx.builder.enable_double_precision)
 
-        if len(input_vars) == 1:
-            onnx_input_names.append(_ensure_typed_onnx_input(None, default_py_value=0))
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[0], None))
-            onnx_input_names.append(_ensure_typed_onnx_input(None, default_py_value=1))
-        elif len(input_vars) == 2:
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[0], None))
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[1], None))
-            onnx_input_names.append(_ensure_typed_onnx_input(None, default_py_value=1))
-        elif len(input_vars) == 3:
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[0], None))
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[1], None))
-            onnx_input_names.append(_ensure_typed_onnx_input(input_vars[2], None))
+        literal_args: list[float | int] | None = []
+        input_vals: list[ir.Value] = []
+        for idx, var in enumerate(eqn.invars):
+            val = ctx.get_value_for_var(
+                var,
+                name_hint=ctx.fresh_name("arange_arg"),
+                prefer_np_dtype=result_dtype,
+            )
+            input_vals.append(
+                _maybe_cast_value(ctx, val, target_enum, f"arange_cast_{idx}")
+            )
+            if literal_args is not None and isinstance(var, JaxLiteral):
+                literal_args.append(np.asarray(var.val).item())
+            else:
+                literal_args = None
+
+        def _const(value: float | int, tag: str) -> ir.Value:
+            arr = np.asarray(value, dtype=result_dtype)
+            return ctx.bind_const_for_var(object(), arr)
+
+        if len(input_vals) == 1:
+            start_val = _const(0, "start")
+            limit_val = input_vals[0]
+            delta_val = _const(1, "delta")
+        elif len(input_vals) == 2:
+            start_val, limit_val = input_vals
+            delta_val = _const(1, "delta")
+        elif len(input_vals) == 3:
+            start_val, limit_val, delta_val = input_vals
         else:
-            raise ValueError(
-                f"Arange plugin received unexpected number of inputs: {len(input_vars)}"
+            raise TypeError(
+                f"jnp.arange lowering expects 1 to 3 inputs, got {len(input_vals)}"
             )
 
-        range_node = helper.make_node(
-            "Range", inputs=onnx_input_names, outputs=[output_name]
+        start_val = _maybe_cast_value(ctx, start_val, target_enum, "arange_start")
+        limit_val = _maybe_cast_value(ctx, limit_val, target_enum, "arange_limit")
+        delta_val = _maybe_cast_value(ctx, delta_val, target_enum, "arange_delta")
+
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for arange lowering")
+
+        out_var = eqn.outvars[0]
+        out_spec = ctx.get_value_for_var(
+            out_var,
+            name_hint=ctx.fresh_name("arange_out"),
+            prefer_np_dtype=result_dtype,
         )
-        s.add_node(range_node)
-        s.add_shape_info(output_name, onnx_shape_representation, dtype_np)
-        logger.debug(
-            f"arange.to_onnx: add_shape_info for '{output_name}' with shape "
-            f"{onnx_shape_representation} (from aval {output_shape_tuple_from_aval}), dtype {dtype_np}."
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("arange_out")
+        result = builder.Range(
+            start_val,
+            limit_val,
+            delta_val,
+            _outputs=[out_name],
         )
+        result.type = ir.TensorType(target_enum)
+
+        length_hint = None
+        if literal_args is not None:
+            try:
+                length_hint = _determine_length(literal_args)
+            except Exception:
+                length_hint = None
+
+        if length_hint is not None:
+            final_shape: tuple[object, ...] = (int(length_hint),)
+        else:
+            out_shape = tuple(getattr(out_var.aval, "shape", ()))
+            final_shape = _with_ir_shape_dims(out_shape)
+
+        _stamp_type_and_shape(result, final_shape)
+        _ensure_value_metadata(ctx, result)
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
+        bind_value(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.arange not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(*args, **kwargs):
+                dtype = kwargs.pop("dtype", None)
+                if kwargs:
+                    raise TypeError(
+                        f"Unsupported keyword arguments for jnp.arange: {tuple(kwargs.keys())}"
+                    )
+                num_args = len(args)
+                if not (1 <= num_args <= 3):
+                    return orig(*args, dtype=dtype)
+                return cls._PRIM.bind(*args[:num_args], dtype=dtype)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
+
+
+@JnpArangePlugin._PRIM.def_impl
+def _arange_impl(*args, dtype=None):
+    orig = get_orig_impl(JnpArangePlugin._PRIM, JnpArangePlugin._FUNC_NAME)
+    return orig(*args, dtype=dtype)
+
+
+JnpArangePlugin._PRIM.def_abstract_eval(JnpArangePlugin.abstract_eval)

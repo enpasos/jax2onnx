@@ -1,27 +1,54 @@
-# file: jax2onnx/plugins/flax/nnx/embed.py
+# jax2onnx/plugins/flax/nnx/embed.py
 
-from typing import TYPE_CHECKING, Callable, Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable, ClassVar, Final
 
 import jax.numpy as jnp
 from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
-from onnx import helper
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-# 1. Define a new JAX primitive for nnx.Embed's call behavior.
-nnx.embed_p = Primitive("nnx.embed")
-nnx.embed_p.multiple_results = False
+EMBED_PRIM: Final[Primitive] = Primitive("nnx.embed")
+EMBED_PRIM.multiple_results = False
 
 
-# 2. Register the plugin with its metadata and test cases.
+EXPECT_EMBED_GATHER: Final = EG(
+    [
+        (
+            "Gather",
+            {
+                "counts": {
+                    "Gather": 1,
+                }
+            },
+        )
+    ]
+)
+
+
 @register_primitive(
-    jaxpr_primitive=nnx.embed_p.name,
+    jaxpr_primitive=EMBED_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Embed",
     onnx=[
         {
@@ -35,101 +62,138 @@ nnx.embed_p.multiple_results = False
     testcases=[
         {
             "testcase": "token_embedding",
-            "callable": nnx.Embed(num_embeddings=3144, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed,
+                num_embeddings=3144,
+                features=48,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
+            "post_check_onnx_graph": EXPECT_EMBED_GATHER,
         },
         {
             "testcase": "positional_embedding",
-            "callable": nnx.Embed(num_embeddings=64, features=48, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Embed,
+                num_embeddings=64,
+                features=48,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 64)],
             "input_dtypes": [jnp.int32],
+            "post_check_onnx_graph": EXPECT_EMBED_GATHER,
         },
     ],
 )
 class EmbedPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting flax.nnx.Embed to ONNX."""
-
-    _ORIG_CALL: Callable[..., Any] | None = None
+    _PRIM: ClassVar[Primitive] = EMBED_PRIM
+    _ORIG_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(indices_aval, embedding_aval):
-        """
-        Computes the output shape for the embedding operation.
-        """
-        features_dim = embedding_aval.shape[-1]
-        output_shape = indices_aval.shape + (features_dim,)
-        return core.ShapedArray(output_shape, embedding_aval.dtype)
+    def abstract_eval(indices, embedding):
+        features = embedding.shape[-1]
+        return core.ShapedArray(indices.shape + (features,), embedding.dtype)
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs,
-        node_outputs,
-        params,
-    ):
-        """
-        Converts the embed primitive to an ONNX Gather node.
-        """
-        indices_var, embedding_var = node_inputs
-        (output_var,) = node_outputs
+    def lower(self, ctx: "IRBuildContext", eqn):  # type: ignore[override]
+        indices_var, embedding_var = eqn.invars[:2]
+        (out_var,) = eqn.outvars
 
-        # Determine the correct output dtype based on the converter's settings
-        original_dtype = embedding_var.aval.dtype
-        output_dtype = original_dtype
-        if jnp.issubdtype(original_dtype, jnp.floating):
-            if (
-                hasattr(s.builder, "enable_double_precision")
-                and s.builder.enable_double_precision
-            ):
-                output_dtype = jnp.float64
-
-        # *** THE FIX IS HERE ***
-        # Update the output variable's abstract value (aval) with the correct dtype.
-        # The main converter loop will use this updated aval to create the
-        # final ONNX ValueInfoProto, preventing the type mismatch.
-        output_var.aval = core.ShapedArray(output_var.aval.shape, output_dtype)
-
-        # Now, create the ONNX node.
-        indices_name = s.get_name(indices_var)
-        embedding_name = s.get_name(embedding_var)
-        output_name = s.get_name(output_var)
-
-        gather_node = helper.make_node(
-            "Gather",
-            inputs=[embedding_name, indices_name],
-            outputs=[output_name],
-            axis=0,
-            name=s.get_unique_name("embed_gather"),
+        indices_val = ctx.get_value_for_var(
+            indices_var, name_hint=ctx.fresh_name("embed_idx")
         )
-        s.add_node(gather_node)
-        # We no longer need to call s.add_shape_info here, as the main loop handles it.
+        embedding_val = ctx.get_value_for_var(
+            embedding_var, name_hint=ctx.fresh_name("embed_table")
+        )
 
-    @staticmethod
-    def _embed_binding(embedding_table, indices):
-        """Binds inputs to the embed primitive."""
-        return nnx.embed_p.bind(indices, embedding_table)
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Embed lowering")
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        """Returns a patched version of Embed's __call__ method."""
-        EmbedPlugin._ORIG_CALL = orig_fn
+        idx_dtype = getattr(getattr(indices_val, "type", None), "dtype", None)
+        if idx_dtype not in (ir.DataType.INT64, None):
+            casted = builder.Cast(
+                indices_val,
+                _outputs=[ctx.fresh_name("embed_idx_i64")],
+                to=int(ir.DataType.INT64.value),
+            )
+            casted.type = ir.TensorType(ir.DataType.INT64)
+            casted.shape = indices_val.shape
+            _stamp_type_and_shape(
+                casted, tuple(getattr(getattr(indices_var, "aval", None), "shape", ()))
+            )
+            _ensure_value_metadata(ctx, casted)
+            indices_val = casted
 
-        def patched_embed_call(self, inputs):
-            embedding = self.embedding.value
-            return EmbedPlugin._embed_binding(embedding, inputs)
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("embed_out"))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("embed_out")
 
-        return patched_embed_call
+        result = builder.Gather(
+            embedding_val,
+            indices_val,
+            axis=0,
+            _outputs=[desired_name],
+        )
+        embed_dtype = getattr(getattr(embedding_val, "type", None), "dtype", None)
+        if embed_dtype is not None:
+            result.type = ir.TensorType(embed_dtype)
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information for nnx.Embed."""
-        return {
-            "patch_targets": [nnx.Embed],
-            "patch_function": EmbedPlugin.get_monkey_patch,
-            "target_attribute": "__call__",
-        }
+        indices_shape = tuple(getattr(getattr(indices_var, "aval", None), "shape", ()))
+        embedding_shape = tuple(
+            getattr(getattr(embedding_var, "aval", None), "shape", ())
+        )
+
+        out_dims = [
+            _dim_label_from_value_or_aval(indices_val, indices_shape, i)
+            for i in range(len(indices_shape))
+        ]
+        feat_dim = _dim_label_from_value_or_aval(
+            embedding_val, embedding_shape, len(embedding_shape) - 1
+        )
+        if feat_dim is None:
+            feat_dim = embedding_shape[-1] if embedding_shape else None
+        out_dims.append(feat_dim)
+
+        _stamp_type_and_shape(result, tuple(out_dims))
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        def _make_patch(orig):
+            cls._ORIG_CALL = orig
+
+            def _patched(self: nnx.Embed, indices):
+                table = self.embedding.value
+                return cls._PRIM.bind(indices, table)
+
+            return _patched
+
+        return [
+            AssignSpec("flax.nnx", "embed_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="flax.nnx.Embed",
+                attr="__call__",
+                make_value=_make_patch,
+                delete_if_missing=False,
+            ),
+        ]
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-# Register the abstract evaluation rule with the primitive.
-nnx.embed_p.def_abstract_eval(EmbedPlugin.abstract_eval)
+@EmbedPlugin._PRIM.def_impl
+def _embed_impl(indices, embedding):
+    return jnp.take(embedding, indices, axis=0)
+
+
+EmbedPlugin.ensure_abstract_eval_bound()

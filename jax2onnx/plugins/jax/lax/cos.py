@@ -1,13 +1,15 @@
+# jax2onnx/plugins/jax/lax/cos.py
+
 from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -31,50 +33,36 @@ if TYPE_CHECKING:
     ],
 )
 class CosPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.cos to ONNX Cos."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX cos primitive."""
-        (x,) = node_inputs
-        (out_var,) = node_outputs
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("cos_in"))
 
-        x_name = s.get_name(x)
-        out_name = s.get_name(out_var)
-        dtype = x.aval.dtype
-
-        if dtype == np.float64:
-            # WORKAROUND: Cast f64 to f32 as the ONNX runtime lacks a f64 kernel.
-            # This will result in a loss of precision.
-
-            # Cast input to float32
-            x_f32_name = s.get_unique_name("x_f32")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[x_name],
-                    outputs=[x_f32_name],
-                    to=helper.TensorProto.FLOAT,
-                )
+        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        if x_dtype == np.float64:
+            # ONNX runtime lacks a double kernel for Cos; use sin(x + pi/2) instead.
+            pi_over_two = ctx.bind_const_for_var(
+                object(), np.asarray(np.pi / 2, dtype=np.float64)
             )
-            s.add_shape_info(x_f32_name, x.aval.shape, np.float32)
 
-            # Apply Cos on float32
-            cos_f32_name = s.get_unique_name("cos_f32")
-            s.add_node(
-                helper.make_node("Cos", inputs=[x_f32_name], outputs=[cos_f32_name])
-            )
-            s.add_shape_info(cos_f32_name, x.aval.shape, np.float32)
+            shifted_name = ctx.fresh_name("cos_shifted")
+            result_add = ctx.builder.Add(x_val, pi_over_two, _outputs=[shifted_name])
+            result_add.type = x_val.type
+            result_add.shape = x_val.shape
 
-            # Cast result back to float64
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[cos_f32_name],
-                    outputs=[out_name],
-                    to=helper.TensorProto.DOUBLE,
-                )
+            sin_out = ctx.builder.Sin(
+                result_add, _outputs=[ctx.fresh_name("cos_via_sin")]
             )
+            sin_out.type = x_val.type
+            sin_out.shape = x_val.shape
+            _stamp_type_and_shape(sin_out, getattr(x_var.aval, "shape", ()))
+            ctx.bind_value_for_var(out_var, sin_out)
         else:
-            # Standard implementation for float32
-            node = helper.make_node("Cos", inputs=[x_name], outputs=[out_name])
-            s.add_node(node)
+            out_spec = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("cos_out")
+            )
+            result = ctx.builder.Cos(x_val, _outputs=[out_spec.name])
+            result.type = out_spec.type
+            result.shape = out_spec.shape
+            ctx.bind_value_for_var(out_var, result)

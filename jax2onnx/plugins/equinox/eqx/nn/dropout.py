@@ -1,34 +1,69 @@
 # jax2onnx/plugins/equinox/eqx/nn/dropout.py
-"""
-ONNX plugin for equinox.nn.Dropout.
 
-This plugin provides a mapping from `equinox.nn.Dropout` to the ONNX `Dropout`
-operator, handling both static and dynamic `inference` modes.
-"""
+from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import ClassVar, Optional
 
 import equinox as eqx
 import jax
 import numpy as np
-from jax import core
-from jax.extend.core import Literal, Primitive, Var
+import onnx_ir as ir
+from jax.extend.core import Primitive
+from jax.core import ShapedArray
 from jax.interpreters import batching
-from onnx import helper, numpy_helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+
+def _const_tensor(ctx, array, *, name: str) -> ir.Value:
+    arr = np.asarray(array)
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for constant tensor")
+    init_name = ctx.fresh_name(name)
+    if arr.ndim == 0:
+        value = builder.add_initializer_from_scalar(name=init_name, value=arr)
+    else:
+        value = builder.add_initializer_from_array(name=init_name, array=arr)
+    _stamp_type_and_shape(value, arr.shape if arr.shape else ())
+    return value
 
 
-eqx.nn.dropout_p = Primitive("eqx.nn.dropout")
-eqx.nn.dropout_p.multiple_results = False
+def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for dropout input")
+    for vi in getattr(builder, "inputs", []):
+        if getattr(vi, "name", "") == name:
+            return vi
+    value = ir.Value(
+        name=name,
+        type=ir.TensorType(ir.DataType.BOOL),
+        shape=ir.Shape(()),
+    )
+    builder.inputs.append(value)
+    return value
+
+
+try:
+    from jax.extend.core import Literal as _JaxLiteral
+except ImportError:  # pragma: no cover - older jax
+    from jax.core import Literal as _JaxLiteral
+
+
+def _extract_python_bool(var) -> Optional[bool]:
+    if isinstance(var, _JaxLiteral):
+        val = getattr(var, "val", None)
+        if isinstance(val, (bool, np.bool_)):
+            return bool(val)
+    return None
 
 
 @register_primitive(
-    jaxpr_primitive=eqx.nn.dropout_p.name,
+    jaxpr_primitive="eqx.nn.dropout",
     jax_doc="https://docs.kidger.site/equinox/api/nn/dropout/",
     onnx=[
         {
@@ -48,68 +83,34 @@ eqx.nn.dropout_p.multiple_results = False
             "testcase": "eqx_dropout_inference_mode",
             "callable": eqx.nn.Dropout(p=0.42, inference=True),
             "input_shapes": [(64,)],
-            "post_check_onnx_graph": lambda m: (
-                (
-                    dropout_node := next(
-                        (n for n in m.graph.node if n.op_type == "Dropout"),
-                        None,
-                    )
-                )
-                and (
-                    ratio_init := next(
-                        (
-                            i
-                            for i in m.graph.initializer
-                            if i.name == dropout_node.input[1]
-                        ),
-                        None,
-                    )
-                )
-                and np.isclose(numpy_helper.to_array(ratio_init), 0.42).all()
-                and (
-                    training_mode_init := next(
-                        (
-                            i
-                            for i in m.graph.initializer
-                            if i.name == dropout_node.input[2]
-                        ),
-                        None,
-                    )
-                )
-                and not numpy_helper.to_array(training_mode_init)
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout:64",
+                        "inputs": {1: {"const": 0.42}, 2: {"const_bool": False}},
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
             "testcase": "eqx_dropout_training_mode",
-            "callable": lambda x, key, model=eqx.nn.Dropout(
-                p=0.5, inference=False
-            ): model(x, key=key),
-            "input_shapes": [
-                (64),
-            ],
-            "input_params": {
-                "key": jax.random.PRNGKey(0),
-            },
-            "post_check_onnx_graph": lambda m: (
-                (
-                    dropout_node := next(
-                        (n for n in m.graph.node if n.op_type == "Dropout"),
-                        None,
-                    )
-                )
-                and (
-                    training_mode_init := next(
-                        (
-                            i
-                            for i in m.graph.initializer
-                            if i.name == dropout_node.input[2]
-                        ),
-                        None,
-                    )
-                )
-                and numpy_helper.to_array(training_mode_init)
+            "callable": lambda x, model=eqx.nn.Dropout(p=0.5, inference=False): model(
+                x, key=jax.random.PRNGKey(0)
             ),
+            "input_shapes": [(64,)],
             "skip_numeric_validation": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout:64",
+                        "inputs": {1: {"const": 0.5}, 2: {"const_bool": True}},
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "eqx_dropout_dynamic_inference",
@@ -117,195 +118,194 @@ eqx.nn.dropout_p.multiple_results = False
                 p=0.5
             ): model(x, key=key, inference=inference),
             "input_shapes": [(64,)],
-            "input_params": {
-                "inference": np.array(True, dtype=bool),
-            },
-            "post_check_onnx_graph": lambda m: (
-                (
-                    not_node := next(
-                        (n for n in m.graph.node if n.op_type == "Not"), None
-                    )
-                )
-                and (
-                    dropout_node := next(
-                        (n for n in m.graph.node if n.op_type == "Dropout"),
-                        None,
-                    )
-                )
-                and dropout_node.input[2] == not_node.output[0]
-                and not_node.input[0] == "inference"
-                and (
-                    ratio_init := next(
-                        (
-                            i
-                            for i in m.graph.initializer
-                            if i.name == dropout_node.input[1]
-                        ),
-                        None,
-                    )
-                )
-                and np.isclose(numpy_helper.to_array(ratio_init), 0.5).all()
+            "input_params": {"inference": np.array(True, dtype=bool)},
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Not -> Dropout:64",
+                        "inputs": {1: {"const": 0.5}},
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
             "testcase": "eqx_dropout_batched_inference",
-            # Create one Dropout module where inference is fixed to True, then vmap it.
-            "callable": (
-                lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(_mod)(
-                    xs
-                )
-            ),
-            # Symbolic batch dimension "B"
+            "callable": lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(
+                _mod
+            )(xs),
             "input_shapes": [("B", 64)],
-            # Inference mode → training_mode == False must appear as a constant in ONNX
-            "post_check_onnx_graph": lambda m: (
-                any(n.op_type == "Dropout" for n in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout:Bx64",
+                        "inputs": {1: {"const": 0.3}, 2: {"const_bool": False}},
+                        "must_absent": ["Not"],
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
             ),
         },
     ],
 )
-class EqxDropoutPlugin(PrimitiveLeafPlugin):
-    """Convert **equinox.nn.Dropout** to an ONNX Dropout operator."""
-
-    _ORIGINAL_DROPOUT_CALL: Callable[..., Any] | None = None
+class DropoutPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar[Primitive] = Primitive("eqx.nn.dropout")
+    _PRIM.multiple_results = False
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        x: core.ShapedArray, inference: core.ShapedArray, *, p: float
-    ) -> core.ShapedArray:
-        """The output shape is always identical to the input shape."""
-        return core.ShapedArray(x.shape, x.dtype)
+    def abstract_eval(x, inference, *, p, call_time=False):
+        del inference, p, call_time
+        return ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: list,
-        node_outputs: list,
-        params: dict,
-    ):
-        """Maps the primitive to an ONNX Dropout node."""
-        x_var, inference_var = node_inputs
-        y_var = node_outputs[0]
+    def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Eqx Dropout lowering"
+            )
 
-        logging.debug("[DEBUG] Dropout to_onnx called")
-        logging.debug(f"[DEBUG] Input tensor name: {x_var}")
-        logging.debug(f"[DEBUG] Inference input: {inference_var}")
-        logging.debug(f"[DEBUG] Output name: {y_var}")
+        x_var, inference_var = eqn.invars
+        out_var = eqn.outvars[0]
+        rate = float(eqn.params.get("p", 0.5))
+        call_time = bool(eqn.params.get("call_time", False))
 
-        x_name = s.get_name(x_var)
-        y_name = s.get_name(y_var)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("drop_x"))
+        ratio_val = _const_tensor(ctx, np.asarray(rate, dtype=np.float32), name="ratio")
 
-        # The ONNX `ratio` is equivalent to equinox's `p`.
-        # This is a static parameter for the primitive.
-        p = params["p"]
-        ratio_tensor = np.array(p, dtype=np.float32)
-        ratio_name = s.builder.get_constant_name(ratio_tensor)
-        logging.debug(f"[DEBUG] Dropout rate: {p}")
+        inference_bool = _extract_python_bool(inference_var)
+        call_params = getattr(ctx, "_call_input_param_names", set())
+        param_name = "inference"
 
-        # The ONNX `training_mode` input is the logical inverse of equinox's
-        # `inference` flag. We must handle both static and dynamic cases.
-        if isinstance(inference_var, Literal):
-            # Static case: `inference` is a compile-time constant.
-            is_training = not bool(inference_var.val)
-            training_mode_tensor = np.array(is_training, dtype=bool)
-            training_mode_name = s.builder.get_constant_name(training_mode_tensor)
+        def _materialize_not(value: ir.Value) -> ir.Value:
+            not_val = builder.Not(
+                value,
+                _outputs=[ctx.fresh_name("training_not")],
+            )
+            if getattr(not_val, "type", None) is None:
+                not_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(not_val, ())
+            _ensure_value_metadata(ctx, not_val)
+            return not_val
+
+        if call_time:
+            inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
+            if param_name not in call_params and inference_bool is not None:
+                det_val = _const_tensor(
+                    ctx,
+                    np.asarray(inference_bool, dtype=np.bool_),
+                    name="inference_const",
+                )
+            else:
+                if inside_fn and inference_var is not None:
+                    det_val = ctx.get_value_for_var(
+                        inference_var, name_hint=ctx.fresh_name("inference")
+                    )
+                else:
+                    det_val = _ensure_scalar_bool_input(ctx, param_name)
+            training_val = _materialize_not(det_val)
         else:
-            # Dynamic case: `inference` is a runtime input to the graph.
-            # We need to add a `Not` operator to invert the boolean value.
-            # inference_name = s.get_name(inference_var)
-            # training_mode_name = s.get_unique_name("training_mode")
-            # s.add_node(
-            #     helper.make_node(
-            #         "Not",
-            #         inputs=[inference_name],
-            #         outputs=[training_mode_name],
-            #         name=s.get_unique_name("not_inference"),
-            #     )
-            # )
-            inference_name = "inference"
-            if isinstance(inference_var, Var):
-                s.change_var_name(inference_var, inference_name)
+            if inference_bool is not None:
+                training_val = _const_tensor(
+                    ctx, np.asarray(not inference_bool, dtype=np.bool_), name="training"
+                )
+            else:
+                det_val = ctx.get_value_for_var(
+                    inference_var, name_hint=ctx.fresh_name("inference")
+                )
+                training_val = _materialize_not(det_val)
 
-            # Add a `Not` operator to invert the boolean value.
-            training_mode_name = s.get_unique_name("training_mode")
-            s.add_node(
-                helper.make_node(
-                    "Not",
-                    inputs=[inference_name],
-                    outputs=[training_mode_name],
-                    name=s.get_unique_name("not_inference"),
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("drop_out"))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("drop_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("drop_out")
+
+        dropout_val = builder.Dropout(
+            x_val,
+            ratio_val,
+            training_val,
+            _outputs=[desired_name],
+        )
+
+        if getattr(out_spec, "type", None) is not None:
+            dropout_val.type = out_spec.type
+        elif getattr(x_val, "type", None) is not None:
+            dropout_val.type = x_val.type
+
+        if getattr(out_spec, "shape", None) is not None:
+            dropout_val.shape = out_spec.shape
+        else:
+            x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+            if x_shape:
+                _stamp_type_and_shape(dropout_val, x_shape)
+        _ensure_value_metadata(ctx, dropout_val)
+        ctx.bind_value_for_var(out_var, dropout_val)
+
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("equinox.nn", "dropout_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="equinox.nn.Dropout",
+                attr="__call__",
+                make_value=lambda orig: cls._patch_call(orig),
+                delete_if_missing=False,
+            ),
+        ]
+
+    @staticmethod
+    def _patch_call(orig):
+        del orig
+
+        def wrapped(self, x, *, key=None, inference=None, deterministic=None):
+            del key
+            call_time = deterministic is not None or inference is not None
+            if deterministic is not None:
+                inference_arg = deterministic
+            elif inference is not None:
+                inference_arg = inference
+            else:
+                inference_arg = self.inference
+            if isinstance(self.p, (int, float)) and self.p == 0:
+                inference_arg = True
+                call_time = False
+            return DropoutPlugin._PRIM.bind(
+                x, inference_arg, p=float(self.p), call_time=call_time
+            )
+
+        return wrapped
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(
+                lambda x, inference, *, p, call_time=False: cls.abstract_eval(
+                    x, inference, p=p, call_time=call_time
                 )
             )
-            s.add_shape_info(
-                training_mode_name,
-                inference_var.aval.shape,
-                inference_var.aval.dtype,
-            )
-
-        # The ONNX Dropout operator has three inputs: data, ratio, training_mode.
-        # The second output (mask) is optional and we do not produce it.
-        s.add_node(
-            helper.make_node(
-                "Dropout",
-                inputs=[x_name, ratio_name, training_mode_name],
-                outputs=[y_name],
-                name=s.get_unique_name("dropout"),
-            )
-        )
-        s.add_shape_info(y_name, x_var.aval.shape, x_var.aval.dtype)
-
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
-        """Return a patched version of __call__ that uses the primitive."""
-        EqxDropoutPlugin._ORIGINAL_DROPOUT_CALL = orig_fn
-
-        def patched_call(self, x, *, key=None, inference=None, deterministic=None):
-            # This logic is copied directly from the original Equinox implementation
-            # to ensure the correct `inference` value is determined before binding.
-            if deterministic is not None:
-                inference = deterministic
-
-            if inference is None:
-                inference = self.inference
-            if isinstance(self.p, (int, float)) and self.p == 0:
-                inference = True
-
-            # The JAX random key is not needed for the ONNX graph definition.
-            # Bind the inputs to our custom primitive.
-            return eqx.nn.dropout_p.bind(x, inference, p=self.p)
-
-        return patched_call
-
-    @staticmethod
-    def patch_info() -> dict:
-        """Specifies the target for monkey-patching."""
-        return {
-            "patch_targets": [eqx.nn.Dropout],
-            "patch_function": EqxDropoutPlugin.get_monkey_patch,
-            "target_attribute": "__call__",
-        }
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-eqx.nn.dropout_p.def_abstract_eval(EqxDropoutPlugin.abstract_eval)
+@DropoutPlugin._PRIM.def_impl
+def _dropout_impl(x, inference, *, p, call_time=False):
+    del p, call_time
+    inference_bool = bool(inference)
+    if inference_bool:
+        return x
+    return x
 
 
-def _eqx_dropout_batching_rule(batched_args, batch_dims, *, p: float):
-    """Batching rule for `eqx.nn.dropout_p`."""
+def _dropout_batch_rule(batched_args, batch_dims, *, p, call_time=False):
     x, inference = batched_args
-    x_bdim, inference_bdim = batch_dims
-
-    # Batching over the `inference` flag is not a standard use case.
-    if inference_bdim is not None:
+    x_bdim, inf_bdim = batch_dims
+    if inf_bdim is not None:
         raise NotImplementedError(
-            "Batching over the `inference` parameter of `eqx.nn.Dropout` is not supported."
+            "Batching over the `inference` flag is not supported."
         )
-
-    # The primitive is applied to the batched `x`. The `to_onnx` implementation
-    # correctly handles inputs with leading batch dimensions.
-    out = eqx.nn.dropout_p.bind(x, inference, p=p)
-
-    # The output has a batch dimension at the same axis as the input.
+    out = DropoutPlugin._PRIM.bind(x, inference, p=p, call_time=call_time)
     return out, x_bdim
 
 
-batching.primitive_batchers[eqx.nn.dropout_p] = _eqx_dropout_batching_rule
+batching.primitive_batchers[DropoutPlugin._PRIM] = _dropout_batch_rule

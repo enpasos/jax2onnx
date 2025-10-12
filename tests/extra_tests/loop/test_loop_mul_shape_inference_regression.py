@@ -1,9 +1,11 @@
+# tests/extra_tests/loop/test_loop_mul_shape_inference_regression.py
+
 import jax
 import jax.numpy as jnp
 import onnx
 import onnxruntime as ort
 
-from jax2onnx.converter.conversion_api import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _ff_like_loop_no_xs_mul():

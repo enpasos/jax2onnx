@@ -1,4 +1,4 @@
-# file: scripts/version.py
+# scripts/version.py
 
 import datetime
 from pathlib import Path

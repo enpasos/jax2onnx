@@ -1,18 +1,16 @@
+# jax2onnx/plugins/examples/lax/scatter_window.py
+
 from __future__ import annotations
 
 import numpy as np
 import jax
-from jax.lax import ScatterDimensionNumbers, GatherScatterMode
+from jax.lax import GatherScatterMode, ScatterDimensionNumbers
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example
 
 
 def scatter_window_function(operand, indices, updates):
-    """
-    Depth-3 window-scatter (H×W patch) with implicit batch.
-    Regression for an earlier ONNX conversion failure when using
-    JAX double precision and FILL_OR_DROP mode.
-    """
+    """Depth-3 window-scatter (H×W patch) regression for converter."""
     dnums = ScatterDimensionNumbers(
         update_window_dims=(1, 2, 3, 4),
         inserted_window_dims=(),
@@ -42,19 +40,14 @@ register_example(
     testcases=[
         {
             "testcase": "scatter_window_update_f64_example",
-            "callable": lambda operand, indices, updates: scatter_window_function(
-                operand, indices, updates
-            ),
-            # Use concrete inputs to exactly match the repro:
+            "callable": scatter_window_function,
             "input_values": [
-                np.zeros((5, 266, 266, 1), dtype=np.float64),  # operand
-                np.array([[10, 10]], dtype=np.int32),  # indices (1,2)
-                np.ones((1, 5, 256, 256, 1), dtype=np.float64),  # updates
+                np.zeros((5, 266, 266, 1), dtype=np.float64),
+                np.array([[10, 10]], dtype=np.int32),
+                np.ones((1, 5, 256, 256, 1), dtype=np.float64),
             ],
-            # Output is the updated operand; shape/dtype remain the same
             "expected_output_shapes": [(5, 266, 266, 1)],
             "expected_output_dtypes": [np.float64],
-            # Run only the f64 variant to align with the original reproducer
             "run_only_f64_variant": True,
         },
     ],

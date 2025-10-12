@@ -1,45 +1,46 @@
+# jax2onnx/plugins/jax/lax/neg.py
+
 from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass  # hints
 
 
 @register_primitive(
     jaxpr_primitive=jax.lax.neg_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.neg.html",
-    onnx=[
-        {
-            "component": "Neg",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html",
-        }
-    ],
+    onnx=[{"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"}],
     since="v0.2.0",
     context="primitives.lax",
     component="neg",
     testcases=[
         {
             "testcase": "neg",
-            "callable": lambda x: jax.lax.neg(x),
+            "callable": lambda x: -x,
             "input_shapes": [(3,)],
         }
     ],
 )
 class NegPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.neg to ONNX Neg."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX neg primitive."""
-        input_names = [s.get_name(inp) for inp in node_inputs]
-        output_name = s.get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Neg",
-            inputs=input_names,
-            outputs=[output_name],
-            name=s.get_unique_name("neg"),
-        )
-        s.add_node(node)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("neg_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("neg_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("neg_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("neg_out")
+
+        result = ctx.builder.Neg(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

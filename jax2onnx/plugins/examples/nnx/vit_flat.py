@@ -1,11 +1,15 @@
-# file: jax2onnx/plugins/examples/nnx/vit_flat.py
+# jax2onnx/plugins/examples/nnx/vit_flat.py
 
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -35,23 +39,27 @@ class PatchEmbedding(nnx.Module):
     ):
         num_patches_h, num_patches_w = height // patch_size, width // patch_size
         num_patches = num_patches_h * num_patches_w
-        self.layers = [
-            lambda x: x.reshape(
-                x.shape[0],
-                height // patch_size,
-                patch_size,
-                width // patch_size,
-                patch_size,
-                in_features,
-            ),
-            lambda x: x.transpose((0, 1, 3, 2, 4, 5)),
-            lambda x: x.reshape(-1, num_patches, patch_size * patch_size * x.shape[-1]),
-            nnx.Linear(
-                in_features=patch_size * patch_size * in_features,
-                out_features=num_hiddens,
-                rngs=rngs,
-            ),
-        ]
+        self.layers = nnx.List(
+            [
+                lambda x: x.reshape(
+                    x.shape[0],
+                    height // patch_size,
+                    patch_size,
+                    width // patch_size,
+                    patch_size,
+                    in_features,
+                ),
+                lambda x: x.transpose((0, 1, 3, 2, 4, 5)),
+                lambda x: x.reshape(
+                    -1, num_patches, patch_size * patch_size * x.shape[-1]
+                ),
+                nnx.Linear(
+                    in_features=patch_size * patch_size * in_features,
+                    out_features=num_hiddens,
+                    rngs=rngs,
+                ),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
@@ -69,13 +77,14 @@ register_example(
     testcases=[
         {
             "testcase": "patch_embedding_flat",
-            "callable": PatchEmbedding(
+            "callable": construct_and_call(
+                PatchEmbedding,
                 height=28,
                 width=28,
                 patch_size=4,
                 num_hiddens=256,
                 in_features=1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
@@ -96,46 +105,48 @@ class ConvEmbedding(nnx.Module):
         strides: list[int] = [1, 2, 2],
         dropout_rate: float = 0.5,
         *,
-        rngs=nnx.Rngs(0),
+        rngs=with_rng_seed(0),
     ):
         padding = "SAME"
         layernormfeatures = embed_dims[-1] * W // 4 * H // 4
-        self.layers = [
-            nnx.Conv(
-                in_features=1,
-                out_features=embed_dims[0],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[0], strides[0]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Conv(
-                in_features=embed_dims[0],
-                out_features=embed_dims[1],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[1], strides[1]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Conv(
-                in_features=embed_dims[1],
-                out_features=embed_dims[2],
-                kernel_size=(kernel_size, kernel_size),
-                strides=(strides[2], strides[2]),
-                padding=padding,
-                rngs=rngs,
-            ),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.LayerNorm(
-                num_features=layernormfeatures,
-                reduction_axes=(1, 2, 3),
-                feature_axes=(1, 2, 3),
-                rngs=rngs,
-            ),
-            nnx.Dropout(rate=dropout_rate, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Conv(
+                    in_features=1,
+                    out_features=embed_dims[0],
+                    kernel_size=(kernel_size, kernel_size),
+                    strides=(strides[0], strides[0]),
+                    padding=padding,
+                    rngs=rngs,
+                ),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Conv(
+                    in_features=embed_dims[0],
+                    out_features=embed_dims[1],
+                    kernel_size=(kernel_size, kernel_size),
+                    strides=(strides[1], strides[1]),
+                    padding=padding,
+                    rngs=rngs,
+                ),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Conv(
+                    in_features=embed_dims[1],
+                    out_features=embed_dims[2],
+                    kernel_size=(kernel_size, kernel_size),
+                    strides=(strides[2], strides[2]),
+                    padding=padding,
+                    rngs=rngs,
+                ),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.LayerNorm(
+                    num_features=layernormfeatures,
+                    reduction_axes=(1, 2, 3),
+                    feature_axes=(1, 2, 3),
+                    rngs=rngs,
+                ),
+                nnx.Dropout(rate=dropout_rate, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
@@ -163,11 +174,12 @@ register_example(
     testcases=[
         {
             "testcase": "mnist_conv_embedding_flat",
-            "callable": ConvEmbedding(
+            "callable": construct_and_call(
+                ConvEmbedding,
                 embed_dims=[32, 64, 128],
                 kernel_size=3,
                 strides=[1, 2, 2],
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
@@ -180,13 +192,15 @@ class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for layer in self.layers:
@@ -207,8 +221,12 @@ register_example(
     testcases=[
         {
             "testcase": "feed_forward_flat",
-            "callable": FeedForward(
-                num_hiddens=256, mlp_dim=512, dropout_rate=0.1, rngs=nnx.Rngs(0)
+            "callable": construct_and_call(
+                FeedForward,
+                num_hiddens=256,
+                mlp_dim=512,
+                dropout_rate=0.1,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "run_only_f32_variant": True,
@@ -235,7 +253,7 @@ class MultiHeadAttention(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            attention_fn=lambda *args, **kwargs: attention(*args),
+            attention_fn=lambda *args, **kwargs: attention(*args, **kwargs),
             rngs=rngs,
             decode=False,
         )
@@ -293,13 +311,14 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_block_flat",
-            "callable": TransformerBlock(
+            "callable": construct_and_call(
+                TransformerBlock,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "input_params": {
@@ -323,17 +342,19 @@ class TransformerStack(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        self.blocks = [
-            TransformerBlock(
-                num_hiddens,
-                num_heads,
-                mlp_dim,
-                attention_dropout_rate,
-                mlp_dropout_rate,
-                rngs=rngs,
-            )
-            for _ in range(num_layers)
-        ]
+        self.blocks = nnx.List(
+            [
+                TransformerBlock(
+                    num_hiddens,
+                    num_heads,
+                    mlp_dim,
+                    attention_dropout_rate,
+                    mlp_dropout_rate,
+                    rngs=rngs,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
         for block in self.blocks:
@@ -351,14 +372,15 @@ register_example(
     testcases=[
         {
             "testcase": "transformer_stack_flat",
-            "callable": TransformerStack(
+            "callable": construct_and_call(
+                TransformerStack,
                 num_hiddens=256,
                 num_heads=8,
                 mlp_dim=512,
                 num_layers=6,
                 attention_dropout_rate=0.1,
                 mlp_dropout_rate=0.1,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 10, 256)],
             "input_params": {
@@ -419,10 +441,11 @@ register_example(
     testcases=[
         {
             "testcase": "classification_head_flat",
-            "callable": ClassificationHead(
+            "callable": construct_and_call(
+                ClassificationHead,
                 num_hiddens=256,
                 num_classes=10,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
@@ -460,9 +483,10 @@ register_example(
     testcases=[
         {
             "testcase": "concat_cls_token_flat",
-            "callable": ConcatClsToken(
+            "callable": construct_and_call(
+                ConcatClsToken,
                 num_hiddens=256,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 49, 256)],
             "run_only_f32_variant": True,
@@ -474,7 +498,10 @@ register_example(
 class PositionalEmbedding(nnx.Module):
     """Add positional embedding to the input embedding."""
 
-    def __init__(self, num_patches: int, num_hiddens: int):
+    def __init__(
+        self, num_patches: int, num_hiddens: int, *, rngs: nnx.Rngs | None = None
+    ):
+        del rngs
         self.positional_embedding = nnx.Param(
             create_sinusoidal_embeddings(num_patches, num_hiddens)
         )
@@ -493,9 +520,11 @@ register_example(
     testcases=[
         {
             "testcase": "positional_embedding_flat",
-            "callable": PositionalEmbedding(
+            "callable": construct_and_call(
+                PositionalEmbedding,
                 num_patches=49,
                 num_hiddens=256,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
@@ -621,7 +650,8 @@ register_example(
     testcases=[
         {
             "testcase": "vit_conv_embedding_flat",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -630,7 +660,7 @@ register_example(
                 mlp_dim=512,
                 num_classes=10,
                 embedding_type="conv",
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "input_params": {
@@ -640,7 +670,8 @@ register_example(
         },
         {
             "testcase": "vit_patch_embedding_flat",
-            "callable": VisionTransformer(
+            "callable": construct_and_call(
+                VisionTransformer,
                 height=28,
                 width=28,
                 num_hiddens=256,
@@ -650,7 +681,7 @@ register_example(
                 num_classes=10,
                 embedding_type="patch",
                 patch_size=4,
-                rngs=nnx.Rngs(0),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "input_params": {

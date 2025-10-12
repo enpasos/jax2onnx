@@ -1,37 +1,139 @@
-# file: tests/t_generator.py
+# tests/t_generator.py
 
+import inspect
+import logging
 import os
 import shutil
-from typing import Any, Dict, List, Sequence  # Ensure Dict is imported
-import inspect
+from contextlib import contextmanager
+from typing import Any, Dict, List, Sequence
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
-import logging
-from logging_config import (
-    configure_logging,
-)  # Assuming this is handled elsewhere or not strictly needed for this fix
+from onnx import TensorProto
 
+from logging_config import configure_logging
 from jax2onnx import allclose
-from jax2onnx.converter.user_interface import to_onnx
-from jax2onnx.plugin_system import (
+from jax2onnx.plugins.plugin_system import (
+    EXAMPLE_REGISTRY,
     PLUGIN_REGISTRY,
-    import_all_plugins,
+    import_all_plugins as import_all_plugins,
 )
+from jax2onnx.user_interface import to_onnx
+
+try:
+    from onnx import mapping as _onnx_mapping
+except ImportError:  # pragma: no cover - defensive fallback for older/newer onnx
+    _onnx_mapping = None
+
+
+_FALLBACK_NP_TYPE_TO_TENSOR_TYPE = {
+    np.dtype(np.bool_): TensorProto.BOOL,
+    np.dtype(np.uint8): TensorProto.UINT8,
+    np.dtype(np.uint16): TensorProto.UINT16,
+    np.dtype(np.uint32): TensorProto.UINT32 if hasattr(TensorProto, "UINT32") else None,
+    np.dtype(np.uint64): TensorProto.UINT64 if hasattr(TensorProto, "UINT64") else None,
+    np.dtype(np.int8): TensorProto.INT8,
+    np.dtype(np.int16): TensorProto.INT16,
+    np.dtype(np.int32): TensorProto.INT32,
+    np.dtype(np.int64): TensorProto.INT64,
+    np.dtype(np.float16): TensorProto.FLOAT16,
+    np.dtype(np.float32): TensorProto.FLOAT,
+    np.dtype(np.float64): TensorProto.DOUBLE,
+    np.dtype(np.complex64): TensorProto.COMPLEX64,
+    np.dtype(np.complex128): TensorProto.COMPLEX128,
+}
+
+
+@contextmanager
+def _temporary_x64(enabled: bool):
+    prev = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", enabled)
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", prev)
+
+
+def _np_dtype_to_onnx_enum(dtype: np.dtype | type) -> int | None:
+    """Map numpy dtype to ONNX TensorProto enum without relying on onnx.mapping."""
+
+    np_dtype = np.dtype(dtype)
+    if _onnx_mapping is not None and hasattr(_onnx_mapping, "NP_TYPE_TO_TENSOR_TYPE"):
+        mapped = _onnx_mapping.NP_TYPE_TO_TENSOR_TYPE.get(np_dtype)
+        if mapped is not None:
+            return mapped
+
+    mapped = _FALLBACK_NP_TYPE_TO_TENSOR_TYPE.get(np_dtype)
+    if mapped is None and np_dtype.kind == "U":  # unicode strings map to string tensor
+        return TensorProto.STRING
+    if mapped is None and np_dtype.kind == "S":
+        return TensorProto.STRING
+    if mapped is None and np_dtype.kind == "O":
+        return None
+    return mapped
+
 
 # Define base directories.
 TESTS_DIR = os.path.dirname(__file__)
-PLUGINS_DIR = os.path.join(
-    TESTS_DIR, "../jax2onnx/plugins"
-)  # Corrected path assuming plugins are one level up from jax2onnx/tests
 
 # Configure logger for this module
 logger = logging.getLogger("jax2onnx.tests.t_generator")
 # Basic logging configuration if not set elsewhere
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+
+
+def _cast_output_types_need_fix(model: onnx.ModelProto) -> bool:
+    """Detect Cast/CastLike value_info dtype mismatches.
+
+    Returns True when any value_info disagrees with the expected dtype.
+    """
+    int64_outputs: set[str] = set()
+    int32_outputs: set[str] = set()
+
+    def _record(outputs, dtype_idx):
+        if dtype_idx == TensorProto.INT64:
+            int64_outputs.update(outputs)
+        elif dtype_idx == TensorProto.INT32:
+            int32_outputs.update(outputs)
+
+    initializer_dtypes = {init.name: init.data_type for init in model.graph.initializer}
+    value_info_dtypes = {
+        vi.name: vi.type.tensor_type.elem_type
+        for vi in list(model.graph.value_info) + list(model.graph.input)
+        if vi.type and vi.type.WhichOneof("value") == "tensor_type"
+    }
+
+    for node in model.graph.node:
+        if node.op_type == "Cast":
+            to_attr = next((attr for attr in node.attribute if attr.name == "to"), None)
+            if to_attr is not None:
+                _record(node.output, to_attr.i)
+        elif node.op_type == "CastLike" and len(node.input) >= 2:
+            exemplar = node.input[1]
+            dtype_idx = initializer_dtypes.get(exemplar) or value_info_dtypes.get(
+                exemplar
+            )
+            if dtype_idx is not None:
+                _record(node.output, dtype_idx)
+
+    if not int64_outputs and not int32_outputs:
+        return False
+
+    needs_fix = False
+    for vi in model.graph.value_info:
+        type_proto = vi.type
+        if not type_proto or type_proto.WhichOneof("value") != "tensor_type":
+            continue
+        tensor_type = type_proto.tensor_type
+        if vi.name in int64_outputs and tensor_type.elem_type != TensorProto.INT64:
+            needs_fix = True
+        elif vi.name in int32_outputs and tensor_type.elem_type != TensorProto.INT32:
+            needs_fix = True
+
+    return needs_fix
 
 
 # --- Cleaning and Setup ---
@@ -70,11 +172,14 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
 
 def load_metadata_from_plugins() -> list[dict[str, Any]]:
     import_all_plugins()
-    return [
+
+    items2 = [
         {**plugin.metadata, "jaxpr_primitive": name}
         for name, plugin in PLUGIN_REGISTRY.items()
         if hasattr(plugin, "metadata")
     ]
+    example_items2 = [dict(md) for md in EXAMPLE_REGISTRY.values()]
+    return items2 + example_items2
 
 
 def load_plugin_metadata() -> list[dict[str, Any]]:
@@ -90,9 +195,36 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     1. Creating dynamic and concrete shape variants if "B" (batch dim) is present.
     2. For each of those, creating float32 (default) and float64 variants.
     """
-    if "callable" not in entry:
-        logger.debug(f"Skipping entry, no callable: {entry.get('testcase', 'Unknown')}")
+    has_callable = entry.get("callable") is not None
+    has_factory = entry.get("callable_factory") is not None
+
+    # Accept either a ready function or a factory that builds it.
+    if not has_callable and not has_factory:
+        logger.debug(
+            f"Skipping entry, no callable/callable_factory: {entry.get('testcase', 'Unknown')}"
+        )
         return []
+
+    entry = dict(entry)
+
+    callable_factory = entry.pop("callable_factory", None)
+    if callable_factory is not None:
+        raise AssertionError(
+            "Plugin metadata must expose callables via construct_and_call; "
+            "'callable_factory' entries are no longer supported."
+        )
+
+    callable_obj = entry.get("callable")
+
+    factory_callable = None
+    if callable_obj is not None and getattr(
+        callable_obj, "__jax2onnx_factory__", False
+    ):
+        factory_callable = entry["callable"]
+
+    if factory_callable is not None:
+        entry["_callable_factory_ref"] = factory_callable
+        entry["callable"] = factory_callable.with_dtype(jnp.float32)
 
     # ---- Sanity check for the new optional field ---------------------------------
     entry_input_dtypes = entry.get("input_dtypes")
@@ -172,7 +304,10 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     # Part 2: For each base parameter set from Part 1, create float32 and float64 variants
     final_params_list: List[Dict[str, Any]] = []
     for base_param_set in intermediate_params_list:
-        run_only_f64_variant = base_param_set.get("run_only_f64_variant", False)
+        force_enable_double = bool(base_param_set.get("enable_double_precision", False))
+        run_only_f64_variant = (
+            base_param_set.get("run_only_f64_variant", False) or force_enable_double
+        )
         run_only_f32_variant = base_param_set.get("run_only_f32_variant", False)
         disable_float64_test_from_meta = base_param_set.get(
             "disable_float64_test", False
@@ -196,11 +331,18 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 ):
                     is_float_test = True
 
+        factory_ref = base_param_set.get("_callable_factory_ref")
+
         if run_only_f64_variant:
             # Only generate the float64 enabled variant, using the original testcase name
             p_f64_only = base_param_set.copy()
             p_f64_only["_enable_double_precision_test_setting"] = True
+            p_f64_only.pop("enable_double_precision", None)
             # testcase name remains p_f64_only["testcase"] (no suffix)
+
+            if factory_ref is not None:
+                p_f64_only["callable"] = factory_ref.with_dtype(jnp.float64)
+                p_f64_only.pop("_callable_factory_ref", None)
 
             # Apply float64 casting to values/dtypes for this variant if it's a float test
             if (
@@ -238,8 +380,14 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             # Default behavior: generate f32 variant (base name)
             p_f32 = base_param_set.copy()
-            p_f32["_enable_double_precision_test_setting"] = False
+            p_f32["_enable_double_precision_test_setting"] = force_enable_double
+            p_f32.pop("enable_double_precision", None)
             # testcase name remains base_param_set["testcase"]
+
+            if factory_ref is not None:
+                dtype_for_f32 = jnp.float64 if force_enable_double else jnp.float32
+                p_f32["callable"] = factory_ref.with_dtype(dtype_for_f32)
+                p_f32.pop("_callable_factory_ref", None)
 
             if not run_only_f64_variant:
                 final_params_list.append(p_f32)
@@ -252,6 +400,10 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
                 p_f64 = base_param_set.copy()
                 p_f64["testcase"] += "_f64"  # Add suffix
                 p_f64["_enable_double_precision_test_setting"] = True
+
+                if factory_ref is not None:
+                    p_f64["callable"] = factory_ref.with_dtype(jnp.float64)
+                    p_f64.pop("_callable_factory_ref", None)
 
                 if "input_values" in p_f64 and p_f64["input_values"] is not None:
                     p_f64["input_values"] = [
@@ -315,17 +467,31 @@ def make_test_function(tp: dict[str, Any]):
     func_name = f"test_{test_case_name_safe}"
 
     def test_func(self=None):  # Pytest will inject 'self' if it's a method of a class
-        configure_logging()  # Call once if needed, or ensure logger is configured globally
+        configure_logging()
 
-        callable_obj = tp["callable"]
+        # --- move this UP, before any jax/jnp use ---
+        current_enable_double_precision = tp.get(
+            "_enable_double_precision_test_setting", False
+        )
+
+        if current_enable_double_precision:
+            # set x64 early so all downstream jax/jnp ops see it
+            jax.config.update("jax_enable_x64", True)
+        # --------------------------------------------
+
+        callable_factory = tp.get("callable_factory")
+        if callable_factory is not None:
+            desired_dtype = (
+                jnp.float64 if current_enable_double_precision else jnp.float32
+            )
+            callable_obj = callable_factory(desired_dtype)
+        else:
+            callable_obj = tp["callable"]
+
         input_values_from_testcase = tp.get("input_values")
         input_shapes_from_testcase = tp.get("input_shapes")
         input_dtypes_from_testcase = tp.get("input_dtypes")
         expected_output_dtypes_from_testcase = tp.get("expected_output_dtypes")
-
-        current_enable_double_precision = tp.get(
-            "_enable_double_precision_test_setting", False
-        )
 
         processed_input_specs_for_to_onnx: List[Any]
 
@@ -438,7 +604,8 @@ def make_test_function(tp: dict[str, Any]):
 
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 21)
-
+        # Optional: allow a testcase to force legacy/IR pipeline selection.
+        # Only pass it through if explicitly present to avoid overriding env/module defaults.
         model_folder_path = os.path.join("docs", "onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
         model_path = os.path.join(model_folder_path, f"{test_case_name_safe}.onnx")
@@ -448,14 +615,42 @@ def make_test_function(tp: dict[str, Any]):
             f"enable_double_precision: {current_enable_double_precision}"
         )
         try:
-            onnx_model = to_onnx(
-                callable_obj,
-                processed_input_specs_for_to_onnx,
+            to_onnx_kwargs = dict(
+                fn=callable_obj,
+                inputs=processed_input_specs_for_to_onnx,
                 input_params=input_params_from_testcase,
                 model_name=testcase_name,
                 opset=opset_version,
                 enable_double_precision=current_enable_double_precision,
+                return_mode="file",
+                output_path=model_path,
             )
+            written_model_path = to_onnx(**to_onnx_kwargs)
+            if written_model_path != model_path:
+                logger.warning(
+                    "to_onnx returned a different path than requested output_path. "
+                    f"Using '{written_model_path}' instead of '{model_path}'."
+                )
+                model_path = written_model_path
+            onnx_model = onnx.load_model(model_path)
+            if _cast_output_types_need_fix(onnx_model):
+                raise AssertionError(
+                    f"to_onnx returned an ONNX model for '{testcase_name}' with "
+                    "Cast/CastLike value_info dtype mismatches. Conversion must "
+                    "emit a fully-typed graph."
+                )
+            if input_params_from_testcase:
+                existing_inputs = {vi.name for vi in onnx_model.graph.input}
+                for pname, pval in input_params_from_testcase.items():
+                    if pname in existing_inputs:
+                        continue
+                    arr = np.asarray(pval)
+                    elem_type = _np_dtype_to_onnx_enum(arr.dtype)
+                    if elem_type is None:
+                        continue
+                    shape = list(arr.shape)
+                    vi = onnx.helper.make_tensor_value_info(pname, elem_type, shape)
+                    onnx_model.graph.input.extend([vi])
         except Exception as e:
             logger.error(
                 f"Failed during to_onnx conversion for '{testcase_name}' with enable_double_precision={current_enable_double_precision}: {e}",
@@ -469,12 +664,17 @@ def make_test_function(tp: dict[str, Any]):
                 onnx_model
             ), f"Post-conversion graph check failed for '{testcase_name}'."
 
-        onnx.save_model(onnx_model, model_path)
         logger.info(f"Model saved to: {model_path}")
 
         # --- ONNX checker and runtime session (if requested) ---
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
+            if _cast_output_types_need_fix(onnx_model):
+                raise AssertionError(
+                    f"Reloaded ONNX model for '{testcase_name}' still has "
+                    "Cast/CastLike value_info dtype mismatches. Conversion must "
+                    "emit a stable graph."
+                )
             onnx.checker.check_model(onnx_model)
 
         # Optional per-test override: skip numeric validation entirely
@@ -512,14 +712,15 @@ def make_test_function(tp: dict[str, Any]):
                         dt = np.float64
                     xs_for_num_check.append(np.asarray(val_from_tc, dtype=dt))
 
-                passed, msg = allclose(
-                    callable_obj,
-                    model_path,
-                    xs_for_num_check,
-                    input_params_from_testcase,
-                    rtol=rtol,
-                    atol=atol,
-                )
+                with _temporary_x64(current_enable_double_precision):
+                    passed, msg = allclose(
+                        callable_obj,
+                        model_path,
+                        xs_for_num_check,
+                        input_params_from_testcase,
+                        rtol=rtol,
+                        atol=atol,
+                    )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
 
@@ -532,6 +733,9 @@ def make_test_function(tp: dict[str, Any]):
         # comparison.  Assume `jnp.float32` for every tensor unless the
         # testcase overrode it.
         #
+        # NOTE: This branch now also covers zero-arg callables and cases where
+        # `input_shapes_from_testcase == []`. In that situation we still run
+        # numeric validation with an empty input list to exercise ORT.
         elif (input_shapes_from_testcase is not None) or (
             len(inspect.signature(callable_obj).parameters) == 0
         ):
@@ -573,14 +777,15 @@ def make_test_function(tp: dict[str, Any]):
                     f"(callable takes no arguments)."
                 )
 
-            passed_numerical, validation_message = allclose(
-                callable_obj,
-                model_path,
-                xs_for_num_check,
-                input_params_from_testcase,
-                rtol=rtol,
-                atol=atol,
-            )
+            with _temporary_x64(current_enable_double_precision):
+                passed_numerical, validation_message = allclose(
+                    callable_obj,
+                    model_path,
+                    xs_for_num_check,
+                    input_params_from_testcase,
+                    rtol=rtol,
+                    atol=atol,
+                )
             assert (
                 passed_numerical
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
@@ -694,9 +899,7 @@ def make_test_function(tp: dict[str, Any]):
                             f"Test '{testcase_name}', output {i}: Expected dtype {expected_dtype_np} is not a valid numpy dtype."
                         )
 
-                expected_onnx_dtype_enum = onnx.mapping.NP_TYPE_TO_TENSOR_TYPE.get(
-                    expected_dtype_np
-                )
+                expected_onnx_dtype_enum = _np_dtype_to_onnx_enum(expected_dtype_np)
 
                 if expected_onnx_dtype_enum is None:
                     raise ValueError(
@@ -810,18 +1013,10 @@ def make_test_function(tp: dict[str, Any]):
                     # jax_concrete_inputs_for_exec remains empty, which is correct.
 
                     # Temporarily enable x64 for this JAX execution if current_enable_double_precision is set for the test variant
-                    if current_enable_double_precision:
-                        with jax.config.update("jax_enable_x64", True):
-                            jax_fn_outputs_for_shape = eval_target_jax_func(
-                                *jax_concrete_inputs_for_exec
-                            )
-                    else:
-                        # Ensure x64 is disabled if not set for the test variant
-                        # (assuming default might be True or to avoid interference from previous tests)
-                        with jax.config.update("jax_enable_x64", False):
-                            jax_fn_outputs_for_shape = eval_target_jax_func(
-                                *jax_concrete_inputs_for_exec
-                            )
+                    with _temporary_x64(current_enable_double_precision):
+                        jax_fn_outputs_for_shape = eval_target_jax_func(
+                            *jax_concrete_inputs_for_exec
+                        )
 
                     if not isinstance(jax_fn_outputs_for_shape, (list, tuple)):
                         jax_fn_outputs_for_shape = [jax_fn_outputs_for_shape]
@@ -879,44 +1074,34 @@ def make_test_function(tp: dict[str, Any]):
                     expected_shape_spec_adjusted
                 ):
                     onnx_graph_actual_dim = onnx_graph_shape[j]
-                    # If expected_dim_representation is our sentinel, we need to match it correctly
+
                     if expected_dim_representation == "JAX2ONNX_DYNAMIC_DIM_SENTINEL":
-                        # The onnx_graph_actual_dim might be the string representation of the sentinel,
-                        # or a symbolic name if resolution failed.
-                        # The key is that it's not a concrete integer.
-                        if not isinstance(
-                            onnx_graph_actual_dim, (str, type(None))
-                        ):  # Allow None for fully dynamic/unknown
-                            # If it's an int, it's a mismatch if we expected the sentinel
+                        if not isinstance(onnx_graph_actual_dim, (str, type(None))):
                             if isinstance(onnx_graph_actual_dim, int):
                                 graph_dim_match = False
                                 break
-                        # If onnx_graph_actual_dim IS the sentinel string, it's a match.
-                        # Or if it's a 'dynamic_...' string, it's also considered a match for a dynamic dim.
                         elif isinstance(onnx_graph_actual_dim, str) and (
                             onnx_graph_actual_dim == "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
                             or onnx_graph_actual_dim.startswith("dynamic_")
                         ):
-                            pass  # Match
-                        elif (
-                            onnx_graph_actual_dim is None
-                        ):  # Match if ONNX has no dim info
                             pass
-                        else:  # Mismatch if it's some other string or unexpected type
+                        elif onnx_graph_actual_dim is None:
+                            pass
+                        else:
                             graph_dim_match = False
                             break
-                    elif isinstance(
-                        expected_dim_representation, str
-                    ):  # Symbolic dim in testcase
-                        if onnx_graph_actual_dim != expected_dim_representation:
-                            if not (
-                                expected_dim_representation
-                                == "B"  # Example, adapt if other symbols used
-                                and isinstance(onnx_graph_actual_dim, str)
-                                and onnx_graph_actual_dim.startswith("dynamic_")
-                            ):
-                                graph_dim_match = False
-                                break
+                    elif isinstance(expected_dim_representation, str):
+                        if onnx_graph_actual_dim == expected_dim_representation:
+                            pass
+                        elif onnx_graph_actual_dim is None:
+                            pass
+                        elif isinstance(
+                            onnx_graph_actual_dim, str
+                        ) and onnx_graph_actual_dim.startswith("dynamic_"):
+                            pass
+                        else:
+                            graph_dim_match = False
+                            break
                     elif isinstance(
                         expected_dim_representation, int
                     ):  # Concrete dim in testcase

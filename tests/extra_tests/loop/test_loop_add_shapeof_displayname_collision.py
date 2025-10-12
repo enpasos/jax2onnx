@@ -1,4 +1,5 @@
-# file: tests/extra_tests/loop/test_loop_add_shapeof_displayname_collision.py
+# tests/extra_tests/loop/test_loop_add_shapeof_displayname_collision.py
+
 """
 Regression guard: ensure shape-of helpers (names ending with '__shape') are SSA-unique
 inside a Loop body, even when two independent Add→reshape(h, h.shape) sites exist.
@@ -17,7 +18,7 @@ import jax.numpy as jnp
 from jax import lax
 from onnx import AttributeProto
 
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 try:
     import onnxruntime as ort
@@ -107,7 +108,6 @@ def test_loop_body_shape_helpers_are_ssa_unique(dtype):
         _loop_body_with_two_add_shapeof_sites,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_shapeof_guard_unique",
     )
@@ -132,7 +132,6 @@ def test_onnxruntime_behaviour_matches_ssa_status(dtype):
         _loop_body_with_two_add_shapeof_sites,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="loop_shapeof_guard_ort",
     )

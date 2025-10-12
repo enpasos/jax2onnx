@@ -1,11 +1,11 @@
-# file: tests/extra_tests/loop/test_loop_shapeof_ssa_regression.py
+# tests/extra_tests/loop/test_loop_shapeof_ssa_regression.py
 
 import numpy as np
 import pytest
 import jax
 import jax.numpy as jnp
 
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def loop_body_ssa_bug(x0):
@@ -41,16 +41,12 @@ class TestLoopShapeOfSSARegression:
         model = to_onnx(
             loop_body_ssa_bug,
             inputs=[input_spec],
-            loosen_internal_shapes=True,
             model_name="loop_shapeof_ssa_regression",
             opset=21,
         )
 
         # Try loading with ORT: buggy builds throw INVALID_GRAPH with "...__shape"
-        try:
-            import onnxruntime as ort
-        except Exception:
-            pytest.skip("onnxruntime not installed")
+        ort = pytest.importorskip("onnxruntime")
 
         # Save & load
         serialized = model.SerializeToString()

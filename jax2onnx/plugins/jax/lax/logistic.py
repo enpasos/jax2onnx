@@ -1,18 +1,13 @@
 # jax2onnx/plugins/jax/lax/logistic.py
 
-"""ONNX plugin for the JAX `lax.logistic` primitive."""
-
-from __future__ import annotations
-
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -36,24 +31,23 @@ if TYPE_CHECKING:
     ],
 )
 class LogisticPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting `jax.lax.logistic` to ONNX `Sigmoid`."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(
-        self,
-        conv: "Jaxpr2OnnxConverter",
-        invars: List[jax.core.Var],
-        outvars: List[jax.core.Var],
-        params: Dict[str, Any],
-    ):
-        """Lower the `logistic` primitive to an ONNX `Sigmoid` node."""
-        # The logistic function is a direct 1-to-1 mapping to the Sigmoid operator.
-        inp_name = conv.get_name(invars[0])
-        out_name = conv.get_name(outvars[0])
-
-        sigmoid_node = helper.make_node(
-            "Sigmoid",
-            inputs=[inp_name],
-            outputs=[out_name],
-            name=conv.get_unique_name("lax_logistic"),
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("logistic_in"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("logistic_out")
         )
-        conv.add_node(sigmoid_node)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("logistic_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("logistic_out")
+
+        result = ctx.builder.Sigmoid(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

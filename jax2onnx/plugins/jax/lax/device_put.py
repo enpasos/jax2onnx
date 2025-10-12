@@ -1,19 +1,17 @@
-"""
-Plugin for handling the JAX device_put primitive.
+# jax2onnx/plugins/jax/lax/device_put.py
 
-This plugin converts JAX's device_put primitive to appropriate ONNX operations.
-"""
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import jax
-import numpy as np
-from jax.extend import core as extend_core
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+if TYPE_CHECKING:  # pragma: no cover - import for typing only
+    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -42,69 +40,29 @@ if TYPE_CHECKING:
     ],
 )
 class DevicePutPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.device_put to appropriate ONNX operations."""
+    """Lower ``lax.device_put`` to an IR Identity node."""
 
-    def to_onnx(
-        self, converter: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params
-    ):
-        """
-        Convert jax.lax.device_put to ONNX operations.
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        in_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-        For constants, creates a constant node.
-        For variables, creates an Identity node.
+        in_val = ctx.get_value_for_var(
+            in_var, name_hint=ctx.fresh_name("device_put_in")
+        )
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("device_put_out")
+        )
 
-        Arguments:
-            converter: The Jaxpr2OnnxConverter instance
-            node_inputs: Input variables to the primitive
-            node_outputs: Output variables from the primitive
-            params: Parameters for the primitive
-        """
-        inp = node_inputs[0]
-        out = node_outputs[0]
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
+        result = ctx.builder.Identity(
+            in_val,
+            _outputs=[desired_name],
+        )
 
-        if isinstance(inp, extend_core.Literal):
-            # Handle conversion of literal values
-            val = inp.val
-            np_val = np.array(val)
-
-            # Check output type and ensure we match it
-            output_aval = out.aval
-            output_dtype = output_aval.dtype
-
-            # Convert value to match expected output dtype
-            if np_val.dtype != output_dtype:
-                np_val = np_val.astype(output_dtype)
-
-            # Get tensor name for the constant
-            tensor_name = converter.get_unique_name("const")
-
-            # Use add_initializer to add the constant to the ONNX graph
-            # This will handle data type conversion and initialization
-
-            data_type = converter.builder._numpy_dtype_to_onnx(np_val.dtype)
-            converter.builder.add_initializer(
-                tensor_name, np_val.flatten().tolist(), data_type, dims=np_val.shape
-            )
-
-            output_name = converter.get_name(out)
-            node = converter.builder.create_node(
-                "Identity",
-                [tensor_name],
-                [output_name],
-                name=converter.get_unique_name("device_put"),
-            )
-            converter.add_node(node)
-        else:
-            # For non-literal inputs, simply pass through with Identity
-            input_names = [converter.get_name(inp) for inp in node_inputs]
-            output_names = [converter.get_name(out) for out in node_outputs]
-            if not output_names:
-                return
-
-            node = converter.builder.create_node(
-                "Identity",
-                input_names,
-                output_names,
-                name=converter.get_unique_name(f"identity_{jax.lax.device_put_p.name}"),
-            )
-            converter.add_node(node)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        src_dtype = getattr(getattr(in_val, "type", None), "dtype", None)
+        if src_dtype is not None:
+            result.type = ir.TensorType(src_dtype)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

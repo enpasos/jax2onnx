@@ -1,13 +1,23 @@
-# file: jax2onnx/examples/multi_head_attention.py
+# jax2onnx/plugins/examples/nnx/multi_head_attention.py
+
+from __future__ import annotations
 
 from flax import nnx
 
-from jax2onnx.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_requested_dtype,
+    with_rng_seed,
+)
 
 
 register_example(
     component="MultiHeadAttention",
-    description="This is a multi-head attention module implemented by Flax/nnx that has no ONNX correspondent on the same granularity.",
+    description=(
+        "nnx.MultiHeadAttention exercised in several configurations, including "
+        "custom attention_fn and symbolic batch variants."
+    ),
     source="https://github.com/google/flax/blob/main/README.md",
     since="v0.2.0",
     context="examples.nnx",
@@ -15,47 +25,56 @@ register_example(
     testcases=[
         {
             "testcase": "multihead_attention_nn",
-            "callable": nnx.MultiHeadAttention(
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=8,
                 in_features=256,
                 qkv_features=256,
                 out_features=256,
-                rngs=nnx.Rngs(0),
                 decode=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 256)],
+            "expected_output_shapes": [("B", 4, 256)],
             "run_only_f32_variant": True,
         },
         {
             "testcase": "multihead_attention_nnx",
-            "callable": nnx.MultiHeadAttention(
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=8,
                 in_features=256,
                 qkv_features=256,
                 out_features=256,
-                rngs=nnx.Rngs(0),
                 attention_fn=lambda *args, **kwargs: nnx.dot_product_attention(
                     *args, **kwargs
                 ),
                 decode=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 4, 256)],
+            "expected_output_shapes": [("B", 4, 256)],
             "run_only_f32_variant": True,
         },
-        # ---------------------------------------------------------------
-        # Symbolic‑batch attention: ensure √dₖ constant is scalar (rank‑0)
         {
             "testcase": "multihead_attention_2_nnx",
-            "callable": nnx.MultiHeadAttention(
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
                 num_heads=4,
                 in_features=16,
                 qkv_features=16,
                 out_features=16,
-                rngs=nnx.Rngs(0),
                 decode=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
             ),
-            # q and kv identical shapes
             "input_shapes": [("B", 5, 16)],
+            "expected_output_shapes": [("B", 5, 16)],
             "run_only_f32_variant": True,
         },
     ],

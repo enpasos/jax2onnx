@@ -1,54 +1,38 @@
-import unittest
-import jax
-from onnx import helper, TensorProto
-import numpy as np
-import pytest
-import onnx
+# tests/extra_tests/converter/test_jaxpr_converter_interaction_with_builder.py
+
+from __future__ import annotations
+
+import onnx_ir as ir
+
+from jax2onnx.converter.function_scope import FunctionScope
+from jax2onnx.converter.ir_context import IRContext
 
 
-from jax2onnx.converter.onnx_builder import OnnxBuilder
-from jax2onnx.converter.name_generator import UniqueNameGenerator
-from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+def test_function_scope_constants_emit_constant_nodes() -> None:
+    parent = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    parent_input = ir.Value(
+        name="x0",
+        type=ir.TensorType(ir.DataType.FLOAT),
+        shape=ir.Shape((1,)),
+    )
 
+    scope = FunctionScope(parent, name="Fn")
+    fn_inputs = scope.begin([parent_input])
 
-class TestConverterDoesNotPromoteIntermediates(unittest.TestCase):
-    @pytest.mark.order(-1)  # run *after* the models have been produced
-    def test_intermediate_not_promoted(self):
-        ng = UniqueNameGenerator()
-        builder = OnnxBuilder(ng, model_name="test")
+    assert fn_inputs and fn_inputs[0] is not parent_input
+    assert fn_inputs[0].name.startswith("f_in_")
 
-        A = ng.get("A_int64")
-        builder.add_scalar_input(A, TensorProto.INT64)
-        B = ng.get("B_int32")
-        builder.add_value_info(B, (), np.int32)
-        builder.add_node(helper.make_node("Cast", [A], [B], to=TensorProto.INT32))
+    child_ctx = scope.ctx
+    constant_value = child_ctx.builder.add_initializer_from_scalar(
+        name="const", value=1.0
+    )
 
-        def passthrough(x):
-            return x + np.int32(0)  # forces new Var
+    assert not child_ctx.builder.initializers
+    constant_nodes = [n for n in child_ctx.builder.nodes if n.op_type == "Constant"]
+    assert constant_nodes, "Expected Constant node in function scope"
+    assert constant_nodes[0].outputs[0] is constant_value
 
-        jaxpr = jax.make_jaxpr(passthrough)(np.int32(0)).jaxpr
+    fn_def = scope.end([constant_value])
 
-        conv = Jaxpr2OnnxConverter(builder)
-        conv.var_to_name[jaxpr.invars[0]] = B
-        C = ng.get("C_int32")
-        # tell the converter to *really* use a fresh output symbol
-        conv.var_to_name[jaxpr.outvars[0]] = C
-
-        conv._process_jaxpr(jaxpr, [])
-
-        # builder itself should not have had to add Identity – converter must.
-        producer = [n for n in builder.nodes if C in n.output]
-        self.assertEqual(
-            len(producer), 1, "converter must create an Identity producing C"
-        )
-
-        graph = builder.create_graph("subgraph", is_subgraph=True)
-
-        self.assertEqual([vi.name for vi in graph.input], [A])  # only the true input
-
-        model = builder.create_onnx_model("noPromote_intermediates")
-        onnx.save_model(model, "docs/onnx/test_noPromote_intermediates.onnx")
-
-        inputs = [vi.name for vi in graph.input]
-        self.assertEqual(inputs, [A])  # only the real input
-        self.assertNotIn(B, inputs)  # B stayed intermediate
+    assert fn_def.outputs == [constant_value]
+    assert any(node.op_type == "Constant" for node in fn_def.nodes)

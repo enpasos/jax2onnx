@@ -12,4 +12,4 @@ tests/primitives
 python-venv
 jax2onnx.log
 *.onnx
-/jax2onnx.iml
+/jax2onnx.iml  

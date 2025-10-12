@@ -1,94 +1,124 @@
-# file: jax2onnx/plugins/jax/numpy/linspace.py
+# jax2onnx/plugins/jax/numpy/linspace.py
+
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence, Callable
+from typing import TYPE_CHECKING, ClassVar, Final
 
-import numpy as np
+import jax
 import jax.numpy as jnp
+import numpy as np
+import onnx_ir as ir
 from jax import core
-from jax.extend.core import Primitive  # Changed from jax.core for Primitive
-from onnx import helper  # Removed TensorProto as it's part of helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger("jax2onnx.plugins.jax.numpy.linspace")
-
-
-jnp.linspace_p = Primitive("jnp.linspace")
-jnp.linspace_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-def _abstract_eval_linspace_static(
-    *, static_start, static_stop, static_num, endpoint, dtype, axis
-):
-    """
-    Abstract evaluation function for the static linspace primitive.
-    All arguments are expected to be passed as keyword arguments from `bind` (params).
-    """
-    if not (isinstance(static_num, int) and not isinstance(static_num, bool)):
-        raise ValueError(
-            f"For static linspace, 'static_num' (value: {static_num}, type: {type(static_num)}) "
-            "must be a concrete Python integer."
-        )
-    if static_num < 0:
-        raise ValueError("Number of samples, `static_num`, must be non-negative.")
+_LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
 
-    # JAX's jnp.linspace has an axis parameter. This static plugin creates a 1D constant.
-    # If axis is not 0, the original JAX function might behave differently (e.g. inserting
-    # the 1D array into a higher-dimensional one). We restrict this static plugin.
-    if axis != 0:
-        # This error will be caught during jax.make_jaxpr tracing.
-        raise NotImplementedError(
-            f"Static linspace plugin currently only supports axis=0. Got axis={axis}."
-        )
 
-    output_dtype_np: np.dtype
-    if dtype is not None:
-        output_dtype_np = np.dtype(dtype)
+def _normalize_dtype(result_dtype: np.dtype, enable_double: bool) -> np.dtype:
+    if np.issubdtype(result_dtype, np.floating):
+        return result_dtype
+    return np.dtype(np.float64 if enable_double else np.float32)
+
+
+def _infer_result_dtype(
+    start_aval: core.AbstractValue,
+    stop_aval: core.AbstractValue,
+    dtype_param,
+    enable_double: bool,
+) -> np.dtype:
+    if dtype_param is not None:
+        return np.dtype(dtype_param)
+
+    cand = []
+    for aval in (start_aval, stop_aval):
+        aval_dtype = getattr(aval, "dtype", None)
+        if aval_dtype is not None:
+            cand.append(np.dtype(aval_dtype))
+    if cand:
+        result = np.result_type(*cand)
     else:
-        # Determine output dtype based on JAX's behavior for jnp.linspace:
-        # - If start/stop are floats, result is float (promoted by np.result_type).
-        # - If start/stop are ints, JAX defaults to a float type (e.g., float32 or float64 depending on config).
-        is_start_float = isinstance(static_start, (float, np.floating))
-        is_stop_float = isinstance(static_stop, (float, np.floating))
+        result = np.dtype(np.float64 if enable_double else np.float32)
 
-        if is_start_float or is_stop_float:
-            # np.result_type handles promotion like (float32, int32) -> float32
-            # or (float64, float32) -> float64
-            # or (float32, float32) -> float32
-            intermediate_dtype = np.result_type(static_start, static_stop)
-            # Ensure it's a JAX default float if it ended up integer (e.g. np.array(1, dtype=object))
-            if not jnp.issubdtype(intermediate_dtype, np.floating):
-                output_dtype_np = np.dtype(jnp.float32)  # Default promotion
-            else:
-                output_dtype_np = intermediate_dtype
-
-        else:  # Both start and stop are integer types (Python int or np.integer)
-            # JAX's linspace promotes to float if dtype is not specified.
-            # Default to float32, common for JAX unless x64 is enabled (then float64).
-            output_dtype_np = np.dtype(jnp.float32)
-
-    # JAX linspace behavior for num=0: returns an empty array.
-    # JAX linspace behavior for num=1: returns array([start]).
-    # Shape is (static_num,)
-    return core.ShapedArray((static_num,), output_dtype_np, weak_type=False)
+    if not np.issubdtype(result, np.floating):
+        result = np.dtype(np.float64 if enable_double else np.float32)
+    return result
 
 
-jnp.linspace_p.def_abstract_eval(_abstract_eval_linspace_static)
+def _maybe_cast(
+    ctx: "IRContext",
+    value: ir.Value,
+    target_enum: ir.DataType,
+    name_hint: str,
+) -> ir.Value:
+    const_arr = getattr(value, "const_value", None)
+    if const_arr is not None:
+        np_arr = np.asarray(const_arr)
+        enum_to_np = {
+            ir.DataType.FLOAT: np.float32,
+            ir.DataType.INT32: np.int32,
+            ir.DataType.INT64: np.int64,
+            ir.DataType.INT16: np.int16,
+            ir.DataType.INT8: np.int8,
+            ir.DataType.BOOL: np.bool_,
+        }
+        double_enum = getattr(ir.DataType, "DOUBLE", None)
+        if double_enum is not None:
+            enum_to_np[double_enum] = np.float64
+        uint8_enum = getattr(ir.DataType, "UINT8", None)
+        if uint8_enum is not None:
+            enum_to_np[uint8_enum] = np.uint8
+        target_dtype = enum_to_np.get(target_enum)
+        if target_dtype is not None and np_arr.dtype != target_dtype:
+            new_val = ctx.bind_const_for_var(
+                object(), np_arr.astype(target_dtype, copy=False)
+            )
+            _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
+            _ensure_value_metadata(ctx, new_val)
+            return new_val
+    cur_type = getattr(value, "type", None)
+    cur_dtype = getattr(cur_type, "dtype", None)
+    if cur_dtype == target_enum:
+        return value
+    cast_name = ctx.fresh_name(name_hint)
+    cast_val = ctx.builder.Cast(
+        value,
+        _outputs=[cast_name],
+        to=int(target_enum.value),
+    )
+    cast_val.type = ir.TensorType(target_enum)
+    shape_obj = getattr(value, "shape", None)
+    dims = None
+    if shape_obj is not None:
+        dims = getattr(shape_obj, "dims", None)
+        if dims is None:
+            try:
+                dims = tuple(shape_obj)
+            except TypeError:
+                dims = None
+    _stamp_type_and_shape(cast_val, tuple(dims) if dims is not None else ())
+    _ensure_value_metadata(ctx, cast_val)
+    return cast_val
 
 
 @register_primitive(
-    jaxpr_primitive=jnp.linspace_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.linspace.html (Static Version for jax2onnx)",
+    jaxpr_primitive=_LINSPACE_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linspace.html",
     onnx=[
         {
-            "component": "Constant",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+            "component": "Range",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         },
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     ],
     since="v0.5.2",
     context="primitives.jnp",
@@ -96,183 +126,332 @@ jnp.linspace_p.def_abstract_eval(_abstract_eval_linspace_static)
     testcases=[
         {
             "testcase": "linspace_static_basic",
-            "callable": lambda: jnp.linspace(0.0, 10.0, num=5, dtype=jnp.float32),
+            "callable": lambda: jnp.linspace(0.0, 5.0, num=6),
             "input_values": [],
-            "expected_output_shapes": [(5,)],  # Output dtype will be float32
+            "expected_output_shapes": [(6,)],
         },
         {
             "testcase": "linspace_static_endpoint_false",
+            "callable": lambda: jnp.linspace(0.0, 1.0, num=5, endpoint=False),
+            "input_values": [],
+            "expected_output_shapes": [(5,)],
+        },
+        {
+            "testcase": "linspace_static_int_inputs_default_dtype",
+            "callable": lambda: jnp.linspace(0, 4, num=5),
+            "input_values": [],
+            "expected_output_shapes": [(5,)],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "linspace_basic_f32",
+            "callable": lambda: jnp.linspace(0.0, 10.0, num=5, dtype=jnp.float32),
+            "input_values": [],
+            "expected_output_shapes": [(5,)],
+        },
+        {
+            "testcase": "linspace_endpoint_false_i32",
             "callable": lambda: jnp.linspace(
                 0, 4, num=4, endpoint=False, dtype=jnp.int32
             ),
             "input_values": [],
-            "expected_output_shapes": [(4,)],  # Output dtype will be int32
+            "expected_output_shapes": [(4,)],
         },
         {
-            "testcase": "linspace_static_num_1",
-            "callable": lambda: jnp.linspace(3.0, 10.0, num=1, dtype=jnp.float64),
-            "input_values": [],
-            "expected_output_shapes": [(1,)],  # Output dtype will be float64
-        },
-        {
-            "testcase": "linspace_static_num_0",
-            # dtype=None, inputs are float and int, result_type will be float, abstract eval default float32
+            "testcase": "linspace_num_zero",
             "callable": lambda: jnp.linspace(0.0, 10.0, num=0),
             "input_values": [],
             "expected_output_shapes": [(0,)],
         },
-        {  # Test with integer inputs and no dtype specified (should become float32)
-            "testcase": "linspace_static_int_inputs_default_dtype",
-            "callable": lambda: jnp.linspace(0, 10, num=5),
+        {
+            "testcase": "linspace_num_one",
+            "callable": lambda: jnp.linspace(3.0, 10.0, num=1, dtype=jnp.float64),
             "input_values": [],
-            "expected_output_shapes": [(5,)],  # Expect float32 from abstract_eval logic
+            "expected_output_shapes": [(1,)],
+        },
+        {
+            "testcase": "linspace_static_num_0",
+            "callable": lambda: jnp.linspace(1.0, 2.0, num=0),
+            "input_values": [],
+            "expected_output_shapes": [(0,)],
+        },
+        {
+            "testcase": "linspace_static_num_1",
+            "callable": lambda: jnp.linspace(7.0, 9.0, num=1),
+            "input_values": [],
+            "expected_output_shapes": [(1,)],
+            "expected_output_dtypes": [np.float32],
         },
     ],
 )
-class LinspacePlugin(PrimitiveLeafPlugin):
-    _ORIGINAL_LINSPACE: Callable[..., Any] | None = None
+class JnpLinspacePlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _LINSPACE_PRIM
+    _FUNC_NAME: ClassVar[str] = "linspace"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(  # For plugin system, matches primitive's abstract_eval params
-        *, static_start, static_stop, static_num, endpoint, dtype, axis
+    def abstract_eval(
+        start,
+        stop,
+        *,
+        num: int = 50,
+        endpoint: bool = True,
+        retstep: bool = False,
+        dtype=None,
+        axis: int = 0,
     ):
-        return jnp.linspace_p.abstract_eval(
-            static_start=static_start,
-            static_stop=static_stop,
-            static_num=static_num,
-            endpoint=endpoint,
-            dtype=dtype,
-            axis=axis,
-        )
+        if retstep:
+            raise NotImplementedError("jnp.linspace with retstep=True is not supported")
+        if axis != 0:
+            raise NotImplementedError("jnp.linspace currently supports axis=0 only")
+        num_int = int(num)
+        if num_int < 0:
+            raise ValueError("num must be non-negative")
+        enable_x64 = bool(jax.config.jax_enable_x64)
+        result_dtype = _infer_result_dtype(start, stop, dtype, enable_x64)
+        return core.ShapedArray((num_int,), result_dtype)
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable[..., Any]):
-        LinspacePlugin._ORIGINAL_LINSPACE = orig_fn
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        num = int(params.get("num", 50))
+        if num < 0:
+            raise ValueError("jnp.linspace lowering received negative num")
+        endpoint = bool(params.get("endpoint", True))
+        retstep = bool(params.get("retstep", False))
+        if retstep:
+            raise NotImplementedError("jnp.linspace with retstep=True is not supported")
+        axis = int(params.get("axis", 0))
+        if axis != 0:
+            raise NotImplementedError("jnp.linspace currently supports axis=0 only")
 
-        def patched_linspace_static_impl(
-            start, stop, num=50, *, endpoint=True, dtype=None, axis=0
-        ):
-            # This static plugin creates a 1D constant.
-            # JAX's jnp.linspace itself has an axis parameter, which could imply embedding.
-            # We simplify and restrict this static plugin to axis=0.
-            if axis != 0:
-                logger.warning(
-                    f"LinspaceStaticPlugin received axis={axis}, but only supports axis=0. "
-                    "Falling back to original JAX linspace if available."
-                )
-                if LinspacePlugin._ORIGINAL_LINSPACE:
-                    return LinspacePlugin._ORIGINAL_LINSPACE(
-                        start, stop, num=num, endpoint=endpoint, dtype=dtype, axis=axis
-                    )
-                # If no fallback, error will be raised by abstract_eval during tracing.
-                # Or we can raise it here directly.
-                raise NotImplementedError(
-                    f"Static linspace plugin currently only supports axis=0. Got axis={axis}, and fallback is unavailable."
-                )
-
-            is_static_start = isinstance(start, (int, float, np.number))
-            is_static_stop = isinstance(stop, (int, float, np.number))
-            # 'num' must be a Python int for the static version (not a JAX tracer or np.ndarray).
-            # Exclude bools as they are instances of int but not valid for 'num'.
-            is_static_num = isinstance(num, int) and not isinstance(num, bool)
-
-            if is_static_start and is_static_stop and is_static_num:
-                # All key inputs are Python constants.
-                # Bind them as static keyword parameters to the primitive.
-                return jnp.linspace_p.bind(
-                    static_start=start,
-                    static_stop=stop,
-                    static_num=num,
-                    endpoint=endpoint,
-                    dtype=dtype,
-                    axis=axis,  # Pass axis along; abstract_eval will validate it.
-                )
-            else:
-                logger.warning(
-                    "LinspaceStaticPlugin expects static Python numbers for start/stop, and a Python int for num. "
-                    f"Received types: start={type(start)}, stop={type(stop)}, num={type(num)}. "
-                    "Falling back to original JAX linspace if available."
-                )
-                if LinspacePlugin._ORIGINAL_LINSPACE:
-                    return LinspacePlugin._ORIGINAL_LINSPACE(
-                        start, stop, num=num, endpoint=endpoint, dtype=dtype, axis=axis
-                    )
-                raise ValueError(
-                    "Static linspace plugin requires static inputs (Python numbers for start/stop, Python int for num), "
-                    "but received dynamic JAX types or non-integer num. Fallback to original JAX linspace is unavailable."
-                )
-
-        return patched_linspace_static_impl
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "linspace",
-            "patch_function": LinspacePlugin.get_monkey_patch,
-        }
-
-    def to_onnx(
-        self,
-        s: Jaxpr2OnnxConverter,
-        node_inputs: Sequence[core.Var],  # Should be empty due to static bind
-        node_outputs: Sequence[core.Var],
-        params: dict[str, Any],  # All static values are in params
-    ) -> None:
-        if node_inputs:
-            raise ValueError(
-                "LinspaceStaticPlugin's to_onnx expects no node_inputs for its "
-                "current static implementation, as all arguments should be in params."
+        start_var, stop_var = eqn.invars
+        start_shape = tuple(getattr(start_var.aval, "shape", ()))
+        stop_shape = tuple(getattr(stop_var.aval, "shape", ()))
+        if start_shape != () or stop_shape != ():
+            raise NotImplementedError(
+                "jnp.linspace supports scalar start/stop only in IR path"
             )
 
-        output_var = node_outputs[0]
-        output_name = s.get_name(output_var)
+        out_var = eqn.outvars[0]
+        out_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
+        target_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
 
-        # Retrieve static values from params, consistent with abstract_eval and bind
-        start_val = params["static_start"]
-        stop_val = params["static_stop"]
-        num_val = params["static_num"]
-        endpoint = params["endpoint"]
-        # axis = params["axis"] # Validated to be 0 by abstract_eval / patcher
+        work_dtype = _normalize_dtype(out_dtype, ctx.builder.enable_double_precision)
+        work_enum = _dtype_to_ir(work_dtype, ctx.builder.enable_double_precision)
 
-        # The dtype for np.linspace and the ONNX tensor should be the one
-        # determined by abstract_eval. This is available in output_var.aval.dtype.
-        dtype_np = output_var.aval.dtype
-        if dtype_np is None:  # Should not happen if abstract_eval is correct
-            raise ValueError("Output variable dtype is None after abstract evaluation.")
+        start_val = ctx.get_value_for_var(
+            start_var,
+            name_hint=ctx.fresh_name("linspace_start"),
+            prefer_np_dtype=work_dtype,
+        )
+        stop_val = ctx.get_value_for_var(
+            stop_var,
+            name_hint=ctx.fresh_name("linspace_stop"),
+            prefer_np_dtype=work_dtype,
+        )
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for linspace lowering"
+            )
 
-        # Precompute the linspace values using NumPy
-        linspace_values: np.ndarray
-        if num_val == 0:
-            linspace_values = np.array([], dtype=dtype_np)
-        elif num_val == 1:
-            # For num=1, JAX's jnp.linspace(start, stop, 1) consistently returns [start].
-            # This holds true for both endpoint=True and endpoint=False.
-            linspace_values = np.array([start_val], dtype=dtype_np)
+        start_val = _maybe_cast(ctx, start_val, work_enum, "linspace_start_cast")
+        stop_val = _maybe_cast(ctx, stop_val, work_enum, "linspace_stop_cast")
+        _stamp_type_and_shape(start_val, ())
+        _stamp_type_and_shape(stop_val, ())
+        _ensure_value_metadata(ctx, start_val)
+        _ensure_value_metadata(ctx, stop_val)
+
+        idx_start = _scalar_i64(ctx, 0, "linspace_idx_start")
+        idx_limit = _scalar_i64(ctx, num, "linspace_idx_limit")
+        idx_delta = _scalar_i64(ctx, 1, "linspace_idx_step")
+        for scalar_val in (idx_start, idx_limit, idx_delta):
+            _stamp_type_and_shape(scalar_val, ())
+            _ensure_value_metadata(ctx, scalar_val)
+        indices = builder.Range(
+            idx_start,
+            idx_limit,
+            idx_delta,
+            _outputs=[ctx.fresh_name("linspace_indices")],
+        )
+        indices.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(indices, (num,))
+        _ensure_value_metadata(ctx, indices)
+
+        indices_cast = builder.Cast(
+            indices,
+            _outputs=[ctx.fresh_name("linspace_indices_cast")],
+            to=int(work_enum.value),
+        )
+        indices_cast.type = ir.TensorType(work_enum)
+        _stamp_type_and_shape(indices_cast, (num,))
+        _ensure_value_metadata(ctx, indices_cast)
+
+        diff = builder.Sub(
+            stop_val,
+            start_val,
+            _outputs=[ctx.fresh_name("linspace_diff")],
+        )
+        diff.type = ir.TensorType(work_enum)
+        _stamp_type_and_shape(diff, ())
+        _ensure_value_metadata(ctx, diff)
+
+        denom = num - 1 if endpoint else num
+        if denom <= 0:
+            denom = 1
+        denom_i64 = _scalar_i64(ctx, denom, "linspace_denom_i64")
+        _stamp_type_and_shape(denom_i64, ())
+        _ensure_value_metadata(ctx, denom_i64)
+        denom_val = builder.CastLike(
+            denom_i64,
+            indices_cast,
+            _outputs=[ctx.fresh_name("linspace_denom")],
+        )
+        denom_val.type = indices_cast.type
+        _stamp_type_and_shape(denom_val, ())
+        _ensure_value_metadata(ctx, denom_val)
+
+        step = builder.Div(
+            diff,
+            denom_val,
+            _outputs=[ctx.fresh_name("linspace_step")],
+        )
+        step.type = ir.TensorType(work_enum)
+        _stamp_type_and_shape(step, ())
+        _ensure_value_metadata(ctx, step)
+
+        scaled = builder.Mul(
+            indices_cast,
+            step,
+            _outputs=[ctx.fresh_name("linspace_scaled")],
+        )
+        scaled.type = ir.TensorType(work_enum)
+        _stamp_type_and_shape(scaled, (num,))
+        _ensure_value_metadata(ctx, scaled)
+
+        linspace_vals = builder.Add(
+            scaled,
+            start_val,
+            _outputs=[ctx.fresh_name("linspace_vals")],
+        )
+        linspace_vals.type = ir.TensorType(work_enum)
+        _stamp_type_and_shape(linspace_vals, (num,))
+        _ensure_value_metadata(ctx, linspace_vals)
+
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("linspace_out"), prefer_np_dtype=out_dtype
+        )
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("linspace_out")
+        if target_enum != work_enum:
+            final_val = builder.Cast(
+                linspace_vals,
+                _outputs=[ctx.fresh_name("linspace_out_cast")],
+                to=int(target_enum.value),
+            )
+            final_val.type = ir.TensorType(target_enum)
+            _stamp_type_and_shape(final_val, (num,))
+            _ensure_value_metadata(ctx, final_val)
         else:
-            linspace_values = np.linspace(
-                start_val, stop_val, num_val, endpoint=endpoint, dtype=dtype_np
-            )
+            final_val = linspace_vals
+        final_val.name = out_name
+        _stamp_type_and_shape(final_val, (num,))
+        _ensure_value_metadata(ctx, final_val)
+        ctx.bind_value_for_var(out_var, final_val)
 
-        # Create an ONNX Constant node with the precomputed values
-        onnx_tensor = helper.make_tensor(
-            name=s.get_unique_name(
-                f"{output_name}_value"
-            ),  # Ensure unique tensor name within the node
-            data_type=s._ensure_onnx_dtype(dtype_np),
-            dims=linspace_values.shape,
-            # Ensure vals are Python built-in types (float, int) for make_tensor
-            vals=linspace_values.flatten().tolist(),
-        )
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        constant_node = helper.make_node(
-            "Constant",
-            inputs=[],  # No inputs for a constant node
-            outputs=[output_name],
-            value=onnx_tensor,  # The tensor proto is passed as 'value' attribute
-            name=s.get_unique_name(
-                f"linspace_static_const_{output_name}"
-            ),  # Unique node name
-        )
-        s.add_node(constant_node)
-        # s.add_shape_info is usually not needed here as the converter infers from output_var.aval
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.linspace not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(
+                start,
+                stop,
+                num=50,
+                *,
+                endpoint=True,
+                retstep=False,
+                dtype=None,
+                axis=0,
+            ):
+                if retstep:
+                    return orig(
+                        start,
+                        stop,
+                        num=num,
+                        endpoint=endpoint,
+                        retstep=retstep,
+                        dtype=dtype,
+                        axis=axis,
+                    )
+                axis_int = int(axis)
+                if axis_int != 0:
+                    return orig(
+                        start,
+                        stop,
+                        num=num,
+                        endpoint=endpoint,
+                        retstep=retstep,
+                        dtype=dtype,
+                        axis=axis,
+                    )
+                num_int = int(num)
+                if num_int < 0:
+                    raise ValueError("num must be non-negative")
+                start_arr = jnp.asarray(start)
+                stop_arr = jnp.asarray(stop)
+                if start_arr.ndim != 0 or stop_arr.ndim != 0:
+                    return orig(
+                        start,
+                        stop,
+                        num=num,
+                        endpoint=endpoint,
+                        retstep=retstep,
+                        dtype=dtype,
+                        axis=axis,
+                    )
+                return cls._PRIM.bind(
+                    start_arr,
+                    stop_arr,
+                    num=num_int,
+                    endpoint=bool(endpoint),
+                    retstep=False,
+                    dtype=dtype,
+                    axis=axis_int,
+                )
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
+
+
+@JnpLinspacePlugin._PRIM.def_impl
+def _linspace_impl(
+    start, stop, *_, num=50, endpoint=True, retstep=False, dtype=None, axis=0
+):
+    orig = get_orig_impl(JnpLinspacePlugin._PRIM, JnpLinspacePlugin._FUNC_NAME)
+    return orig(
+        start,
+        stop,
+        num=num,
+        endpoint=endpoint,
+        retstep=retstep,
+        dtype=dtype,
+        axis=axis,
+    )
+
+
+JnpLinspacePlugin._PRIM.def_abstract_eval(JnpLinspacePlugin.abstract_eval)

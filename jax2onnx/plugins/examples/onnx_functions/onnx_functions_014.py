@@ -1,37 +1,39 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_000.py
+# jax2onnx/plugins/examples/onnx_functions/onnx_functions_014.py
+
+from __future__ import annotations
 
 
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+    with_rng_seed,
+)
 
 
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
     def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=0.1, rngs=rngs)
+        self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
+        self.dropout2 = nnx.Dropout(rate=0.1, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
-        for layer in self.layers:
-            if isinstance(layer, nnx.Dropout):
-                x = layer(x, deterministic=deterministic)
-            else:
-                x = layer(x)
-        return x
+        x = self.linear1(x)
+        x = nnx.gelu(x, approximate=False)
+        x = self.dropout1(x, deterministic=deterministic)
+        x = self.linear2(x)
+        return self.dropout2(x, deterministic=deterministic)
 
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
-        rngs = nnx.Rngs(0)
+    def __init__(self, *, rngs: nnx.Rngs):
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
@@ -50,7 +52,7 @@ register_example(
     testcases=[
         {
             "testcase": "014_one_function_with_input_param_with_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock, rngs=with_rng_seed(0)),
             "input_shapes": [(5, 10, 3)],
             "expected_number_of_function_instances": 1,
             "input_params": {
@@ -62,7 +64,7 @@ register_example(
         },
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock, rngs=with_rng_seed(0)),
             "input_shapes": [("B", 10, 3)],
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,

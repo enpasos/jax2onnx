@@ -1,20 +1,24 @@
+# jax2onnx/plugins/jax/lax/sinh.py
+
 from typing import TYPE_CHECKING
 
 import jax
 import numpy as np
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
     jaxpr_primitive=jax.lax.sinh_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sinh.html",
     onnx=[
-        {"component": "Sinh", "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html"}
+        {
+            "component": "Sinh",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html",
+        }
     ],
     since="v0.4.4",
     context="primitives.lax",
@@ -28,56 +32,52 @@ if TYPE_CHECKING:
     ],
 )
 class SinhPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.sinh to ONNX Sinh."""
+    def lower(self, ctx, eqn):
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        (x,) = node_inputs
-        (out_var,) = node_outputs
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sinh_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sinh_out"))
 
-        x_name = s.get_name(x)
-        out_name = s.get_name(out_var)
+        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("sinh_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("sinh_out")
 
-        # Correctly get the dtype from the input variable's abstract value (aval)
-        dtype = x.aval.dtype
+        if x_dtype == np.float32:
+            result = ctx.builder.Sinh(x_val, _outputs=[desired_name])
+            if getattr(out_spec, "type", None) is not None:
+                result.type = out_spec.type
+            if getattr(out_spec, "shape", None) is not None:
+                result.shape = out_spec.shape
+            ctx.bind_value_for_var(out_var, result)
+            return
 
-        if dtype == np.float32:
-            # For float32, we can just emit the native ONNX Sinh operator
-            node = helper.make_node("Sinh", inputs=[x_name], outputs=[out_name])
-            s.add_node(node)
-        else:
-            # For double (and other fp types), lower to (exp(x) - exp(-x)) / 2
+        # ONNX lacks a DOUBLE kernel for Sinh; emulate via (exp(x) - exp(-x)) * 0.5
+        exp_x = ctx.builder.Exp(x_val, _outputs=[ctx.fresh_name("sinh_exp")])
+        exp_x.type = x_val.type
+        exp_x.shape = x_val.shape
 
-            # exp(x)
-            exp_x_name = s.get_unique_name("exp_x")
-            s.add_node(helper.make_node("Exp", inputs=[x_name], outputs=[exp_x_name]))
-            s.add_shape_info(exp_x_name, x.aval.shape, dtype)
+        neg_x = ctx.builder.Neg(x_val, _outputs=[ctx.fresh_name("sinh_neg")])
+        neg_x.type = x_val.type
+        neg_x.shape = x_val.shape
 
-            # -x
-            neg_x_name = s.get_unique_name("neg_x")
-            s.add_node(helper.make_node("Neg", inputs=[x_name], outputs=[neg_x_name]))
-            s.add_shape_info(neg_x_name, x.aval.shape, dtype)
+        exp_neg_x = ctx.builder.Exp(neg_x, _outputs=[ctx.fresh_name("sinh_exp_neg")])
+        exp_neg_x.type = x_val.type
+        exp_neg_x.shape = x_val.shape
 
-            # exp(-x)
-            exp_neg_x_name = s.get_unique_name("exp_neg_x")
-            s.add_node(
-                helper.make_node("Exp", inputs=[neg_x_name], outputs=[exp_neg_x_name])
-            )
-            s.add_shape_info(exp_neg_x_name, x.aval.shape, dtype)
+        diff_val = ctx.builder.Sub(
+            exp_x, exp_neg_x, _outputs=[ctx.fresh_name("sinh_diff")]
+        )
+        diff_val.type = x_val.type
+        diff_val.shape = x_val.shape
 
-            # exp(x) - exp(-x)
-            diff_name = s.get_unique_name("diff")
-            s.add_node(
-                helper.make_node(
-                    "Sub", inputs=[exp_x_name, exp_neg_x_name], outputs=[diff_name]
-                )
-            )
-            s.add_shape_info(diff_name, x.aval.shape, dtype)
+        half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=x_dtype))
 
-            # constant 0.5
-            half_const_name = s.get_constant_name(np.array(0.5, dtype=dtype))
-
-            # (exp(x) - exp(-x)) * 0.5
-            node = helper.make_node(
-                "Mul", inputs=[diff_name, half_const_name], outputs=[out_name]
-            )
-            s.add_node(node)
+        result = ctx.builder.Mul(diff_val, half, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

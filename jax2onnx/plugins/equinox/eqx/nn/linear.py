@@ -1,63 +1,231 @@
 # jax2onnx/plugins/equinox/eqx/nn/linear.py
-"""
-ONNX plugin for **equinox.nn.Linear** that supports symbolic-batch dimensions
-and high-rank inputs.
-
-Key differences vs. the Flax/NNX version
-----------------------------------------
-* Equinox stores parameters directly (`self.weight`, `self.bias`) – no `.value`.
-* Weight has shape ``(out_features, in_features)`` so ONNX ``Gemm`` is emitted
-  with ``transB = 1`` instead of transposing beforehand.
-* The monkey-patch targets **eqx.nn.Linear** and binds through
-  ``eqx.nn.linear_p``.
-"""
 
 from __future__ import annotations
 
-import logging
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, Callable
+from typing import ClassVar, Final, Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import core
+import onnx_ir as ir
 from jax.extend.core import Primitive
+from jax.core import ShapedArray
 from jax.interpreters import batching
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # only for type checkers & IDEs
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger("jax2onnx.plugins.equinox.eqx.nn.linear")
-
-# --------------------------------------------------------------------------
-# Example modules for testcases: seed once at import time, so __init__ PRNG
-# happens now, not inside the traced function.
-_eqx_linear_symbolic_mod = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
-_eqx_linear_highrank_mod = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
-# Reproducer for issue #85: no-bias Linear (bias=None) should be supported.
-# We add dedicated modules so the testcases can import-time freeze parameters.
-_eqx_linear_nobias_mod = eqx.nn.Linear(
-    128, 64, use_bias=False, key=jax.random.PRNGKey(0)
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _ensure_value_metadata,
+    _is_static_int,
+    _stamp_type_and_shape,
 )
-# --------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# 1. Primitive -----------------------------------------------------------------
-# -----------------------------------------------------------------------------
-eqx.nn.linear_p = Primitive("eqx.nn.linear")
-eqx.nn.linear_p.multiple_results = False
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
-# -----------------------------------------------------------------------------
-# 2. Plugin registration -------------------------------------------------------
-# -----------------------------------------------------------------------------
+_eqx_linear_symbolic: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
+_eqx_linear_highrank: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(42))
+_eqx_linear_no_bias: Final = eqx.nn.Linear(
+    128, 64, use_bias=False, key=jax.random.PRNGKey(7)
+)
+
+
+def _ensure_static_int(dim: int | str | None) -> int:
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    raise TypeError("Dimension is not a static integer")
+
+
+def _value_to_numpy(val: ir.Value) -> Optional[np.ndarray]:
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        payload = getattr(val, attr, None)
+        if payload is None:
+            continue
+        try:
+            return np.asarray(payload)
+        except Exception:
+            try:
+                return np.asarray(payload())  # callable returning array-like
+            except Exception:
+                continue
+    return None
+
+
+def _set_value_const_payload(val: ir.Value, arr: np.ndarray) -> None:
+    payload = ir.tensor(arr) if hasattr(ir, "tensor") else arr
+    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+        if hasattr(val, attr):
+            try:
+                setattr(val, attr, payload)
+            except Exception:
+                pass
+
+
+def _inline_scalar_bias(ctx, bias_val: ir.Value, out_features: int) -> ir.Value:
+    expand_node = getattr(bias_val, "producer", None)
+    if callable(expand_node):
+        try:
+            expand_node = expand_node()
+        except Exception:
+            expand_node = None
+    if expand_node is None or getattr(expand_node, "op_type", "") != "Expand":
+        return bias_val
+
+    expand_inputs = list(
+        getattr(expand_node, "inputs", getattr(expand_node, "input", []))
+    )
+    if not expand_inputs:
+        return bias_val
+
+    const_input = expand_inputs[0]
+    arr = _value_to_numpy(const_input)
+    # For debugging - disable in production if needed
+    if arr is None:
+        for init in getattr(ctx.builder, "initializers", []):
+            if getattr(init, "name", None) == getattr(const_input, "name", None):
+                arr = _value_to_numpy(init)
+                if arr is not None:
+                    break
+    if arr is None:
+        return bias_val
+
+    arr = np.asarray(arr)
+
+    if arr.size == 1:
+        broadcast = np.broadcast_to(arr.reshape(()), (out_features,))
+    elif arr.size == out_features:
+        broadcast = arr.reshape((out_features,))
+    else:
+        return bias_val
+    bias_type = getattr(bias_val, "type", None)
+    if isinstance(bias_type, ir.TensorType):
+        new_type = ir.TensorType(bias_type.dtype)
+    else:
+        new_type = bias_type
+
+    new_val = ir.Value(
+        name=ctx.fresh_name("linear_bias_inline"),
+        type=new_type,
+        shape=ir.Shape((out_features,)),
+    )
+    _set_value_const_payload(new_val, broadcast)
+
+    try:
+        inits = getattr(ctx, "_initializers", None)
+        if isinstance(inits, list):
+            inits.append(new_val)
+        else:
+            ctx.builder.initializers.append(new_val)
+    except Exception:
+        try:
+            ctx.builder.initializers.append(new_val)
+        except Exception:
+            pass
+
+    try:
+        mapping = getattr(ctx.builder, "_var2val", None)
+        if isinstance(mapping, dict):
+            for var, val in list(mapping.items()):
+                if val is bias_val:
+                    mapping[var] = new_val
+    except Exception:
+        pass
+
+    try:
+        nodes = getattr(ctx.builder, "nodes", None)
+        if isinstance(nodes, list):
+            if expand_node in nodes:
+                nodes.remove(expand_node)
+            if len(expand_inputs) > 1:
+                shape_val = expand_inputs[1]
+                shape_producer = getattr(shape_val, "producer", None)
+                if callable(shape_producer):
+                    try:
+                        shape_producer = shape_producer()
+                    except Exception:
+                        shape_producer = None
+                if shape_producer and getattr(shape_producer, "op_type", "") in {
+                    "Concat",
+                    "Reshape",
+                }:
+                    output_names = {
+                        getattr(v, "name", None)
+                        for v in getattr(
+                            shape_producer,
+                            "outputs",
+                            getattr(shape_producer, "output", []),
+                        )
+                    }
+                    if output_names:
+                        still_used = False
+                        for node in nodes:
+                            if node is shape_producer:
+                                continue
+                            for iv in getattr(
+                                node, "inputs", getattr(node, "input", [])
+                            ):
+                                if getattr(iv, "name", None) in output_names:
+                                    still_used = True
+                                    break
+                            if still_used:
+                                break
+                        if not still_used and shape_producer in nodes:
+                            nodes.remove(shape_producer)
+    except Exception:
+        pass
+
+    return new_val
+
+
+def _flatten_leading_dim_label(
+    x_val, x_shape: tuple[int | str | None, ...]
+) -> int | str | None:
+    batch_dims = x_shape[:-1]
+    if not batch_dims:
+        return 1
+
+    labels: list[int | str | None] = []
+    all_static = True
+    for idx, dim in enumerate(batch_dims):
+        label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        if label is None:
+            if _is_static_int(dim):
+                label = _ensure_static_int(dim)
+            else:
+                label = None
+        else:
+            if isinstance(label, str) and not label:
+                label = None
+        labels.append(label)
+        if not _is_static_int(dim):
+            all_static = False
+
+    non_null = [lb for lb in labels if lb is not None]
+    if len(non_null) == 1 and len(labels) == 1:
+        return non_null[0]
+
+    if len(non_null) == len(labels) and all(
+        isinstance(lb, (int, np.integer)) for lb in non_null
+    ):
+        prod = 1
+        for lb in non_null:
+            prod *= int(lb)
+        return prod
+
+    if all_static and batch_dims:
+        prod = 1
+        for dim in batch_dims:
+            prod *= _ensure_static_int(dim)
+        return prod
+
+    return None
+
+
 @register_primitive(
-    jaxpr_primitive=eqx.nn.linear_p.name,
+    jaxpr_primitive="eqx.nn.linear",
     jax_doc="https://docs.kidger.site/equinox/api/eqx/nn/linear/",
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
@@ -72,304 +240,300 @@ eqx.nn.linear_p.multiple_results = False
     testcases=[
         {
             "testcase": "eqx_linear_symbolic_batch",
-            "callable": lambda x, _mod=_eqx_linear_symbolic_mod: jax.vmap(_mod)(x),
+            "callable": lambda x, _mod=_eqx_linear_symbolic: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "post_check_onnx_graph": lambda m: (
-                any(node.op_type == "Gemm" for node in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                ["Gemm:Bx64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
             ),
         },
         {
             "testcase": "eqx_linear_no_bias_symbolic_batch",
-            # Reproduce the no-bias path (bias=None) under vmap/batched input.
-            # This used to fail during tracing because None was bound to the primitive.
-            "callable": lambda x, _mod=_eqx_linear_nobias_mod: jax.vmap(_mod)(x),
+            "callable": lambda x, _mod=_eqx_linear_no_bias: jax.vmap(_mod)(x),
             "input_shapes": [("B", 128)],
-            "post_check_onnx_graph": lambda m: (
-                any(node.op_type == "Gemm" for node in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                ["Gemm:Bx64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
             ),
         },
         {
             "testcase": "eqx_linear_no_bias_vector",
-            # Also cover the rank-1 no-bias case (no vmap).
-            "callable": _eqx_linear_nobias_mod,
+            "callable": _eqx_linear_no_bias,
             "input_shapes": [(128,)],
-            "post_check_onnx_graph": lambda m: (
-                any(n.op_type == "Gemm" for n in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:1x128 -> Gemm:1x64 -> Reshape:64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
             ),
         },
         {
             "testcase": "eqx_linear_high_rank",
-            # Two vmaps: first over the inner axis (size 10), then over the batch axis (size 32).
-            # For more details, see docs/equinox_linear.md.
-            "callable": (
-                lambda x, _mod=_eqx_linear_highrank_mod: jax.vmap(jax.vmap(_mod))(x)
+            "callable": lambda x, _mod=_eqx_linear_highrank: jax.vmap(jax.vmap(_mod))(
+                x
             ),
             "input_shapes": [(32, 10, 128)],
-            "post_check_onnx_graph": lambda m: (
-                any(node.op_type == "Gemm" for node in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:320x128 -> Gemm:320x64 -> Reshape:32x10x64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
             ),
         },
         {
             "testcase": "eqx_linear_vector",
-            # directly call the module (no vmap) on a 1‑D input
-            "callable": _eqx_linear_symbolic_mod,
+            "callable": _eqx_linear_symbolic,
             "input_shapes": [(128,)],
-            "post_check_onnx_graph": lambda m: (
-                any(n.op_type == "Gemm" for n in m.graph.node)
+            "post_check_onnx_graph": expect_graph(
+                ["Reshape:1x128 -> Gemm:1x64 -> Reshape:64"],
+                no_unused_inputs=True,
+                must_absent=["Expand"],
             ),
         },
     ],
 )
-class EqxLinearPlugin(PrimitiveLeafPlugin):
-    """Convert **equinox.nn.Linear** to ONNX (symbolic-dim aware)."""
+class LinearPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar[Primitive] = Primitive("eqx.nn.linear")
+    _PRIM.multiple_results = False
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    # ------------------------------------------------------------------
-    # keep a reference to the pristine implementation
-    # ------------------------------------------------------------------
-    _ORIGINAL_LINEAR_CALL: Callable | None = None
-
-    # ------------------------------------------------------------------
-    # helper ------------------------------------------------------------
-    # ------------------------------------------------------------------
     @staticmethod
-    def _ensure_graph_input(s: "Jaxpr2OnnxConverter", name: str, var) -> None:
-        """Make *name* a graph input if it is not a constant/initializer."""
-        if name in s.name_to_const:  # → will be an initializer
-            return
-        if any(inp.name == name for inp in s.builder.inputs):
-            return
-        dtype_enum = s.builder._numpy_dtype_to_onnx(var.aval.dtype)
-        value_info = helper.make_tensor_value_info(
-            name,
-            dtype_enum,
-            [d if isinstance(d, int) else None for d in var.aval.shape],
-        )
-        s.builder.inputs.append(value_info)
-
-    # ------------------------------------------------------------------
-    # abstract-eval -----------------------------------------------------
-    # ------------------------------------------------------------------
-    @staticmethod
-    def abstract_eval(
-        x: core.ShapedArray,
-        weight: core.ShapedArray,
-        bias: core.ShapedArray,
-    ):
-        """
-        Symbolic-shape rule **delegating** to the untouched
-        `equinox.nn.Linear.__call__`.
-        """
-        if EqxLinearPlugin._ORIGINAL_LINEAR_CALL is None:
-            raise RuntimeError("Original eqx.nn.Linear.__call__ not stored.")
-
-        # lightweight ShapeDtypeStruct shells
-        x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
-        w_spec = jax.ShapeDtypeStruct(weight.shape, weight.dtype)
-        b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
-
-        def _helper(xv, wv, bv):
-            """Call the un-patched Linear with a dummy module."""
-
-            dummy = SimpleNamespace(
-                weight=wv,
-                bias=bv,
-                use_bias=bv is not None,
-            )
-            return EqxLinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
-
-        try:
-            out = jax.eval_shape(_helper, x_spec, w_spec, b_spec)
-            out = jax.tree_util.tree_leaves(out)[0]
-            return core.ShapedArray(out.shape, out.dtype)
-        except Exception:  # fallback – handle flattening
-            need_flat = x.ndim > 2
-            out_features, _ = weight.shape
-            if need_flat:
-                out_shape = (x.shape[0], out_features)
-            else:
-                out_shape = (*x.shape[:-1], out_features)
-            return core.ShapedArray(out_shape, x.dtype)
-
-    # ------------------------------------------------------------------
-    # ONNX lowering -----------------------------------------------------
-    # ------------------------------------------------------------------
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        x_var, w_var, b_var = node_inputs
-        y_var = node_outputs[0]
-
-        x_name = s.get_name(x_var)
-        w_name = s.get_name(w_var)
-        b_name = s.get_name(b_var)
-        y_name = s.get_name(y_var)
-
-        # make sure they are graph inputs (important for constants)
-        for n, v in [(x_name, x_var), (w_name, w_var), (b_name, b_var)]:
-            self._ensure_graph_input(s, n, v)
-
-        # Harmonize dtypes: Gemm requires all inputs to share the same dtype.
-        x_dtype = x_var.aval.dtype
-        w_dtype = w_var.aval.dtype
-        b_dtype = b_var.aval.dtype
-
-        x_shape = x_var.aval.shape
-        out_shape = y_var.aval.shape
-        dtype = x_dtype
-
-        in_features = w_var.aval.shape[1]
-        out_features = w_var.aval.shape[0]
-        batch_dims = x_shape[:-1]
-        need_reshape = len(x_shape) != 2  # rank-1  OR  rank > 2
-
-        # -- Step 1: bring input to 2‑D --------------------------------------
-        if need_reshape:
-            flat_name = s.get_unique_name("x2d")
-            reshape_shape = [-1, in_features]
-            shape_const = s.get_constant_name(np.array(reshape_shape, np.int64))
-
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    inputs=[x_name, shape_const],
-                    outputs=[flat_name],
-                    name=s.get_unique_name("reshape_flatten"),
-                )
-            )
-            x_name = flat_name
-            s.add_shape_info(x_name, tuple(reshape_shape), dtype)
-
-        # -- Step 1b: ensure W and b match X dtype (insert Casts if needed) --
-        target_enum = s.builder._numpy_dtype_to_onnx(dtype)
-        if w_dtype != dtype:
-            w_cast = s.get_unique_name("w_cast")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[w_name],
-                    outputs=[w_cast],
-                    name=s.get_unique_name("cast_weight_to_xdtype"),
-                    to=target_enum,
-                )
-            )
-            s.add_shape_info(w_cast, w_var.aval.shape, dtype)
-            w_name = w_cast
-        if b_dtype != dtype:
-            b_cast = s.get_unique_name("b_cast")
-            s.add_node(
-                helper.make_node(
-                    "Cast",
-                    inputs=[b_name],
-                    outputs=[b_cast],
-                    name=s.get_unique_name("cast_bias_to_xdtype"),
-                    to=target_enum,
-                )
-            )
-            s.add_shape_info(b_cast, b_var.aval.shape, dtype)
-            b_name = b_cast
-
-        # -- Step 2: Gemm  (note: transB = 1 !) ------------------------------
-        gemm_out = s.get_unique_name("gemm_out")
-        s.add_node(
-            helper.make_node(
-                "Gemm",
-                inputs=[x_name, w_name, b_name],
-                outputs=[gemm_out],
-                name=s.get_unique_name("linear_gemm"),
-                transB=1,  # weight is (out, in)
-            )
-        )
-        s.add_shape_info(gemm_out, (-1, out_features), dtype)
-
-        # -- Step 3: restore the original shape ------------------------------
-        if need_reshape:
-            target_shape = [
-                (-1 if not isinstance(d, int) else d) for d in batch_dims
-            ] + [out_features]
-            shape_const = s.get_constant_name(np.array(target_shape, np.int64))
-
-            s.add_node(
-                helper.make_node(
-                    "Reshape",
-                    inputs=[gemm_out, shape_const],
-                    outputs=[y_name],
-                    name=s.get_unique_name("reshape_output"),
-                )
-            )
-            s.add_shape_info(y_name, out_shape, dtype)
+    def abstract_eval(x, weight, bias):
+        del bias
+        out_features = weight.shape[0]
+        if x.ndim <= 1:
+            out_shape = (out_features,)
         else:
-            s.var_to_name[y_var] = gemm_out
-            s.add_shape_info(gemm_out, out_shape, dtype)
+            out_shape = (*x.shape[:-1], out_features)
+        return ShapedArray(out_shape, x.dtype)
 
-    # ------------------------------------------------------------------
-    # monkey-patch ------------------------------------------------------
-    # ------------------------------------------------------------------
+    def lower(self, ctx, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for Eqx Linear lowering"
+            )
+
+        x_var, weight_var, bias_var = eqn.invars
+        out_var = eqn.outvars[0]
+
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("linear_x"))
+        w_val = ctx.get_value_for_var(weight_var, name_hint=ctx.fresh_name("linear_w"))
+        b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("linear_b"))
+
+        w_val = cast_param_like(ctx, w_val, x_val, name_hint="linear_w_cast")
+        b_val = cast_param_like(ctx, b_val, x_val, name_hint="linear_b_cast")
+
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        weight_shape = tuple(getattr(getattr(weight_var, "aval", None), "shape", ()))
+        in_features = int(weight_shape[1]) if len(weight_shape) > 1 else 0
+        out_features = int(weight_shape[0]) if weight_shape else 0
+        b_val = _inline_scalar_bias(ctx, b_val, out_features)
+
+        need_flatten = len(x_shape) != 2
+        flat_dim_label = None
+        gemm_input = x_val
+
+        if need_flatten:
+            flat_dim_label = _flatten_leading_dim_label(x_val, x_shape)
+            reshape_first_dim = -1
+            if isinstance(flat_dim_label, (int, np.integer)) and flat_dim_label > 0:
+                reshape_first_dim = int(flat_dim_label)
+            elif flat_dim_label == 1:
+                reshape_first_dim = 1
+            reshape_shape = _const_i64(
+                ctx,
+                [reshape_first_dim, in_features],
+                name="linear_in_shape",
+            )
+            gemm_input = builder.Reshape(
+                x_val,
+                reshape_shape,
+                _outputs=[ctx.fresh_name("linear_flat")],
+            )
+            if getattr(x_val, "type", None) is not None:
+                gemm_input.type = x_val.type
+            reshape_dims = (
+                flat_dim_label if flat_dim_label is not None else None,
+                in_features,
+            )
+            _stamp_type_and_shape(gemm_input, reshape_dims)
+            _ensure_value_metadata(ctx, gemm_input)
+
+        gemm_output_name = ctx.fresh_name(
+            "linear_gemm" if need_flatten else "linear_out"
+        )
+        gemm_inputs = [gemm_input, w_val]
+        if b_val is not None:
+            gemm_inputs.append(b_val)
+
+        beta_attr = 1.0 if b_val is not None else 0.0
+        gemm_result = builder.Gemm(
+            *gemm_inputs,
+            alpha=1.0,
+            beta=beta_attr,
+            transA=0,
+            transB=1,
+            _outputs=[gemm_output_name],
+        )
+
+        result_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if result_dtype is not None:
+            gemm_result.type = ir.TensorType(result_dtype)
+
+        if not need_flatten:
+            out_dims: list[object] = []
+            if x_shape:
+                for idx in range(len(x_shape) - 1):
+                    label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+                    if label is None:
+                        dim = x_shape[idx]
+                        if _is_static_int(dim):
+                            label = _ensure_static_int(dim)
+                        else:
+                            label = dim
+                    out_dims.append(label)
+            out_dims.append(out_features)
+            _stamp_type_and_shape(gemm_result, tuple(out_dims))
+            _ensure_value_metadata(ctx, gemm_result)
+            ctx.bind_value_for_var(out_var, gemm_result)
+            return
+
+        leading_dim = flat_dim_label if flat_dim_label is not None else None
+        _stamp_type_and_shape(gemm_result, (leading_dim, out_features))
+        _ensure_value_metadata(ctx, gemm_result)
+
+        batch_dims = x_shape[:-1]
+        all_static = all(_is_static_int(d) for d in batch_dims)
+
+        if all_static:
+            final_vals = [_ensure_static_int(d) for d in batch_dims] + [out_features]
+            final_shape = _const_i64(ctx, final_vals, name_hint="linear_out_shape")
+            final_output = builder.Reshape(
+                gemm_result,
+                final_shape,
+                _outputs=[ctx.fresh_name("linear_out")],
+            )
+            if result_dtype is not None:
+                final_output.type = ir.TensorType(result_dtype)
+            _stamp_type_and_shape(final_output, tuple(final_vals))
+            _ensure_value_metadata(ctx, final_output)
+            ctx.bind_value_for_var(out_var, final_output)
+            return
+
+        rank = len(x_shape)
+        shape_val = builder.Shape(
+            x_val,
+            _outputs=[ctx.fresh_name("linear_shape")],
+        )
+        shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shape_val, (rank if rank else 1,))
+        _ensure_value_metadata(ctx, shape_val)
+
+        starts = _const_i64(ctx, [0], name_hint="linear_slice_start")
+        ends = _const_i64(ctx, [max(rank - 1, 0)], name_hint="linear_slice_end")
+        axes = _const_i64(ctx, [0], name_hint="linear_slice_axes")
+        steps = _const_i64(ctx, [1], name_hint="linear_slice_steps")
+
+        batch_dims_val = builder.Slice(
+            shape_val,
+            starts,
+            ends,
+            axes,
+            steps,
+            _outputs=[ctx.fresh_name("linear_batch_dims")],
+        )
+        batch_dims_val.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(batch_dims_val, (max(rank - 1, 0),))
+        _ensure_value_metadata(ctx, batch_dims_val)
+
+        out_feat = _const_i64(ctx, [out_features], name_hint="linear_out_feature")
+        final_shape = builder.Concat(
+            batch_dims_val,
+            out_feat,
+            axis=0,
+            _outputs=[ctx.fresh_name("linear_final_shape")],
+        )
+        final_shape.type = ir.TensorType(ir.DataType.INT64)
+        final_rank = max(rank - 1, 0) + 1
+        _stamp_type_and_shape(final_shape, (final_rank,))
+        _ensure_value_metadata(ctx, final_shape)
+
+        final_output = builder.Reshape(
+            gemm_result,
+            final_shape,
+            _outputs=[ctx.fresh_name("linear_out")],
+        )
+        if result_dtype is not None:
+            final_output.type = ir.TensorType(result_dtype)
+
+        target_dims: list[object] = []
+        for idx in range(max(len(x_shape) - 1, 0)):
+            label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            if label is None:
+                dim = x_shape[idx]
+                if _is_static_int(dim):
+                    label = _ensure_static_int(dim)
+                else:
+                    label = dim
+            target_dims.append(label)
+        target_dims.append(out_features)
+        _stamp_type_and_shape(final_output, tuple(target_dims))
+        _ensure_value_metadata(ctx, final_output)
+        ctx.bind_value_for_var(out_var, final_output)
+
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("equinox.nn", "linear_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="equinox.nn.Linear",
+                attr="__call__",
+                make_value=lambda orig: cls._patch_call(orig),
+                delete_if_missing=False,
+            ),
+        ]
+
     @staticmethod
-    def get_monkey_patch(orig_fn):
-        """
-        Store the *original* implementation and return a patched version that
-        routes calls through the new primitive.
-        """
-        EqxLinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
+    def _patch_call(orig):
+        del orig
 
-        def patched_call(self, x):
-            # When use_bias=False, Equinox sets self.bias to None.
-            # JAX primitives cannot accept None; substitute a zero bias.
-            #
-            # Important for export/numeric parity: choose the *promoted* dtype,
-            # which in practice matches x.dtype (since JAX promotes matmul).
-            # This avoids downstream ONNX type mismatches in f64 tests.
-            b = self.bias
-            if b is None:
-                # self.weight shape is (out_features, in_features)
-                out_features = self.weight.shape[0]
-                # Prefer x.dtype; fall back to weight dtype if x has no dtype attr.
-                try:
-                    target_dtype = x.dtype
-                except AttributeError:
-                    target_dtype = self.weight.dtype
-                b = jnp.zeros((out_features,), dtype=target_dtype)
+        def wrapped(self, x):
+            weight = jnp.asarray(self.weight)
+            bias = self.bias
+            if bias is None:
+                out_features = weight.shape[0]
+                bias = jnp.zeros((out_features,), dtype=x.dtype)
+            else:
+                bias = jnp.asarray(bias, dtype=x.dtype)
+            return LinearPlugin._PRIM.bind(x, weight, bias)
 
-            # Always bind three array args: x, weight, bias
-            return eqx.nn.linear_p.bind(x, self.weight, b)
+        return wrapped
 
-        return patched_call
-
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [eqx.nn.Linear],
-            "patch_function": EqxLinearPlugin.get_monkey_patch,  # receives orig_fn
-            "target_attribute": "__call__",
-        }
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(
+                lambda x, weight, bias: cls.abstract_eval(x, weight, bias)
+            )
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-# -----------------------------------------------------------------------------
-# 3. Register abstract-eval ----------------------------------------------------
-# -----------------------------------------------------------------------------
-eqx.nn.linear_p.def_abstract_eval(EqxLinearPlugin.abstract_eval)
+@LinearPlugin._PRIM.def_impl
+def _linear_impl(x, weight, bias):
+    w = jnp.asarray(weight)
+    b = jnp.asarray(bias)
+    y = jnp.matmul(x, jnp.swapaxes(w, -1, -2))
+    return y + b
 
 
-# ------------------------------------------------------------------
-# 4.  Batching rule ------------------------------------------------
-# ------------------------------------------------------------------
-def _eqx_linear_batching_rule(batched_args, batch_dims, **_):
-    """Batching rule for `eqx.nn.linear_p`."""
+def _linear_batch_rule(batched_args, batch_dims):
     x, weight, bias = batched_args
     x_bdim, w_bdim, b_bdim = batch_dims
-
-    # For `vmap(model)(xs)`, only `xs` has a batch dimension.
-    # The model parameters (weight, bias) are treated as constants w.r.t. `vmap`.
     if w_bdim is not None or b_bdim is not None:
-        raise NotImplementedError(
-            "Batching over `eqx.nn.Linear` parameters is not supported."
-        )
-
-    # The primitive is now applied to a batched `x`. The `to_onnx` implementation
-    # will see the extra dimension on `x` and handle it by flattening/unflattening.
-    out = eqx.nn.linear_p.bind(x, weight, bias)
-
-    # The output has a batch dimension at the same axis as the input.
+        raise NotImplementedError("Batching over Linear parameters is not supported.")
+    out = LinearPlugin._PRIM.bind(x, weight, bias)
     return out, x_bdim
 
 
-# Register the batching rule for our primitive
-batching.primitive_batchers[eqx.nn.linear_p] = _eqx_linear_batching_rule
+batching.primitive_batchers[LinearPlugin._PRIM] = _linear_batch_rule

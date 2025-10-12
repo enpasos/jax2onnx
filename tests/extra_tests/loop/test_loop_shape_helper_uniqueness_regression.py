@@ -1,10 +1,12 @@
+# tests/extra_tests/loop/test_loop_shape_helper_uniqueness_regression.py
+
 import collections
 import jax
 import jax.numpy as jnp
 from jax import lax
 import pytest
 from onnx import AttributeProto
-from jax2onnx import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _collect_node_outputs_recursive(g):
@@ -64,7 +66,6 @@ def test_loop_body_has_no_duplicate_shape_helpers(dtype):
         _loop_two_adds_two_reshapes,
         inputs=[spec],
         enable_double_precision=True,
-        loosen_internal_shapes=True,
         opset=21,
         model_name="shape_helper_uniqueness",
     )

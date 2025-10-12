@@ -1,103 +1,155 @@
-# file: jax2onnx/plugins/jax/lax/select.py
+# jax2onnx/plugins/jax/lax/select.py
+
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
-from jax import lax
-from jax.extend.core import Var
-from onnx import helper
+import jax
+import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger("jax2onnx.plugins.jax.lax.select")
-
-# ---------------------------------------------------------------------------
-# Registry metadata
-# ---------------------------------------------------------------------------
+    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
     jaxpr_primitive="select",
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.select.html",
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.select.html",
     onnx=[
-        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        }
     ],
     since="v0.7.1",
     context="primitives.lax",
     component="select",
-    # Testcases *must* satisfy native JAX shape rules.
     testcases=[
         {
             "testcase": "select_simple",
-            "callable": lambda c, x, y: lax.select(c, x, y),
+            "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
-            "input_dtypes": [jnp.bool_, jnp.float32, jnp.float32],
-            "expected_output_shapes": [(3,)],
+            "input_dtypes": [np.bool_, np.float32, np.float32],
         },
         {
-            # Mask  (B, H, T, T)  – mask already expanded
-            # Scores(B, H, T, T)
-            # Else   (B, H, T, T) – full tensor, **not** scalar
-            "testcase": "select_mask_scores_tensor_else",
-            "callable": lambda m, s, z: lax.select(m, s, z),
-            "input_shapes": [
-                ("B", 12, "T", "T"),
-                ("B", 12, "T", "T"),
-                ("B", 12, "T", "T"),
+            "testcase": "select_basic",
+            "callable": lambda c, x, y: jax.lax.select(c, x, y),
+            "input_shapes": [(3,), (3,), (3,)],
+            "input_dtypes": [np.bool_, np.float32, np.float32],
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else_dynamic",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(2 * 12 * 5 * 5).reshape(2, 12, 5, 5) % 2 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=2 * 12 * 5 * 5, dtype=np.float32).reshape(
+                    2, 12, 5, 5
+                ),
+                np.linspace(1.0, 2.0, num=2 * 12 * 5 * 5, dtype=np.float32).reshape(
+                    2, 12, 5, 5
+                ),
             ],
-            "input_dtypes": [jnp.bool_, jnp.float32, jnp.float32],
-            "expected_output_shapes": [("B", 12, "T", "T")],
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else_dynamic_f64",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(2 * 12 * 5 * 5).reshape(2, 12, 5, 5) % 3 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=2 * 12 * 5 * 5, dtype=np.float64).reshape(
+                    2, 12, 5, 5
+                ),
+                np.linspace(1.0, 2.0, num=2 * 12 * 5 * 5, dtype=np.float64).reshape(
+                    2, 12, 5, 5
+                ),
+            ],
+            "enable_double_precision": True,
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(3 * 12 * 4 * 4).reshape(3, 12, 4, 4) % 2 == 1, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=3 * 12 * 4 * 4, dtype=np.float32).reshape(
+                    3, 12, 4, 4
+                ),
+                np.linspace(1.0, 2.0, num=3 * 12 * 4 * 4, dtype=np.float32).reshape(
+                    3, 12, 4, 4
+                ),
+            ],
+        },
+        {
+            "testcase": "select_mask_scores_tensor_else_f64",
+            "callable": lambda m, s, z: jax.lax.select(m, s, z),
+            "input_values": [
+                np.array(
+                    np.arange(3 * 12 * 4 * 4).reshape(3, 12, 4, 4) % 4 == 0, dtype=bool
+                ),
+                np.linspace(0.0, 1.0, num=3 * 12 * 4 * 4, dtype=np.float64).reshape(
+                    3, 12, 4, 4
+                ),
+                np.linspace(1.0, 2.0, num=3 * 12 * 4 * 4, dtype=np.float64).reshape(
+                    3, 12, 4, 4
+                ),
+            ],
+            "enable_double_precision": True,
         },
     ],
 )
 class SelectPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.select`` (boolean 2‑case) to ONNX `Where`."""
+    """Lower ``lax.select`` to ONNX ``Where``."""
 
-    # ---------------------------------------------------------------------
-    # ONNX lowering
-    # ---------------------------------------------------------------------
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[Var],
-        node_outputs: Sequence[Var],
-        params: dict[str, Any],
-    ) -> None:
-        """
-        Map
-            out = lax.select(pred, on_true, on_false)
-        to
-            out = Where(pred, on_true, on_false)
-        Assumes `pred`, `on_true`, `on_false` already share the same shape.
-        """
-        cond_v, x_v, y_v = node_inputs
-        out_v = node_outputs[0]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        cond_var, x_var, y_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-        cond_name = s.get_name(cond_v)
-        x_name = s.get_name(x_v)
-        y_name = s.get_name(y_v)
-        out_name = s.get_name(out_v)
-
-        # Emit ONNX node
-        s.add_node(
-            helper.make_node(
-                "Where", inputs=[cond_name, x_name, y_name], outputs=[out_name]
-            )
+        cond_val = ctx.get_value_for_var(
+            cond_var, name_hint=ctx.fresh_name("select_cond")
         )
-        s.add_shape_info(out_name, out_v.aval.shape, out_v.aval.dtype)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("select_x"))
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("select_y"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("select_out")
+        )
 
-    # ---------------------------------------------------------------------
-    # No runtime patching – native JAX rules apply
-    # ---------------------------------------------------------------------
-    @staticmethod
-    def patch_info():
-        """
-        No patches are needed: we rely on users/tests providing inputs that
-        already satisfy `lax.select`'s shape requirements.
-        """
-        return None
+        if getattr(cond_var.aval, "dtype", np.bool_) != np.bool_:
+            cond_val = ctx.builder.Cast(
+                cond_val,
+                _outputs=[ctx.fresh_name("select_cond_bool")],
+                to=int(ir.DataType.BOOL.value),
+            )
+            cond_val.type = ir.TensorType(ir.DataType.BOOL)
+            cond_val.shape = cond_val.shape or x_val.shape
+            _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
+            _ensure_value_metadata(ctx, cond_val)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("select_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("select_out")
+
+        result = ctx.builder.Where(
+            cond_val,
+            x_val,
+            y_val,
+            _outputs=[desired_name],
+        )
+        out_dtype_enum = _dtype_to_ir(
+            np.dtype(getattr(out_var.aval, "dtype", np.float32)),
+            ctx.builder.enable_double_precision,
+        )
+        result.type = ir.TensorType(out_dtype_enum)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

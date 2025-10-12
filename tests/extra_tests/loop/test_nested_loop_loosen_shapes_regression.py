@@ -1,10 +1,12 @@
+# tests/extra_tests/loop/test_nested_loop_loosen_shapes_regression.py
+
 import pytest
 import onnx
 import onnxruntime as ort
 import jax.numpy as jnp
 from jax import lax
 
-from jax2onnx.converter.conversion_api import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 # Ops that can (re-)tighten dims or are shape/dtype sensitive
 SENSITIVE = {
@@ -92,60 +94,15 @@ def _nested_loop_repro():
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
-def test_nested_loop_without_loosen_has_risky_internal_vis_or_fails(tmp_path):
-    """
-    Without loosen, either ORT load fails, or at least one nested Loop body
-    still contains a 'risky' internal value_info (produced by arithmetic/shape
-    ops) with a concrete dim. Robust across ORT versions and unrelated fixes.
-    """
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        loosen_internal_shapes=False,  # intentionally off
-        opset=21,
-        model_name="nested_loop_no_loosen",
-    )
-    p = tmp_path / "nested_loop_no_loosen.onnx"
-    p.write_bytes(model.SerializeToString())
-
-    try:
-        # If it loads, assert the structural hazard is present.
-        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-        m = onnx.load(str(p))
-        bodies = list(_loop_bodies(m.graph))
-        assert bodies, "Expected at least one Loop body."
-        found_risky = False
-        for b in bodies:
-            prod = _producer_map(b)
-            for vi in b.value_info:
-                if _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE):
-                    found_risky = True
-                    break
-            if found_risky:
-                break
-        assert found_risky, (
-            "When loosen_internal_shapes=False, expected at least one nested Loop body "
-            "to retain a risky internal value_info (arithmetic/shape producer with a "
-            "concrete dim)."
-        )
-    except Exception:
-        # ORT failed to load → also acceptable (legacy behavior)
-        pass
-
-
-@pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_nested_loop_with_loosen_loads_and_drops_arith_vis(tmp_path):
     """
-    With loosening, ORT must load and run, and there must be no internal VI in
-    any Loop body that both (a) is produced by a SENSITIVE op and (b) has a
-    concrete dim.
+    The converter always relaxes internal Loop bodies; verify ORT loads and
+    no risky value_info entries remain.
     """
     model = to_onnx(
         _nested_loop_repro,
         inputs=[],
         enable_double_precision=True,
-        loosen_internal_shapes=True,  # feature under test
         opset=21,
         model_name="nested_loop_loosen",
     )

@@ -1,28 +1,31 @@
-from typing import TYPE_CHECKING
+# jax2onnx/plugins/flax/nnx/tanh.py
 
-from flax import nnx
-from jax import core
+from __future__ import annotations
+from typing import TYPE_CHECKING, ClassVar, Callable, List, Union
+import jax
+import jax.numpy as jnp
 from jax.extend.core import Primitive
-from onnx import helper
+from flax import nnx
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _stamp_type_and_shape,
+    _ensure_value_metadata,
+)
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-# Define the Tanh primitive
-nnx.tanh_p = Primitive("nnx.tanh")
-nnx.tanh_p.multiple_results = False  # Correct initialization
+    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 @register_primitive(
-    jaxpr_primitive=nnx.tanh_p.name,
+    jaxpr_primitive="nnx.tanh",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.tanh",
     onnx=[
-        {
-            "component": "Tanh",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html",
-        }
+        {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"}
     ],
     since="v0.1.0",
     context="primitives.nnx",
@@ -32,53 +35,93 @@ nnx.tanh_p.multiple_results = False  # Correct initialization
             "testcase": "tanh",
             "callable": lambda x: nnx.tanh(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": expect_graph(
+                ["Tanh:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
 class TanhPlugin(PrimitiveLeafPlugin):
     """
-    Plugin for converting flax.nnx.tanh to ONNX.
+    IR-only plugin for flax.nnx.tanh → ONNX Tanh.
     """
 
+    _PRIM: ClassVar[Primitive] = Primitive("nnx.tanh")
+    _PRIM.multiple_results = False
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+
+    # ---------- abstract eval ----------
     @staticmethod
     def abstract_eval(x):
-        """Abstract evaluation function for Tanh."""
-        return core.ShapedArray(x.shape, x.dtype)
+        return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handles conversion of Tanh to ONNX format."""
-        input_var = node_inputs[0]
-        output_var = node_outputs[0]
+    # ---------- lowering (IR) ----------
+    def lower(self, ctx: "IRBuildContext", eqn):
+        (x_var,) = eqn.invars
+        (y_var,) = eqn.outvars
 
-        input_name = s.get_name(input_var)
-        output_name = s.get_name(output_var)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        tanh_node = helper.make_node(
-            "Tanh",
-            inputs=[input_name],
-            outputs=[output_name],
-            name=s.get_unique_name("tanh"),
-        )
-        s.add_node(tanh_node)
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for Tanh lowering")
 
+        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Tanh")
+        result = builder.Tanh(x_val, _outputs=[out_name])
+
+        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if dtype is not None:
+            result.type = ir.TensorType(dtype)
+
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if x_shape:
+            dims: List[Union[int, str]] = [
+                _dim_label_from_value_or_aval(x_val, x_shape, i)
+                for i in range(len(x_shape))
+            ]
+            _stamp_type_and_shape(result, tuple(dims))
+        _ensure_value_metadata(ctx, result)
+
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if callable(bind_value):
+            bind_value(y_var, result)
+        else:
+            raise AttributeError("IR build context missing bind_value_for_var")
+
+    # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def get_monkey_patch():
-        """Provides patching information for Tanh."""
+    def _make_patch(orig_fn: Callable):
+        prim = TanhPlugin._PRIM
 
         def patched_tanh(x):
-            return nnx.tanh_p.bind(x)
+            return prim.bind(x)
 
         return patched_tanh
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information for Tanh."""
-        return {
-            "patch_targets": [nnx],
-            "patch_function": lambda _: TanhPlugin.get_monkey_patch(),
-            "target_attribute": "tanh",
-        }
+    @classmethod
+    def binding_specs(cls):
+        return [
+            # Expose a private primitive handle (created if missing)
+            AssignSpec("flax.nnx", "tanh_p", cls._PRIM, delete_if_missing=True),
+            # Monkey-patch nnx.tanh while tracing
+            MonkeyPatchSpec(
+                target="flax.nnx",
+                attr="tanh",
+                make_value=lambda orig: cls._make_patch(orig),
+                delete_if_missing=False,
+            ),
+        ]
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-# Register abstract evaluation function
-nnx.tanh_p.def_abstract_eval(TanhPlugin.abstract_eval)
+# ---------- concrete impl for eager execution ----------
+@TanhPlugin._PRIM.def_impl
+def _impl(x):
+    return jnp.tanh(x)

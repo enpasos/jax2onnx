@@ -1,40 +1,39 @@
-"""
-This module contains the ONNX plugin for the `jax.numpy.unstack` function,
-following the standard jax2onnx pattern for `jnp` functions.
-"""
+# jax2onnx/plugins/jax/numpy/unstack.py
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import core
-from jax.extend.core import Primitive
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-# ---------------------------------------------------------------------- #
-# 1.  A dedicated primitive for jnp.unstack                              #
-# ---------------------------------------------------------------------- #
-jnp_unstack_p = Primitive("jnp.unstack")
-jnp_unstack_p.multiple_results = True
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# ---------------------------------------------------------------------- #
-# 2.  Plugin registration                                                #
-# ---------------------------------------------------------------------- #
+_UNSTACK_PRIM: Final = make_jnp_primitive("jax.numpy.unstack")
+_UNSTACK_PRIM.multiple_results = True
+
+
+def _normalize_axis(axis: int, rank: int) -> int:
+    ax = int(axis)
+    if ax < 0:
+        ax += rank
+    if ax < 0 or ax >= rank:
+        raise ValueError(f"axis {axis} out of bounds for rank {rank}")
+    return ax
+
+
 @register_primitive(
-    primitive_obj=jnp_unstack_p,
-    binding_factory=lambda: jnp.unstack,
-    jaxpr_primitive=jnp_unstack_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.unstack.html",
+    jaxpr_primitive=_UNSTACK_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.unstack.html",
     onnx=[
         {
             "component": "Split",
@@ -53,126 +52,145 @@ jnp_unstack_p.multiple_results = True
             "testcase": "unstack_axis_0",
             "callable": lambda x: jnp.unstack(x, axis=0),
             "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float32)],
-            "expected_output_shapes": [(2,), (2,)],
+        },
+        {
+            "testcase": "unstack_axis_0_f64",
+            "callable": lambda x: jnp.unstack(x, axis=0),
+            "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float64)],
+            "run_only_f64_variant": True,
         },
         {
             "testcase": "unstack_axis_1",
             "callable": lambda x: jnp.unstack(x, axis=1),
             "input_values": [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int32)],
-            "expected_output_shapes": [(2,), (2,), (2,)],
+        },
+        {
+            "testcase": "unstack_axis_1_f64",
+            "callable": lambda x: jnp.unstack(x, axis=1),
+            "input_values": [
+                np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
+            ],
+            "run_only_f64_variant": True,
         },
         {
             "testcase": "unstack_negative_axis",
             "callable": lambda x: jnp.unstack(x, axis=-1),
             "input_values": [np.array([[[1, 2], [3, 4]]], dtype=np.float32)],
-            "expected_output_shapes": [(1, 2), (1, 2)],
         },
     ],
 )
-class UnstackPlugin(PrimitiveLeafPlugin):
-    """ONNX plugin for jnp.unstack."""
-
-    _ORIG_CALL: Callable[..., Any] | None = None
-    primitive = jnp_unstack_p
+class JnpUnstackPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _UNSTACK_PRIM
+    _FUNC_NAME: ClassVar[str] = "unstack"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.ShapedArray, *, axis: int, **_):
-        """
-        Produce the result *avals* for `jnp.unstack`.
-
-        The output is a tuple of `core.ShapedArray`s – **not** concrete
-        `ShapeDtypeStruct`s – so that JAX’s tracing machinery can manipulate
-        them without ever touching real values.
-        """
+    def abstract_eval(x, *, axis=0):
         rank = len(x.shape)
-        axis = axis if axis >= 0 else axis + rank
-        if not 0 <= axis < rank:
-            raise ValueError(f"axis {axis} out of bounds for rank-{rank} tensor")
-
-        size = x.shape[axis]
+        axis_norm = _normalize_axis(axis, rank)
+        size = x.shape[axis_norm]
         if not isinstance(size, (int, np.integer)):
-            # `unstack` needs the length along `axis` at trace-time.
             raise core.InconclusiveDimensionOperation(
-                "jnp.unstack requires a statically known dimension length."
+                "jnp.unstack requires static axis length"
             )
-
-        out_shape = x.shape[:axis] + x.shape[axis + 1 :]
+        out_shape = x.shape[:axis_norm] + x.shape[axis_norm + 1 :]
         return tuple(core.ShapedArray(out_shape, x.dtype) for _ in range(int(size)))
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[jax.core.Var],
-        node_outputs: Sequence[jax.core.Var],
-        params: Dict[str, Any],
-    ):
-        """Converts the JAX `unstack` primitive to ONNX `Split` and `Squeeze` ops."""
-        axis = params["axis"]
-        input_aval = node_inputs[0].aval
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        axis_param = params.get("axis", 0)
 
-        # Infer the number of outputs from the input shape
-        rank = len(input_aval.shape)
-        norm_axis = axis if axis >= 0 else axis + rank
-        num = input_aval.shape[norm_axis]
+        (arr_var,) = eqn.invars
+        out_vars = list(eqn.outvars)
 
-        input_name = s.get_name(node_inputs[0])
+        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
+        axis = _normalize_axis(axis_param, len(arr_shape))
+        size = arr_shape[axis]
+        if not isinstance(size, (int, np.integer)):
+            raise TypeError("jnp.unstack requires static axis length for lowering")
 
-        # 1. Split the tensor into `num` chunks along the specified axis.
-        split_output_names = [s.get_unique_name(f"split_chunk_{i}") for i in range(num)]
-        splits_const = s.get_constant_name(np.array([1] * num, dtype=np.int64))
-
-        split_node = helper.make_node(
-            "Split",
-            inputs=[input_name, splits_const],
-            outputs=split_output_names,
-            name=s.get_unique_name("Split"),
-            axis=axis,
-        )
-        s.add_node(split_node)
-
-        # 2. Squeeze each chunk to remove the singleton dimension.
-        axes_to_squeeze = s.get_constant_name(np.array([axis], dtype=np.int64))
-
-        for i in range(num):
-            split_chunk_name = split_output_names[i]
-            final_output_name = s.get_name(node_outputs[i])
-
-            # Add shape info for the intermediate split tensor
-            original_shape = list(input_aval.shape)
-            original_shape[norm_axis] = 1
-            s.add_shape_info(split_chunk_name, tuple(original_shape), input_aval.dtype)
-
-            squeeze_node = helper.make_node(
-                "Squeeze",
-                inputs=[split_chunk_name, axes_to_squeeze],
-                outputs=[final_output_name],
-                name=s.get_unique_name("Squeeze"),
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("unstack_in"))
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError(
+                "IR build context missing builder for unstack lowering"
             )
-            s.add_node(squeeze_node)
 
-    @staticmethod
-    def _unstack_binding(x, axis=0):
-        """Binds the inputs to the custom jnp.unstack primitive."""
-        return jnp_unstack_p.bind(x, axis=axis)
+        split_sizes = _const_i64(
+            ctx, np.asarray([1] * int(size), dtype=np.int64), "unstack_split_sizes"
+        )
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        """Returns the patched version of jnp.unstack."""
-        UnstackPlugin._ORIG_CALL = orig_fn
+        split_shape = list(arr_shape)
+        split_shape[axis] = 1
+        split_outputs = [ctx.fresh_name("unstack_split_out") for _ in range(int(size))]
+        split_values = builder.Split(
+            arr_val,
+            split_sizes,
+            _outputs=split_outputs,
+            axis=int(axis),
+        )
+        for split_val in split_values:
+            if getattr(arr_val, "type", None) is not None:
+                split_val.type = arr_val.type
+            _stamp_type_and_shape(split_val, tuple(split_shape))
+            _ensure_value_metadata(ctx, split_val)
 
-        def patched_unstack(x, axis=0):
-            return UnstackPlugin._unstack_binding(x, axis=axis)
+        axes_val = _const_i64(
+            ctx, np.asarray([axis], dtype=np.int64), "unstack_squeeze_axes"
+        )
 
-        return patched_unstack
+        bind_value = getattr(ctx, "bind_value_for_var", None)
+        if not callable(bind_value):
+            raise AttributeError("IR build context missing bind_value_for_var")
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information to the plugin system."""
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "unstack",
-            "patch_function": UnstackPlugin.get_monkey_patch,
-        }
+        for split_val, out_var in zip(split_values, out_vars):
+            out_spec = ctx.get_value_for_var(
+                out_var, name_hint=ctx.fresh_name("unstack_out")
+            )
+            out_name = getattr(out_spec, "name", None) or ctx.fresh_name("unstack_out")
+            squeezed = builder.Squeeze(
+                split_val,
+                axes_val,
+                _outputs=[out_name],
+            )
+            if getattr(arr_val, "type", None) is not None:
+                squeezed.type = arr_val.type
+            target_shape = tuple(getattr(out_var.aval, "shape", ()))
+            _stamp_type_and_shape(squeezed, target_shape)
+            _ensure_value_metadata(ctx, squeezed)
+            bind_value(out_var, squeezed)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.unstack not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(x, axis=0):
+                return cls._PRIM.bind(x, axis=axis)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-jnp_unstack_p.def_abstract_eval(UnstackPlugin.abstract_eval)
+@JnpUnstackPlugin._PRIM.def_impl
+def _unstack_impl(x, axis=0):
+    orig = get_orig_impl(JnpUnstackPlugin._PRIM, JnpUnstackPlugin._FUNC_NAME)
+    return orig(x, axis=axis)
+
+
+JnpUnstackPlugin._PRIM.def_abstract_eval(JnpUnstackPlugin.abstract_eval)

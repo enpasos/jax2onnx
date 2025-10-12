@@ -1,25 +1,30 @@
-from typing import TYPE_CHECKING, Callable, Any
+# jax2onnx/plugins/equinox/eqx/nn/layer_norm.py
+
+from __future__ import annotations
+
+from typing import ClassVar
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import core
+import onnx_ir as ir
+from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
-from onnx import helper
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-# Define the LayerNorm primitive
-eqx.nn.layer_norm_p = Primitive("eqx.nn.layer_norm")
-eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
+from jax2onnx.plugins._ir_shapes import (
+    _dim_label_from_value_or_aval,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
 @register_primitive(
-    jaxpr_primitive=eqx.nn.layer_norm_p.name,
+    jaxpr_primitive="eqx.nn.layer_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.LayerNorm",
     onnx=[
         {
@@ -35,148 +40,166 @@ eqx.nn.layer_norm_p.multiple_results = False  # Correctly set at initialization
             "testcase": "layer_norm",
             "callable": eqx.nn.LayerNorm(32, eps=1e-5),
             "input_shapes": [(32,)],
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_multiaxis",
             "callable": eqx.nn.LayerNorm((20, 32)),
             "input_shapes": [(20, 32)],
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:20x32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "batched_layer_norm",
             "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
             "input_shapes": [("B", 32)],
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:Bx32"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
             "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
             "input_shapes": [(32,)],
+            "post_check_onnx_graph": expect_graph(
+                ["LayerNormalization:32"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):
-    """
-    Plugin for converting equinox.nn.LayerNorm to ONNX.
-    """
-
-    _ORIGINAL_LAYERNORM_CALL: Callable[..., Any] | None = None
+    _PRIM: ClassVar[Primitive] = Primitive("eqx.nn.layer_norm")
+    _PRIM.multiple_results = False
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(x, scale, bias, *, epsilon):
-        """Abstract evaluation function for LayerNorm."""
-        # LayerNorm's output shape is always the same as the input's shape.
-        return core.ShapedArray(x.shape, x.dtype)
+        del scale, bias, epsilon
+        return ShapedArray(x.shape, x.dtype)
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: list,
-        node_outputs: list,
-        params: dict,
-    ):
-        """Handles conversion of LayerNorm to ONNX format."""
-        x_var, scale_var, bias_var = node_inputs
-        y_var = node_outputs[0]
+    def lower(self, ctx, eqn):
+        x_var, scale_var, bias_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-        input_name = s.get_name(x_var)
-        scale_name = s.get_name(scale_var)
-        bias_name = s.get_name(bias_var)
-        output_name = s.get_name(y_var)
-
-        epsilon = params["epsilon"]
-
-        # Equinox LayerNorm normalizes the whole tensor. `jax.vmap` is used
-        # for batching, which adds leading dimensions. We detect these batch
-        # dimensions by comparing the rank of the input tensor with the rank
-        # of the parameter tensors (scale/bias). The difference is the
-        # starting axis for normalization in ONNX.
-        x_rank = len(x_var.aval.shape)
-        scale_rank = len(scale_var.aval.shape)
-        onnx_axis = x_rank - scale_rank
-
-        ln_node = helper.make_node(
-            "LayerNormalization",
-            inputs=[input_name, scale_name, bias_name],
-            outputs=[output_name],
-            name=s.get_unique_name("layer_norm"),
-            axis=onnx_axis,
-            epsilon=epsilon,
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("ln_in"))
+        scale_val = ctx.get_value_for_var(
+            scale_var, name_hint=ctx.fresh_name("ln_scale")
         )
-        s.add_node(ln_node)
-        s.add_shape_info(output_name, x_var.aval.shape, x_var.aval.dtype)
+        bias_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("ln_bias"))
+        scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="ln_scale_cast")
+        bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="ln_bias_cast")
+
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ln_out"))
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        scale_shape = tuple(getattr(getattr(scale_var, "aval", None), "shape", ()))
+        axis = max(len(x_shape) - len(scale_shape), 0)
+        epsilon = float(eqn.params.get("epsilon", 1e-5))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("LayerNorm")
+        result = ctx.builder.LayerNormalization(
+            x_val,
+            scale_val,
+            bias_val,
+            axis=int(axis),
+            epsilon=epsilon,
+            _outputs=[desired_name],
+        )
+
+        if x_shape:
+            stamped_dims = []
+            for idx, dim in enumerate(x_shape):
+                label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+                stamped_dims.append(label if label is not None else dim)
+            _stamp_type_and_shape(result, tuple(stamped_dims))
+        else:
+            _stamp_type_and_shape(result, ())
+
+        x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if x_dtype is not None:
+            result.type = ir.TensorType(x_dtype)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        return [
+            AssignSpec("equinox.nn", "layer_norm_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="equinox.nn.LayerNorm",
+                attr="__call__",
+                make_value=lambda orig: cls._patch_call(orig),
+                delete_if_missing=False,
+            ),
+        ]
 
     @staticmethod
-    def _layer_norm(x, scale, bias, *, epsilon):
-        """Defines the primitive binding for LayerNorm."""
-        return eqx.nn.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
-
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable) -> Callable:
-        """Returns a patched version of LayerNorm's call method."""
-        LayerNormPlugin._ORIGINAL_LAYERNORM_CALL = orig_fn
-
-        def patched_call(self, x, state=None, *, key=None):
-            # Maintain original implementation's strict shape check
-            if x.shape != self.shape:
+    def _patch_call(orig):
+        def wrapped(self, x, state=None, *, key=None):
+            del key
+            if getattr(self, "shape", None) is not None and x.shape != self.shape:
                 raise ValueError(
-                    "`LayerNorm(shape)(x)` must satisfy the invariant `shape == x.shape`"
-                    f"Received `shape={self.shape} and `x.shape={x.shape}`. You might need "
-                    "to replace `layer_norm(x)` with `jax.vmap(layer_norm)(x)`."
+                    "`LayerNorm(shape)(x)` requires `x.shape == shape`; consider jax.vmap."
                 )
-
-            # The ONNX LayerNormalization op requires scale and bias inputs.
-            # If they are disabled in the Equinox layer, we create default
-            # constant tensors of ones (for scale) and zeros (for bias).
-            # The parameters must have the same dtype as the input.
-            dtype = x.dtype
-            scale = (
-                self.weight if self.use_weight else jnp.ones(self.shape, dtype=dtype)
-            )
-            bias = self.bias if self.use_bias else jnp.zeros(self.shape, dtype=dtype)
-
-            # Bind to the primitive.
-            out = LayerNormPlugin._layer_norm(x, scale, bias, epsilon=self.eps)
-
-            # The original __call__ can return a tuple with state.
-            if state is None:
-                return out
+            dtype = getattr(x, "dtype", None) or jnp.result_type(x)
+            if getattr(self, "use_weight", True):
+                scale = jnp.asarray(self.weight, dtype=dtype)
             else:
-                return out, state
+                scale = jnp.ones(self.shape, dtype=dtype)
+            if getattr(self, "use_bias", True):
+                bias = jnp.asarray(self.bias, dtype=dtype)
+            else:
+                bias = jnp.zeros(self.shape, dtype=dtype)
+            out = LayerNormPlugin._PRIM.bind(x, scale, bias, epsilon=float(self.eps))
+            return out if state is None else (out, state)
 
-        return patched_call
+        return wrapped
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information for LayerNorm."""
-        return {
-            "patch_targets": [eqx.nn.LayerNorm],
-            "patch_function": LayerNormPlugin.get_monkey_patch,
-            "target_attribute": "__call__",
-        }
-
-
-# Register abstract evaluation function
-eqx.nn.layer_norm_p.def_abstract_eval(LayerNormPlugin.abstract_eval)
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(
+                lambda x, scale, bias, *, epsilon: cls.abstract_eval(
+                    x, scale, bias, epsilon=epsilon
+                )
+            )
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-def _eqx_layernorm_batching_rule(batched_args, batch_dims, *, epsilon):
-    """Batching rule for `eqx.nn.layer_norm_p`."""
+@LayerNormPlugin._PRIM.def_impl
+def _layer_norm_impl(x, scale, bias, *, epsilon):
+    x_arr = jnp.asarray(x)
+    scale_arr = jnp.asarray(scale, dtype=x_arr.dtype)
+    bias_arr = jnp.asarray(bias, dtype=x_arr.dtype)
+    tail_ndim = scale_arr.ndim or 1
+    axis0 = x_arr.ndim - tail_ndim
+    if axis0 < 0:
+        axis0 = 0
+    axes = tuple(range(axis0, x_arr.ndim))
+    mean = jnp.mean(x_arr, axis=axes, keepdims=True)
+    var = jnp.var(x_arr, axis=axes, keepdims=True)
+    norm = (x_arr - mean) / jnp.sqrt(var + float(epsilon))
+    reshape_shape = (1,) * axis0 + scale_arr.shape
+    scale_b = jnp.reshape(scale_arr, reshape_shape)
+    bias_b = jnp.reshape(bias_arr, reshape_shape)
+    return norm * scale_b + bias_b
+
+
+def _layer_norm_batch_rule(batched_args, batch_dims, *, epsilon):
     x, scale, bias = batched_args
     x_bdim, scale_bdim, bias_bdim = batch_dims
-
-    # Batching is only supported for the data input `x`, not parameters.
     if scale_bdim is not None or bias_bdim is not None:
         raise NotImplementedError(
-            "Batching over equinox.nn.LayerNorm parameters is not supported."
+            "Batching over LayerNorm parameters is not supported."
         )
-
-    # The primitive is applied to the batched `x`. The `to_onnx` logic
-    # will correctly infer the normalization axis based on the rank
-    # difference between the batched `x` and the un-batched parameters.
-    out = eqx.nn.layer_norm_p.bind(x, scale, bias, epsilon=epsilon)
-
-    # The output has a batch dimension at the same axis as the input.
+    out = LayerNormPlugin._PRIM.bind(x, scale, bias, epsilon=epsilon)
     return out, x_bdim
 
 
-# Register the batching rule for our primitive
-batching.primitive_batchers[eqx.nn.layer_norm_p] = _eqx_layernorm_batching_rule
+batching.primitive_batchers[LayerNormPlugin._PRIM] = _layer_norm_batch_rule

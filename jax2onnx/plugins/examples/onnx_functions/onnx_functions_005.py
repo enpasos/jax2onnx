@@ -1,22 +1,29 @@
-# file: jax2onnx/plugins/examples/onnx_functions/onnx_functions_005.py
+# jax2onnx/plugins/examples/onnx_functions/onnx_functions_005.py
+
+from __future__ import annotations
 
 import jax.numpy as jnp
 from flax import nnx
 
-from jax2onnx.plugin_system import onnx_function, register_example
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    onnx_function,
+    register_example,
+)
 
 
 @onnx_function
 class NestedBlock(nnx.Module):
-
     def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
-        self.layers = [
-            nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
-            lambda x: nnx.gelu(x, approximate=False),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-            nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
-            nnx.Dropout(rate=0.1, rngs=rngs),
-        ]
+        self.layers = nnx.List(
+            [
+                nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
+                lambda x: nnx.gelu(x, approximate=False),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+                nnx.Linear(mlp_dim, num_hiddens, rngs=rngs),
+                nnx.Dropout(rate=0.1, rngs=rngs),
+            ]
+        )
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
@@ -48,7 +55,7 @@ register_example(
     testcases=[
         {
             "testcase": "005_nested_function_plus_component",
-            "callable": SuperBlock(),
+            "callable": construct_and_call(SuperBlock),
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
             "run_only_f32_variant": True,

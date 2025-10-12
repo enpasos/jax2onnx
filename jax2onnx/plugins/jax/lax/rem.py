@@ -1,16 +1,18 @@
-from typing import TYPE_CHECKING
-import logging
+# jax2onnx/plugins/jax/lax/rem.py
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
 
 import jax
-from onnx import helper
-import jax.numpy as jnp
+import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -34,21 +36,21 @@ logger = logging.getLogger(__name__)
             "testcase": "rem_int",
             "callable": lambda x, y: jax.lax.rem(x, y),
             "input_values": [
-                jnp.array([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], dtype=jnp.int32),
-                jnp.array([4, 4, 3, 3, 2, 2, 1, 1, 5, 5], dtype=jnp.int32),
+                np.array([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], dtype=np.int32),
+                np.array([4, 4, 3, 3, 2, 2, 1, 1, 5, 5], dtype=np.int32),
             ],
         },
         {
             "testcase": "rem_float",
             "callable": lambda x, y: jax.lax.rem(x, y),
             "input_values": [
-                jnp.array(
+                np.array(
                     [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
-                    dtype=jnp.float32,
+                    dtype=np.float32,
                 ),
-                jnp.array(
+                np.array(
                     [4.0, 4.0, 3.0, 3.0, 2.0, 2.0, 1.0, 1.0, 5.0, 5.0],
-                    dtype=jnp.float32,
+                    dtype=np.float32,
                 ),
             ],
         },
@@ -56,96 +58,95 @@ logger = logging.getLogger(__name__)
             "testcase": "rem_int_neg",
             "callable": lambda x, y: jax.lax.rem(x, y),
             "input_values": [
-                jnp.array([-10, -9, -8, -7, 6, 5, 4, 3, -2, -1], dtype=jnp.int32),
-                jnp.array([4, -4, 3, -3, 2, -2, 1, -1, 5, -5], dtype=jnp.int32),
+                np.array([-10, -9, -8, -7, 6, 5, 4, 3, -2, -1], dtype=np.int32),
+                np.array([4, -4, 3, -3, 2, -2, 1, -1, 5, -5], dtype=np.int32),
             ],
         },
         {
             "testcase": "rem_float_neg",
             "callable": lambda x, y: jax.lax.rem(x, y),
             "input_values": [
-                jnp.array(
+                np.array(
                     [-10.0, -9.0, -8.0, -7.0, 6.0, 5.0, 4.0, 3.0, -2.0, -1.0],
-                    dtype=jnp.float32,
+                    dtype=np.float32,
                 ),
-                jnp.array(
+                np.array(
                     [4.0, -4.0, 3.0, -3.0, 2.0, -2.0, 1.0, -1.0, 5.0, -5.0],
-                    dtype=jnp.float32,
+                    dtype=np.float32,
                 ),
             ],
         },
     ],
 )
 class RemPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.rem (truncated remainder) to ONNX."""
+    """Lower ``lax.rem`` (truncated remainder) using Mod or Div/Mul/Sub."""
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        def _register(name, shape, dtype):
-            s.builder.register_value_info_metadata(name, shape, dtype)
-            s.builder.add_value_info(name, shape, dtype)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        x_var, y_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-        x_name = s.get_name(node_inputs[0])
-        y_name = s.get_name(node_inputs[1])
-        out_name = s.get_var_name(node_outputs[0])
+        prefer_dt: Optional[np.dtype] = np.dtype(
+            getattr(x_var.aval, "dtype", np.float32)
+        )
 
-        aval = node_inputs[0].aval
-        shape = aval.shape
-        dtype = aval.dtype
-        is_float = jnp.issubdtype(dtype, jnp.floating)
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("rem_x"))
+        y_val = ctx.get_value_for_var(
+            y_var, name_hint=ctx.fresh_name("rem_y"), prefer_np_dtype=prefer_dt
+        )
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rem_out"))
 
-        if is_float:
-            # Float remainder: use ONNX Mod with fmod=1 (C fmod semantics = truncated remainder)
-            tmp = s.get_unique_name("rem_fmod")
-            s.add_node(
-                helper.make_node(
-                    "Mod",
-                    inputs=[x_name, y_name],
-                    outputs=[tmp],
-                    name=s.get_unique_name("rem_mod"),
-                    fmod=1,  # C fmod → truncated remainder
-                )
+        aval = getattr(x_var, "aval", None)
+        dtype = np.dtype(getattr(aval, "dtype", np.float32))
+        out_shape = tuple(getattr(aval, "shape", ()))
+
+        x_dtype_enum = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("rem_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("rem_out")
+
+        if np.issubdtype(dtype, np.floating):
+            result = ctx.builder.Mod(
+                x_val,
+                y_val,
+                fmod=1,
+                _outputs=[desired_name],
             )
-            _register(tmp, shape, dtype)
-            s.add_node(
-                helper.make_node(
-                    "Identity",
-                    inputs=[tmp],
-                    outputs=[out_name],
-                    name=s.get_unique_name("rem_out"),
-                )
-            )
-            _register(out_name, shape, dtype)
+            result.type = ir.TensorType(x_dtype_enum)
+            result.shape = ir.Shape(out_shape)
+            _stamp_type_and_shape(result, out_shape)
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
 
-        else:
-            # Integer remainder: r = x - (trunc(x / y) * y)
-            quot = s.get_unique_name("rem_div")
-            s.add_node(
-                helper.make_node(
-                    "Div",
-                    inputs=[x_name, y_name],
-                    outputs=[quot],
-                    name=s.get_unique_name("rem_div_node"),
-                )
-            )
-            _register(quot, shape, dtype)
+        div_val = ctx.builder.Div(
+            x_val,
+            y_val,
+            _outputs=[ctx.fresh_name("rem_div")],
+        )
+        div_val.type = ir.TensorType(x_dtype_enum)
+        div_val.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(div_val, out_shape)
+        _ensure_value_metadata(ctx, div_val)
 
-            prod = s.get_unique_name("rem_mul")
-            s.add_node(
-                helper.make_node(
-                    "Mul",
-                    inputs=[quot, y_name],
-                    outputs=[prod],
-                    name=s.get_unique_name("rem_mul_node"),
-                )
-            )
-            _register(prod, shape, dtype)
+        mul_val = ctx.builder.Mul(
+            div_val,
+            y_val,
+            _outputs=[ctx.fresh_name("rem_mul")],
+        )
+        mul_val.type = ir.TensorType(x_dtype_enum)
+        mul_val.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(mul_val, out_shape)
+        _ensure_value_metadata(ctx, mul_val)
 
-            s.add_node(
-                helper.make_node(
-                    "Sub",
-                    inputs=[x_name, prod],
-                    outputs=[out_name],
-                    name=s.get_unique_name("rem_sub_node"),
-                )
-            )
-            _register(out_name, shape, dtype)
+        result = ctx.builder.Sub(
+            x_val,
+            mul_val,
+            _outputs=[desired_name],
+        )
+        result.type = ir.TensorType(x_dtype_enum)
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)

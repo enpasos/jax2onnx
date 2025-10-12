@@ -1,39 +1,29 @@
-"""
-This module contains the ONNX plugin for the `jax.numpy.stack` function,
-following the standard jax2onnx pattern for `jnp` functions.
-"""
+# jax2onnx/plugins/jax/numpy/stack.py
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import core
-from jax.extend.core import Primitive
-from onnx import helper
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-
-# ---------------------------------------------------------------------- #
-# 1.  A dedicated primitive for jnp.stack                                #
-# ---------------------------------------------------------------------- #
-jnp_stack_p = Primitive("jnp.stack")
-jnp_stack_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# ---------------------------------------------------------------------- #
-# 2.  Plugin registration                                                #
-# ---------------------------------------------------------------------- #
+_STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
+
+
 @register_primitive(
-    primitive_obj=jnp_stack_p,
-    binding_factory=lambda: jnp.stack,
-    jaxpr_primitive=jnp_stack_p.name,
+    jaxpr_primitive=_STACK_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.stack.html",
     onnx=[
         {
@@ -45,156 +35,193 @@ jnp_stack_p.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
     ],
-    since="v0.7.1",
+    since="v0.8.0",
     context="primitives.jnp",
     component="stack",
     testcases=[
         {
             "testcase": "stack_axis_0",
-            "callable": lambda *args: jnp.stack(args, axis=0),
-            "input_values": [
-                np.array([1, 2], dtype=np.float32),
-                np.array([3, 4], dtype=np.float32),
-            ],
-            "expected_output_shapes": [(2, 2)],
+            "callable": lambda: jnp.stack(
+                [np.arange(3, dtype=np.float32), np.arange(3, dtype=np.float32)], axis=0
+            ),
         },
         {
             "testcase": "stack_axis_1",
-            "callable": lambda *args: jnp.stack(args, axis=1),
-            "input_values": [
-                np.array([[1, 2], [3, 4]], dtype=np.float32),
-                np.array([[5, 6], [7, 8]], dtype=np.float32),
-            ],
-            "expected_output_shapes": [(2, 2, 2)],
+            "callable": lambda: jnp.stack(
+                [np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)],
+                axis=1,
+            ),
         },
         {
             "testcase": "stack_negative_axis",
-            "callable": lambda *args: jnp.stack(args, axis=-1),
-            "input_values": [
-                np.array([1, 2, 3], dtype=np.int32),
-                np.array([4, 5, 6], dtype=np.int32),
-            ],
-            "expected_output_shapes": [(3, 2)],
+            "callable": lambda: jnp.stack(
+                [
+                    np.array([1, 2, 3], dtype=np.float32),
+                    np.array([4, 5, 6], dtype=np.float32),
+                ],
+                axis=-1,
+            ),
         },
         {
             "testcase": "stack_scalars",
-            "callable": lambda *args: jnp.stack(args, axis=0),
-            "input_values": [
-                np.array(10, dtype=np.float32),
-                np.array(20, dtype=np.float32),
-            ],
-            "expected_output_shapes": [(2,)],
+            "callable": lambda: jnp.stack(
+                [np.array(1.0, dtype=np.float32), np.array(2.0, dtype=np.float32)]
+            ),
+        },
+        {
+            "testcase": "jnp_stack_axis0",
+            "callable": lambda x, y: jnp.stack((x, y), axis=0),
+            "input_shapes": [(2,), (2,)],
+        },
+        {
+            "testcase": "jnp_stack_axis1",
+            "callable": lambda x, y: jnp.stack((x, y), axis=1),
+            "input_shapes": [(2, 2), (2, 2)],
+        },
+        {
+            "testcase": "jnp_stack_negative_axis",
+            "callable": lambda x, y: jnp.stack((x, y), axis=-1),
+            "input_shapes": [(3,), (3,)],
+        },
+        {
+            "testcase": "jnp_stack_scalars",
+            "callable": lambda x, y: jnp.stack((x, y), axis=0),
+            "input_shapes": [(), ()],
         },
     ],
 )
-class StackPlugin(PrimitiveLeafPlugin):
-    """ONNX plugin for jnp.stack."""
+class JnpStackPlugin(PrimitiveLeafPlugin):
+    """IR-only lowering for ``jax.numpy.stack``."""
 
-    _ORIG_CALL: Callable[..., Any] | None = None
-    primitive = jnp_stack_p
+    _PRIM: ClassVar = _STACK_PRIM
+    _FUNC_NAME: ClassVar[str] = "stack"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*in_avals: core.ShapedArray, axis: int, **_):
-        """Abstract evaluation implementation for the jnp.stack primitive."""
+    def abstract_eval(
+        *in_avals: jax.core.ShapedArray, axis: int, **_
+    ) -> jax.core.ShapedArray:
         if not in_avals:
-            raise ValueError("must supply arrays to stack")
+            raise ValueError("jnp.stack requires at least one array")
 
-        shape = in_avals[0].shape
+        ref_shape = in_avals[0].shape
+        ref_dtype = in_avals[0].dtype
         for aval in in_avals[1:]:
-            if aval.shape != shape:
-                msg = "all input arrays must have the same shape. Got {} and {}"
-                raise ValueError(msg.format(shape, aval.shape))
+            if aval.shape != ref_shape:
+                raise ValueError("all input arrays must have the same shape")
+            if aval.dtype != ref_dtype:
+                raise ValueError("all input arrays must have the same dtype")
 
-        # Manually normalize the axis relative to the *output* rank.
-        output_rank = len(shape) + 1
-        if axis < 0:
-            axis += output_rank
+        out_rank = len(ref_shape) + 1
+        axis_idx = axis if axis >= 0 else axis + out_rank
+        if axis_idx < 0 or axis_idx > out_rank:
+            raise ValueError(f"stack axis {axis} is out of bounds for rank {out_rank}")
 
-        output_shape = list(shape)
-        output_shape.insert(axis, len(in_avals))
+        out_shape = list(ref_shape)
+        out_shape.insert(axis_idx, len(in_avals))
+        return jax.core.ShapedArray(tuple(out_shape), ref_dtype)
 
-        output_dtype = in_avals[0].dtype
-        return core.ShapedArray(tuple(output_shape), output_dtype)
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        axis = int(getattr(eqn, "params", {}).get("axis", 0))
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[jax.core.Var],
-        node_outputs: Sequence[jax.core.Var],
-        params: Dict[str, Any],
-    ):
-        """Converts the JAX `stack` primitive to ONNX `Unsqueeze` and `Concat` ops."""
-        axis = params["axis"]
+        input_vals: list[ir.Value] = []
+        input_shapes: list[tuple[int, ...]] = []
+        for invar in eqn.invars:
+            val = ctx.get_value_for_var(invar, name_hint=ctx.fresh_name("stack_in"))
+            input_vals.append(val)
+            input_shapes.append(tuple(getattr(invar.aval, "shape", ())))
 
-        unsqueezed_inputs = []
-        for var in node_inputs:
-            input_name = s.get_name(var)
-            unsqueezed_name = s.get_unique_name(f"{input_name}_unsqueezed")
+        if not input_vals:
+            raise ValueError("jnp.stack lowering received no inputs")
 
-            # ONNX Unsqueeze uses the axis value directly.
-            axes_val = np.array([axis], dtype=np.int64)
-            axes_const = s.get_constant_name(axes_val)
+        rank = len(input_shapes[0])
+        unsqueeze_axis = axis if axis >= 0 else axis + rank + 1
+        if unsqueeze_axis < 0 or unsqueeze_axis > rank:
+            raise ValueError(f"stack axis {axis} is out of range for input rank {rank}")
 
-            node = helper.make_node(
-                "Unsqueeze",
-                inputs=[input_name, axes_const],
-                outputs=[unsqueezed_name],
-                name=s.get_unique_name("Unsqueeze"),
+        axes_const = _const_i64(ctx, [unsqueeze_axis], "stack_unsqueeze_axis")
+
+        unsqueezed_vals: list[ir.Value] = []
+        for val, shape in zip(input_vals, input_shapes):
+            out_shape = list(shape)
+            out_shape.insert(unsqueeze_axis, 1)
+
+            unsqueezed = ctx.builder.Unsqueeze(
+                val,
+                axes_const,
+                _outputs=[ctx.fresh_name("stack_unsqueeze")],
             )
-            s.add_node(node)
+            dtype_enum = getattr(getattr(val, "type", None), "dtype", None)
+            if dtype_enum is not None:
+                unsqueezed.type = ir.TensorType(dtype_enum)
+            _stamp_type_and_shape(unsqueezed, tuple(out_shape))
+            _ensure_value_metadata(ctx, unsqueezed)
+            unsqueezed_vals.append(unsqueezed)
 
-            # Add shape info for the newly created intermediate tensor
-            input_shape = list(var.aval.shape)
-            # Manually normalize axis to correctly calculate the unsqueezed shape
-            rank = len(input_shape) + 1
-            unsqueezed_axis = axis if axis >= 0 else axis + rank
-            input_shape.insert(unsqueezed_axis, 1)
-            s.add_shape_info(unsqueezed_name, tuple(input_shape), var.aval.dtype)
+        out_var = eqn.outvars[0]
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("stack_out"))
+        out_shape_tuple = tuple(getattr(out_var.aval, "shape", ()))
+        concat_axis = axis if axis >= 0 else axis + len(out_shape_tuple)
 
-            unsqueezed_inputs.append(unsqueezed_name)
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Concat")
 
-        output_name = s.get_name(node_outputs[0])
-
-        # Normalize axis for Concat to be non-negative
-        concat_rank = len(node_outputs[0].aval.shape)
-        concat_axis = axis if axis >= 0 else axis + concat_rank
-
-        node = helper.make_node(
-            "Concat",
-            inputs=unsqueezed_inputs,
-            outputs=[output_name],
-            name=s.get_unique_name("Concat"),
-            axis=concat_axis,
+        result = ctx.builder.Concat(
+            *unsqueezed_vals,
+            axis=int(concat_axis),
+            _outputs=[desired_name],
         )
-        s.add_node(node)
+        result_dtype = None
+        if unsqueezed_vals:
+            result_dtype = getattr(
+                getattr(unsqueezed_vals[0], "type", None), "dtype", None
+            )
+        if result_dtype is None:
+            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+        if result_dtype is not None:
+            result.type = ir.TensorType(result_dtype)
+        else:
+            result.type = out_spec.type
+        _stamp_type_and_shape(result, tuple(out_shape_tuple))
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
-    @staticmethod
-    def _stack_binding(arrays, axis=0):
-        """Binds the inputs to the custom jnp.stack primitive."""
-        if not isinstance(arrays, (list, tuple)):
-            raise TypeError(f"stack expects a sequence of arrays, got {type(arrays)}")
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        flat_arrays, _ = jax.tree_util.tree_flatten(arrays)
-        return jnp_stack_p.bind(*flat_arrays, axis=axis)
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.stack not found")
+            setattr(cls._PRIM, storage_slot, orig)
 
-    @staticmethod
-    def get_monkey_patch(orig_fn: Callable):
-        """Returns the patched version of jnp.stack."""
-        StackPlugin._ORIG_CALL = orig_fn
+            def _patched(arrays, axis=0):
+                flat, _ = jax.tree_util.tree_flatten(arrays)
+                if not flat:
+                    raise ValueError("jnp.stack expects a non-empty sequence")
+                return cls._PRIM.bind(*flat, axis=int(axis))
 
-        def patched_stack(arrays, axis=0):
-            return StackPlugin._stack_binding(arrays, axis=axis)
+            return _patched
 
-        return patched_stack
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
-    @staticmethod
-    def patch_info():
-        """Provides patching information to the plugin system."""
-        return {
-            "patch_targets": [jnp],
-            "target_attribute": "stack",
-            "patch_function": StackPlugin.get_monkey_patch,
-        }
+
+@JnpStackPlugin._PRIM.def_impl
+def _stack_impl(arrays, *, axis=0):
+    orig = get_orig_impl(JnpStackPlugin._PRIM, JnpStackPlugin._FUNC_NAME)
+    return orig(arrays, axis=axis)
 
 
-jnp_stack_p.def_abstract_eval(StackPlugin.abstract_eval)
+JnpStackPlugin._PRIM.def_abstract_eval(JnpStackPlugin.abstract_eval)

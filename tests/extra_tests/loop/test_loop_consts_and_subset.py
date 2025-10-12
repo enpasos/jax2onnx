@@ -1,26 +1,27 @@
+# tests/extra_tests/loop/test_loop_consts_and_subset.py
+
 import onnx
 import onnxruntime as ort
 import jax.numpy as jnp
 from jax import lax
-from jax2onnx import to_onnx
+
+from jax2onnx.user_interface import to_onnx
 
 
 def _fn_subset_outputs():
-    # captured const(s)
     dt1 = jnp.asarray(0.1, dtype=jnp.float64)
     dt2 = jnp.asarray(0.2, dtype=jnp.float64)
 
     def simulate():
-        def step(c, _):
-            c = c + dt1 + dt2
-            y1 = c
-            y2 = 2.0 * c
-            return c, (y1, y2)  # carry + 2 scan outs
+        def step(carry, _):
+            carry = carry + dt1 + dt2
+            y1 = carry
+            y2 = 2.0 * carry
+            return carry, (y1, y2)
 
-        # xs=None → lowered to Loop
         _, ys = lax.scan(step, jnp.array(0.0, jnp.float64), xs=None, length=3)
-        y1, y2 = ys
-        return y1  # return only a subset
+        y1, _ = ys
+        return y1
 
     return simulate
 
@@ -30,12 +31,10 @@ def test_loop_consts_and_subset_loads(tmp_path):
         _fn_subset_outputs(),
         inputs=[],
         enable_double_precision=True,
-        model_name="loop_subset",
+        model_name="loop_subset_ir",
     )
-    p = tmp_path / "loop_subset.onnx"
-    onnx.save_model(model, p)
-
-    # should not throw shape-inference / load errors
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+    out_path = tmp_path / "loop_subset_ir.onnx"
+    onnx.save_model(model, out_path)
+    sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
     (out,) = sess.run(None, {})
     assert out.shape == (3,)

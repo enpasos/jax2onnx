@@ -1,3 +1,5 @@
+# jax2onnx/utils/debug.py
+
 """
 Debug utilities for jax2onnx.
 

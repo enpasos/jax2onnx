@@ -1,55 +1,167 @@
 # jax2onnx/plugins/flax/nnx/linear.py
-"""
-ONNX plugin for **flax.nnx.Linear** that supports symbolic batch dimensions and
-high‑rank inputs.
 
-Fix for missing graph‑input error
----------------------------------
-* After renaming the three logical inputs to ``x``, ``kernel`` and ``bias`` we
-  must *also* register them as **graph inputs** in the ``OnnxBuilder``.  Merely
-  attaching value‑info is not enough – ONNX requires that every node input be a
-  graph input, an initializer or the output of another node.
-* Helper ``_ensure_graph_input`` adds the appropriate tensor‑value‑info entry
-  unless the name already refers to a constant initializer.
-"""
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, Callable
-import logging
+from typing import Any, Callable, ClassVar, Final, Optional
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax import core, lax
-from flax import nnx
 from jax.extend.core import Primitive
-from onnx import helper
+from flax import nnx
+import onnx_ir as ir
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins.flax.nnx.linear_general import _shape_of, _shape_prefix_of
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    construct_and_call,
+    register_primitive,
+    with_requested_dtype,
+    with_rng_seed,
+)
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._ir_shapes import (
+    _stamp_type_and_shape,
+    _is_static_int,
+    _dim_label_from_value_or_aval,
+    _ensure_value_metadata,
+    _as_ir_dim_label,
+    is_shape_all_unknown,
+)
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
-if TYPE_CHECKING:  # only for static analysis / IDEs
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
 
-logger = logging.getLogger("jax2onnx.plugins.flax.nnx.linear")
+def _linear_output_dims(
+    x_val: ir.Value,
+    x_shape: tuple,
+    out_val: ir.Value,
+    out_shape: tuple,
+    fallback_last: int,
+):
+    """Return dims tuple for linear outputs preserving batch labels when known."""
+    out_rank = len(out_shape)
+    batch_rank = max(len(x_shape) - 1, 0)
+    if out_rank:
+        batch_rank = min(batch_rank, max(out_rank - 1, 0))
 
-# -----------------------------------------------------------------------------
-# 1.  Primitive ----------------------------------------------------------------
-# -----------------------------------------------------------------------------
-nnx.linear_p = Primitive("nnx.linear")
-nnx.linear_p.multiple_results = False
+    dims: list[Any] = []
+    for idx in range(batch_rank):
+        label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        if label is None and idx < len(x_shape):
+            maybe_dim = x_shape[idx]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                label = fallback_label
+        dims.append(label)
+
+    last_dim = None
+    if out_rank:
+        last_dim = _dim_label_from_value_or_aval(out_val, out_shape, out_rank - 1)
+        if last_dim is None and (out_rank - 1) < len(out_shape):
+            maybe_dim = out_shape[out_rank - 1]
+            fallback_label = _as_ir_dim_label(maybe_dim)
+            if fallback_label is not None:
+                last_dim = fallback_label
+    if last_dim is None:
+        last_dim = fallback_last
+
+    dims.append(last_dim)
+    return tuple(dims)
 
 
-# -----------------------------------------------------------------------------
-# 2.  Plugin registration ------------------------------------------------------
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Graph-pattern expectations used by tests
+# ------------------------------------------------------------------
+_GEMM_ONLY_COUNTS: Final[dict[str, int]] = {
+    "Gemm": 1,
+    "Reshape": 0,
+    "Shape": 0,
+    "Slice": 0,
+    "Concat": 0,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+_RGR_COUNTS: Final[dict[str, int]] = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 0,
+    "Slice": 0,
+    "Concat": 0,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+_DYNAMIC_RGR_COUNTS: Final[dict[str, int]] = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 1,
+    "Slice": 1,
+    "Concat": 1,
+    "CastLike": 0,
+    "Transpose": 0,
+}
+
+
+def _linear_expect(
+    path: str,
+    *,
+    counts: dict[str, int],
+    symbols: dict[str, Any] | None = None,
+    extra_specs: tuple[str, ...] = (),
+):
+    specs: list[Any] = [(path, {"counts": dict(counts)})]
+    specs.extend(extra_specs)
+    return EG(specs, symbols=symbols, no_unused_inputs=True)
+
+
+EXPECT_GEMM_ONLY: Final = _linear_expect(
+    "Gemm:Bx64",
+    symbols={"B": None},
+    counts=_GEMM_ONLY_COUNTS,
+)
+
+EXPECT_RGR_STATIC_3: Final = _linear_expect(
+    "Reshape:30x128 -> Gemm:30x64 -> Reshape:3x10x64",
+    counts=_RGR_COUNTS,
+)
+
+EXPECT_RGR_STATIC_2: Final = _linear_expect(
+    "Reshape:20x128 -> Gemm:20x64 -> Reshape:2x10x64",
+    counts=_RGR_COUNTS,
+)
+
+EXPECT_DYNAMIC_RGR: Final = _linear_expect(
+    "Reshape:?x128 -> Gemm:?x64 -> Reshape:Bx10x64",
+    counts=_DYNAMIC_RGR_COUNTS,
+    symbols={"B": None},
+    extra_specs=("Shape -> Slice -> Concat -> Reshape",),
+)
+
+
 @register_primitive(
-    jaxpr_primitive=nnx.linear_p.name,
+    jaxpr_primitive="nnx.linear",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html",
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
             "component": "Reshape",
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
+        {
+            "component": "Shape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Shape.html",
+        },
+        {
+            "component": "Slice",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+        },
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
+        {
+            "component": "CastLike",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
         },
     ],
     since="v0.1.0",
@@ -58,77 +170,123 @@ nnx.linear_p.multiple_results = False
     testcases=[
         {
             "testcase": "linear_symbolic_batch",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 128)],
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank_static",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 10, 128)],
+            "expected_output_shapes": [(3, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_3,
         },
         {
             "testcase": "linear_no_bias",
-            "callable": nnx.Linear(128, 64, use_bias=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 128)],
+            "expected_output_shapes": [("B", 64)],
+            "post_check_onnx_graph": EXPECT_GEMM_ONLY,
         },
         {
             "testcase": "linear_high_rank_no_bias",
-            "callable": nnx.Linear(128, 64, use_bias=False, rngs=nnx.Rngs(0)),
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
             "input_shapes": [("B", 10, 128)],
+            "run_only_dynamic": True,
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "linear_high_rank_no_bias",
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 10, 128)],
+            "expected_output_shapes": [(2, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_2,
         },
         {
             "testcase": "linear_merge_symbolic_dim",
-            "callable": nnx.Linear(128, 64, rngs=nnx.Rngs(0)),
-            "input_shapes": [("B", 10, 128)],  # B is symbolic
+            "callable": construct_and_call(
+                nnx.Linear,
+                128,
+                64,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 10, 128)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda m: (
-                # input  B×10×128
-                _shape_of(m.graph.input, "var_0") == ("B", 10, 128)
-                # after flatten   ?×128
-                and (lambda s: s[0] is None and s[1] == 128)(
-                    _shape_prefix_of(m.graph.value_info, "x2d")
-                )
-                # gemm out       ?×64
-                and (lambda s: s[0] is None and s[1] == 64)(
-                    _shape_prefix_of(m.graph.value_info, "gemm_out")
-                )
-                # final output   B×10×64
-                and _shape_of(m.graph.output, "var_3") == ("B", 10, 64)
-            ),
+            "expected_output_shapes": [("B", 10, 64)],
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
     ],
 )
 class LinearPlugin(PrimitiveLeafPlugin):
-    """Convert **flax.nnx.Linear** to ONNX (symbolic‑dim aware)."""
+    # Private primitive for this world (no import-time global assignment)
+    _PRIM: ClassVar[Primitive] = Primitive("nnx.linear")
+    _PRIM.multiple_results = False
+    _ORIGINAL_LINEAR_CALL: ClassVar[Callable | None] = None
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    _ORIGINAL_LINEAR_CALL: Callable | None = None
-
+    # ---------- abstract eval ----------
     @staticmethod
-    def _ensure_graph_input(s: "Jaxpr2OnnxConverter", name: str, var) -> None:
-        if name in s.name_to_const:
-            return
-        if any(inp.name == name for inp in s.builder.inputs):
-            return
-        dtype_enum = s.builder._numpy_dtype_to_onnx(var.aval.dtype)
-        value_info = helper.make_tensor_value_info(
-            name,
-            dtype_enum,
-            [d if isinstance(d, int) else None for d in var.aval.shape],
-        )
-        s.builder.inputs.append(value_info)
-
-    @staticmethod
-    def abstract_eval(
-        x: core.ShapedArray,
-        kernel: core.ShapedArray,
-        bias: core.ShapedArray,
-        *,
-        use_bias: bool,
-        dimension_numbers=None,
-    ):
+    def abstract_eval(x, kernel, bias, *, use_bias: bool, dimension_numbers=None):
+        # If we don't have the original __call__, fall back to shape math.
         if LinearPlugin._ORIGINAL_LINEAR_CALL is None:
-            raise RuntimeError("Original nnx.Linear.__call__ has not been stored.")
+            if dimension_numbers is None:
+                lhs, rhs = ((x.ndim - 1,), (0,))
+                dimension_numbers = ((lhs, rhs), ((), ()))
+            k0, k1 = kernel.shape
+            need_flat = (k0 != x.shape[-1]) or (x.ndim > 2)
+            out_shape = (x.shape[0], k1) if need_flat else (*x.shape[:-1], k1)
+            return jax.core.ShapedArray(out_shape, x.dtype)
 
         if dimension_numbers is None:
             lhs, rhs = ((x.ndim - 1,), (0,))
@@ -144,8 +302,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
             def promote_dtype(args, dtype=None):
                 return args
 
-            def dot_general(x, y, dimension_numbers=None, precision=None, **kwargs):
-                return lax.dot_general(x, y, dimension_numbers)
+            def dot_general(a, b, dimension_numbers=None, precision=None, **kwargs):
+                return jax.lax.dot_general(a, b, dimension_numbers)
 
             dummy = SimpleNamespace(
                 kernel=SimpleNamespace(value=kv),
@@ -155,130 +313,229 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 in_features=kv.shape[0],
                 out_features=kv.shape[1],
                 promote_dtype=promote_dtype,
-                dtype=x.dtype,
+                dtype=xv.dtype,
                 dot_general=dot_general,
                 precision=None,
+                preferred_element_type=None,
             )
             return LinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
 
-        try:
-            out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
-            out = jax.tree_util.tree_leaves(out)[0]
-            return core.ShapedArray(out.shape, out.dtype)
-        except Exception:
-            need_flat = (kernel.shape[0] != x.shape[-1]) or (x.ndim > 2)
-            if need_flat:
-                out_shape = (x.shape[0], kernel.shape[1])
-            else:
-                out_shape = (*x.shape[:-1], kernel.shape[1])
-            return core.ShapedArray(out_shape, x.dtype)
+        out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
+        out = jax.tree_util.tree_leaves(out)[0]
+        return jax.core.ShapedArray(out.shape, out.dtype)
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        x_var, kernel_var, bias_var = node_inputs
-        y_var = node_outputs[0]
-        use_bias = params["use_bias"]
+    # ---------- lowering (IR) ----------
 
-        x_name = s.get_name(x_var)
-        kernel_name = s.get_name(kernel_var)
-        bias_name = s.get_name(bias_var) if use_bias else ""
+    def lower(self, ctx: Any, eqn):
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder")
 
-        x_shape = x_var.aval.shape
-        out_shape = y_var.aval.shape
-        dtype = x_var.aval.dtype
-        in_features = kernel_var.aval.shape[0]
-        out_features = kernel_var.aval.shape[1]
+        x_var, kernel_var, bias_var = eqn.invars
+        out_var = eqn.outvars[0]
+        use_bias = bool(eqn.params["use_bias"])
+
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
+        k_val = ctx.get_value_for_var(kernel_var, name_hint=ctx.fresh_name("kernel"))
+        b_val = (
+            ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
+            if use_bias
+            else None
+        )
+
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        if is_shape_all_unknown(getattr(x_val, "shape", None)) and any(
+            d is not None for d in x_shape
+        ):
+            _stamp_type_and_shape(x_val, x_shape)
+
+        k_val = cast_param_like(ctx, k_val, x_val, "kernel_cast")
+        if use_bias and b_val is not None:
+            b_val = cast_param_like(ctx, b_val, x_val, "bias_cast")
+
+        k_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
+        in_features = int(k_shape[0])
+        out_features = int(k_shape[1])
 
         need_flatten = len(x_shape) > 2
-        if need_flatten:
-            flat_name = s.get_unique_name("x2d")
-            reshape_shape = s.get_constant_name(
-                np.array([-1, in_features], dtype=np.int64)
-            )
-            s.add_node(
-                helper.make_node("Reshape", [x_name, reshape_shape], [flat_name])
-            )
-            # ---------- key line: anonymous batch dim = None ----------
-            s.add_shape_info(flat_name, (None, in_features), dtype)
-            x_name = flat_name
-
-        gemm_out = s.get_unique_name("gemm_out")
-        gemm_inputs = [x_name, kernel_name]
-        if use_bias:
-            gemm_inputs.append(bias_name)
-
-        s.add_node(helper.make_node("Gemm", gemm_inputs, [gemm_out]))
-
-        # After flattening an (unknown) batch we want “?” not "unk__0"
-        batch_dim_gemm = None if need_flatten else (x_shape[0] if x_shape else None)
-        s.add_shape_info(gemm_out, (batch_dim_gemm, out_features), dtype)
+        gemm_input = x_val
+        batch_dim_vals: list[Any] = []
+        all_batch_static = True
 
         if need_flatten:
-            original_x_shape = s.get_unique_name("original_x_shape")
-            s.add_node(
-                helper.make_node("Shape", [s.get_name(x_var)], [original_x_shape])
-            )
-            s.add_shape_info(original_x_shape, (len(x_shape),), np.int64)
+            x_batch_idx = list(range(max(len(x_shape) - 1, 0)))
+            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+            if all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                x2d_dims: tuple[Optional[int], int] = (m_size, in_features)
+            else:
+                x2d_dims = (None, in_features)
 
-            batch_dims_shape = s.get_unique_name("batch_dims_shape")
-            rank = len(x_shape)
-            starts = s.get_constant_name(np.array([0], dtype=np.int64))
-            ends = s.get_constant_name(np.array([rank - 1], dtype=np.int64))
-            s.add_node(
-                helper.make_node(
-                    "Slice", [original_x_shape, starts, ends], [batch_dims_shape]
-                )
+            x2d_shape_c = _const_i64(ctx, [-1, in_features], name_hint="x2d_shape")
+            gemm_input = builder.Reshape(
+                x_val,
+                x2d_shape_c,
+                _outputs=[ctx.fresh_name("input_reshape")],
             )
-            s.add_shape_info(batch_dims_shape, (rank - 1,), np.int64)
+            if getattr(x_val, "type", None) is not None:
+                gemm_input.type = x_val.type
+            _stamp_type_and_shape(gemm_input, x2d_dims)
+            _ensure_value_metadata(ctx, gemm_input)
 
-            out_features_const = s.get_constant_name(
-                np.array([out_features], dtype=np.int64)
+        gemm_output_name = ctx.fresh_name("gemm_output" if need_flatten else "out")
+        gemm_inputs = [gemm_input, k_val]
+        if use_bias and b_val is not None:
+            gemm_inputs.append(b_val)
+
+        gemm_result = builder.Gemm(
+            *gemm_inputs,
+            alpha=1.0,
+            beta=0.0 if not use_bias else 1.0,
+            transA=0,
+            transB=0,
+            _outputs=[gemm_output_name],
+        )
+
+        result_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+        if result_dtype is not None:
+            gemm_result.type = ir.TensorType(result_dtype)
+
+        if need_flatten:
+            if all_batch_static:
+                m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
+                gemm_dims: tuple[Optional[int], int] = (m_size, out_features)
+            else:
+                gemm_dims = (None, out_features)
+            _stamp_type_and_shape(gemm_result, gemm_dims)
+            _ensure_value_metadata(ctx, gemm_result)
+
+        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+
+        if not need_flatten:
+            y_meta = _linear_output_dims(
+                x_val,
+                x_shape,
+                gemm_result,
+                out_shape,
+                int(out_features),
             )
+            _stamp_type_and_shape(gemm_result, y_meta)
+            _ensure_value_metadata(ctx, gemm_result)
+            ctx.bind_value_for_var(out_var, gemm_result)
+            return
 
-            final_shape = s.get_unique_name("final_shape")
-            s.add_node(
-                helper.make_node(
-                    "Concat",
-                    [batch_dims_shape, out_features_const],
-                    [final_shape],
-                    axis=0,
-                )
+        if all_batch_static:
+            final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
+            final_shape_c = _const_i64(ctx, final_vals, name_hint="final_shape_c")
+            final_output = builder.Reshape(
+                gemm_result,
+                final_shape_c,
+                _outputs=[ctx.fresh_name("out")],
             )
-            s.add_shape_info(final_shape, (rank,), np.int64)
-
-            output_name = s.get_name(y_var)
-            s.add_node(
-                helper.make_node("Reshape", [gemm_out, final_shape], [output_name])
+            if result_dtype is not None:
+                final_output.type = ir.TensorType(result_dtype)
+            y_meta = _linear_output_dims(
+                x_val,
+                x_shape,
+                final_output,
+                out_shape,
+                int(out_features),
             )
-            s.add_shape_info(output_name, out_shape, dtype)
-        else:
-            s.var_to_name[y_var] = gemm_out
+            _stamp_type_and_shape(final_output, y_meta)
+            _ensure_value_metadata(ctx, final_output)
+            ctx.bind_value_for_var(out_var, final_output)
+            return
 
+        shp = builder.Shape(x_val, _outputs=[ctx.fresh_name("x_shape")])
+        shp.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shp, (len(x_shape),))
+        _ensure_value_metadata(ctx, shp)
+
+        starts = _const_i64(ctx, [0], name_hint="slice_starts")
+        ends = _const_i64(ctx, [len(x_shape) - 1], name_hint="slice_ends")
+        axes_val = _const_i64(ctx, [0], name_hint="slice_axes")
+        steps = _const_i64(ctx, [1], name_hint="slice_steps")
+
+        batch_dims = builder.Slice(
+            shp,
+            starts,
+            ends,
+            axes_val,
+            steps,
+            _outputs=[ctx.fresh_name("batch_dims")],
+        )
+        batch_dims.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(batch_dims, (len(x_shape) - 1,))
+        _ensure_value_metadata(ctx, batch_dims)
+
+        of = _const_i64(ctx, [out_features], name_hint="out_features_c")
+        final_shape = builder.Concat(
+            batch_dims,
+            of,
+            axis=0,
+            _outputs=[ctx.fresh_name("final_shape")],
+        )
+        final_shape.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(final_shape, (len(x_shape),))
+        _ensure_value_metadata(ctx, final_shape)
+
+        final_output = builder.Reshape(
+            gemm_result,
+            final_shape,
+            _outputs=[ctx.fresh_name("out")],
+        )
+        if result_dtype is not None:
+            final_output.type = ir.TensorType(result_dtype)
+        y_meta = _linear_output_dims(
+            x_val,
+            x_shape,
+            final_output,
+            out_shape,
+            int(out_features),
+        )
+        _stamp_type_and_shape(final_output, y_meta)
+        _ensure_value_metadata(ctx, final_output)
+        ctx.bind_value_for_var(out_var, final_output)
+
+    # ---------- monkey-patch helper (single, non-duplicated) ----------
     @staticmethod
     def get_monkey_patch(orig_fn):
         LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
+        prim = LinearPlugin._PRIM
 
-        def patched_call(self, x):
+        def patched(self, x):
             dn = (((x.ndim - 1,), (0,)), ((), ()))
             kernel = self.kernel.value
             use_bias = self.bias is not None
-            if use_bias:
-                bias = self.bias.value
-            else:
-                bias = jnp.zeros((), dtype=x.dtype)
+            bias = self.bias.value if use_bias else jnp.zeros((), dtype=x.dtype)
+            return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
 
-            return nnx.linear_p.bind(
-                x, kernel, bias, use_bias=use_bias, dimension_numbers=dn
-            )
+        return patched
 
-        return patched_call
+    @classmethod
+    def binding_specs(cls):
+        """Patch bindings while active."""
+        return [
+            AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
+            MonkeyPatchSpec(
+                target="flax.nnx.Linear",
+                attr="__call__",
+                make_value=lambda orig: cls.get_monkey_patch(orig),
+                delete_if_missing=False,
+            ),
+        ]
 
-    @staticmethod
-    def patch_info():
-        return {
-            "patch_targets": [nnx.Linear],
-            "patch_function": LinearPlugin.get_monkey_patch,
-            "target_attribute": "__call__",
-        }
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
 
-nnx.linear_p.def_abstract_eval(LinearPlugin.abstract_eval)
+@LinearPlugin._PRIM.def_impl
+def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+    y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
+    if use_bias and bias is not None:
+        y = y + bias
+    return y

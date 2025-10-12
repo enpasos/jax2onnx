@@ -2,52 +2,64 @@
 
 from __future__ import annotations
 
-from typing import Sequence, Union, Tuple
+from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 
 import jax.numpy as jnp
 import numpy as np
-from onnx import helper
 from jax import core
-from jax.extend.core import Primitive
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-# ---------------------------------------------------------------------- #
-# 1. A dedicated primitive for jnp.split                                 #
-# ---------------------------------------------------------------------- #
-split_p = Primitive("jnp.split")
-split_p.multiple_results = True
+_SPLIT_PRIM: Final = make_jnp_primitive("jax.numpy.split")
+_SPLIT_PRIM.multiple_results = True
 
 
-# ---------------------------------------------------------------------- #
-# 2. Helper function to compute split sizes                              #
-# ---------------------------------------------------------------------- #
-def _get_split_sizes(
-    dim_size: int, indices_or_sections: Union[int, Sequence[int]]
-) -> Tuple[int, ...]:
-    """Calculate split sizes for jnp.split, mimicking its logic."""
+def _normalize_axis(axis: int | None, rank: int) -> int:
+    ax = 0 if axis is None else int(axis)
+    if ax < 0:
+        ax += rank
+    if ax < 0 or ax >= rank:
+        raise ValueError(f"axis {axis} out of bounds for rank {rank}")
+    return ax
+
+
+def _to_int_sequence(values: Sequence[int | np.integer]) -> tuple[int, ...]:
+    return tuple(int(v) for v in values)
+
+
+def _split_sizes(
+    dim_size: int,
+    indices_or_sections: int | Sequence[int | np.integer],
+) -> tuple[int, ...]:
     if isinstance(indices_or_sections, int):
-        sections = indices_or_sections
+        sections = int(indices_or_sections)
+        if sections <= 0:
+            raise ValueError("number of sections must be positive")
         if dim_size % sections != 0:
-            # This logic is consistent with JAX's jnp.split behavior.
             raise ValueError(
-                f"Dimension size {dim_size} must be evenly divisible by the number of"
-                f" sections {sections}"
+                f"Dimension size {dim_size} not divisible by {sections} sections"
             )
         return (dim_size // sections,) * sections
-    else:
-        # Treats sequence of integers as split points.
-        indices = [0] + list(indices_or_sections) + [dim_size]
-        return tuple(np.diff(indices).astype(np.int64))
+    indices = [0, *(_to_int_sequence(indices_or_sections)), dim_size]
+    if sorted(indices) != indices:
+        raise ValueError("split indices must be sorted")
+    diffs = [indices[i + 1] - indices[i] for i in range(len(indices) - 1)]
+    if any(d <= 0 for d in diffs):
+        raise ValueError("split sizes must be positive")
+    return tuple(diffs)
 
 
-# ---------------------------------------------------------------------- #
-# 3. Plugin registration                                                 #
-# ---------------------------------------------------------------------- #
 @register_primitive(
-    jaxpr_primitive=split_p.name,
-    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.split.html",
+    jaxpr_primitive=_SPLIT_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.split.html",
     onnx=[
         {"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}
     ],
@@ -62,96 +74,167 @@ def _get_split_sizes(
         },
         {
             "testcase": "split_by_indices",
-            "callable": lambda x: jnp.split(x, np.array([2, 5]), axis=1),
+            "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(1, 9)],
         },
         {
             "testcase": "split_by_indices_symbolic",
-            "callable": lambda x: jnp.split(x, [2, 5], axis=1),
-            "input_shapes": [("B", 9)],
+            "callable": lambda x: jnp.split(x, [3, 7], axis=2),
+            "input_shapes": [("B", 4, 10)],
+        },
+        {
+            "testcase": "split_sections",
+            "callable": lambda x: jnp.split(x, 3, axis=1),
+            "input_shapes": [(1, 9)],
+        },
+        {
+            "testcase": "split_indices_numpy",
+            "callable": lambda x: jnp.split(x, np.array([2, 5]), axis=1),
+            "input_shapes": [(1, 9)],
         },
     ],
 )
-class SplitPlugin(PrimitiveLeafPlugin):
-    """ONNX plugin for jnp.split."""
+class JnpSplitPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _SPLIT_PRIM
+    _FUNC_NAME: ClassVar[str] = "split"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    # ───────────────────────────────────────────────────────────────
-    # ❶  Abstract‑eval: compute shapes of the pieces
-    # ───────────────────────────────────────────────────────────────
     @staticmethod
-    def abstract_eval(
-        x: core.ShapedArray,
-        *,
-        axis: int,
-        indices_or_sections: Union[int, Sequence[int]],
-        **_,
-    ):
-        """Abstract evaluation for jnp.split."""
-        axis = int(axis)
-        # For abstract eval, if a dimension is symbolic, we can't know the size.
-        # We rely on JAX's shape polymorphism for symbolic dimension handling.
-        if isinstance(x.shape[axis], int):
-            sizes = _get_split_sizes(x.shape[axis], indices_or_sections)
+    def abstract_eval(x, *, indices_or_sections, axis=0):
+        rank = len(x.shape)
+        axis_norm = _normalize_axis(axis, rank)
+        dim = x.shape[axis_norm]
+
+        if isinstance(dim, int):
+            sizes = _split_sizes(dim, indices_or_sections)
         else:
-            # When the axis dimension is symbolic, we cannot compute concrete sizes.
-            # We must create symbolic output shapes.
-            if isinstance(indices_or_sections, int):
-                # Cannot split a symbolic dim into equal sections without knowing its size.
-                # Let JAX handle this, or it will raise a TypeError during tracing.
-                raise TypeError(
-                    f"Cannot split symbolic dimension {x.shape[axis]} into {indices_or_sections} sections."
-                )
-            indices = [0] + list(indices_or_sections)
-
-            # First build a *list* of concrete lengths between split points …
-            sizes_list: list[int] = [
-                indices[i + 1] - indices[i] for i in range(len(indices) - 1)
-            ]
-
-            # … then turn it into the final *tuple* that may end with a symbolic size.
-            sizes = tuple(sizes_list) + (
-                core.DimExpr.make_sum(x.shape[axis], -indices[-1]),
+            raise TypeError(
+                "jnp.split requires concrete size along split axis in IR path"
             )
 
-        out_specs = []
+        specs = []
         for sz in sizes:
             shape = list(x.shape)
-            shape[axis] = sz
-            out_specs.append(core.ShapedArray(tuple(shape), x.dtype))
-        return tuple(out_specs)
+            shape[axis_norm] = sz
+            specs.append(core.ShapedArray(tuple(shape), x.dtype))
+        return tuple(specs)
 
-    # ───────────────────────────────────────────────────────────────
-    # ❷  Lower to ONNX
-    # ───────────────────────────────────────────────────────────────
-    def to_onnx(self, s, node_inputs, node_outputs, params):
-        """Lowering rule for jnp.split."""
-        axis: int = int(params["axis"])
-        indices_or_sections = params["indices_or_sections"]
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+        params = getattr(eqn, "params", {})
+        axis_param = params.get("axis", 0)
+        indices_param = params.get("indices_or_sections")
 
-        inp_name = s.get_name(node_inputs[0])
-        in_shape, _ = s.builder.value_info_metadata[inp_name]
+        (arr_var,) = eqn.invars
+        out_vars = list(eqn.outvars)
 
-        # In ONNX, the `split` attribute must be concrete.
-        if not isinstance(in_shape[axis], int):
+        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
+        axis = _normalize_axis(axis_param, len(arr_shape))
+        dim = arr_shape[axis]
+        if not isinstance(dim, int):
             raise TypeError(
-                f"ONNX 'Split' operator requires a concrete dimension size for the split axis. "
-                f"Got symbolic dimension '{in_shape[axis]}' for axis {axis}."
+                "jnp.split requires concrete size along split axis for ONNX lowering"
             )
 
-        sizes = _get_split_sizes(in_shape[axis], indices_or_sections)
+        if isinstance(indices_param, int):
+            sizes = _split_sizes(dim, indices_param)
+        elif isinstance(indices_param, Sequence):
+            indices_seq = _to_int_sequence(indices_param)
+            sizes = _split_sizes(dim, indices_seq)
+        else:
+            indices_np = np.asarray(indices_param)
+            if indices_np.ndim != 1:
+                raise TypeError("split indices must be 1-D")
+            indices_seq = _to_int_sequence(indices_np.tolist())
+            sizes = _split_sizes(dim, indices_seq)
 
-        out_names = [s.get_name(v) for v in node_outputs]
-
-        # ONNX's Split operator requires the `split` attribute to be a list of integers.
-        split_node = helper.make_node(
-            "Split",
-            inputs=[inp_name],
-            outputs=out_names,
-            name=s.get_unique_name("split"),
-            axis=axis,
-            split=list(sizes),
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("split_in"))
+        split_val = _const_i64(
+            ctx, np.asarray(sizes, dtype=np.int64), ctx.fresh_name("split_sizes")
         )
-        s.add_node(split_node)
+        _stamp_type_and_shape(split_val, (len(sizes),))
+        _ensure_value_metadata(ctx, split_val)
+
+        out_specs = [
+            ctx.get_value_for_var(v, name_hint=ctx.fresh_name("split_out"))
+            for v in out_vars
+        ]
+
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for split lowering")
+
+        output_names = []
+        for spec in out_specs:
+            name = getattr(spec, "name", None)
+            if not name:
+                name = ctx.fresh_name("split_out")
+            output_names.append(name)
+
+        split_outputs = builder.Split(
+            arr_val,
+            split_val,
+            axis=int(axis),
+            _outputs=output_names,
+        )
+        if not isinstance(split_outputs, (tuple, list)):
+            split_outputs = [split_outputs]
+
+        for result, spec, sz, out_var in zip(split_outputs, out_specs, sizes, out_vars):
+            spec_type = getattr(spec, "type", None)
+            if spec_type is not None:
+                result.type = spec_type
+            elif getattr(arr_val, "type", None) is not None:
+                result.type = arr_val.type
+            out_shape = list(arr_shape)
+            out_shape[axis] = sz
+            _stamp_type_and_shape(result, tuple(out_shape))
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+
+    @classmethod
+    def binding_specs(cls):
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(orig):
+            if orig is None:
+                raise RuntimeError("Original jnp.split not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(a, indices_or_sections, axis=0):
+                arr = jnp.asarray(a)
+                axis_norm = _normalize_axis(axis, arr.ndim)
+                if isinstance(indices_or_sections, (list, tuple)):
+                    indices_param = tuple(indices_or_sections)
+                else:
+                    try:
+                        indices_param = tuple(indices_or_sections.tolist())
+                    except AttributeError:
+                        indices_param = indices_or_sections
+                return cls._PRIM.bind(
+                    arr,
+                    indices_or_sections=indices_param,
+                    axis=axis_norm,
+                )
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
 
 
-split_p.def_abstract_eval(SplitPlugin.abstract_eval)
+@JnpSplitPlugin._PRIM.def_impl
+def _split_impl(a, indices_or_sections, axis=0):
+    orig = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
+    return orig(a, indices_or_sections, axis=axis)
+
+
+JnpSplitPlugin._PRIM.def_abstract_eval(JnpSplitPlugin.abstract_eval)

@@ -1,45 +1,37 @@
-# file: jax2onnx/plugins/examples/nnx/fori_loop.py
+# jax2onnx/plugins/examples/nnx/fori_loop.py
+
+from __future__ import annotations
 
 import jax
-from jax2onnx.plugin_system import register_example
+
+from jax2onnx.plugins.plugin_system import register_example
 
 
-def model_fn(x):
+def _model(x: jax.Array) -> jax.Array:
     steps = 5
 
-    def body_func(index, args):
-        x, counter = args
-        x += 0.1 * x**2
-        counter += 1
-        return (x, counter)
+    def body(index: int, state: tuple[jax.Array, int]) -> tuple[jax.Array, int]:
+        value, counter = state
+        value = value + 0.1 * value**2
+        counter = counter + 1
+        return value, counter
 
-    args = (x, 0)
-    y, _ = jax.lax.fori_loop(0, steps, body_func, args)
-
-    return y
+    result, _ = jax.lax.fori_loop(0, steps, body, (x, 0))
+    return result
 
 
 register_example(
     component="ForiLoop",
-    description="fori_loop example",
+    description="fori_loop example using nnx-compatible primitives (converter).",
     since="v0.5.1",
     context="examples.nnx",
-    children=[],
+    children=["jax.lax.fori_loop"],
     testcases=[
         {
             "testcase": "fori_loop_counter",
-            "callable": lambda x: model_fn(x),
+            "callable": _model,
             "input_shapes": [(1,)],
+            "expected_output_shapes": [(1,)],
         },
     ],
 )
-
-
-# main function
-# def main():
-#     x = jnp.array([1.0, 2.0], dtype=jnp.float32)
-#     y = model_fn(x)
-
-
-# if __name__ == "__main__":
-#     main()

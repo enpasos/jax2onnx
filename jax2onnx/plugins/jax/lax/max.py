@@ -1,12 +1,14 @@
+# jax2onnx/plugins/jax/lax/max.py
+
 from typing import TYPE_CHECKING
 
 import jax
-from onnx import helper
+import numpy as np
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
+    pass
 
 
 @register_primitive(
@@ -30,16 +32,27 @@ if TYPE_CHECKING:
     ],
 )
 class MaxPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting jax.lax.max to ONNX Max."""
+    def lower(self, ctx, eqn):
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
 
-    def to_onnx(self, s: "Jaxpr2OnnxConverter", node_inputs, node_outputs, params):
-        """Handle JAX max primitive."""
-        input_names = [s.get_name(inp) for inp in node_inputs]
-        output_name = s.get_var_name(node_outputs[0])
-        node = helper.make_node(
-            "Max",
-            inputs=input_names,
-            outputs=[output_name],
-            name=s.get_unique_name("max"),
+        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("max_lhs"))
+        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        rhs_val = ctx.get_value_for_var(
+            rhs_var,
+            name_hint=ctx.fresh_name("max_rhs"),
+            prefer_np_dtype=prefer_dtype,
         )
-        s.add_node(node)
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("max_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("max_out")
+        producer = getattr(out_spec, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("max_out")
+
+        result = ctx.builder.Max(lhs_val, rhs_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        ctx.bind_value_for_var(out_var, result)

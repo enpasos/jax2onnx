@@ -1,3 +1,5 @@
+# tests/extra_tests/loop/test_loop_ff_like_broadcast_mul_regression.py
+
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -6,7 +8,7 @@ import onnx
 import onnxruntime as ort
 import pytest
 
-from jax2onnx.converter.user_interface import to_onnx
+from jax2onnx.user_interface import to_onnx
 
 
 def _ff_like_loop_broadcast_mul_repro():

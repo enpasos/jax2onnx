@@ -1,13 +1,17 @@
-# file: jax2onnx/examples/transformer_decoder.py
+# jax2onnx/plugins/examples/nnx/transformer_decoder_with_sequential.py
+
+from __future__ import annotations
 
 import jax
 from flax import nnx
-from jax2onnx.plugin_system import register_example
+
+from jax2onnx.plugins.plugin_system import (
+    construct_and_call,
+    register_example,
+    with_rng_seed,
+)
 
 
-# ------------------------------------------------------------------------------
-# A tiny Transformer‐style decoder built from nnx primitives
-# ------------------------------------------------------------------------------
 class TransformerDecoderLayer(nnx.Module):
     def __init__(
         self,
@@ -39,7 +43,7 @@ class TransformerDecoderLayer(nnx.Module):
         )
         self.ffn = nnx.Sequential(
             nnx.Linear(in_features=embed_dim, out_features=ff_dim, rngs=rngs),
-            lambda x: nnx.relu(x),
+            nnx.relu,
             nnx.Linear(in_features=ff_dim, out_features=embed_dim, rngs=rngs),
         )
         self.layernorm1 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
@@ -60,7 +64,6 @@ class TransformerDecoderLayer(nnx.Module):
         deterministic: bool = True,
         decode=None,
     ) -> jax.Array:
-        # Masked self-attention block
         attn_output = self.self_attn(
             inputs_q=x, mask=mask, deterministic=deterministic, decode=decode
         )
@@ -68,7 +71,6 @@ class TransformerDecoderLayer(nnx.Module):
         x_resid = (x + attn_output) if self.allow_residue else attn_output
         x = self.layernorm1(x_resid)
 
-        # Cross-Attention Block
         cross_attn_output = self.cross_attn(
             inputs_q=x,
             inputs_k=encoder_output,
@@ -79,7 +81,6 @@ class TransformerDecoderLayer(nnx.Module):
             x + self.dropout2(cross_attn_output, deterministic=deterministic)
         )
 
-        # Feed-forward block
         ffn_output = self.ffn(x)
         x = self.layernorm3(x + self.dropout3(ffn_output, deterministic=deterministic))
         return x
@@ -99,19 +100,21 @@ class TransformerDecoder(nnx.Module):
         encoder_attention_dropout: float = 0.0,
         allow_residue: bool = True,
     ):
-        self.layers = [
-            TransformerDecoderLayer(
-                embed_dim,
-                num_heads,
-                ff_dim,
-                rngs=rngs,
-                rate=rate,
-                attention_dropout=attention_dropout,
-                encoder_attention_dropout=encoder_attention_dropout,
-                allow_residue=allow_residue,
-            )
-            for _ in range(num_layers)
-        ]
+        self.layers = nnx.List(
+            [
+                TransformerDecoderLayer(
+                    embed_dim,
+                    num_heads,
+                    ff_dim,
+                    rngs=rngs,
+                    rate=rate,
+                    attention_dropout=attention_dropout,
+                    encoder_attention_dropout=encoder_attention_dropout,
+                    allow_residue=allow_residue,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
     def __call__(
         self,
@@ -137,7 +140,7 @@ class TransformerDecoder(nnx.Module):
 
 register_example(
     component="TransformerDecoderWithSequential",
-    description="A single-layer Transformer decoder built with nnx primitives (MHA, LayerNorm, Feed-Forward, Dropout).",
+    description="Tiny nnx Transformer decoder using nnx.Sequential in the FFN block.",
     source="https://github.com/google/flax/tree/main/flax/nnx",
     since="v0.7.1",
     context="examples.nnx",
@@ -151,30 +154,34 @@ register_example(
     testcases=[
         {
             "testcase": "tiny_decoder_with_sequential",
-            "callable": TransformerDecoder(
+            "callable": construct_and_call(
+                TransformerDecoder,
                 num_layers=1,
                 embed_dim=16,
                 num_heads=4,
                 ff_dim=32,
-                rngs=nnx.Rngs(0),
                 attention_dropout=0.5,
                 encoder_attention_dropout=0.5,
+                rngs=with_rng_seed(0),
             ),
-            "input_shapes": [("B", 8, 16), ("B", 4, 16)],
+            "input_shapes": [(2, 8, 16), (2, 4, 16)],
+            "expected_output_shapes": [(2, 8, 16)],
             "run_only_f32_variant": True,
         },
         {
             "testcase": "tiny_decoder_with_sequential_and_full_dynamic_shapes",
-            "callable": TransformerDecoder(
+            "callable": construct_and_call(
+                TransformerDecoder,
                 num_layers=1,
                 embed_dim=16,
                 num_heads=4,
                 ff_dim=32,
-                rngs=nnx.Rngs(0),
                 attention_dropout=0.5,
                 encoder_attention_dropout=0.5,
+                rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", "H", 16), ("B", "X", 16)],
+            "expected_output_shapes": [("B", "H", 16)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
         },

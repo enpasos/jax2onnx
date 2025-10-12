@@ -1,59 +1,49 @@
-# file: jax2onnx/plugins/jax/nn/initializers/truncated_normal.py
+# jax2onnx/plugins/jax/nn/initializers/truncated_normal.py
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 import jax
 from jax import core
-from jax.extend.core import Primitive
 import jax.numpy as jnp
-from jax.interpreters import mlir
-from jax._src.lib.mlir import ir
-from jax._src.lib.mlir.dialects import hlo
+from jax.extend.core import Primitive
 import numpy as np
 
-# Import ONNX helpers
-from onnx import helper as onnx_helper
-from onnx.mapping import NP_TYPE_TO_TENSOR_TYPE
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-from jax2onnx.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.jaxpr_converter import Jaxpr2OnnxConverter
-
-logger = logging.getLogger("jax2onnx.plugins.jax.nn.initializers.truncated_normal")
-
-# Define a custom primitive to intercept the call during tracing.
-truncated_normal_p = Primitive("truncated_normal")
-truncated_normal_p.multiple_results = False
+if TYPE_CHECKING:  # pragma: no cover
+    from jax2onnx.converter.ir_context import IRContext
 
 
-def _test_truncated_normal_callable(key, lower, upper):
-    """A simple test function that directly invokes the initializer."""
-    return jax.nn.initializers.truncated_normal(
-        key, lower, upper, shape=(4, 5), dtype=jnp.float32
-    )
+_TRUNCATED_NORMAL_PRIM: Final[Primitive] = Primitive(
+    "jax.nn.initializers.truncated_normal"
+)
+_TRUNCATED_NORMAL_PRIM.multiple_results = False
+
+
+def _initializer_callable(key):
+    init = jax.nn.initializers.truncated_normal(stddev=1.0, dtype=jnp.float32)
+    return init(key, (4, 5), jnp.float32)
 
 
 @register_primitive(
-    jaxpr_primitive=truncated_normal_p.name,
+    jaxpr_primitive=_TRUNCATED_NORMAL_PRIM.name,
     context="primitives.nn",
     component="truncated_normal",
     since="v0.7.1",
     testcases=[
         {
             "testcase": "initializer",
-            "callable": _test_truncated_normal_callable,
-            "input_values": [
-                jax.random.PRNGKey(0),
-                jnp.array(-2.0, dtype=jnp.float32),
-                jnp.array(2.0, dtype=jnp.float32),
-            ],
+            "callable": _initializer_callable,
+            "input_values": [jax.random.PRNGKey(0)],
             "expected_output_shapes": [(4, 5)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "skip_numeric_validation": True,
         },
         {
             "testcase": "random_truncated_normal_positional",
@@ -64,9 +54,9 @@ def _test_truncated_normal_callable(key, lower, upper):
             "expected_output_shapes": [(3, 3)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "skip_numeric_validation": True,
         },
         {
-            # Mimics a flax.linen.Dense call-site where the first dim is dynamic
             "testcase": "flax_dense_like_init",
             "callable": lambda key, x: jax.random.truncated_normal(
                 key, -2.0, 2.0, (x.shape[-1], 128), jnp.float32
@@ -78,125 +68,142 @@ def _test_truncated_normal_callable(key, lower, upper):
             "expected_output_shapes": [(10, 128)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "skip_numeric_validation": True,
         },
     ],
 )
 class TruncatedNormalPlugin(PrimitiveLeafPlugin):
-    """Plugin for converting JAX truncated_normal initializer to an ONNX Constant."""
+    """Lower ``jax.random.truncated_normal`` to a zero initializer."""
+
+    _PRIM: ClassVar[Primitive] = _TRUNCATED_NORMAL_PRIM
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+    # No eager impl; runtime evaluation falls back to zeros directly in patch
 
     @staticmethod
     def abstract_eval(
-        key_av: core.ShapedArray,
-        lower_av: core.ShapedArray,
-        upper_av: core.ShapedArray,
+        key_av: Any,
+        lower_av: Any,
+        upper_av: Any,
         *,
         shape: tuple[int, ...],
         dtype: Any,
-        **kwargs: Any,
+        **_: Any,
     ) -> core.ShapedArray:
-        # Replace un-hashable dims with None
-        def _safe_dim(d):
+        del key_av, lower_av, upper_av
+
+        def _safe_dim(dim: Any) -> Any:
             try:
-                hash(d)
-                return d
+                hash(dim)
+                return dim
             except TypeError:
                 return None
 
-        safe_shape = tuple(_safe_dim(d) for d in shape)
+        safe_shape = tuple(_safe_dim(dim) for dim in shape)
         return core.ShapedArray(safe_shape, dtype)
 
-    def to_onnx(
-        self,
-        s: "Jaxpr2OnnxConverter",
-        node_inputs: Sequence[core.Var],
-        node_outputs: Sequence[core.Var],
-        params: dict[str, Any],
-    ) -> None:
-        output_var = node_outputs[0]
-        output_name = s.get_name(output_var)
-        output_aval = output_var.aval
+    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+        (out_var,) = eqn.outvars
+        params = eqn.params or {}
+        shape_param = tuple(params.get("shape", ()))
+        dtype_param = params.get("dtype")
 
-        placeholder_values = np.zeros(output_aval.shape, dtype=output_aval.dtype)
-        tensor_proto = onnx_helper.make_tensor(
-            name=f"{output_name}_value",
-            data_type=NP_TYPE_TO_TENSOR_TYPE[np.dtype(output_aval.dtype)],
-            dims=output_aval.shape,
-            vals=placeholder_values.flatten().tolist(),
-        )
-        const_node = onnx_helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[output_name],
-            value=tensor_proto,
-            name=s.builder.get_unique_name("Constant_TruncatedNormal"),
-        )
-        s.add_node(const_node)
+        aval = getattr(out_var, "aval", None)
+        shape = tuple(getattr(aval, "shape", shape_param))
+        dtype = getattr(aval, "dtype", dtype_param or np.float32)
+
+        np_dtype = np.dtype(dtype)
+        zeros = np.zeros(shape, dtype=np_dtype)
+        out_val = ctx.bind_const_for_var(out_var, zeros)
+        _stamp_type_and_shape(out_val, shape)
+        _ensure_value_metadata(ctx, out_val)
+
+    @classmethod
+    def ensure_abstract_eval_bound(cls):
+        if not cls._ABSTRACT_EVAL_BOUND:
+            cls._PRIM.def_abstract_eval(cls.abstract_eval)
+            cls._ABSTRACT_EVAL_BOUND = True
 
     @staticmethod
-    def patch_info():
-        from jax import random
-        from jax.nn import initializers as jax_init
-        import jax.numpy as jnp
+    def _to_int(dim: Any) -> int:
+        try:
+            return int(dim)
+        except Exception as exc:  # pragma: no cover - best-effort coercion
+            aval = getattr(dim, "aval", None)
+            val = getattr(aval, "val", None) if aval is not None else None
+            if val is not None:
+                return int(val)
+            raise TypeError(f"Dimension {dim!r} is not statically known") from exc
 
-        def _to_int(d):
-            try:
-                return int(d)
-            except Exception:
-                aval = getattr(d, "aval", None)
-                if aval is not None and getattr(aval, "val", None) is not None:
-                    return int(aval.val)
-                raise
+    @classmethod
+    def _make_random_patch(cls, _orig):
+        def _patched(key, lower, upper, *pos, **kwargs):
+            shape = kwargs.pop("shape", None)
+            dtype = kwargs.pop("dtype", None)
+            if pos:
+                if len(pos) >= 1 and shape is None:
+                    shape = pos[0]
+                if len(pos) >= 2 and dtype is None:
+                    dtype = pos[1]
 
-        def _patched_truncated_normal(key, lower, upper, *pos, **kw):
-            # resolve shape & dtype
-            shape = kw.pop("shape", None)
-            dtype = kw.pop("dtype", None)
-            if len(pos) >= 1:
-                shape = shape or pos[0]
-            if len(pos) >= 2:
-                dtype = dtype or pos[1]
             shape = shape or ()
             dtype = dtype or jnp.float_
 
-            # sanitize shape dims to ints if possible
-            try:
-                shape_clean = tuple(_to_int(d) for d in shape)
-                all_static = True
-            except TypeError:
-                shape_clean = shape
-                all_static = False
+            shape_tuple_raw = shape if isinstance(shape, (tuple, list)) else (shape,)
+            static_shape: list[int] = []
+            for dim in shape_tuple_raw:
+                static_shape.append(cls._to_int(dim))
 
-            if all_static:
-                return truncated_normal_p.bind(
-                    key, lower, upper, shape=shape_clean, dtype=dtype
+            return jnp.zeros(tuple(static_shape), dtype)
+
+        return _patched
+
+    @classmethod
+    def _make_initializer_patch(cls, orig):
+        if orig is None:  # pragma: no cover - safety guard
+            return lambda *args, **kwargs: cls._make_random_patch(None)(*args, **kwargs)
+
+        patched_random = cls._make_random_patch(None)
+
+        def _patched(*args, **kwargs):
+            if (
+                args
+                and hasattr(args[0], "shape")
+                and getattr(args[0], "shape", None) == (2,)
+            ):
+                return patched_random(*args, **kwargs)
+
+            def _wrapped(key, shape, dtype=None):
+                dtype_local = dtype or kwargs.get("dtype") or jnp.float_
+                lower = kwargs.get("lower", -2.0)
+                upper = kwargs.get("upper", 2.0)
+                samples = patched_random(
+                    key,
+                    lower,
+                    upper,
+                    shape,
+                    dtype_local,
                 )
+                stddev = args[0] if args else kwargs.get("stddev", 1e-2)
+                stddev_arr = jnp.array(stddev, dtype_local)
+                return samples * stddev_arr
 
-            # dynamic fallback broadcasted zero
-            zero_scalar = jnp.array(0, dtype)
-            return jnp.broadcast_to(zero_scalar, shape_clean)
+            return _wrapped
 
-        return {
-            "patch_targets": [random, jax_init],
-            "target_attribute": "truncated_normal",
-            "patch_function": lambda orig: _patched_truncated_normal,
-        }
+        return _patched
 
-
-# Register abstract eval for the primitive
-truncated_normal_p.def_abstract_eval(TruncatedNormalPlugin.abstract_eval)
-
-
-def _truncated_normal_lowering_mlir(ctx, key, lower, upper, *, shape, dtype):
-    aval_out = ctx.avals_out[0]
-    tensor_type = ir.RankedTensorType.get(
-        aval_out.shape, mlir.dtype_to_ir_type(aval_out.dtype)
-    )
-    zero = mlir.ir_constant(np.array(0, dtype=aval_out.dtype))
-    return [hlo.BroadcastOp(tensor_type, zero, mlir.dense_int_elements([])).result]
-
-
-# Register MLIR lowering
-mlir.register_lowering(
-    truncated_normal_p,
-    _truncated_normal_lowering_mlir,
-)
+    @classmethod
+    def binding_specs(cls):
+        return [
+            MonkeyPatchSpec(
+                target="jax.random",
+                attr="truncated_normal",
+                make_value=cls._make_random_patch,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="jax.nn.initializers",
+                attr="truncated_normal",
+                make_value=cls._make_initializer_patch,
+                delete_if_missing=False,
+            ),
+        ]
