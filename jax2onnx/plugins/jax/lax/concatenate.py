@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -65,21 +66,38 @@ def _cast_value(
             "testcase": "concatenate",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=0),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Concat:6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_axis1",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=1),
             "input_shapes": [("B", 3), ("B", 4)],
+            "post_check_onnx_graph": EG(
+                ["Concat:Bx7"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_axis0",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=0),
             "input_shapes": [(7, 3), (4, 3)],
+            "post_check_onnx_graph": EG(
+                ["Concat:11x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_3d",
             "callable": lambda a, b: jax.lax.concatenate((a, b), dimension=1),
             "input_shapes": [(2, 3, 4), (2, 5, 4)],
+            "post_check_onnx_graph": EG(
+                ["Concat:2x8x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_internal_int32_then_cast_to_f32_zeroarg",
@@ -94,6 +112,10 @@ def _cast_value(
             ),
             "expected_output_shapes": [(2,)],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Concat:2 -> Cast:2"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

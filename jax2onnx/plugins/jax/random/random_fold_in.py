@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -54,6 +55,7 @@ def _identity(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
             ],
             "expected_output_shapes": [(2,)],
             "expected_output_dtypes": [np.dtype(np.uint32)],
+            "post_check_onnx_graph": EG([]),
         }
     ],
 )

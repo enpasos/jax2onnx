@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterable, Tuple
 
+from functools import partial
 import numpy as np
+import jax
+from jax.experimental import mesh_utils, pjit
+from jax.sharding import Mesh, PartitionSpec as P
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
@@ -26,6 +31,33 @@ def _extract_closed_jaxpr(params: dict[str, Any]) -> Tuple[Any, Iterable[Any]]:
     return closed, consts
 
 
+def _single_device_mesh() -> Mesh:
+    devices = mesh_utils.create_device_mesh((jax.device_count(),))
+    return Mesh(devices, ("d",))
+
+
+def _pjit_inline_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    mesh = _single_device_mesh()
+
+    @partial(pjit.pjit, in_shardings=(P(), P()), out_shardings=P())
+    def inner(x, y):
+        return x * y
+
+    with mesh:
+        return inner(a, b)
+
+
+def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    mesh = _single_device_mesh()
+
+    @partial(pjit.pjit, in_shardings=(P(), P()), out_shardings=(P(), P()))
+    def inner(x, y):
+        return x * y, x + y
+
+    with mesh:
+        return inner(a, b)
+
+
 @register_primitive(
     jaxpr_primitive="pjit",
     jax_doc="https://jax.readthedocs.io/en/latest/jax.experimental.pjit.html",
@@ -33,7 +65,36 @@ def _extract_closed_jaxpr(params: dict[str, Any]) -> Tuple[Any, Iterable[Any]]:
     since="v0.1.0",
     context="primitives.lax",
     component="pjit",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "pjit_inline_mul",
+            "callable": _pjit_inline_mul,
+            "input_values": [
+                np.array([2.0], dtype=np.float32),
+                np.array([3.0], dtype=np.float32),
+            ],
+            "expected_output_shapes": [(1,)],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Mul:1"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "pjit_inline_tuple",
+            "callable": _pjit_inline_tuple,
+            "input_values": [
+                np.array([4.0], dtype=np.float32),
+                np.array([1.0], dtype=np.float32),
+            ],
+            "expected_output_shapes": [(1,), (1,)],
+            "expected_output_dtypes": [np.float32, np.float32],
+            "post_check_onnx_graph": EG(
+                ["Add:1", "Mul:1"],
+                no_unused_inputs=True,
+            ),
+        },
+    ],
 )
 class PJITPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``pjit`` call directly into the current IR context."""

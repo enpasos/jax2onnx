@@ -10,6 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -35,6 +36,12 @@ if TYPE_CHECKING:  # pragma: no cover
                 x, y, (((1,), (0,)), ((), ()))
             ),
             "input_shapes": [(3, 4), (4, 2)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Gemm:3x2", "inputs": {2: {"const": 0.0}}},
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dot_contract_min",
@@ -42,6 +49,12 @@ if TYPE_CHECKING:  # pragma: no cover
                 x, y, (((1,), (1,)), ((), ()))
             ),
             "input_shapes": [(3, 4), (2, 4)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Gemm:3x2", "inputs": {2: {"const": 0.0}}},
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dot_general",
@@ -49,6 +62,12 @@ if TYPE_CHECKING:  # pragma: no cover
                 x, y, (((1,), (0,)), ((), ()))
             ),
             "input_shapes": [(3, 3), (3, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Gemm:3x3", "inputs": {2: {"const": 0.0}}},
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dot_general_lhs1_rhs1",
@@ -56,6 +75,12 @@ if TYPE_CHECKING:  # pragma: no cover
                 x, y, (((1,), (1,)), ((), ()))
             ),
             "input_shapes": [(3, 3), (3, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Gemm:3x3", "inputs": {2: {"const": 0.0}}},
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -35,6 +36,10 @@ if TYPE_CHECKING:
                 np.array([True, True, False, False], dtype=np.bool_),
                 np.array([True, False, True, False], dtype=np.bool_),
             ],
+            "post_check_onnx_graph": EG(
+                ["And:4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "and_int",
@@ -43,6 +48,10 @@ if TYPE_CHECKING:
                 np.array([1, 2, 3], dtype=np.int32),
                 np.array([3, 1, 2], dtype=np.int32),
             ],
+            "post_check_onnx_graph": EG(
+                ["BitwiseAnd:3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

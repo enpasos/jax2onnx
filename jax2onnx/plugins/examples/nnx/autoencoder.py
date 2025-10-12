@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -45,6 +46,10 @@ register_example(
             "callable": construct_and_call(AutoEncoder, rngs=with_rng_seed(0)),
             "input_shapes": [(1, 2)],
             "expected_output_shapes": [(1, 2)],
+            "post_check_onnx_graph": EG(
+                ["Gemm:1x10 -> Gemm:1x2"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -72,6 +73,18 @@ register_example(
             ],
             "expected_output_dtypes": [jnp.float64] * 4,
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Sub:5x201x1x1 -> Add:5x201x1x1 -> Pow:5x201x1x1 -> "
+                    "Mul:5x201x1x1 -> Add:5x201x1x1 -> Add:5x201x1x1 -> "
+                    "Pow:5x201x1x1 -> Div:5x201x1x1 -> Div:5x201x1x1",
+                    "Sub:5x201x1x1 -> Add:5x201x1x1 -> Pow:5x201x1x1 -> "
+                    "Mul:5x201x1x1 -> Add:5x201x1x1 -> Add:5x201x1x1 -> "
+                    "Pow:5x201x1x1 -> Div:5x201x1x1 -> Div:5x201x1x1 -> "
+                    "Mul:5x201x1x1 -> Add:5x201x1x1 -> Add:5x201x1x1",
+                ],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -103,6 +116,15 @@ register_example(
             "expected_output_shapes": [()],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.9}},
+                        "path": "Div -> Mul",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

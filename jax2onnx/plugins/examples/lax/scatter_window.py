@@ -6,6 +6,7 @@ import numpy as np
 import jax
 from jax.lax import GatherScatterMode, ScatterDimensionNumbers
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -49,6 +50,10 @@ register_example(
             "expected_output_shapes": [(5, 266, 266, 1)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5x266x266x1"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

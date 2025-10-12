@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -23,11 +24,24 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "div",
             "callable": lambda x1, x2: x1 / x2,
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Div:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "div_const",
             "callable": lambda x: x / 2.0,
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Div:3",
+                        "inputs": {1: {"const": 2.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from flax import nnx
 from typing import Final
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -30,6 +31,15 @@ register_example(
             "callable": _double_relu,
             "input_shapes": [(5,)],
             "expected_output_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Max:5 -> Max:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -68,6 +78,11 @@ register_example(
             "input_shapes": [(1, 16)],
             "expected_output_shapes": [(1, 16)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gemm:Bx16 -> Add:Bx16 -> LayerNormalization:Bx16"],
+                symbols={"B": 1},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

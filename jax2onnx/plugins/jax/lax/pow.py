@@ -10,6 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -81,11 +82,19 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
             "testcase": "pow_basic",
             "callable": lambda x, y: jax.lax.pow(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Pow:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pow_lax",
             "callable": lambda x, y: jax.lax.pow(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Pow:3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

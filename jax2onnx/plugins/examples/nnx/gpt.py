@@ -172,6 +172,11 @@ register_example(
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["MLP_1:Bx1024x768"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

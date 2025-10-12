@@ -1,9 +1,14 @@
 # jax2onnx/plugins/jax/lax/tanh.py
 
+from typing import TYPE_CHECKING
 
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+if TYPE_CHECKING:
+    pass
 
 
 @register_primitive(
@@ -23,6 +28,10 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "testcase": "tanh",
             "callable": lambda x: jax.lax.tanh(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Tanh:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

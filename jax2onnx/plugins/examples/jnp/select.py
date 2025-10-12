@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -37,6 +38,10 @@ register_example(
             "input_shapes": [(3,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Equal:3 -> Where:3 -> Identity:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_test_scalar_select_option_0",
@@ -49,6 +54,10 @@ register_example(
             "input_shapes": [(4,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Equal -> Where:4 -> Identity:4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_test_scalar_select_option_1",
@@ -61,6 +70,10 @@ register_example(
             "input_shapes": [(2,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Equal -> Where:2 -> Identity:2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_test_scalar_select_option_2",
@@ -73,6 +86,10 @@ register_example(
             "input_shapes": [(5,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Equal -> Where:5 -> Identity:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_test_default_case",
@@ -85,6 +102,10 @@ register_example(
             "input_shapes": [(3,)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Equal -> Where:3 -> Identity:3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

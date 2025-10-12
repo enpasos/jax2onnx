@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -31,11 +32,19 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "stop_gradient",
             "callable": lambda x: jax.lax.stop_gradient(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Identity:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "stop_gradient_basic",
             "callable": lambda x: jax.lax.stop_gradient(x),
             "input_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                ["Identity:4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

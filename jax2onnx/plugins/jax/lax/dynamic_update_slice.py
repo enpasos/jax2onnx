@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -51,6 +52,10 @@ def _binary_scalar(
             "input_shapes": [(10,), (1,), ()],
             "input_dtypes": [np.float32, np.float32, np.int32],
             "expected_output_shapes": [(10,)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dus_1d_block_update",
@@ -60,6 +65,10 @@ def _binary_scalar(
             "input_shapes": [(10,), (3,), ()],
             "input_dtypes": [np.float32, np.float32, np.int32],
             "expected_output_shapes": [(10,)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dus_2d_block_update",
@@ -69,6 +78,10 @@ def _binary_scalar(
             "input_shapes": [(4, 4), (2, 2), (), ()],
             "input_dtypes": [np.float32, np.float32, np.int32, np.int32],
             "expected_output_shapes": [(4, 4)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:4x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dus_3d_block_update",
@@ -78,6 +91,10 @@ def _binary_scalar(
             "input_shapes": [(3, 4, 4), (1, 2, 2), (), (), ()],
             "input_dtypes": [np.float32, np.float32, np.int32, np.int32, np.int32],
             "expected_output_shapes": [(3, 4, 4)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:3x4x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dus_4d_block_update",
@@ -94,6 +111,10 @@ def _binary_scalar(
                 np.int32,
             ],
             "expected_output_shapes": [(5, 10, 10, 1)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5x10x10x1"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

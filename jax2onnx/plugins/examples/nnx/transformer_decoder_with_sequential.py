@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -167,6 +168,15 @@ register_example(
             "input_shapes": [(2, 8, 16), (2, 4, 16)],
             "expected_output_shapes": [(2, 8, 16)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Add:2x8x16 -> LayerNormalization:2x8x16 -> Add:2x8x16 -> "
+                    "LayerNormalization:2x8x16 -> Add:2x8x16 -> "
+                    "LayerNormalization:2x8x16"
+                ],
+                search_functions=True,
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tiny_decoder_with_sequential_and_full_dynamic_shapes",
@@ -184,6 +194,16 @@ register_example(
             "expected_output_shapes": [("B", "H", 16)],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Add:BxHx16 -> LayerNormalization:BxHx16 -> Add:BxHx16 -> "
+                    "LayerNormalization:BxHx16 -> Add:BxHx16 -> "
+                    "LayerNormalization:BxHx16"
+                ],
+                search_functions=True,
+                symbols={"B": None, "H": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

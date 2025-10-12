@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
 from jax2onnx.plugins.plugin_system import register_primitive
 
@@ -22,6 +23,10 @@ from jax2onnx.plugins.plugin_system import register_primitive
                 1
             ],
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Mul:3 -> Add:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

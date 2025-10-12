@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._arg_utils import lower_arg_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -31,11 +32,19 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "argmin_test1",
             "callable": lambda x: jax.lax.argmin(x, axis=0, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
+            "post_check_onnx_graph": EG(
+                ["ArgMin:3 -> Cast:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "argmin_test2",
             "callable": lambda x: jax.lax.argmin(x, axis=1, index_dtype=jnp.int32),
             "input_shapes": [(3, 3)],
+            "post_check_onnx_graph": EG(
+                ["ArgMin:3 -> Cast:3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

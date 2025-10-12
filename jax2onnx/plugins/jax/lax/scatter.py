@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.scatter_utils import lower_scatter_common
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -32,16 +33,43 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "scatter_set_axis0",
             "callable": lambda x: x.at[0].set(jnp.array(-100.0, dtype=x.dtype)),
             "input_shapes": [(1, 1)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "ScatterND",
+                        "inputs": {2: {"const": -100.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_set_middle",
             "callable": lambda x: x.at[1].set(jnp.array(42.0, dtype=x.dtype)),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "ScatterND",
+                        "inputs": {2: {"const": 42.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_set_single",
             "callable": lambda x: x.at[0].set(jnp.array(-1.0, dtype=x.dtype)),
             "input_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "ScatterND",
+                        "inputs": {2: {"const": -1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_set_vector",
@@ -49,6 +77,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([10.0, 20.0], dtype=x.dtype)
             ),
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                ["ScatterND"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_correct_axis_determination",
@@ -64,6 +96,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_updates_slice_needed_axis0",
@@ -79,6 +115,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_from_user_warning_shapes_valid_jax",
@@ -94,6 +134,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (1, 1, 1, 1), (1,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_user_error_scenario_precise",
@@ -112,6 +156,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5, 201, 1, 1), (2, 1), (2, 201, 1, 1)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_window_update_f64",
@@ -134,6 +182,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((1, 5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_window_update_depth3_shapes_ok",
@@ -156,6 +205,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((1, 5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_static_slice_set_f64",
@@ -168,6 +218,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 np.ones((5, 256, 256, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"]),
         },
         {
             "testcase": "scatter_depth2_fp64_type_mismatch",
@@ -183,6 +234,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_clip_2d_window_at_edge",
@@ -199,6 +251,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_simple_2d_window_out_of_bounds",
@@ -214,6 +267,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch_f64",
@@ -229,6 +283,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
         {
             "testcase": "scatter_depth2_mixed_dtypes_fp_mismatch",
@@ -245,6 +300,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [],
             "run_only_f32_variant": True,
             # not an option: "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
         },
     ],
 )

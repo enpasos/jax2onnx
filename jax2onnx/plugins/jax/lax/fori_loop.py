@@ -13,6 +13,7 @@ from jax.extend.core import Primitive
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
@@ -178,12 +179,14 @@ def _build_body_graph(
             "callable": lambda: jax.lax.fori_loop(0, 5, lambda i, v: v + 1, 0),
             "input_shapes": [],
             "expected_output_shapes": [()],
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
             "testcase": "fori_loop_zero",
             "callable": lambda: jax.lax.fori_loop(0, 0, lambda i, v: v + 1, 42),
             "input_shapes": [],
             "expected_output_shapes": [()],
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
             "testcase": "fori_loop_vector",
@@ -195,6 +198,7 @@ def _build_body_graph(
             ),
             "input_shapes": [],
             "expected_output_shapes": [(3,)],
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
             "testcase": "fori_loop_example",
@@ -206,6 +210,7 @@ def _build_body_graph(
             )[0],
             "input_shapes": [],
             "expected_output_shapes": [(1,)],
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
             "testcase": "fori_loop_test",
@@ -214,6 +219,7 @@ def _build_body_graph(
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [(2,), ()],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
             "testcase": "fori_loop_test_f64",
@@ -222,6 +228,7 @@ def _build_body_graph(
             "input_dtypes": [jnp.float64],
             "expected_output_shapes": [(2,), ()],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
     ],
 )

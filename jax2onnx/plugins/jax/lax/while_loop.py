@@ -12,6 +12,7 @@ from onnx_ir import Shape as IRShape
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
     builder_identity,
@@ -337,6 +338,15 @@ def _build_loop_body_graph(
                 lambda v: v < 5, lambda v: v + 1, x
             ),
             "input_shapes": [()],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Less -> Loop",
+                        "inputs": {0: {"const": 9.223372036854776e18}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "while_tuple_state",
@@ -426,6 +436,19 @@ def _build_loop_body_graph(
             ],
             "expected_output_shapes": [(2,), ()],
             "expected_output_dtypes": [np.float32, np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Less -> Loop",
+                        "inputs": {0: {"const": 9.223372036854776e18}},
+                    },
+                    {
+                        "path": "Less -> Loop:2",
+                        "inputs": {0: {"const": 9.223372036854776e18}},
+                    },
+                ],
+                no_unused_inputs=True,
+            ),
             "run_only_f32_variant": True,
         },
         {
@@ -471,7 +494,18 @@ def _build_loop_body_graph(
             ),
             "input_values": [np.float32(1.0)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": lambda model: _no_loop_output_reuse(model),
+            "post_check_onnx_graph": lambda model: (
+                EG(
+                    [
+                        {
+                            "path": "Less -> Loop",
+                            "inputs": {0: {"const": 9.223372036854776e18}},
+                        }
+                    ],
+                    no_unused_inputs=True,
+                )(model)
+                and _no_loop_output_reuse(model)
+            ),
         },
         {
             "testcase": "while_loop_4d_and_scalar_state",

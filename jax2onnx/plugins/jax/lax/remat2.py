@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final, Iterable, Tuple
 
+import jax
+import jax.numpy as jnp
 from jax import lax
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -48,6 +51,23 @@ def _init_remat2_primitive() -> Any | None:
 _REMAT2_PRIM: Final[Any | None] = _init_remat2_primitive()
 
 
+def _remat2_scalar_sin_chain(x: jax.Array) -> jax.Array:
+    def body(v):
+        first = jnp.sin(v)
+        return jnp.sin(first)
+
+    return jax.checkpoint(body)(x)
+
+
+def _remat2_tuple_passthrough(
+    a: jax.Array, b: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    def body(x, y):
+        return x + jnp.cos(x), y
+
+    return jax.checkpoint(body)(a, b)
+
+
 @register_primitive(
     jaxpr_primitive="remat2",
     jax_doc="https://docs.jax.dev/en/latest/jep/11830-new-remat-checkpoint.html",
@@ -55,7 +75,33 @@ _REMAT2_PRIM: Final[Any | None] = _init_remat2_primitive()
     since="v0.6.5",
     context="primitives.lax",
     component="remat2",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "remat2_scalar_sin_chain",
+            "callable": _remat2_scalar_sin_chain,
+            "input_values": [np.array(0.5, dtype=np.float32)],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Sin -> Sin"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "remat2_tuple_passthrough",
+            "callable": _remat2_tuple_passthrough,
+            "input_values": [
+                np.array(1.0, dtype=np.float32),
+                np.array(0.25, dtype=np.float32),
+            ],
+            "expected_output_shapes": [(), ()],
+            "expected_output_dtypes": [np.float32, np.float32],
+            "post_check_onnx_graph": EG(
+                ["Add"],
+                no_unused_inputs=True,
+            ),
+        },
+    ],
 )
 class Remat2Plugin(PrimitiveLeafPlugin):
     """Inline the inner jaxpr of ``lax.remat2`` into the surrounding context."""

@@ -6,6 +6,7 @@ from typing import Any, List
 from jax import lax
 
 import onnx_ir as ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
@@ -31,6 +32,10 @@ from jax2onnx.plugins._ir_shapes import (
             "testcase": "transpose_basic",
             "callable": lambda x: lax.transpose(x, (1, 0)),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_square_matrix",
@@ -41,6 +46,10 @@ from jax2onnx.plugins._ir_shapes import (
             "testcase": "transpose_3d",
             "callable": lambda x: lax.transpose(x, (1, 2, 0)),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:3x4x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_4d",
@@ -61,6 +70,10 @@ from jax2onnx.plugins._ir_shapes import (
             "testcase": "transpose_nhwc_to_nchw",
             "callable": lambda x: lax.transpose(x, (0, 3, 1, 2)),
             "input_shapes": [(2, 28, 28, 3)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x3x28x28"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

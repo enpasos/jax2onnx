@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -53,6 +54,16 @@ register_example(
             "expected_output_shapes": [(), (6,)],
             "expected_output_dtypes": [jnp.bool_, jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "ReduceSum -> Greater",
+                    },
+                    "ReduceSum -> Greater -> Where:6",
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "cond_scatter_add_mul_f64_b",
@@ -66,6 +77,16 @@ register_example(
             "expected_output_shapes": [(), (10,)],
             "expected_output_dtypes": [jnp.bool_, jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "ReduceSum -> Greater",
+                    },
+                    "ReduceSum -> Greater -> Where:10",
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

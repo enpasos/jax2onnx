@@ -8,6 +8,7 @@ from jax import lax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -39,6 +40,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float32],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Identity:2x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "copy_int64_scalar",
@@ -47,6 +52,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Identity"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

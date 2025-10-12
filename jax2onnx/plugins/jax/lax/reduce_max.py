@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -44,11 +45,24 @@ def _check_reduce_max_axes_input(model) -> bool:
             "testcase": "reduce_max",
             "callable": lambda x: jnp.max(x, axis=(0,)),
             "input_shapes": [(3, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "ReduceMax:3",
+                        "inputs": {1: {"const": 0.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_max_allaxes",
             "callable": lambda x: jnp.max(x),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["ReduceMax"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_max_axes_input",
@@ -60,6 +74,10 @@ def _check_reduce_max_axes_input(model) -> bool:
             "testcase": "reduce_max_keepdims",
             "callable": lambda x: jnp.max(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["ReduceMax:3 -> Reshape:3x1 -> Expand:3x1"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

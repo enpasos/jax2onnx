@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -34,12 +35,20 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
             "input_dtypes": [np.bool_, np.float32, np.float32],
+            "post_check_onnx_graph": EG(
+                ["Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_basic",
             "callable": lambda c, x, y: jax.lax.select(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
             "input_dtypes": [np.bool_, np.float32, np.float32],
+            "post_check_onnx_graph": EG(
+                ["Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_mask_scores_tensor_else_dynamic",
@@ -55,6 +64,10 @@ if TYPE_CHECKING:  # pragma: no cover
                     2, 12, 5, 5
                 ),
             ],
+            "post_check_onnx_graph": EG(
+                ["Where:2x12x5x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_mask_scores_tensor_else_dynamic_f64",
@@ -71,6 +84,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ],
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                ["Where:2x12x5x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_mask_scores_tensor_else",
@@ -86,6 +103,10 @@ if TYPE_CHECKING:  # pragma: no cover
                     3, 12, 4, 4
                 ),
             ],
+            "post_check_onnx_graph": EG(
+                ["Where:3x12x4x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_mask_scores_tensor_else_f64",
@@ -102,6 +123,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ],
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                ["Where:3x12x4x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

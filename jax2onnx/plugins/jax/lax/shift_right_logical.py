@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+import jax
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -22,7 +26,36 @@ if TYPE_CHECKING:  # pragma: no cover
     since="v0.7.2",
     context="primitives.lax",
     component="shift_right_logical",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "shift_right_logical_vec",
+            "callable": lambda x, s: jax.lax.shift_right_logical(x, s),
+            "input_values": [
+                np.array([16, 32, 64, 128], dtype=np.uint32),
+                np.array([1, 2, 3, 4], dtype=np.uint32),
+            ],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [np.uint32],
+            "post_check_onnx_graph": EG(
+                ["BitShift:4"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "shift_right_logical_scalar",
+            "callable": lambda x, s: jax.lax.shift_right_logical(x, s),
+            "input_values": [
+                np.array(256, dtype=np.uint32),
+                np.array(5, dtype=np.uint32),
+            ],
+            "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.uint32],
+            "post_check_onnx_graph": EG(
+                ["BitShift"],
+                no_unused_inputs=True,
+            ),
+        },
+    ],
 )
 class ShiftRightLogicalPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.shift_right_logical`` to ONNX BitShift(direction="RIGHT")."""
