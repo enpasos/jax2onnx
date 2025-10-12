@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -182,7 +182,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                         ctx, axes, ctx.fresh_name("einsum_pad_axes")
                     )
                     _stamp_type_and_shape(axes_const, tuple(axes.shape))
-                    _ensure_value_info(ctx, axes_const)
+                    _ensure_value_metadata(ctx, axes_const)
                     padded_shape = tuple([1] * pad + list(shape))
                     padded_val = ctx.builder.Unsqueeze(
                         val,
@@ -193,7 +193,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                     if val_dtype is not None:
                         padded_val.type = ir.TensorType(val_dtype)
                     _stamp_type_and_shape(padded_val, padded_shape)
-                    _ensure_value_info(ctx, padded_val)
+                    _ensure_value_metadata(ctx, padded_val)
                     adjusted_inputs.append(padded_val)
                     continue
             adjusted_inputs.append(val)
@@ -226,7 +226,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                 result.type = ir.TensorType(inferred_dtype)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

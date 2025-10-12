@@ -10,7 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -110,7 +110,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             if rhs_dtype is not None:
                 transposed.type = ir.TensorType(rhs_dtype)
             _stamp_type_and_shape(transposed, rhs_perm_shape)
-            _ensure_value_info(ctx, transposed)
+            _ensure_value_metadata(ctx, transposed)
             rhs_input = transposed
 
         out_dtype = np.dtype(
@@ -135,5 +135,5 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         result.type = ir.TensorType(
             _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
         )
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

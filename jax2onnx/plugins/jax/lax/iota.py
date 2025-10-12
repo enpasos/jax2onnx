@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -102,7 +102,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
         )
         range_out.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(range_out, (shape[dimension],))
-        _ensure_value_info(ctx, range_out)
+        _ensure_value_metadata(ctx, range_out)
 
         current = range_out
         if rank > 1:
@@ -122,7 +122,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 )
                 current_unsq.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(current_unsq, tuple(unsq_shape))
-                _ensure_value_info(ctx, current_unsq)
+                _ensure_value_metadata(ctx, current_unsq)
                 current = current_unsq
 
             expand_shape = _const_i64(
@@ -135,7 +135,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             )
             expanded.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(expanded, tuple(shape))
-            _ensure_value_info(ctx, expanded)
+            _ensure_value_metadata(ctx, expanded)
             current = expanded
 
         target_dtype = _DTYPE_TO_IR.get(dtype)
@@ -150,7 +150,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             )
             cast_out.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(cast_out, tuple(shape))
-            _ensure_value_info(ctx, cast_out)
+            _ensure_value_metadata(ctx, cast_out)
             ctx.bind_value_for_var(out_var, cast_out)
         else:
             identity_out = builder.Identity(
@@ -159,5 +159,5 @@ class IotaPlugin(PrimitiveLeafPlugin):
             )
             identity_out.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(identity_out, tuple(shape))
-            _ensure_value_info(ctx, identity_out)
+            _ensure_value_metadata(ctx, identity_out)
             ctx.bind_value_for_var(out_var, identity_out)

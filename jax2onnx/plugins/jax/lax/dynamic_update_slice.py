@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,7 +26,7 @@ def _binary_scalar(
     )
     result.type = ir.TensorType(getattr(lhs.type, "dtype", ir.DataType.INT64))
     _stamp_type_and_shape(result, ())
-    _ensure_value_info(ctx, result)
+    _ensure_value_metadata(ctx, result)
     return result
 
 
@@ -124,14 +124,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         ref_shape.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(ref_shape, (rank,))
-        _ensure_value_info(ctx, ref_shape)
+        _ensure_value_metadata(ctx, ref_shape)
 
         upd_shape = ctx.builder.Shape(
             upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]
         )
         upd_shape.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(upd_shape, (rank,))
-        _ensure_value_info(ctx, upd_shape)
+        _ensure_value_metadata(ctx, upd_shape)
 
         # Prepare per-axis metadata
         upd_dims: list[ir.Value] = []
@@ -155,7 +155,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             upd_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(upd_dim, ())
-            _ensure_value_info(ctx, upd_dim)
+            _ensure_value_metadata(ctx, upd_dim)
             upd_dims.append(upd_dim)
 
             ref_dim = ctx.builder.Gather(
@@ -166,7 +166,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             ref_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(ref_dim, ())
-            _ensure_value_info(ctx, ref_dim)
+            _ensure_value_metadata(ctx, ref_dim)
 
             cond_neg = ctx.builder.Less(
                 start_i64,
@@ -175,7 +175,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             cond_neg.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(cond_neg, ())
-            _ensure_value_info(ctx, cond_neg)
+            _ensure_value_metadata(ctx, cond_neg)
 
             start_plus_ref = _binary_scalar(
                 ctx, "Add", start_i64, ref_dim, "dus_start_plus_ref"
@@ -188,7 +188,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             start_norm.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_norm, ())
-            _ensure_value_info(ctx, start_norm)
+            _ensure_value_metadata(ctx, start_norm)
 
             max_start = _binary_scalar(ctx, "Sub", ref_dim, upd_dim, "dus_max_start")
             start_ge0 = _binary_scalar(
@@ -207,7 +207,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         numel_upd.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(numel_upd, ())
-        _ensure_value_info(ctx, numel_upd)
+        _ensure_value_metadata(ctx, numel_upd)
 
         # Build expanded coordinate grids and stack as indices
         idx_components: list[ir.Value] = []
@@ -223,7 +223,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             range_out.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_out, (None,))
-            _ensure_value_info(ctx, range_out)
+            _ensure_value_metadata(ctx, range_out)
 
             axes_unsq = [ax for ax in range(rank) if ax != axis]
             if axes_unsq:
@@ -238,7 +238,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                 range_unsq.type = ir.TensorType(ir.DataType.INT64)
                 unsq_shape = tuple([1] * axis + [None] + [1] * (rank - axis - 1))
                 _stamp_type_and_shape(range_unsq, unsq_shape)
-                _ensure_value_info(ctx, range_unsq)
+                _ensure_value_metadata(ctx, range_unsq)
             else:
                 range_unsq = range_out
 
@@ -249,7 +249,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             range_exp.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_exp, rank_shape)
-            _ensure_value_info(ctx, range_exp)
+            _ensure_value_metadata(ctx, range_exp)
 
             start_b = ctx.builder.Expand(
                 start_clamped[axis],
@@ -258,7 +258,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             start_b.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_b, rank_shape)
-            _ensure_value_info(ctx, start_b)
+            _ensure_value_metadata(ctx, start_b)
 
             idx_axis = ctx.builder.Add(
                 start_b,
@@ -267,7 +267,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             idx_axis.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(idx_axis, rank_shape)
-            _ensure_value_info(ctx, idx_axis)
+            _ensure_value_metadata(ctx, idx_axis)
 
             axes_last = _const_i64(
                 ctx, np.asarray(rank, dtype=np.int64), f"dus_axes_last_{axis}"
@@ -279,7 +279,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
             idx_unsq.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(idx_unsq, tuple([None] * rank + [1]))
-            _ensure_value_info(ctx, idx_unsq)
+            _ensure_value_metadata(ctx, idx_unsq)
             idx_components.append(idx_unsq)
 
         indices_nd = ctx.builder.Concat(
@@ -289,7 +289,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         indices_nd.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(indices_nd, tuple([None] * rank + [rank]))
-        _ensure_value_info(ctx, indices_nd)
+        _ensure_value_metadata(ctx, indices_nd)
 
         axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "dus_axes0")
         numel_vec = ctx.builder.Unsqueeze(
@@ -299,7 +299,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         numel_vec.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(numel_vec, (1,))
-        _ensure_value_info(ctx, numel_vec)
+        _ensure_value_metadata(ctx, numel_vec)
 
         rank_const = _scalar_i64(ctx, rank, "dus_rank_scalar")
         rank_vec = ctx.builder.Unsqueeze(
@@ -309,7 +309,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         rank_vec.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(rank_vec, (1,))
-        _ensure_value_info(ctx, rank_vec)
+        _ensure_value_metadata(ctx, rank_vec)
 
         shape_2d = ctx.builder.Concat(
             numel_vec,
@@ -319,7 +319,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         shape_2d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_2d, (2,))
-        _ensure_value_info(ctx, shape_2d)
+        _ensure_value_metadata(ctx, shape_2d)
 
         indices_2d = ctx.builder.Reshape(
             indices_nd,
@@ -328,7 +328,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         indices_2d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(indices_2d, (None, rank))
-        _ensure_value_info(ctx, indices_2d)
+        _ensure_value_metadata(ctx, indices_2d)
 
         updates_shape_1d = ctx.builder.Unsqueeze(
             numel_upd,
@@ -337,7 +337,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         updates_shape_1d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(updates_shape_1d, (1,))
-        _ensure_value_info(ctx, updates_shape_1d)
+        _ensure_value_metadata(ctx, updates_shape_1d)
 
         upd_flat = ctx.builder.Reshape(
             upd_val,
@@ -346,7 +346,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         )
         upd_flat.type = ir.TensorType(getattr(ref_val.type, "dtype", ir.DataType.FLOAT))
         _stamp_type_and_shape(upd_flat, (None,))
-        _ensure_value_info(ctx, upd_flat)
+        _ensure_value_metadata(ctx, upd_flat)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ScatterND")
         producer = getattr(out_spec, "producer", lambda: None)
@@ -365,5 +365,5 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         result_dtype = getattr(getattr(ref_val, "type", None), "dtype", None)
         if result_dtype is not None:
             result.type = ir.TensorType(result_dtype)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

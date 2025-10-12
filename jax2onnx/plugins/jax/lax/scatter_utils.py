@@ -17,7 +17,7 @@ from typing import Any, Dict, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import (
     _builder_op,
     _cast_to_i64,
@@ -1179,7 +1179,7 @@ def _lower_scatter_window_full(
     _stamp_type_and_shape(out_val, tuple(operand_shape))
     out_val.type = ir.TensorType(operand_val.type.dtype)
     out_val.dtype = operand_val.type.dtype
-    _ensure_value_info(ctx, out_val)
+    _ensure_value_metadata(ctx, out_val)
     return True
 
 
@@ -1249,7 +1249,7 @@ def lower_scatter_elementwise(
     _stamp_type_and_shape(out_val, tuple(operand_shape))
     out_val.type = ir.TensorType(operand_val.type.dtype)
     out_val.dtype = operand_val.type.dtype
-    _ensure_value_info(ctx, out_val)
+    _ensure_value_metadata(ctx, out_val)
 
 
 def ensure_supported_mode(mode: Any) -> None:

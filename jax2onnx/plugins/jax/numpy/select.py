@@ -8,7 +8,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -137,7 +137,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
             if out_dtype is not None:
                 out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, result_shape)
-            _ensure_value_info(ctx, out_val)
+            _ensure_value_metadata(ctx, out_val)
             else_val = out_val
 
         out_spec = ctx.get_value_for_var(
@@ -153,7 +153,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         ) or _dtype_to_ir(np.dtype(result_dtype), ctx.builder.enable_double_precision)
         final_val.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(final_val, result_shape)
-        _ensure_value_info(ctx, final_val)
+        _ensure_value_metadata(ctx, final_val)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")
@@ -174,7 +174,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         )
         cast.type = ir.TensorType(ir.DataType.BOOL)
         _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_info(ctx, cast)
+        _ensure_value_metadata(ctx, cast)
         return cast
 
     @staticmethod
@@ -195,7 +195,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         )
         cast.type = ir.TensorType(target_ir_dtype)
         _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_info(ctx, cast)
+        _ensure_value_metadata(ctx, cast)
         return cast
 
     @classmethod

@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -143,11 +143,11 @@ class PadPlugin(PrimitiveLeafPlugin):
             pad_val.type = ir.TensorType(data_dtype)
             pad_val.shape = pad_raw.shape
             _stamp_type_and_shape(pad_val, tuple(getattr(const_var.aval, "shape", ())))
-            _ensure_value_info(ctx, pad_val)
+            _ensure_value_metadata(ctx, pad_val)
         else:
             pad_shape = tuple(getattr(const_var.aval, "shape", ()))
             _stamp_type_and_shape(pad_val, pad_shape)
-            _ensure_value_info(ctx, pad_val)
+            _ensure_value_metadata(ctx, pad_val)
 
         begins = _flatten(lo for (lo, _, _) in padding_config)
         ends = _flatten(hi for (_, hi, _) in padding_config)
@@ -157,7 +157,7 @@ class PadPlugin(PrimitiveLeafPlugin):
             name=pads_name, array=pads_vec
         )
         _stamp_type_and_shape(pads_val, (pads_vec.size,))
-        _ensure_value_info(ctx, pads_val)
+        _ensure_value_metadata(ctx, pads_val)
 
         pad_inputs = [data_val, pads_val, pad_val]
 
@@ -184,5 +184,5 @@ class PadPlugin(PrimitiveLeafPlugin):
         result.type = ir.TensorType(result_dtype)
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

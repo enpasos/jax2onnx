@@ -108,7 +108,7 @@ def _iter_initializers(graph: ir.Graph) -> IterableABC[ir.Value]:
     return cast(IterableABC[ir.Value], initializers_obj)
 
 
-def _loosen_graph_value_infos(
+def _loosen_graph_value_shapes(
     graph: ir.Graph, *, force_rank_only: bool = False
 ) -> None:
     io_names = _io_value_names(graph)
@@ -175,7 +175,7 @@ def _process_graph(
     force_rank_only: bool = False,
 ) -> None:
     if loosen:
-        _loosen_graph_value_infos(graph, force_rank_only=force_rank_only)
+        _loosen_graph_value_shapes(graph, force_rank_only=force_rank_only)
 
     if promote:
         for initializer in _iter_initializers(graph):
@@ -228,7 +228,7 @@ def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
         else:
             graph_obj = fn_obj
         if loosen:
-            _loosen_graph_value_infos(graph_obj, force_rank_only=False)
+            _loosen_graph_value_shapes(graph_obj, force_rank_only=False)
         _process_graph(graph_obj, loosen=loosen, promote=promote, force_rank_only=False)
 
 

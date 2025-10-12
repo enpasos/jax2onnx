@@ -22,7 +22,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
@@ -262,7 +262,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             if x_dtype is not None:
                 y_val.type = ir.TensorType(x_dtype)
             _stamp_type_and_shape(y_val, dims)
-            _add_value_info(ctx, y_val)
+            _ensure_value_metadata(ctx, y_val)
             bind_value = getattr(ctx, "bind_value_for_var", None)
             if not callable(bind_value):
                 raise AttributeError("IR build context missing bind_value_for_var")
@@ -327,7 +327,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         )
         y_val.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(y_val, dims)
-        _add_value_info(ctx, y_val)
+        _ensure_value_metadata(ctx, y_val)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):

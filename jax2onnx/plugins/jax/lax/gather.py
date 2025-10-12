@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -169,7 +169,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
             data_shape_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(data_shape_val, (len(data_shape),))
-            _ensure_value_info(ctx, data_shape_val)
+            _ensure_value_metadata(ctx, data_shape_val)
 
             zero_idx = _const_i64(
                 ctx, np.asarray(0, dtype=np.int64), "gather_batch_idx"
@@ -182,7 +182,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(batch_dim, ())
             batch_dim.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_info(ctx, batch_dim)
+            _ensure_value_metadata(ctx, batch_dim)
 
             axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "gather_axes0")
             batch_vec = ctx.builder.Unsqueeze(
@@ -191,7 +191,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("gather_batch_vec")],
             )
             batch_vec.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_info(ctx, batch_vec)
+            _ensure_value_metadata(ctx, batch_vec)
 
             one_vec = _const_i64(ctx, np.asarray([1], dtype=np.int64), "gather_one_vec")
 
@@ -202,7 +202,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("gather_target_shape")],
             )
             target_shape.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_info(ctx, target_shape)
+            _ensure_value_metadata(ctx, target_shape)
 
             base_index = _const_i64(
                 ctx, np.zeros((1, 1), dtype=np.int64), "gather_base_idx"
@@ -214,7 +214,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("gather_indices")],
             )
             indices_val.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_info(ctx, indices_val)
+            _ensure_value_metadata(ctx, indices_val)
             batch_dims = 1
         else:
             indices_val_in = ctx.get_value_for_var(
@@ -227,7 +227,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
             indices_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(indices_val, tuple(indices_shape))
-            _ensure_value_info(ctx, indices_val)
+            _ensure_value_metadata(ctx, indices_val)
             batch_dims = 0
 
         out_spec = ctx.get_value_for_var(
@@ -252,7 +252,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
         if result_dtype is not None:
             result.type = ir.TensorType(result_dtype)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
 

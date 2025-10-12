@@ -36,7 +36,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _as_ir_dim_label,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _register_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -94,7 +94,7 @@ EXPECT_FLATTEN_TCT: Final = EG(
 )
 
 
-# ---------- helper: annotate value_info so graph edges show shapes ----------
+# ---------- helper: normalize value metadata so exported graphs show shapes ----------
 def _np_dtype_of(var, fallback=np.float32):
     dt = getattr(getattr(var, "aval", None), "dtype", None)
     try:
@@ -111,7 +111,7 @@ def _is_concrete_shape(shape) -> bool:
 
 
 def _annotate_value(ctx, val: ir.Value, dtype, shape) -> None:
-    """Attach dtype/shape to an IR Value so exporters create value_info."""
+    """Ensure the IR Value carries dtype/shape so the exported graph emits ValueInfoProto."""
     if not shape:
         return
     dims = []
@@ -133,7 +133,7 @@ def _annotate_value(ctx, val: ir.Value, dtype, shape) -> None:
         pass
     if ctx is not None:
         try:
-            _register_value_info(ctx, val)
+            _ensure_value_metadata(ctx, val)
         except Exception:
             pass
 
@@ -1531,7 +1531,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 )
                 n_flat_val.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(n_flat_val, ())
-                _register_value_info(ctx, n_flat_val)
+                _ensure_value_metadata(ctx, n_flat_val)
                 n_flat_1d = _unsqueeze(ctx, n_flat_val, [0])  # [1]
 
                 # participating spatial dims (the last conv_spatial dims before channel)
@@ -1691,7 +1691,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 )
                 final_value = _reshape(ctx, y_nhwc_tmp, tgt)
                 _stamp_type_and_shape(final_value, tuple(tgt_list))
-                _register_value_info(ctx, final_value)
+                _ensure_value_metadata(ctx, final_value)
             else:
                 # Dynamic fallback: Recover (N, extra..., out_spatial..., C_out)
                 sh_x = _shape_of(ctx, x_val)  # [N, extra..., part..., C]
@@ -1725,7 +1725,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                     ctx, [n_extras, out_sp_dyn, out_c]
                 )  # [1+extra + conv_spatial + 1]
                 final_value = _reshape(ctx, y_nhwc_tmp, tgt)
-                _register_value_info(ctx, final_value)
+                _ensure_value_metadata(ctx, final_value)
         else:
             final_value = _transpose(ctx, y, post_perm)
             if x_shape and k_shape:

@@ -23,7 +23,7 @@ from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _stamp_type_and_shape,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 
@@ -374,7 +374,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 label = _dim_label_from_value_or_aval(x_v, in_shape, idx)
                 dims.append(label if label is not None else out_aval_shape[idx])
             _stamp_type_and_shape(y_val, tuple(dims))
-        _add_value_info(ctx, y_val)
+        _ensure_value_metadata(ctx, y_val)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):

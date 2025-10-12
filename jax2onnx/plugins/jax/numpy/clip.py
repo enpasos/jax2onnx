@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
@@ -59,7 +59,7 @@ def _cast_value(
     cast_val.type = ir.TensorType(dtype_enum)
     cast_shape = tuple(getattr(getattr(src_var, "aval", None), "shape", ()))
     _stamp_type_and_shape(cast_val, cast_shape)
-    _ensure_value_info(ctx, cast_val)
+    _ensure_value_metadata(ctx, cast_val)
     return cast_val
 
 
@@ -150,7 +150,7 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         max_val.type = ir.TensorType(dtype_enum)
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         _stamp_type_and_shape(max_val, x_shape)
-        _ensure_value_info(ctx, max_val)
+        _ensure_value_metadata(ctx, max_val)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("clip_out")
         result = ctx.builder.Min(
@@ -161,7 +161,7 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         result.type = ir.TensorType(dtype_enum)
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

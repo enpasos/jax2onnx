@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -116,7 +116,7 @@ class RemPlugin(PrimitiveLeafPlugin):
             result.type = ir.TensorType(x_dtype_enum)
             result.shape = ir.Shape(out_shape)
             _stamp_type_and_shape(result, out_shape)
-            _ensure_value_info(ctx, result)
+            _ensure_value_metadata(ctx, result)
             ctx.bind_value_for_var(out_var, result)
             return
 
@@ -128,7 +128,7 @@ class RemPlugin(PrimitiveLeafPlugin):
         div_val.type = ir.TensorType(x_dtype_enum)
         div_val.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(div_val, out_shape)
-        _ensure_value_info(ctx, div_val)
+        _ensure_value_metadata(ctx, div_val)
 
         mul_val = ctx.builder.Mul(
             div_val,
@@ -138,7 +138,7 @@ class RemPlugin(PrimitiveLeafPlugin):
         mul_val.type = ir.TensorType(x_dtype_enum)
         mul_val.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(mul_val, out_shape)
-        _ensure_value_info(ctx, mul_val)
+        _ensure_value_metadata(ctx, mul_val)
 
         result = ctx.builder.Sub(
             x_val,
@@ -148,5 +148,5 @@ class RemPlugin(PrimitiveLeafPlugin):
         result.type = ir.TensorType(x_dtype_enum)
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

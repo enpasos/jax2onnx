@@ -12,7 +12,7 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -180,7 +180,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                     cast_val, tuple(getattr(repeats_var.aval, "shape", ()))
                 )
                 cast_val.type = ir.TensorType(ir.DataType.INT64)
-                _ensure_value_info(ctx, cast_val)
+                _ensure_value_metadata(ctx, cast_val)
                 repeats_val = cast_val
             repeats_rank_dim = getattr(repeats_var.aval, "shape", (None,))[0]
             if not isinstance(repeats_rank_dim, int):
@@ -218,7 +218,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
         result.type = ir.TensorType(out_dtype)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
@@ -272,7 +272,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         shape_val = ctx.builder.Shape(src, _outputs=[ctx.fresh_name("tile_shape")])
         shape_val.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_val, (rank,))
-        _ensure_value_info(ctx, shape_val)
+        _ensure_value_metadata(ctx, shape_val)
         cache[src] = shape_val
         return shape_val
 
@@ -309,7 +309,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 )
                 _stamp_type_and_shape(gathered, (1,))
                 gathered.type = ir.TensorType(ir.DataType.INT64)
-                _ensure_value_info(ctx, gathered)
+                _ensure_value_metadata(ctx, gathered)
                 pieces.append(gathered)
             else:
                 raise TypeError(f"Unsupported repeats element type: {type(rep)}")
@@ -324,7 +324,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             repeats_vec.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(repeats_vec, (len(pieces),))
-            _ensure_value_info(ctx, repeats_vec)
+            _ensure_value_metadata(ctx, repeats_vec)
         repeats_rank = len(pieces)
         return repeats_vec, repeats_rank
 
@@ -353,7 +353,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             new_vec.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(new_vec, (input_rank,))
-            _ensure_value_info(ctx, new_vec)
+            _ensure_value_metadata(ctx, new_vec)
             aligned = new_vec
             repeats_rank = input_rank
 
@@ -368,7 +368,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             input_shape_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(input_shape_val, (input_rank,))
-            _ensure_value_info(ctx, input_shape_val)
+            _ensure_value_metadata(ctx, input_shape_val)
 
             target_shape = ctx.builder.Concat(
                 ones_vec,
@@ -378,7 +378,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             target_shape.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(target_shape, (repeats_rank,))
-            _ensure_value_info(ctx, target_shape)
+            _ensure_value_metadata(ctx, target_shape)
 
             dtype_enum = _dtype_to_ir(
                 input_np_dtype, ctx.builder.enable_double_precision
@@ -391,7 +391,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             )
             reshaped.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(reshaped, new_shape)
-            _ensure_value_info(ctx, reshaped)
+            _ensure_value_metadata(ctx, reshaped)
             input_val = reshaped
             current_shape = new_shape
             input_rank = repeats_rank

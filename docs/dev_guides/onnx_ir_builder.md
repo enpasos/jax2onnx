@@ -10,7 +10,7 @@ This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: ho
 
 ## Quick Checklist
 - Emit ops through `ctx.builder` (or `_tape.Builder`) rather than constructing `ir.Node` manually. Fall back only in function-mode/legacy paths where the builder cannot express the behaviour.
-- After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and register the value via `_ensure_value_info(...)` so later eqns see consistent metadata.
+- After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and run `_ensure_value_metadata(...)` so the `ir.Value` carries normalized shape/type metadata (no separate `value_info` bucket).
 - Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
 - When defining plugin metadata, use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` to honour the single-use RNG policy and keep tests deterministic across f32/f64 runs.
 - Run the validation hooks listed below (Ruff, builder usage checker, pytest) before landing a change; the pre-commit stack invokes them automatically.
@@ -39,6 +39,8 @@ from onnx_ir._tape import Builder
 ```
 
 > **Stability note**: `_tape.Builder` is currently internal API (the leading underscore is intentional) and can change. Keep the wrapper that instantiates it confined to XY so updates are easy.
+
+> **Legacy note**: The converter no longer maintains a `builder.value_info` list. Plugins should rely exclusively on `_ensure_value_metadata(...)` and the fields on each `ir.Value` when they need shape/type information. Avoid appending to or expecting a global `value_info` registry.
 
 ## Core Concept
 `Builder` subclasses `onnx_ir.tape.Tape`. It records nodes, initializers, and the opsets they require while exposing every ONNX operator as a dynamic method (for example, `builder.Add`, `builder.Conv`).

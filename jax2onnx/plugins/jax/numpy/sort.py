@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -117,7 +117,7 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         if getattr(arr_val, "type", None) is not None:
             values.type = arr_val.type
         _stamp_type_and_shape(values, target_shape)
-        _ensure_value_info(ctx, values)
+        _ensure_value_metadata(ctx, values)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
         result = builder.Identity(
@@ -127,7 +127,7 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         if getattr(arr_val, "type", None) is not None:
             result.type = arr_val.type
         _stamp_type_and_shape(result, target_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")

@@ -9,7 +9,7 @@ from typing import Any, Dict, Sequence
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 
 
 def _const_i64(
@@ -96,7 +96,7 @@ def _cast_to_i64(ctx: Any, tensor_val: ir.Value, name_hint: str) -> ir.Value:
             except Exception:
                 dims = ()
     _stamp_type_and_shape(out, dims or ())
-    _ensure_value_info(ctx, out)
+    _ensure_value_metadata(ctx, out)
     return out
 
 
@@ -176,7 +176,7 @@ def _builder_op(
         result.type = ir.TensorType(dtype)
     if shape is not None:
         _stamp_type_and_shape(result, tuple(shape))
-    _ensure_value_info(ctx, result)
+    _ensure_value_metadata(ctx, result)
     return result
 
 

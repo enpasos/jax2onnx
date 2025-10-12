@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
     DimExpr = object  # type: ignore[misc,assignment]
 
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -187,7 +187,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             )
             shape_value.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_value, (len(input_shape),))
-            _ensure_value_info(ctx, shape_value)
+            _ensure_value_metadata(ctx, shape_value)
             return shape_value
 
         def gather_axis(idx: int) -> ir.Value:
@@ -203,7 +203,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             )
             gather_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(gather_val, ())
-            _ensure_value_info(ctx, gather_val)
+            _ensure_value_metadata(ctx, gather_val)
             axes_const = _const_i64(
                 ctx, np.asarray([0], dtype=np.int64), "reshape_unsq_axes"
             )
@@ -214,7 +214,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             )
             unsqueezed.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(unsqueezed, (1,))
-            _ensure_value_info(ctx, unsqueezed)
+            _ensure_value_metadata(ctx, unsqueezed)
             return unsqueezed
 
         for idx, dim in enumerate(newshape_elems):
@@ -259,7 +259,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             )
             shape_tensor.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_tensor, (shape_tensor_rank,))
-            _ensure_value_info(ctx, shape_tensor)
+            _ensure_value_metadata(ctx, shape_tensor)
 
         reshape_out = builder.Reshape(
             arr_val,
@@ -275,7 +275,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             if arr_dtype is not None:
                 reshape_out.type = ir.TensorType(arr_dtype)
         _stamp_type_and_shape(reshape_out, target_shape)
-        _ensure_value_info(ctx, reshape_out)
+        _ensure_value_metadata(ctx, reshape_out)
         ctx.bind_value_for_var(out_var, reshape_out)
 
     @classmethod

@@ -17,7 +17,7 @@ from jax2onnx.plugins._ir_shapes import (
     is_shape_all_unknown,
     _dim_label_from_value_or_aval,
     _to_ir_dim_for_shape,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 
 if TYPE_CHECKING:
@@ -274,7 +274,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 pool_in, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_in)
             )
-            _add_value_info(ctx, pool_in)
+            _ensure_value_metadata(ctx, pool_in)
 
         pool_result = builder.AveragePool(
             pool_in,
@@ -301,7 +301,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 pool_result, tuple(_to_ir_dim_for_shape(d) for d in nchw_dims_out)
             )
-            _add_value_info(ctx, pool_result)
+            _ensure_value_metadata(ctx, pool_result)
 
             final = builder.Transpose(
                 pool_result,
@@ -313,11 +313,11 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             if dtype is not None:
                 final.type = ir.TensorType(dtype)
             _stamp_type_and_shape(final, nhwc_dims)
-            _add_value_info(ctx, final)
+            _ensure_value_metadata(ctx, final)
         else:
             final = pool_result
             _stamp_type_and_shape(final, nhwc_dims[:rank])
-            _add_value_info(ctx, final)
+            _ensure_value_metadata(ctx, final)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if callable(bind_value):

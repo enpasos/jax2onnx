@@ -50,7 +50,6 @@ def test_intermediate_tensor_is_not_subgraph_input():
     builder.inputs.append(graph_input)
 
     intermediate = _scalar_value(intermediate_name, ir.DataType.INT32)
-    builder.value_info.append(intermediate)
 
     first_node = ir.Node(
         "",
@@ -63,7 +62,6 @@ def test_intermediate_tensor_is_not_subgraph_input():
     builder.add_node_obj(first_node)
 
     graph_output = _scalar_value(graph_output_name, ir.DataType.INT32)
-    builder.value_info.append(graph_output)
 
     second_node = ir.Node(
         "",

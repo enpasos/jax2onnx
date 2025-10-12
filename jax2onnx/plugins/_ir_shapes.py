@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 from collections.abc import Iterable as IterableABC, Sequence as SequenceABC
-from typing import Protocol, Tuple, Union, cast
+from typing import Tuple, Union, cast
 
 import numpy as np
 import onnx_ir as ir
-
-from jax2onnx.converter.ir_builder import IRBuilder
-
-
-class _ValueInfoContext(Protocol):
-    """Protocol capturing the builder attribute we rely on."""
-
-    builder: IRBuilder
 
 
 DimValue = Union[int, ir.SymbolicDim, None]
@@ -99,18 +91,22 @@ def _dim_label_from_value_or_aval(
     return None
 
 
-def _ensure_value_info(ctx: object, v: ir.Value | None) -> None:
+def _ensure_value_metadata(ctx: object, v: ir.Value | None) -> None:
+    del ctx  # legacy parameter; kept for call-site compatibility
     if v is None:
         return
-    ctx_typed = cast(_ValueInfoContext, ctx)
-    value_info = ctx_typed.builder.value_info
-    v_name = v.name
-    if v_name:
-        if all(info.name != v_name for info in value_info):
-            value_info.append(v)
-        return
-    if v not in value_info:
-        value_info.append(v)
+    shape_obj = v.shape
+    dims: Tuple[object, ...] = ()
+    if isinstance(shape_obj, ir.Shape):
+        dims = tuple(shape_obj.dims)
+    else:
+        seq_like = cast(object, shape_obj)
+        if isinstance(seq_like, SequenceABC) and not isinstance(seq_like, (str, bytes)):
+            dims = tuple(cast(SequenceABC[object], seq_like))
+            v.shape = ir.Shape(tuple(_to_ir_dim_for_shape(d) for d in dims))
+
+    if v.type is None and v.dtype is not None:
+        v.type = ir.TensorType(v.dtype)
 
 
 def is_shape_all_unknown(shp: object) -> bool:

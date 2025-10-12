@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_info
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -63,5 +63,5 @@ class StopGradientPlugin(PrimitiveLeafPlugin):
             result.type = getattr(inp_val, "type", None)
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

@@ -12,7 +12,7 @@ from jax import core
 from jax.extend.core import Primitive
 
 from jax2onnx.plugins._ir_shapes import (
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -179,7 +179,7 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         )
         kernel_shape = tuple(getattr(getattr(kernel_var, "aval", None), "shape", ()))
         _stamp_type_and_shape(kernel_val, kernel_shape)
-        _add_value_info(ctx, kernel_val)
+        _ensure_value_metadata(ctx, kernel_val)
 
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("einsum_out")
@@ -202,7 +202,7 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         if spec_type is not None:
             einsum_out.type = spec_type
         _stamp_type_and_shape(einsum_out, out_shape)
-        _add_value_info(ctx, einsum_out)
+        _ensure_value_metadata(ctx, einsum_out)
 
         if use_bias and bias_var is not None:
             bias_val = ctx.get_value_for_var(
@@ -213,7 +213,7 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             )
             bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
             _stamp_type_and_shape(bias_val, bias_shape)
-            _add_value_info(ctx, bias_val)
+            _ensure_value_metadata(ctx, bias_val)
             result = builder.Add(
                 einsum_out,
                 bias_val,
@@ -224,7 +224,7 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             elif getattr(einsum_out, "type", None) is not None:
                 result.type = einsum_out.type
             _stamp_type_and_shape(result, out_shape)
-            _add_value_info(ctx, result)
+            _ensure_value_metadata(ctx, result)
             ctx.bind_value_for_var(out_var, result)
         else:
             if getattr(einsum_out, "name", None) != out_name:

@@ -17,7 +17,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -240,7 +240,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             # returns a bare initializer handle.
             vec_shape = arr.shape if arr.ndim > 0 else ()
             _stamp_type_and_shape(value, vec_shape)
-            _add_value_info(ctx, value)
+            _ensure_value_metadata(ctx, value)
             return value
 
         def unsqueeze_to_len1(src: ir.Value) -> ir.Value:
@@ -249,7 +249,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 src, axes, _outputs=[ctx.fresh_name("unsq")]
             )
             _stamp_type_and_shape(unsqueezed, (1,))
-            _add_value_info(ctx, unsqueezed)
+            _ensure_value_metadata(ctx, unsqueezed)
             return unsqueezed
 
         # Build pieces of the shape tensor.
@@ -360,7 +360,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     shape_of_x = _shape_of(ctx, x_val, "reshape_shape_of_x")
                     if len(x_shape):
                         _stamp_type_and_shape(shape_of_x, (len(x_shape),))
-                    _add_value_info(ctx, shape_of_x)
+                    _ensure_value_metadata(ctx, shape_of_x)
                 gathered_scalar = _gather_int_scalar(
                     ctx, shape_of_x, axis_idx, "reshape_dim"
                 )
@@ -395,7 +395,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("reshape_shape_tensor")],
                 )
                 _stamp_type_and_shape(shape_tensor, (len(shape_parts),))
-                _add_value_info(ctx, shape_tensor)
+                _ensure_value_metadata(ctx, shape_tensor)
 
         # --------- emit the single Reshape node ----------
         out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("reshape_out"))
@@ -435,4 +435,4 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 final_dims.append(ctx.fresh_name("dim"))
 
         _stamp_type_and_shape(reshape_val, tuple(final_dims))
-        _add_value_info(ctx, reshape_val)
+        _ensure_value_metadata(ctx, reshape_val)

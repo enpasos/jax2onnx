@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - import for typing only
@@ -64,5 +64,5 @@ class DevicePutPlugin(PrimitiveLeafPlugin):
         if src_dtype is not None:
             result.type = ir.TensorType(src_dtype)
         _stamp_type_and_shape(result, out_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

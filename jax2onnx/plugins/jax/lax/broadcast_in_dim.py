@@ -9,7 +9,7 @@ import onnx_ir as ir
 
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
@@ -353,7 +353,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_src_shape")],
                 )
                 _stamp_type_and_shape(shp, (src_rank,))
-                _ensure_value_info(ctx, shp)
+                _ensure_value_metadata(ctx, shp)
 
                 idx = _const_i64(
                     ctx,
@@ -368,7 +368,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_dim_dyn")],
                 )
                 _stamp_type_and_shape(dim1, (1,))
-                _ensure_value_info(ctx, dim1)
+                _ensure_value_metadata(ctx, dim1)
                 dim_pieces.append(dim1)
 
         tgt_shape_val = builder.Concat(
@@ -377,7 +377,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("bcast_target_shape")],
         )
         _stamp_type_and_shape(tgt_shape_val, (len(shape),))
-        _ensure_value_info(ctx, tgt_shape_val)
+        _ensure_value_metadata(ctx, tgt_shape_val)
 
         # If operand is a scalar, we can skip the Reshape and go straight to Expand.
         need_reshape = len(op_shape) > 0 and len(shape) != len(op_shape)
@@ -417,7 +417,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("bcast_reshape_shape")],
             )
             _stamp_type_and_shape(rs_val, (rrank,))
-            _ensure_value_info(ctx, rs_val)
+            _ensure_value_metadata(ctx, rs_val)
 
             reshaped_val = builder.Reshape(
                 x_val,
@@ -427,7 +427,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(reshaped_val, tuple(reshape_dims))
             if getattr(x_val, "type", None) is not None:
                 reshaped_val.type = x_val.type
-            _ensure_value_info(ctx, reshaped_val)
+            _ensure_value_metadata(ctx, reshaped_val)
             expand_input = reshaped_val
         else:
             expand_input = x_val  # scalar or already aligned
@@ -448,7 +448,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 getattr(getattr(expand_input, "shape", None), "dims", ()) or out_shape
             )
             _stamp_type_and_shape(casted, expand_input_shape)
-            _ensure_value_info(ctx, casted)
+            _ensure_value_metadata(ctx, casted)
             expand_input = casted
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Expand")
@@ -467,5 +467,5 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         if final_dtype is not None:
             expanded_out.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(expanded_out, out_shape)
-        _ensure_value_info(ctx, expanded_out)
+        _ensure_value_metadata(ctx, expanded_out)
         ctx.bind_value_for_var(out_var, expanded_out)

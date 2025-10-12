@@ -15,7 +15,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
-    _ensure_value_info,
+    _ensure_value_metadata,
     _is_static_int,
     _stamp_type_and_shape,
 )
@@ -358,7 +358,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 in_features,
             )
             _stamp_type_and_shape(gemm_input, reshape_dims)
-            _ensure_value_info(ctx, gemm_input)
+            _ensure_value_metadata(ctx, gemm_input)
 
         gemm_output_name = ctx.fresh_name(
             "linear_gemm" if need_flatten else "linear_out"
@@ -395,13 +395,13 @@ class LinearPlugin(PrimitiveLeafPlugin):
                     out_dims.append(label)
             out_dims.append(out_features)
             _stamp_type_and_shape(gemm_result, tuple(out_dims))
-            _ensure_value_info(ctx, gemm_result)
+            _ensure_value_metadata(ctx, gemm_result)
             ctx.bind_value_for_var(out_var, gemm_result)
             return
 
         leading_dim = flat_dim_label if flat_dim_label is not None else None
         _stamp_type_and_shape(gemm_result, (leading_dim, out_features))
-        _ensure_value_info(ctx, gemm_result)
+        _ensure_value_metadata(ctx, gemm_result)
 
         batch_dims = x_shape[:-1]
         all_static = all(_is_static_int(d) for d in batch_dims)
@@ -417,7 +417,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             if result_dtype is not None:
                 final_output.type = ir.TensorType(result_dtype)
             _stamp_type_and_shape(final_output, tuple(final_vals))
-            _ensure_value_info(ctx, final_output)
+            _ensure_value_metadata(ctx, final_output)
             ctx.bind_value_for_var(out_var, final_output)
             return
 
@@ -428,7 +428,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         )
         shape_val.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_val, (rank if rank else 1,))
-        _ensure_value_info(ctx, shape_val)
+        _ensure_value_metadata(ctx, shape_val)
 
         starts = _const_i64(ctx, [0], name_hint="linear_slice_start")
         ends = _const_i64(ctx, [max(rank - 1, 0)], name_hint="linear_slice_end")
@@ -445,7 +445,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         )
         batch_dims_val.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(batch_dims_val, (max(rank - 1, 0),))
-        _ensure_value_info(ctx, batch_dims_val)
+        _ensure_value_metadata(ctx, batch_dims_val)
 
         out_feat = _const_i64(ctx, [out_features], name_hint="linear_out_feature")
         final_shape = builder.Concat(
@@ -457,7 +457,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         final_shape.type = ir.TensorType(ir.DataType.INT64)
         final_rank = max(rank - 1, 0) + 1
         _stamp_type_and_shape(final_shape, (final_rank,))
-        _ensure_value_info(ctx, final_shape)
+        _ensure_value_metadata(ctx, final_shape)
 
         final_output = builder.Reshape(
             gemm_result,
@@ -479,7 +479,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             target_dims.append(label)
         target_dims.append(out_features)
         _stamp_type_and_shape(final_output, tuple(target_dims))
-        _ensure_value_info(ctx, final_output)
+        _ensure_value_metadata(ctx, final_output)
         ctx.bind_value_for_var(out_var, final_output)
 
     @classmethod

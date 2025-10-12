@@ -9,7 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -41,7 +41,7 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
             _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         )
         _stamp_type_and_shape(cast_val, tuple(getattr(exponent_var.aval, "shape", ())))
-        _ensure_value_info(ctx, cast_val)
+        _ensure_value_metadata(ctx, cast_val)
         exp_input = cast_val
     else:
         exp_input = exp_val

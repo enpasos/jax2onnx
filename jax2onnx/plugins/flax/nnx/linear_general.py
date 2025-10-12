@@ -25,7 +25,7 @@ from jax2onnx.plugins._ir_shapes import (
     _to_ir_dim_for_shape,
     _is_static_int,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,  # avoid local name shadowing
+    _ensure_value_metadata,
     _as_ir_dim_label,
 )
 
@@ -534,7 +534,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             if getattr(k_val, "type", None) is not None:
                 k2d.type = k_val.type
             _stamp_type_and_shape(k2d, desired_k_shape)
-            _add_value_info(ctx, k2d)
+            _ensure_value_metadata(ctx, k2d)
 
         # IMPORTANT: cast *after* shaping so the Gemm input has the final dtype
         k2d = cast_param_like(ctx, k2d, x_val, "kernel_cast")
@@ -558,7 +558,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             if getattr(x_val, "type", None) is not None:
                 x2d.type = x_val.type
             _stamp_type_and_shape(x2d, (None, int(K)))
-            _add_value_info(ctx, x2d)
+            _ensure_value_metadata(ctx, x2d)
             gemm_in = x2d
         # Bias: ensure 1-D [Cout] for Gemm.C, preferring build-time inline reshape
         use_bias = (b_var is not None) and (getattr(b_var, "aval", None) is not None)
@@ -586,7 +586,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     if getattr(b_val, "type", None) is not None:
                         b2d.type = b_val.type
                     _stamp_type_and_shape(b2d, desired_b_shape)
-                    _add_value_info(ctx, b2d)
+                    _ensure_value_metadata(ctx, b2d)
                 else:
                     b2d = b_inline
 
@@ -621,7 +621,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             gemm_out.type = x_val.type
         if need_flatten:
             _stamp_type_and_shape(gemm_out, (None, int(Cout)))
-            _add_value_info(ctx, gemm_out)
+            _ensure_value_metadata(ctx, gemm_out)
         else:
             out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
             y_meta = _linear_general_output_dims(
@@ -633,7 +633,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 [int(v) for v in k_out_dims],
             )
             _stamp_type_and_shape(gemm_out, y_meta)
-            _add_value_info(ctx, gemm_out)
+            _ensure_value_metadata(ctx, gemm_out)
             ctx.bind_value_for_var(y_var, gemm_out)
 
         if not need_flatten:
@@ -675,7 +675,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 if getattr(out_spec, "type", None) is not None:
                     final_val.type = out_spec.type
                 _stamp_type_and_shape(final_val, y_meta)
-                _add_value_info(ctx, final_val)
+                _ensure_value_metadata(ctx, final_val)
                 ctx.bind_value_for_var(y_var, final_val)
             else:
                 # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
@@ -685,7 +685,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 )
                 shp.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(shp, (len(x_shape),))
-                _add_value_info(ctx, shp)
+                _ensure_value_metadata(ctx, shp)
                 starts = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("slice_starts"),
                     array=np.asarray([0], dtype=np.int64),
@@ -704,7 +704,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 )
                 batch_dims.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(batch_dims, (len(x_shape) - len(lhs_contract),))
-                _add_value_info(ctx, batch_dims)
+                _ensure_value_metadata(ctx, batch_dims)
                 of = ctx.builder.add_initializer_from_array(
                     name=ctx.fresh_name("out_features_c"),
                     array=np.asarray(k_out_dims, dtype=np.int64),
@@ -722,7 +722,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(
                     final_shape, (len(x_batch_idx) + len(k_out_dims),)
                 )
-                _add_value_info(ctx, final_shape)
+                _ensure_value_metadata(ctx, final_shape)
                 out_aval_shape = tuple(
                     getattr(getattr(y_var, "aval", None), "shape", ())
                 )
@@ -742,7 +742,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 if getattr(out_spec, "type", None) is not None:
                     final_val.type = out_spec.type
                 _stamp_type_and_shape(final_val, y_meta)
-                _add_value_info(ctx, final_val)
+                _ensure_value_metadata(ctx, final_val)
                 ctx.bind_value_for_var(y_var, final_val)
         # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 

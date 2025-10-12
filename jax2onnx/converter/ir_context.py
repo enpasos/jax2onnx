@@ -188,10 +188,6 @@ class IRContext:
         self._initializers = _InitializerProxy(self)
         self._nodes = self.builder.nodes
         self._inputs = self.builder.inputs
-        # Intermediate ValueInfo staging (mirrors builder.value_info)
-        self._value_info = self.builder.value_info
-        # Some helpers expect _value_infos (legacy alias)
-        self._value_infos = self.builder.value_info
         # Track where each symbolic dim came from (object if hashable, and always string)
         self._sym_origin: dict[object, tuple[ir.Value, int]] = {}
         self._sym_origin_str: dict[str, tuple[ir.Value, int]] = {}
@@ -239,10 +235,6 @@ class IRContext:
     @property
     def attr_overrides(self) -> Dict[str, Dict[str, Any]]:
         return self._attr_overrides
-
-    @property
-    def value_infos(self) -> Sequence[ir.Value]:
-        return self._value_info
 
     def _promote_float_array(self, arr: np.ndarray) -> np.ndarray:
         if (

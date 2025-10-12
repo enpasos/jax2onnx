@@ -26,7 +26,7 @@ from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_sh
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax.scatter_utils import (
-    _ensure_value_info as _ensure_ir_value_info,
+    _ensure_value_metadata as _ensure_value_metadata,
     _gather_int_scalar,
     _scalar_i64,
     _shape_of,
@@ -116,7 +116,7 @@ def _cast_to_int64(ctx: "IRContext", value: ir.Value, *, base: str) -> ir.Value:
     )
     casted.type = ir.TensorType(ir.DataType.INT64)
     casted.shape = value.shape
-    _ensure_ir_value_info(ctx, casted)
+    _ensure_value_metadata(ctx, casted)
     return casted
 
 

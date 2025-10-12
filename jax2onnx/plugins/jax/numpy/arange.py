@@ -12,7 +12,7 @@ from jax import core
 from jax.extend.core import Literal as JaxLiteral
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -160,7 +160,7 @@ def _maybe_cast_value(
             except TypeError:
                 dims = None
     _stamp_type_and_shape(cast, tuple(dims) if dims is not None else ())
-    _ensure_value_info(ctx, cast)
+    _ensure_value_metadata(ctx, cast)
     return cast
 
 
@@ -415,7 +415,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             final_shape = _with_ir_shape_dims(out_shape)
 
         _stamp_type_and_shape(result, final_shape)
-        _ensure_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")

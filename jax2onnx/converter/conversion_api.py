@@ -17,14 +17,13 @@ from typing import (
 from contextlib import contextmanager, ExitStack
 import inspect as _ins
 import os
-from itertools import chain
-
 import jax
 import jax.numpy as jnp
 from jax import export as jax_export
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
+from onnx_ir.traversal import RecursiveGraphIterator
 
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
@@ -520,48 +519,92 @@ def to_onnx(
             except AttributeError:
                 return Attr(name, AttributeType.INT, ival)
 
-        def _finalize_model_value_info_shapes(
-            model_proto: ir.Model, ctx: IRContext
+        def _finalize_model_value_shapes(
+            model_proto: ir.Model, _ctx: IRContext
         ) -> None:
-            graph = model_proto.graph
+            def _normalize_value_shape(val: ir.Value) -> None:
+                shape_obj = val.shape
+                if shape_obj is None:
+                    return
+                if isinstance(shape_obj, ir.Shape):
+                    dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
+                elif isinstance(shape_obj, Iterable):
+                    dims_source = tuple(shape_obj)
+                else:
+                    return
 
-            def _collect_dims(values: Iterable[ir.Value]) -> Dict[str, Tuple]:
-                mapping: Dict[str, Tuple] = {}
-                for val in values:
-                    name = val.name or ""
-                    if not name:
-                        continue
-                    shape_obj = val.shape
-                    if shape_obj is None:
-                        continue
-                    dims = tuple(shape_obj.dims)
-                    mapping[name] = dims
-                return mapping
-
-            value_info_dims: Dict[str, Tuple] = {}
-            value_info_dims.update(_collect_dims(ctx.value_infos))
-            value_info_dims.update(_collect_dims(ctx.builder.value_info))
-            value_info_dims.update(_collect_dims(ctx.builder.outputs))
-            value_info_dims.update(_collect_dims(ctx.builder.inputs))
-
-            for vi in chain(graph.value_info, graph.outputs, graph.inputs):
-                name = vi.name or ""
-                if not name:
-                    continue
-                dims = value_info_dims.get(name)
-                if not dims:
-                    continue
-                normalized_dims: List[Union[int, ir.SymbolicDim]] = []
-                for dim in dims:
+                normalized_dims: List[object] = []
+                dirty = False
+                for dim in dims_source:
+                    normalized_dim: object = dim
                     if isinstance(dim, (int, np.integer)):
-                        normalized_dims.append(int(dim))
+                        normalized_dim = int(dim)
                     else:
                         label = _as_ir_dim_label(dim)
-                        if isinstance(label, str):
-                            normalized_dims.append(ir.SymbolicDim(label))
-                        else:
-                            normalized_dims.append(dim)
-                vi.shape = ir.Shape(tuple(normalized_dims))
+                        if isinstance(label, int):
+                            normalized_dim = int(label)
+                        elif isinstance(label, str):
+                            normalized_dim = ir.SymbolicDim(label)
+                    if normalized_dim is not dim:
+                        dirty = True
+                    normalized_dims.append(normalized_dim)
+
+                if dirty:
+                    val.shape = ir.Shape(tuple(normalized_dims))
+
+            def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
+                seen: set[int] = set()
+                staged: list[ir.Value] = []
+
+                def _queue(values: Iterable[ir.Value]) -> None:
+                    for val in values:
+                        if val is None:
+                            continue
+                        vid = id(val)
+                        if vid in seen:
+                            continue
+                        seen.add(vid)
+                        staged.append(val)
+
+                def _on_enter(graph_like: object) -> None:
+                    try:
+                        _queue(graph_like.inputs)  # type: ignore[attr-defined]
+                    except (AttributeError, TypeError):
+                        pass
+                    try:
+                        _queue(graph_like.outputs)  # type: ignore[attr-defined]
+                    except (AttributeError, TypeError):
+                        pass
+                    try:
+                        _queue(graph_like.initializers)  # type: ignore[attr-defined]
+                    except (AttributeError, TypeError):
+                        pass
+
+                for node in RecursiveGraphIterator(gr, enter_graph=_on_enter):
+                    _queue(node.inputs)
+                    _queue(node.outputs)
+
+                for value in staged:
+                    yield value
+
+            for value in _iter_graph_values(model_proto.graph):
+                _normalize_value_shape(value)
+
+            function_container = model_proto.functions
+            if isinstance(function_container, dict):
+                graph_values = function_container.values()
+            elif isinstance(function_container, Sequence):
+                graph_values = function_container
+            else:
+                graph_values = []
+
+            for fn in graph_values:
+                try:
+                    fn_graph = fn.graph
+                except AttributeError:
+                    continue
+                for value in _iter_graph_values(fn_graph):
+                    _normalize_value_shape(value)
 
         def _apply_ir_attr_overrides_to_graph(
             gr: ir.Graph, overrides: dict[str, dict[str, object]]
@@ -659,7 +702,7 @@ def to_onnx(
         ir_model = run_optional_shape_inference(ir_model)
 
         try:
-            _finalize_model_value_info_shapes(ir_model, ctx)
+            _finalize_model_value_shapes(ir_model, ctx)
         except Exception:
             pass
 

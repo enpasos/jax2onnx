@@ -12,7 +12,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -127,7 +127,7 @@ class EmbedPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(
                 casted, tuple(getattr(getattr(indices_var, "aval", None), "shape", ()))
             )
-            _add_value_info(ctx, casted)
+            _ensure_value_metadata(ctx, casted)
             indices_val = casted
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("embed_out"))
@@ -160,7 +160,7 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         out_dims.append(feat_dim)
 
         _stamp_type_and_shape(result, tuple(out_dims))
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

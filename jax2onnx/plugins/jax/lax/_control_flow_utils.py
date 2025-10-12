@@ -10,7 +10,7 @@ from typing import Any
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
@@ -38,7 +38,7 @@ def builder_identity(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
     dims = _extract_shape_dims(value)
     if dims is not None:
         _stamp_type_and_shape(out, dims)
-    _ensure_value_info(ctx, out)
+    _ensure_value_metadata(ctx, out)
     return out
 
 
@@ -62,7 +62,7 @@ def builder_cast(
     dims = _extract_shape_dims(value)
     if dims is not None:
         _stamp_type_and_shape(casted, dims)
-    _ensure_value_info(ctx, casted)
+    _ensure_value_metadata(ctx, casted)
     return casted
 
 
@@ -236,8 +236,8 @@ def create_loop_header_inputs(
     builder.inputs.extend([iter_input, cond_input])
     _stamp_type_and_shape(iter_input, ())
     _stamp_type_and_shape(cond_input, ())
-    _ensure_value_info(ctx, iter_input)
-    _ensure_value_info(ctx, cond_input)
+    _ensure_value_metadata(ctx, iter_input)
+    _ensure_value_metadata(ctx, cond_input)
     return iter_input, cond_input
 
 
@@ -268,7 +268,7 @@ def clone_value_for_subgraph(
     elif shape is not None:
         cloned.shape = shape
 
-    _ensure_value_info(ctx, cloned)
+    _ensure_value_metadata(ctx, cloned)
     return cloned
 
 
@@ -302,5 +302,5 @@ def ensure_bool_value(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
     dims = _extract_shape_dims(value)
     if dims is not None:
         _stamp_type_and_shape(bool_val, dims)
-    _ensure_value_info(ctx, bool_val)
+    _ensure_value_metadata(ctx, bool_val)
     return bool_val

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_info, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -152,7 +152,7 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             ctx, np.asarray(sizes, dtype=np.int64), ctx.fresh_name("split_sizes")
         )
         _stamp_type_and_shape(split_val, (len(sizes),))
-        _ensure_value_info(ctx, split_val)
+        _ensure_value_metadata(ctx, split_val)
 
         out_specs = [
             ctx.get_value_for_var(v, name_hint=ctx.fresh_name("split_out"))
@@ -188,7 +188,7 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             out_shape = list(arr_shape)
             out_shape[axis] = sz
             _stamp_type_and_shape(result, tuple(out_shape))
-            _ensure_value_info(ctx, result)
+            _ensure_value_metadata(ctx, result)
             ctx.bind_value_for_var(out_var, result)
 
     @classmethod

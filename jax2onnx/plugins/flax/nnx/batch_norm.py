@@ -23,7 +23,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
     _dim_label_from_value_or_aval,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
     _as_ir_dim_label,
 )
 
@@ -363,7 +363,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             )
             x_nchw.type = ir.TensorType(bn_dtype)
             _stamp_type_and_shape(x_nchw, nchw_dims)
-            _add_value_info(ctx, x_nchw)
+            _ensure_value_metadata(ctx, x_nchw)
             bn_in = x_nchw
 
         # BatchNormalization node
@@ -391,7 +391,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             # Stamp BOTH meta and TensorType so graph.output keeps symbols like 'B'
             _stamp_type_and_shape(y_val, nhwc_dims)
             y_val.type = ir.TensorType(bn_dtype)
-            _add_value_info(ctx, y_val)
+            _ensure_value_metadata(ctx, y_val)
             final_value = y_val
         else:
             # Direct BN output already targets y_var; (re)stamp shape/labels
@@ -399,7 +399,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             y_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
             _stamp_type_and_shape(final_value, y_dims)
             final_value.type = ir.TensorType(bn_dtype)
-            _add_value_info(ctx, final_value)
+            _ensure_value_metadata(ctx, final_value)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):

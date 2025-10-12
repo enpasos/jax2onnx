@@ -14,7 +14,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
     is_shape_all_unknown,
-    _ensure_value_info as _add_value_info,
+    _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 
@@ -144,7 +144,7 @@ class GeluPlugin(PrimitiveLeafPlugin):
             result.type = ir.TensorType(dtype)
 
         _stamp_type_and_shape(result, y_meta)
-        _add_value_info(ctx, result)
+        _ensure_value_metadata(ctx, result)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if callable(bind_value):
