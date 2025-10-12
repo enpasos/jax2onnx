@@ -716,7 +716,7 @@
        overflow="hidden"><path
          d="M 0,0 10,5 0,10 4,5 Z"
          id="path1" /></marker></defs><rect
-     style="fill:#ffffff;stroke:#ffffff;stroke-width:0.341228;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1.08298, 3.24895;stroke-opacity:1"
+     style="fill:#ffffff;stroke:none;"
      id="rect256"
      width="191.90067"
      height="124.36259"
