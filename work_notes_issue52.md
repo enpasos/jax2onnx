@@ -1,16 +1,18 @@
 # Work Notes – Issue 52 Scatter Window Broadcast 
 
-## Current Status (2025-10-12)
+## Current Status (2025-10-02)
 
-- Added an exploratory ONNX Script playground (`jax2onnx/sandbox/onnxscript/play01.py` / `play02.py`) to poke at shape rewrites post-export. `play02.py` can splice a dynamic dim into the top-level broadcast reshape, which confirmed the downstream `Slice` constants are the remaining culprits.
-- Tweaked `broadcast_in_dim` so it always considers `_scatter_window_hints`; debug logs show the reshape path now tries to consume `scatter_window_size_vec_*`, but those hints still evaluate to `1`, so the exported graph remains inconsistent.
-- No pipeline changes yet—the converter still emits constant-backed `Concat` / `Slice` tensors (e.g. `shape_const_4_0`, `slice_limits_14`), so the sandbox `poetry run python jax2onnx/sandbox/issue52_scatter_payload_repro.py` continues to fail in ORT inside `scan_loop_0/.../node_Mul_102`.
-- The ONNX-script probe highlighted exactly which constants need to be replaced by `_scatter_window_hints` outputs inside the plugin lowerings rather than patched after the fact.
+- Updated `jax2onnx/plugins/jax/lax/scatter_utils.py`
+  - `_compute_window_sizes` now returns the unsqueezed window-size tensors and stores dynamic window extents per operand axis on the IR context via `_scatter_window_hints`.
+- Updated `jax2onnx/plugins/jax/lax/broadcast_in_dim.py`
+  - Broadcast lowering consumes those hints (only when the primitive actually broadcasts) to build `Concat` inputs for both the expand target and reshape shape from live IR values instead of hard-coded `1`s.
+- Sandbox repro (`poetry run python jax2onnx/sandbox/issue52_scatter_payload_repro.py`) now gets past the original `Expand_13` ShapeInferenceError. ONNX export succeeds but onnxruntime fails inside `scan_loop_0/scan_loop_0/Mul_15` because the loop body still receives mismatched window extents.
+- Added temporary debug prints during the last run; they are already removed.
 
 ## What Remains
 
-1. Fix the scatter lowering itself (`jax2onnx/plugins/jax/lax/scatter_utils.py`) so `_compute_window_sizes` records the correct loop-body extent in `_scatter_window_hints` instead of the current `1` fallback. Once those hints are accurate, `broadcast_in_dim` and the slice helpers will consume live dims automatically.
-2. After hints carry the right values, rerun the sandbox repro and verify onnxruntime completes without the `node_Mul_102` mismatch; compare outputs against the JAX reference.
+1. For loop bodies, propagate scatter window hints in the same way as at top-level. The inner scatter lowering is producing hints, but nested `broadcast_in_dim` calls still emit partial shapes (leading dimension stays 1). Need to ensure the loop IR context reuses the stored hints when building reshape/expand shapes inside the scan body.
+2. After fixing the loop broadcast, re-run the sandbox script and confirm the exported model loads in ORT and produces numerically correct outputs.
 3. Update `tests/extra_tests/loop/test_loop_scatter_payload_regression.py`:
    - Remove the `xfail` guard and assert that ORT results match the JAX feed-forward outputs.
 4. Remove any remaining debug logging once the fix is confirmed.

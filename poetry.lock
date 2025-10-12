@@ -1425,13 +1425,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.6.8"
+version = "8.6.7"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.6.8-py3-none-any.whl", hash = "sha256:86380ff27e851fd43299f44a7e7e098c9d4334d88f5445a91ee681ddc00ef63f"},
+    {file = "netron-8.6.7-py3-none-any.whl", hash = "sha256:21d2b50f243cdcd4606b57d440a1a73bc958c6c42fa8244ea072536236e0b537"},
 ]
 
 [[package]]
@@ -1840,26 +1840,6 @@ numpy = ">=1.21.6"
 packaging = "*"
 protobuf = "*"
 sympy = "*"
-
-[[package]]
-name = "onnxscript"
-version = "0.5.3"
-description = "Naturally author ONNX functions and models using a subset of Python"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "onnxscript-0.5.3-py3-none-any.whl", hash = "sha256:f4ac2887a5bebb276643a5fb046898d8b8041ab365efd5e0bb9e5c5efdbf84c1"},
-    {file = "onnxscript-0.5.3.tar.gz", hash = "sha256:74a9c0aa52e1afd4e14a90349763de3670b4d22442f348a0bbd8a503ded2f431"},
-]
-
-[package.dependencies]
-ml_dtypes = "*"
-numpy = "*"
-onnx = ">=1.16"
-onnx_ir = ">=0.1.10,<2"
-packaging = "*"
-typing_extensions = ">=4.10"
 
 [[package]]
 name = "opt-einsum"
@@ -2916,14 +2896,14 @@ typing-extensions = ">=3.7.4"
 
 [[package]]
 name = "virtualenv"
-version = "20.35.3"
+version = "20.35.1"
 description = "Virtual Python Environment builder"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
 files = [
-    {file = "virtualenv-20.35.3-py3-none-any.whl", hash = "sha256:63d106565078d8c8d0b206d48080f938a8b25361e19432d2c9db40d2899c810a"},
-    {file = "virtualenv-20.35.3.tar.gz", hash = "sha256:4f1a845d131133bdff10590489610c98c168ff99dc75d6c96853801f7f67af44"},
+    {file = "virtualenv-20.35.1-py3-none-any.whl", hash = "sha256:1d9d93cd01d35b785476e2fa7af711a98d40d227a078941695bbae394f8737e2"},
+    {file = "virtualenv-20.35.1.tar.gz", hash = "sha256:041dac43b6899858a91838b616599e80000e545dee01a21172a6a46746472cb2"},
 ]
 
 [package.dependencies]
@@ -2974,4 +2954,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "451be8d09e7c17a7b038f5432f5aef7c13586bbc5debf2db7c5b6760d1aa3f57"
+content-hash = "b9e0eb780dc05154c93cc5c1312f66fd463188cd90ce7f4df35e3c84ce4793d9"
