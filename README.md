@@ -110,9 +110,9 @@ to_onnx(
   * Advanced ONNX function support, including function reuse, and improved variable naming
 
 
-### **Upcoming Version**
+### **Current Productive Version**
  
-* **0.9.0**:
+* **0.9.0** *(PyPI)*:
 
   * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py), slashing peak memory during conversion—especially noticeable on large models.
   * added a `return_mode` option in `to_onnx`:
