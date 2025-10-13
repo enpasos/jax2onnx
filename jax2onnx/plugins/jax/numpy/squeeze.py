@@ -210,7 +210,7 @@ JnpSqueezePlugin._PRIM.def_abstract_eval(JnpSqueezePlugin.abstract_eval)
 
 
 def _squeeze_batch_rule(batched_args, batch_dims, *, axis=None):
-    (operand,), (bdim,) = batched_args, batch_dims
+    (operand,), (_bdim,) = batched_args, batch_dims
     operand_shape = getattr(operand, "shape", ())
     rank = len(operand_shape)
     axes = _normalize_axes(axis, rank)
@@ -220,9 +220,7 @@ def _squeeze_batch_rule(batched_args, batch_dims, *, axis=None):
             for idx, dim in enumerate(operand_shape)
             if isinstance(dim, int) and dim == 1
         )
-    return lax_internal._squeeze_batch_rule(
-        batched_args, batch_dims, dimensions=axes
-    )
+    return lax_internal._squeeze_batch_rule(batched_args, batch_dims, dimensions=axes)
 
 
 batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule

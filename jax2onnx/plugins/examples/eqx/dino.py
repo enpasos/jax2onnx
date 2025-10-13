@@ -2,6 +2,10 @@
 
 """Example of converting a DINOv3 Vision Transformer model from Equinox."""
 
+from __future__ import annotations
+
+# jax2onnx/plugins/examples/eqx/dino.py
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -19,36 +23,49 @@ from jax2onnx.plugins.plugin_system import (
 # --- Model code from https://github.com/clementpoiret/Equimo ---
 
 
+# Shape string constant to reuse in annotations (avoids double-quoted literal lint).
+_ROPE_SHAPE: str = "b n d"
+
+
 @onnx_function
 class RoPE(eqx.Module):
     """Rotary Positional Embedding."""
 
     dim: int
 
-    def __call__(self, x: Float[Array, "b n d"], seq_len: int) -> Float[Array, "b n d"]:
-        theta = 10000.0
-        freqs = 1.0 / (
-            theta ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)
-        )
-        t = jnp.arange(seq_len)
-        freqs_cis = jnp.outer(t, freqs)
-        sin_freqs, cos_freqs = jnp.sin(freqs_cis), jnp.cos(freqs_cis)
-        sin_freqs, cos_freqs = (
-            jnp.broadcast_to(sin_freqs, x.shape),
-            jnp.broadcast_to(cos_freqs, x.shape),
-        )
+    def __call__(
+        self, x: Float[Array, _ROPE_SHAPE], seq_len: int
+    ) -> Float[Array, _ROPE_SHAPE]:
+        half_dim = self.dim // 2
+        dtype = x.dtype
+        theta = jnp.array(10000.0, dtype=x.dtype)
+        freqs = jnp.power(theta, -jnp.arange(half_dim, dtype=x.dtype) / half_dim)
+        positions = jnp.arange(seq_len, dtype=x.dtype)
+        angles = jnp.einsum("n,d->nd", positions, freqs)
+        sin = jnp.sin(angles)
+        cos = jnp.cos(angles)
 
-        x_even = x[..., ::2]
-        x_odd = x[..., 1::2]
+        # Broadcast to match the leading axes of x (assume sequence on penultimate axis).
+        x.shape[:-1]
+        x_reshaped = x.reshape(*x.shape[:-1], half_dim, 2)
+        sin_shape = sin.shape
+        prefix = (1,) * (x.ndim - 2)
+        sin = sin.reshape(prefix + sin_shape)
+        cos = cos.reshape(prefix + sin_shape)
+        sin = sin[..., None]
+        cos = cos[..., None]
 
-        x_rope = jnp.stack(
+        x_even = x_reshaped[..., 0]
+        x_odd = x_reshaped[..., 1]
+
+        rotated = jnp.stack(
             [
-                x_even * cos_freqs - x_odd * sin_freqs,
-                x_even * sin_freqs + x_odd * cos_freqs,
+                (x_even * cos) - (x_odd * sin),
+                (x_even * sin) + (x_odd * cos),
             ],
             axis=-1,
         )
-        return x_rope.reshape(x.shape)
+        return rotated.reshape(x.shape).astype(dtype)
 
 
 register_example(
@@ -64,7 +81,6 @@ register_example(
             "callable": construct_and_call(RoPE, dim=64),
             "input_shapes": [("B", 50, 64), 50],
             "post_check_onnx_graph": EG(["RoPE_1:Bx50x64"], symbols={"B": None}),
-            "run_only_f32_variant": True,
         }
     ],
 )
@@ -148,8 +164,8 @@ class Attention(eqx.Module):
         qkv = jnp.transpose(qkv, (2, 0, 3, 1, 4))
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        q = self.rope(q, N)
-        k = self.rope(k, N)
+        q = self.rope(q)
+        k = self.rope(k)
 
         attn = (q @ jnp.transpose(k, (0, 1, 3, 2))) * self.scale
         attn = jax.nn.softmax(attn, axis=-1)
@@ -320,5 +336,5 @@ register_example(
     since="v0.9.1",
     context="examples.eqx",
     children=["PatchEmbed", "Block"],
-    testcases=_get_test_cases(), 
+    testcases=_get_test_cases(),
 )

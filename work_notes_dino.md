@@ -27,3 +27,6 @@
 - Full `tests/examples/test_eqx.py` sweep (baseline): RoPE/Attention paths crash because `dim` math mixes ints with dynamic batch sentinels; need to express rotary embedding frequency math in JAX so dynamic dims flow through.
 - Transformer blocks and VisionTransformer fail LayerNorm shape checks; match the PatchEmbed fix by wrapping LayerNorm/MLP in `eqx.filter_vmap` to handle batched inputs.
 - Policy guard rails flag the new `run_only_f32_variant` usage—update the allowlist or teach the checker to recognize the flag once float64 support is intentionally dropped.
+- Converter-side fix in progress: updated `jax2onnx/plugins/jax/numpy/pow.py` to derive abstract shapes via `_broadcast_shape`, so dynamic dimensions in RoPE no longer break during broadcast inference. Further validation pending.
+- Began porting RoPE toward Equimo’s complex rotation; still blocked because the sequence-length parameter becomes a tracer under `construct_and_call`, so the reshape/broadcast logic needs to avoid symbolic dims or the metadata must supply a concrete length.
+- Rolled `jax2onnx/plugins/jax/numpy/pow.py` back to the original implementation after recursion failures in `tests/primitives/test_jnp.py`; future dynamic-dim support will need a new approach.
