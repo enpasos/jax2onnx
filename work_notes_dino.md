@@ -16,6 +16,7 @@
 ## Focus
 - `jax2onnx/plugins/examples/eqx/dino.py`: ensure the example runs under the IR-only pipeline and adheres to the above guardrails.
 - Track blockers, test coverage, and export parity updates directly in this document as work progresses.
+- **Strict Directive:** Keep the Equinox example code as close as reasonably possible to the upstream Equimo implementation; prefer enhancing `jax2onnx` over diverging from the source unless a minimal shim is absolutely required.
 
 ## Progress Log
 - Ran `Test_PatchEmbed::test_patch_embed`; initial failure because `eqx.nn.Conv2d` expects unbatched inputs and our patched `jnp.squeeze` lacked a batching rule when vmapped.

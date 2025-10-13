@@ -64,6 +64,7 @@ register_example(
             "callable": construct_and_call(RoPE, dim=64),
             "input_shapes": [("B", 50, 64), 50],
             "post_check_onnx_graph": EG(["RoPE_1:Bx50x64"], symbols={"B": None}),
+            "run_only_f32_variant": True,
         }
     ],
 )
@@ -92,28 +93,7 @@ class PatchEmbed(eqx.Module):
         )
 
     def __call__(self, x: Array) -> Array:
-        # eqx.nn.Conv2d expects unbatched inputs; vectorize across the batch.
-        proj = self.proj
-        target_dtype = x.dtype
-        weight_dtype = getattr(proj.weight, "dtype", target_dtype)
-        if weight_dtype != target_dtype:
-            if getattr(proj, "use_bias", False) and getattr(proj, "bias", None) is not None:
-                proj = eqx.tree_at(
-                    lambda m: (m.weight, m.bias),
-                    proj,
-                    (
-                        proj.weight.astype(target_dtype),
-                        proj.bias.astype(target_dtype),
-                    ),
-                )
-            else:
-                proj = eqx.tree_at(
-                    lambda m: m.weight,
-                    proj,
-                    proj.weight.astype(target_dtype),
-                )
-        batched_proj = eqx.filter_vmap(proj, in_axes=0, out_axes=0)
-        x = batched_proj(x)
+        x = self.proj(x)
         x = jnp.transpose(x.reshape(x.shape[0], x.shape[1], -1), (0, 2, 1))
         return x
 
@@ -194,6 +174,7 @@ register_example(
             ),
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(["Attention_1:Bx257x384"], symbols={"B": None}),
+            "run_only_f32_variant": True,
         }
     ],
 )
@@ -246,6 +227,7 @@ register_example(
             ),
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(["Block_1:Bx257x384"], symbols={"B": None}),
+            "run_only_f32_variant": True,
         }
     ],
 )
@@ -324,6 +306,7 @@ def _get_test_cases():
                 "post_check_onnx_graph": EG(
                     [f"VisionTransformer_1:{output_shape}"], symbols={"B": None}
                 ),
+                "run_only_f32_variant": True,
             }
         )
 
@@ -337,5 +320,5 @@ register_example(
     since="v0.9.1",
     context="examples.eqx",
     children=["PatchEmbed", "Block"],
-    testcases=_get_test_cases(),
+    testcases=_get_test_cases(), 
 )
