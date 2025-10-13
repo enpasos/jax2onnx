@@ -404,6 +404,8 @@ def to_onnx(
         converter.builder = ctx.builder
         converter.ctx = ctx
 
+        ctx._const_folder.install_producers(jpr)
+
         for eqn in jpr.eqns:
             prim_name = eqn.primitive.name
             plugin_ref = PLUGIN_REGISTRY.get(prim_name)

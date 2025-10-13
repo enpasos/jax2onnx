@@ -19,7 +19,8 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
-
+from .ir_constants import ConstantFolder
+from .lower_dimexpr import LowerDimExpr
 from jax.extend import core as jcore_ext
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ class _InitializerProxy(MutableSequence[ir.Value]):
     def __init__(self, ctx: "IRContext") -> None:
         self._ctx = ctx
         self._storage = ctx.builder.initializers
-
+    
     def append(self, value: ir.Value) -> None:
         self._ctx._handle_initializer_append(value)
 
@@ -180,6 +181,7 @@ class IRContext:
             opset=opset, enable_double_precision=enable_double_precision
         )
         self.builder._function_mode = False
+        self.dim_expr_lowerer = LowerDimExpr(self)
         self._default_float_dtype = (
             np.float64 if enable_double_precision else np.float32
         )
@@ -207,6 +209,10 @@ class IRContext:
         self._call_input_param_names: set[str] = set()
         self._call_input_param_literals: dict[str, Any] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
+        self._const_folder = ConstantFolder()
+
+    def try_evaluate_const(self, var, handler):
+        return self._const_folder.try_evaluate(var, handler)
 
     @property
     def opset(self) -> int:
@@ -406,6 +412,7 @@ class IRContext:
         array = (
             np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
         )
+        self._const_folder.register_const(var, array)
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self._function_mode:

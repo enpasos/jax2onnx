@@ -14,9 +14,11 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
+from .gather_helpers import get_gir_output_shape
+from .gather_compile import compile_to_gir
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from jax2onnx.converter.ir_context import IRContext
-
 
 def _is_integer_dtype(dtype) -> bool:
     try:
@@ -24,6 +26,11 @@ def _is_integer_dtype(dtype) -> bool:
     except TypeError:
         return False
 
+def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
+    dtype = getattr(getattr(val, "type", None), "dtype", None)
+    if dtype is None:
+        raise TypeError("Missing dtype on value; ensure inputs are typed.")
+    return dtype
 
 @register_primitive(
     jaxpr_primitive=jax.lax.gather_p.name,
@@ -182,119 +189,215 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         data_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
-
-        data_val = ctx.get_value_for_var(
-            data_var, name_hint=ctx.fresh_name("gather_data")
-        )
+        constant_indices_value = ctx.try_evaluate_const(indices_var, _eval_primitive)
+        
         ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gather_out"))
 
-        data_shape = tuple(getattr(data_var.aval, "shape", ()))
-        indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
+        gir = compile_to_gir(eqn, constant_indices_value)
 
-        is_simple_index_zero = indices_shape == (1,) and _is_integer_dtype(
-            indices_var.aval.dtype
+        current_indices_var = ctx.get_value_for_var(
+            indices_var, name_hint=ctx.fresh_name("gather_indices")
         )
+        current_data_var = ctx.get_value_for_var(
+            data_var, name_hint=ctx.fresh_name("gather_data")
+        )
+        
+        for gir_instr in gir:
+            if gir_instr["op"] == "index_tensor":
+                current_indices_var = self._emit_constant_index(ctx, gir_instr)
+            elif gir_instr["op"] == "index_transpose":
+                current_indices_var = self._emit_index_transpose_from_gir(ctx, gir_instr, current_indices_var)
+            elif gir_instr["op"] == "index_reshape":
+                current_indices_var = self._emit_index_reshape_from_gir(ctx, gir_instr, current_indices_var)
+            elif gir_instr["op"] == "index_lastdim_gather":
+                current_indices_var = self._emit_index_lastdim_gather_from_gir(ctx, gir_instr, current_indices_var)
+            elif gir_instr["op"] == "index_expand":
+                current_indices_var = self._emit_index_expand_range_gir_from_gir(ctx, gir_instr, current_indices_var)
+            elif gir_instr["op"] == "ONNX_Gather":
+                current_data_var = self._emit_gather_from_gir(ctx, gir_instr, current_data_var, current_indices_var)
+            elif gir_instr["op"] == "ONNX_GatherND":
+                current_data_var = self._emit_gather_nd_from_gir(ctx, gir_instr, current_data_var, current_indices_var)
+            elif gir_instr["op"] == "transpose":
+                current_data_var = self._emit_transpose_from_gir(ctx, gir_instr, current_data_var)
+            elif gir_instr["op"] == "ONNX_Slice":
+                current_data_var = self._emit_slice_from_gir(ctx, gir_instr, current_data_var)
+            else:
+                raise RuntimeError(f"Unhandled internal op in Gather: {gir_instr}")
+            
+        ctx.bind_value_for_var(out_var, current_data_var)
 
-        def _is_concrete_int(x: object) -> bool:
-            return isinstance(x, int)
+    def _emit_transpose_from_gir(self, ctx: 'IRContext', gir_instr: dict, input_tensor: ir.Value) -> ir.Value:
+        result_val = ctx.builder.Transpose(
+            input_tensor,
+            _outputs=[ctx.fresh_name("transpose_gather_data")],
+            perm=gir_instr["numpy_transpose"]
+        )
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
+    
+    def _emit_index_transpose_from_gir(self, ctx: 'IRContext', gir_instr: dict, index_tensor: ir.Value) -> ir.Value:
+        result_val = ctx.builder.Transpose(
+            index_tensor,
+            _outputs=[ctx.fresh_name("transpose_gather_index")],
+            perm=gir_instr["numpy_transpose"]
+        )
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
 
-        has_leading_dim = bool(data_shape)
-        first_dim = data_shape[0] if has_leading_dim else None
-        dynamic_batch = has_leading_dim and not _is_concrete_int(first_dim)
-
-        if is_simple_index_zero and dynamic_batch:
-            # Build indices shaped (B, 1) with all zeros, where B is the dynamic batch dim.
-            data_shape_val = ctx.builder.Shape(
-                data_val, _outputs=[ctx.fresh_name("gather_data_shape")]
+    def _emit_index_reshape_from_gir(self, ctx: 'IRContext', gir_instr: dict, index_tensor: ir.Value) -> ir.Value:
+        new_shape = get_gir_output_shape(gir_instr)
+        new_shape_val = _const_i64(
+                ctx, np.asarray(new_shape, dtype=np.int64), "new_shape_for_gather_index"
             )
-            data_shape_val.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(data_shape_val, (len(data_shape),))
-            _ensure_value_metadata(ctx, data_shape_val)
+        result_val = ctx.builder.Reshape(
+            index_tensor,
+            new_shape_val,
+            _outputs=[ctx.fresh_name("reshape_gather_index")],
+        )
+        _stamp_type_and_shape(result_val, new_shape)
+        result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
 
-            zero_idx = _const_i64(
-                ctx, np.asarray(0, dtype=np.int64), "gather_batch_idx"
+    def _emit_index_lastdim_gather_from_gir(self, ctx: 'IRContext', gir_instr: dict, index_tensor: ir.Value) -> ir.Value:
+        gather_indices_val = _const_i64(
+                ctx, np.asarray(gir_instr["gather_indices"], dtype=np.int64), "gather_index_for_lastdim_gather_index"
             )
-            batch_dim = ctx.builder.Gather(
-                data_shape_val,
-                zero_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("gather_batch_dim")],
-            )
-            _stamp_type_and_shape(batch_dim, ())
-            batch_dim.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_metadata(ctx, batch_dim)
+        result_val = ctx.builder.Gather(
+            index_tensor,
+            gather_indices_val,
+            axis=-1,
+            _outputs=[ctx.fresh_name("lastdim_reorder_gather_on_gather_index")],
+        )
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
+        
+    def _emit_index_expand_range_gir_from_gir(self, ctx: 'IRContext', gir_instr: dict, index_tensor: ir.Value) -> ir.Value:
+        #TODO: relatively complex, one possible implementation in numpy:
+        
+        # new_dims_shape = [dim["slice_size"] for dim in instr["new_dims"]]
+        # indices_var_index = [dim["indices_var_index"] for dim in instr["new_dims"]]
+        # index_tensor = np.reshape(index_tensor, tuple(instr["input_shape"][:-1] + [1]*len(new_dims_shape) + instr["input_shape"][-1:]))
+        # new_parts = np.zeros(tuple([1]*(len(instr["input_shape"])-1) + new_dims_shape + instr["input_shape"][-1:]))
+        # for i,size in enumerate(new_dims_shape):
+        #     A = np.reshape(np.arange(size), tuple([1]*(len(instr["input_shape"])-1) + [1]*i + [size] + [1]*(len(new_dims_shape)-1-i)))
+        #     new_parts[...,indices_var_index[i]] = A
+        # index_tensor = index_tensor + new_parts
 
-            axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "gather_axes0")
-            batch_vec = ctx.builder.Unsqueeze(
-                batch_dim,
-                axes0,
-                _outputs=[ctx.fresh_name("gather_batch_vec")],
-            )
-            batch_vec.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_metadata(ctx, batch_vec)
-
-            one_vec = _const_i64(ctx, np.asarray([1], dtype=np.int64), "gather_one_vec")
-
-            target_shape = ctx.builder.Concat(
-                batch_vec,
-                one_vec,
-                axis=0,
-                _outputs=[ctx.fresh_name("gather_target_shape")],
-            )
-            target_shape.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_metadata(ctx, target_shape)
-
-            base_index = _const_i64(
-                ctx, np.zeros((1, 1), dtype=np.int64), "gather_base_idx"
-            )
-
-            indices_val = ctx.builder.Expand(
-                base_index,
-                target_shape,
-                _outputs=[ctx.fresh_name("gather_indices")],
-            )
-            indices_val.type = ir.TensorType(ir.DataType.INT64)
-            _ensure_value_metadata(ctx, indices_val)
-            batch_dims = 1
-        else:
-            indices_val_in = ctx.get_value_for_var(
-                indices_var, name_hint=ctx.fresh_name("gather_indices_in")
-            )
-            indices_val = ctx.builder.Cast(
-                indices_val_in,
-                _outputs=[ctx.fresh_name("gather_indices")],
+        raise RuntimeError("index expand for breaking complex gather+slice is not yet supported")
+        
+    def _emit_gather_from_gir(self, ctx: 'IRContext', gir_instr: dict, input_tensor: ir.Value, index_tensor: ir.Value) -> ir.Value:
+        # emit a cast if the indices are not int32 or int64, cast to int64 just to be sure
+        if index_tensor.type != ir.TensorType(ir.DataType.INT64) and index_tensor.type != ir.TensorType(ir.DataType.INT32):
+            index_tensor_final = ctx.builder.Cast(
+                index_tensor,
+                _outputs=[ctx.fresh_name("gather_nd_indices")],
                 to=int(ir.DataType.INT64.value),
             )
-            indices_val.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(indices_val, tuple(indices_shape))
-            _ensure_value_metadata(ctx, indices_val)
-            batch_dims = 0
+            index_tensor_final.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(index_tensor_final, tuple(index_tensor.shape))
+            _ensure_value_metadata(ctx, index_tensor_final)
+        else:
+            index_tensor_final = index_tensor
 
-        out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("gather_out")
+        gather_axis = None
+        
+        # find the gather axis, this will be relevant if we later add some optimisations
+        for dim in gir_instr["dims"]:
+            if dim["mode"] == "gather":
+                assert gather_axis is None
+                gather_axis = dim["dim"]
+            else:
+                assert dim["mode"] == "passthrough"
+        
+        assert gather_axis is not None
+        
+        # emit gather
+        result_val = ctx.builder.Gather(
+            input_tensor,
+            index_tensor_final,
+            axis=gather_axis,
+            _outputs=[ctx.fresh_name("simple_gather")],
         )
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("GatherND")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("GatherND")
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
+    
+    def _convert_symbolic_1d_int_vec(self, ctx: 'IRContext', values: list[Any], name: str) -> ir.Value:
+        if all(isinstance(x, int) for x in values):
+            return _const_i64(
+                ctx, np.asarray(values, dtype=np.int64), name
+            )
+        else:
+            return ctx.dim_expr_lowerer(values)
+    
+    def _emit_slice_from_gir(self, ctx: 'IRContext', gir_instr: dict, input_tensor: ir.Value) -> ir.Value:
+        axes = [dim["dim"] for dim in gir_instr["dims"] if dim["mode"] == "range_slice"]
+        starts = [dim["start"] for dim in gir_instr["dims"] if dim["mode"] == "range_slice"]
+        ends = [dim["end"] for dim in gir_instr["dims"] if dim["mode"] == "range_slice"]
+        
+        starts_val = self._convert_symbolic_1d_int_vec(ctx, starts, "gather_slice_starts")
+        ends_val = self._convert_symbolic_1d_int_vec(ctx, ends, "gather_slice_ends")
+        axes_val = self._convert_symbolic_1d_int_vec(ctx, axes, "gather_slice_axes")
+        
+        result_val = ctx.builder.Slice(
+            input_tensor,
+            starts_val,
+            ends_val,
+            axes_val,
+            _outputs=[ctx.fresh_name("gather_slice")],
+        )
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
 
-        result = ctx.builder.GatherND(
-            data_val,
-            indices_val,
+    def _emit_gather_nd_from_gir(self, ctx: 'IRContext', gir_instr: dict, input_tensor: ir.Value, index_tensor: ir.Value) -> ir.Value:
+        batch_dims = 0
+        #emit cast on index if it is not the correct type
+        if index_tensor.type != ir.TensorType(ir.DataType.INT64):
+            index_tensor_final = ctx.builder.Cast(
+                index_tensor,
+                _outputs=[ctx.fresh_name("gather_nd_indices")],
+                to=int(ir.DataType.INT64.value),
+            )
+            index_tensor_final.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(index_tensor_final, tuple(index_tensor.shape))
+            _ensure_value_metadata(ctx, index_tensor_final)
+        else:
+            index_tensor_final = index_tensor
+        
+        #count batch dimensions
+        for dim in gir_instr["dims"]:
+            if dim["mode"] == "batched":
+                batch_dims += 1
+            else:
+                assert dim["mode"] in ["passthrough", "gather"]
+        
+        #emit GatherND
+        result_val = ctx.builder.GatherND(
+            input_tensor,
+            index_tensor_final,
             batch_dims=batch_dims,
-            _outputs=[desired_name],
+            _outputs=[ctx.fresh_name("gather_nd")],
         )
-
-        output_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(result, output_shape)
-        result_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
-        if result_dtype is None:
-            result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
-        if result_dtype is not None:
-            result.type = ir.TensorType(result_dtype)
-        _ensure_value_metadata(ctx, result)
-        ctx.bind_value_for_var(out_var, result)
-
+        _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
+        result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
+    
+    def _emit_constant_index(self, ctx: 'IRContext', gir_instr: dict) -> ir.Value:
+        index_val = _const_i64(
+            ctx, np.asarray(gir_instr["value"], dtype=np.int64), "gather_constant_index_base"
+        )
+        return index_val
 
 def _masked_gather_trig_local(data, indices):
     data = jnp.asarray(data, dtype=jnp.float64)
@@ -303,3 +406,6 @@ def _masked_gather_trig_local(data, indices):
     result = jnp.sin(result) + jnp.cos(result)
     mask = result > jnp.array(0.5, dtype=jnp.float64)
     return jnp.where(mask, result, jnp.array(0.0, dtype=jnp.float64))
+
+def _eval_primitive(primitive, *args, **kwargs):
+    return primitive.bind(*args, **kwargs)
