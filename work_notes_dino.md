@@ -22,4 +22,4 @@
 - Updated `PatchEmbed.__call__` to apply `eqx.filter_vmap` over the batch dimension.
 - Implemented a batching rule for the custom `jnp.squeeze` primitive (`jax2onnx/plugins/jax/numpy/squeeze.py`) by delegating to JAX’s native `_squeeze_batch_rule`.
 - Re-ran the focused test; `Test_PatchEmbed::test_patch_embed` now passes.
-- Float64 variant surfaced ONNX Runtime gaps: align convolution parameters with the input dtype inside `PatchEmbed.__call__`, and mark the example to skip numeric validation because ORT (CPU) lacks a Conv kernel for `float64`.
+- Float64 variant surfaced ONNX Runtime gaps: align convolution parameters with the input dtype inside `PatchEmbed.__call__`; constrain the example to the float32 test path via `run_only_f32_variant` to keep numeric validation enabled.

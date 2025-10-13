@@ -137,7 +137,7 @@ register_example(
             ),
             "input_shapes": [(1, 3, 224, 224)],
             "post_check_onnx_graph": EG(["PatchEmbed_1:1x256x384"]),
-            "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
         }
     ],
 )
