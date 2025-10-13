@@ -64,4 +64,3 @@ register_example(
         },
     ],
 )
-
