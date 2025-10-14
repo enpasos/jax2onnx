@@ -58,6 +58,7 @@ Attach auto-generated `expect_graph` structural assertions to every plugin and e
   - `primitives.lax.while_loop` → 17 outstanding loop fixtures (tuple state, counter, vector, closure, mixed-rank, CNN/NNX regressions).
   - `examples.gpt` sweep: token/position embeddings, transformer block/stack, embeddings/head, and broadcast add now assert their ONNX function calls.
   - `examples.onnx_functions` sweep: 002–004 nested function samples carry expect_graph checks for their function call nodes.
+  - Added expect_graph coverage for `examples.onnx_functions` 005–016 (including the final nested-function variant).
   - `examples.onnx_functions` follow-up: 005–010 transformer variants, ViT-based 012–013, and function-default cases 014–015 now capture expect_graph snippets (VisionTransformer outputs noted at `Bx10`).
   - Focused pytest runs: `tests/primitives/test_core.py -k jit_inline`, `tests/primitives/test_nnx.py -k layer_norm`, `tests/primitives/test_lax.py` (full), plus targeted reruns for adjusted specs (all green).
   - Full suite verified via `poetry run pytest -q` (1554 passed, 2 xfailed).
