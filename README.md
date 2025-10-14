@@ -126,7 +126,7 @@ to_onnx(
  
 ### **Past Versions**
 
-See [`docs/readme/past_versions.md`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
+See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
 
 ---
 
@@ -192,8 +192,7 @@ We warmly welcome contributions!
 **How you can help:**
 
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins):
-  a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step using
-  [`jax2onnx/plugins/jax/lax/abs.py`](./jax2onnx/plugins/jax/lax/abs.py) as a concrete template.
+  a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
 ---
