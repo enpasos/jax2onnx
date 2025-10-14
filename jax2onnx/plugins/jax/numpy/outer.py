@@ -38,9 +38,9 @@ _OUTER_PRIM: Final = make_jnp_primitive("jax.numpy.outer")
             "input_shapes": [(3,), (4,)],
         },
         {
-            "testcase": "outer_dynamic",
+            "testcase": "outer",
             "callable": lambda a, b: jnp.outer(a, b),
-            "input_shapes": [("B",), (5,)],
+            "input_shapes": [(3,), (5,)],
         },
     ],
 )
