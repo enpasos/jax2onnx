@@ -40,7 +40,7 @@ register_example(
             "input_shapes": [(17, 32), (17, 32), (17, 32)],
             "input_dtypes": [jnp.float32, jnp.float32, jnp.float32],
             "post_check_onnx_graph": EG(
-                ["MatMul -> Softmax -> MatMul"],
+                ["MultiheadAttention_1"],
                 search_functions=True,
                 no_unused_function_inputs=True,
             ),
@@ -67,7 +67,7 @@ register_example(
             "input_shapes": [(41, 32)],
             "input_dtypes": [jnp.float32],
             "post_check_onnx_graph": EG(
-                ["Cos", "Sin"],
+                ["RotaryPositionalEmbedding_1"],
                 search_functions=True,
                 mode="all",
                 no_unused_function_inputs=True,
@@ -76,4 +76,3 @@ register_example(
         }
     ],
 )
-

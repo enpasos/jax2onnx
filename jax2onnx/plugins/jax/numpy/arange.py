@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
+_JNP_ARANGE_ORIG: Final = jnp.arange
 
 
 class _DynamicDimSentinel:
@@ -458,7 +459,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
 @JnpArangePlugin._PRIM.def_impl
 def _arange_impl(*args, dtype=None):
-    orig = get_orig_impl(JnpArangePlugin._PRIM, JnpArangePlugin._FUNC_NAME)
+    try:
+        orig = get_orig_impl(JnpArangePlugin._PRIM, JnpArangePlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = _JNP_ARANGE_ORIG
     return orig(*args, dtype=dtype)
 
 

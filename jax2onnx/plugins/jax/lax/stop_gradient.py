@@ -55,13 +55,11 @@ class StopGradientPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("Identity")
 
         result = ctx.builder.Identity(inp_val, _outputs=[desired_name])
-
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
             result.type = getattr(inp_val, "type", None)
-        result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

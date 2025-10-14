@@ -27,10 +27,12 @@ from typing import (
 )
 
 import jax
+import jax.tree_util as jtu
 from jax.extend import core as jcore_ext
 import numpy as np
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
+from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
@@ -400,6 +402,7 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive = Primitive(primitive_name)
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
         self.primitive.def_impl(self._primitive_impl)
+        batching.primitive_batchers[self.primitive] = self._batching_rule
         self._orig_fn = None  # set by patch wrapper
 
     # Implement abstract method (used by monkey-patch activator)
@@ -476,6 +479,49 @@ class FunctionPlugin(PrimitivePlugin):
         if self._orig_fn is None:
             raise ValueError("Original function not set for primitive!")
         return self._orig_fn(*args, **kwargs)
+
+    def _batching_rule(self, args, dims, **params):
+        params.pop("instance_key", None)
+        call_kwargs = {}
+        for key, value in params.items():
+            if isinstance(value, _DynamicParamWrapper):
+                call_kwargs[key] = value.value
+            else:
+                call_kwargs[key] = value
+
+        original_fn = self._orig_fn
+
+        if original_fn is None:
+            raise NotImplementedError(
+                f"Batching rule for '{self.name}' missing original callable."
+            )
+
+        axis_size = None
+        for arg, bdim in zip(args, dims):
+            if bdim is batching.not_mapped:
+                continue
+            shape = getattr(arg, "shape", None)
+            if shape is None or bdim >= len(shape):
+                continue
+            axis_size = shape[bdim]
+            break
+
+        if axis_size is None:
+            result = original_fn(*args, **call_kwargs)
+            out_dims = jtu.tree_map(lambda _: batching.not_mapped, result)
+            return result, out_dims
+
+        prepared_args = [
+            batching.bdim_at_front(arg, bdim, axis_size)
+            for arg, bdim in zip(args, dims)
+        ]
+
+        def _call_single(*single_args):
+            return original_fn(*single_args, **call_kwargs)
+
+        batched_result = jax.vmap(_call_single)(*prepared_args)
+        out_dims = jtu.tree_map(lambda _: 0, batched_result)
+        return batched_result, out_dims
 
     def _make_patch_fn(self, primitive: Primitive, is_class: bool) -> Callable:
         def patch(original_call):

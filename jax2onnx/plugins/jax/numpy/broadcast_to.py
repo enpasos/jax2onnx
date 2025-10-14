@@ -21,6 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 _BROADCAST_TO_PRIM: Final = make_jnp_primitive("jax.numpy.broadcast_to")
+_JNP_BROADCAST_TO_ORIG: Final = jnp.broadcast_to
 
 
 def _shape_tuple(spec: Sequence[int | object]) -> tuple[int | object, ...]:
@@ -241,7 +242,10 @@ class JnpBroadcastToPlugin(PrimitiveLeafPlugin):
 
 @JnpBroadcastToPlugin._PRIM.def_impl
 def _broadcast_to_impl(*args, **kwargs):
-    orig = get_orig_impl(JnpBroadcastToPlugin._PRIM, JnpBroadcastToPlugin._FUNC_NAME)
+    try:
+        orig = get_orig_impl(JnpBroadcastToPlugin._PRIM, JnpBroadcastToPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = _JNP_BROADCAST_TO_ORIG
     return orig(*args, **kwargs)
 
 

@@ -20,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 _EINSUM_PRIM: Final = make_jnp_primitive("jax.numpy.einsum")
+_JNP_EINSUM_ORIG: Final = jnp.einsum
 
 
 def _einsum_shape(avals, equation: str):
@@ -278,7 +279,10 @@ def _einsum_impl(
     optimize=None,
     preferred_element_type=None,
 ):
-    orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
+    try:
+        orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = _JNP_EINSUM_ORIG
     kwargs = {}
     if precision is not None:
         kwargs["precision"] = precision
@@ -290,3 +294,69 @@ def _einsum_impl(
 
 
 JnpEinsumPlugin._PRIM.def_abstract_eval(JnpEinsumPlugin.abstract_eval)
+
+
+def _einsum_batch_rule(
+    batched_args,
+    batch_dims,
+    *,
+    equation,
+    precision=None,
+    optimize=None,
+    preferred_element_type=None,
+):
+    kwargs = {}
+    if precision is not None:
+        kwargs["precision"] = precision
+    if optimize is not None:
+        kwargs["optimize"] = optimize
+    if preferred_element_type is not None:
+        kwargs["preferred_element_type"] = preferred_element_type
+
+    try:
+        orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = _JNP_EINSUM_ORIG
+
+    processed_args = []
+    batch_size = None
+    for arg, bdim in zip(batched_args, batch_dims):
+        if bdim is None:
+            processed_args.append(arg)
+            continue
+        if bdim != 0:
+            arg = jnp.moveaxis(arg, bdim, 0)
+        if batch_size is None:
+            batch_size = arg.shape[0]
+        processed_args.append(arg)
+
+    if batch_size is None:
+        # No batched operands; fall back to primitive bind.
+        result = JnpEinsumPlugin._PRIM.bind(
+            *batched_args,
+            equation=equation,
+            precision=precision,
+            optimize=optimize,
+            preferred_element_type=preferred_element_type,
+        )
+        return result, None
+
+    broadcasted_args = []
+    for arg, bdim in zip(processed_args, batch_dims):
+        if bdim is None:
+            expanded = jnp.expand_dims(arg, 0)
+            broadcasted = jnp.broadcast_to(expanded, (batch_size,) + arg.shape)
+            broadcasted_args.append(broadcasted)
+        else:
+            broadcasted_args.append(arg)
+
+    def _einsum_no_batch(*xs):
+        return orig(equation, *xs, **kwargs)
+
+    result = jax.vmap(_einsum_no_batch)(*broadcasted_args)
+    return result, 0
+
+
+jax.interpreters.batching.primitive_batchers[
+    JnpEinsumPlugin._PRIM
+] = _einsum_batch_rule

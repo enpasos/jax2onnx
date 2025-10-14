@@ -151,7 +151,11 @@ register_example(
             ),
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(
-                ["MatMul -> Softmax -> MatMul"],
+                [
+                    {"path": "MatMul", "counts": {"MatMul": 2}},
+                    "ReduceMax",
+                    "Dropout",
+                ],
                 symbols={"B": None},
                 search_functions=True,
             ),
@@ -256,7 +260,7 @@ class VisionTransformer(eqx.Module):
         x = jnp.concatenate([cls_tokens, x], axis=1)
         for blk in self.blocks:
             x = blk(x)
-        return self.norm(x)
+        return _apply_pointwise(self.norm, x)
 
 
 def _get_test_cases():
@@ -273,7 +277,7 @@ def _get_test_cases():
 
     for idx, (name, config) in enumerate(vit_configs.items()):
         num_patches = (img_size // config["patch"]) ** 2
-        output_shape = f"B,{num_patches + 1},{config['dim']}"
+        output_shape = f"Bx{num_patches + 1}x{config['dim']}"
 
         test_cases.append(
             {
