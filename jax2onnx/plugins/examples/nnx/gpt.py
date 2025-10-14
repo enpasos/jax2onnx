@@ -231,6 +231,11 @@ register_example(
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["Block_1:Bx1024x768"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -270,6 +275,11 @@ register_example(
             "input_shapes": [("B", 1024)],
             "input_dtypes": [jnp.int32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["TokenEmbedding_1:Bx1024x768"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -306,6 +316,10 @@ register_example(
             "input_shapes": [],
             "expected_output_shapes": [(1, 1024, 768)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["PositionEmbedding_1:1x1024x768"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -364,6 +378,11 @@ register_example(
             "input_shapes": [("B", 1024, 768)],
             "input_params": {"deterministic": True},
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["GPTTransformerStack_1:Bx1024x768"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -386,6 +405,11 @@ register_example(
             "callable": broadcast_add,
             "input_shapes": [("B", 4, 5), (1, 4, 5)],
             "expected_output_shape": ("B", 4, 5),
+            "post_check_onnx_graph": expect_graph(
+                ["Add:Bx4x5"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -437,6 +461,11 @@ register_example(
             "input_params": {"deterministic": True},
             "expected_output_shape": ("B", 1024, 768),
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["GPTEmbeddings_1:Bx1024x768"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -479,6 +508,11 @@ register_example(
             "input_shapes": [("B", 1024, 768)],
             "expected_output_shape": ("B", 1024, 3144),
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["GPTHead_1:Bx1024x3144"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

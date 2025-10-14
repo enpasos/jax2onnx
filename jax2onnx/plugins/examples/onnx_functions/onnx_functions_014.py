@@ -6,6 +6,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -61,6 +62,10 @@ register_example(
             "run_only_f32_variant": True,
             "rtol": 3e-4,
             "atol": 2e-6,
+            "post_check_onnx_graph": expect_graph(
+                ["SuperBlock_1:5x10x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "014_one_function_without_input_param_with_default_value",
@@ -70,6 +75,11 @@ register_example(
             "run_only_f32_variant": True,
             "rtol": 3e-4,
             "atol": 2e-6,
+            "post_check_onnx_graph": expect_graph(
+                ["SuperBlock_1:Bx10x3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

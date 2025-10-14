@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -52,17 +53,44 @@ def _normalize_axis(axis: int, rank: int) -> int:
             "testcase": "unstack_axis_0",
             "callable": lambda x: jnp.unstack(x, axis=0),
             "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Split:1x2 -> Squeeze:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "unstack_axis_0_f64",
             "callable": lambda x: jnp.unstack(x, axis=0),
             "input_values": [np.array([[1, 2], [3, 4]], dtype=np.float64)],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Split:1x2 -> Squeeze:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "unstack_axis_1",
             "callable": lambda x: jnp.unstack(x, axis=1),
             "input_values": [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int32)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Split:2x1 -> Squeeze:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "unstack_axis_1_f64",
@@ -71,11 +99,29 @@ def _normalize_axis(axis: int, rank: int) -> int:
                 np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Split:2x1 -> Squeeze:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "unstack_negative_axis",
             "callable": lambda x: jnp.unstack(x, axis=-1),
             "input_values": [np.array([[[1, 2], [3, 4]]], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.0}},
+                        "path": "Split:1x2x1 -> Squeeze:1x2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

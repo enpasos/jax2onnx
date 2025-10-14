@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -62,6 +63,10 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1, 2, 3], dtype=jnp.float32),
                 jnp.array([-1, -2, -3], dtype=jnp.float32),
             ),
+            "post_check_onnx_graph": EG(
+                ["Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_broadcast",
@@ -70,12 +75,26 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
                 -jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
             ),
+            "post_check_onnx_graph": EG(
+                ["Neg:4x5 -> Where:4x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_gpt_mask_scores_literal_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
             "input_dtypes": [np.bool_, np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": -1_000_000_000.0}},
+                        "path": "Where:Bx12xTxT",
+                    }
+                ],
+                symbols={"B": None, "T": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_multidim_condition_scalar_branches_broadcast",
@@ -84,12 +103,25 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 5.0,
                 -5.0,
             ),
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 5.0}, 2: {"const": -5.0}},
+                        "path": "Where:3x1x1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_A",
             "callable": lambda: _create_problematic_where_sequence(
                 jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
                 jnp.array(_WHERE_A_DATA, dtype=jnp.float32),
+            ),
+            "post_check_onnx_graph": EG(
+                ["Where:4x1x1 -> Mul:4x1x4"],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -98,12 +130,26 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(_WHERE_B_COND, dtype=jnp.bool_),
                 jnp.array(_WHERE_B_DATA, dtype=jnp.int32),
             ),
+            "post_check_onnx_graph": EG(
+                ["Where:4x1x1 -> Mul:4x1x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_gpt_mask_scores_scalar_else",
             "callable": lambda mask, scores: jnp.where(mask, scores, -1e9),
             "input_shapes": [("B", 1, "T", "T"), ("B", 12, "T", "T")],
             "input_dtypes": [np.bool_, np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": -1_000_000_000.0}},
+                        "path": "Where:Bx12xTxT",
+                    }
+                ],
+                symbols={"B": None, "T": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_int_condition_cast",
@@ -112,6 +158,10 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1.0, 2.0, 3.0], dtype=np.float32),
                 jnp.array([0.0, 0.0, 0.0], dtype=np.float32),
             ),
+            "post_check_onnx_graph": EG(
+                ["Cast:3 -> Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_literal_else_pyfloat",
@@ -119,6 +169,15 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([[True, False], [False, True]]),
                 jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
                 -1e9,
+            ),
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": -1_000_000_000.0}},
+                        "path": "Where:2x2",
+                    }
+                ],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -129,6 +188,15 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array(0, dtype=np.int64),
             ),
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}, 2: {"const": 0.0}},
+                        "path": "Where:3x1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "where_dtype_mismatch_f64_vs_i32_promote",
@@ -138,21 +206,42 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 jnp.array([1, 2, 3], dtype=np.int32),
             ),
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                ["Greater:3 -> Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_where_basic",
             "callable": lambda c, x, y: jnp.where(c, x, y),
             "input_shapes": [(3,), (3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Cast:3 -> Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_where_broadcast",
             "callable": lambda c, x, y: jnp.where(c[:, None], x, y),
             "input_shapes": [(4,), (4, 5), (4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:4x1 -> Expand:4x1 -> Cast:4x1 -> Where:4x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_where_scalar_else",
             "callable": lambda c, x: jnp.where(c, x, -1e9),
             "input_shapes": [(2, 2), (2, 2)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": -1_000_000_000.0}},
+                        "path": "Cast:2x2 -> Where:2x2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

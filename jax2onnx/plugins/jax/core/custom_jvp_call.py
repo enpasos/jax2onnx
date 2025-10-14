@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
@@ -47,6 +48,10 @@ def _square_jvp(primals, tangents):
             "testcase": "custom_jvp_square",
             "callable": lambda x: _square(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Mul:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

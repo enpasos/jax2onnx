@@ -12,6 +12,7 @@ from jax import core
 from jax.extend.core import Literal as JaxLiteral
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -190,12 +191,37 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_shapes": [(3, 10)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            1: {"const": 10.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:10",
+                    }
+                ]
+            ),
         },
         {
             "testcase": "arange_stop_only_concrete_input_val",
             "callable": lambda stop: jnp.arange(stop, dtype=jnp.float32),
             "input_values": [np.array(5.0, dtype=np.float32)],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:B",
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_start_stop_concrete_input_val",
@@ -205,6 +231,18 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(7.0, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:B",
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_start_stop_step_concrete_input_val",
@@ -217,6 +255,11 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(2.0, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                ["Range:B"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_float_concrete_input_val",
@@ -229,6 +272,11 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
                 np.array(0.5, dtype=np.float32),
             ],
             "expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                ["Range:B"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_stop_only_int",
@@ -236,12 +284,38 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            1: {"const": 5.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_stop_only_float",
             "callable": lambda: jnp.arange(5.0),
             "input_values": [],
             "expected_output_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            1: {"const": 5.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_start_stop_int",
@@ -249,6 +323,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 2.0},
+                            1: {"const": 7.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_start_stop_step_int",
@@ -256,6 +343,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 1.0},
+                            1: {"const": 10.0},
+                            2: {"const": 2.0},
+                        },
+                        "path": "Range:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_empty_result_pos_step",
@@ -263,6 +363,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const": 2.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_empty_result_neg_step",
@@ -270,6 +383,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 2.0},
+                            1: {"const": 5.0},
+                            2: {"const": -1.0},
+                        },
+                        "path": "Range:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_negative_step",
@@ -277,18 +403,57 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const": 0.0},
+                            2: {"const": -1.0},
+                        },
+                        "path": "Range:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_float_step_explicit_dtype",
             "callable": lambda: jnp.arange(1.0, 2.0, 0.25, dtype=jnp.float32),
             "input_values": [],
             "expected_output_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 1.0},
+                            1: {"const": 2.0},
+                            2: {"const": 0.25},
+                        },
+                        "path": "Range:4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_float_step_inferred_dtype",
             "callable": lambda: jnp.arange(0.0, 1.0, 0.3),
             "input_values": [],
             "expected_output_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            1: {"const": 1.0},
+                            2: {"const": 0.3},
+                        },
+                        "path": "Range:4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_stop_zero",
@@ -296,6 +461,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 0.0},
+                            1: {"const": 0.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_start_equals_stop",
@@ -303,6 +481,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const": 5.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "arange_static_large_numbers_int",
@@ -310,6 +501,19 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "input_values": [],
             "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
             "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 1000.0},
+                            1: {"const": 1010.0},
+                            2: {"const": 1.0},
+                        },
+                        "path": "Range:10",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

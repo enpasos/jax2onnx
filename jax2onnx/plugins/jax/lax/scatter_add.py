@@ -46,6 +46,10 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "scatter_add_scalar",
             "callable": lambda x: x.at[3].add(jnp.array(5.0, dtype=x.dtype)),
             "input_shapes": [(6,)],
+            "post_check_onnx_graph": EG(
+                [{"path": "ScatterND:6", "inputs": {2: {"const": 5.0}}}],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_add_simple_1d",
@@ -61,6 +65,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 1), (2,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_add_batch_updates_1d_operand",
@@ -263,6 +271,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["CastLike:2x2 -> Reshape:?x2 -> ScatterND:2x3x4x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_depth2_fp64_type_mismatch",
@@ -277,6 +289,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:2x3x4x5"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

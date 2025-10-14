@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax2onnx.plugins.jax.lax.add import lower_add
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -35,16 +36,33 @@ _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
             "testcase": "add",
             "callable": lambda x, y: jnp.add(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Add:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_add_vector",
             "callable": lambda x, y: jnp.add(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Add:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_add_broadcast",
             "callable": lambda x: jnp.add(x, 1.0),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Add:2x3",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

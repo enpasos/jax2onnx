@@ -12,6 +12,7 @@ import numpy as np
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -44,6 +45,9 @@ def _initializer_callable(key):
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                [{"inputs": {1: {"const": 1.0}}, "path": "Mul:4x5"}],
+            ),
         },
         {
             "testcase": "random_truncated_normal_positional",
@@ -55,6 +59,9 @@ def _initializer_callable(key):
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                [],
+            ),
         },
         {
             "testcase": "flax_dense_like_init",
@@ -69,6 +76,9 @@ def _initializer_callable(key):
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                [],
+            ),
         },
     ],
 )

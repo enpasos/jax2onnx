@@ -10,6 +10,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
@@ -44,6 +45,10 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["ReduceProd"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "prod_with_axis",
@@ -53,6 +58,15 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [(3, 5)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "ReduceProd:3x5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "prod_with_keepdims",
@@ -62,21 +76,52 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
             "input_values": [],
             "expected_output_shapes": [(1, 4)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "ReduceProd:1x4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_prod_basic",
             "callable": lambda x: jnp.prod(x),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["ReduceProd"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_prod_axis",
             "callable": lambda x: jnp.prod(x, axis=1),
             "input_shapes": [(3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "ReduceProd:3x5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_prod_keepdims",
             "callable": lambda x: jnp.prod(x, axis=0, keepdims=True),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "ReduceProd:1x4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

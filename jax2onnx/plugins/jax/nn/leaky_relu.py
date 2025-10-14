@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -37,24 +38,41 @@ _LEAKY_RELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.1),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LeakyRelu:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_leaky_relu_1",
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.2),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LeakyRelu:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_leaky_relu_default",
             "callable": lambda x: jax.nn.leaky_relu(x),
             "input_shapes": [("B", 3, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LeakyRelu:Bx3x4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_leaky_relu_custom",
             "callable": lambda x: jax.nn.leaky_relu(x, negative_slope=0.3),
             "input_shapes": [(5,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LeakyRelu:5"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

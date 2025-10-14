@@ -11,6 +11,7 @@ import onnx_ir as ir
 from jax import core
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
@@ -129,12 +130,30 @@ def _maybe_cast(
             "callable": lambda: jnp.linspace(0.0, 5.0, num=6),
             "input_values": [],
             "expected_output_shapes": [(6,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Range:6 -> Cast:6 -> Mul:6 -> Add:6",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_static_endpoint_false",
             "callable": lambda: jnp.linspace(0.0, 1.0, num=5, endpoint=False),
             "input_values": [],
             "expected_output_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Range:5 -> Cast:5 -> Mul:5 -> Add:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_static_int_inputs_default_dtype",
@@ -142,12 +161,30 @@ def _maybe_cast(
             "input_values": [],
             "expected_output_shapes": [(5,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Range:5 -> Cast:5 -> Mul:5 -> Add:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_basic_f32",
             "callable": lambda: jnp.linspace(0.0, 10.0, num=5, dtype=jnp.float32),
             "input_values": [],
             "expected_output_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Range:5 -> Cast:5 -> Mul:5 -> Add:5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_endpoint_false_i32",
@@ -156,24 +193,55 @@ def _maybe_cast(
             ),
             "input_values": [],
             "expected_output_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                ["Range:4 -> Cast:4 -> Mul:4 -> Add:4 -> Cast:4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_num_zero",
             "callable": lambda: jnp.linspace(0.0, 10.0, num=0),
             "input_values": [],
             "expected_output_shapes": [(0,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Range:0 -> Cast:0 -> Mul:0 -> Add:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_num_one",
             "callable": lambda: jnp.linspace(3.0, 10.0, num=1, dtype=jnp.float64),
             "input_values": [],
             "expected_output_shapes": [(1,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 3.0}},
+                        "path": "Range:1 -> Cast:1 -> Mul:1 -> Add:1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_static_num_0",
             "callable": lambda: jnp.linspace(1.0, 2.0, num=0),
             "input_values": [],
             "expected_output_shapes": [(0,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Range:0 -> Cast:0 -> Mul:0 -> Add:0",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "linspace_static_num_1",
@@ -181,6 +249,15 @@ def _maybe_cast(
             "input_values": [],
             "expected_output_shapes": [(1,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 7.0}},
+                        "path": "Range:1 -> Cast:1 -> Mul:1 -> Add:1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

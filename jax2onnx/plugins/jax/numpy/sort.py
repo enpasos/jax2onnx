@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -43,16 +44,28 @@ def _sort_eval(x, axis=-1):
             "testcase": "sort_1d",
             "callable": lambda x: jnp.sort(x),
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                ["TopK:5 -> Identity:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "sort_2d_axis0",
             "callable": lambda x: jnp.sort(x, axis=0),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["TopK:3x4 -> Identity:3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "sort_basic",
             "callable": lambda x: jnp.sort(x, axis=1),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["TopK:3x4 -> Identity:3x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

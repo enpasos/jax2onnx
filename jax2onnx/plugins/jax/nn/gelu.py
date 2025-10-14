@@ -8,6 +8,7 @@ import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -35,30 +36,51 @@ _GELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.gelu(x, approximate=False),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gelu:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_gelu_1",
             "callable": lambda x: jax.nn.gelu(x, approximate=False),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gelu:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_gelu_approx",
             "callable": lambda x: jax.nn.gelu(x, approximate=True),
             "input_shapes": [(3, 3)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gelu:3x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_gelu_exact",
             "callable": lambda x: jax.nn.gelu(x, approximate=False),
             "input_shapes": [(4, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gelu:4x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_gelu_tanh",
             "callable": lambda x: jax.nn.gelu(x, approximate=True),
             "input_shapes": [("B", 3)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Gelu:Bx3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

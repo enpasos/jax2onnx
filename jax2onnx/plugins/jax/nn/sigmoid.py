@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -36,11 +37,19 @@ _SIGMOID_PRIM.multiple_results = False
             "testcase": "jaxnn_sigmoid",
             "callable": lambda x: jax.nn.sigmoid(x),
             "input_shapes": [(1,)],
+            "post_check_onnx_graph": EG(
+                ["Sigmoid:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_sigmoid_1",
             "callable": lambda x: jax.nn.sigmoid(x),
             "input_shapes": [(2, 5)],
+            "post_check_onnx_graph": EG(
+                ["Sigmoid:2x5"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

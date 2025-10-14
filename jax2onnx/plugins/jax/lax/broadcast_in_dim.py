@@ -35,6 +35,16 @@ _IR_TO_NP_DTYPE: Final[dict[ir.DataType | None, np.dtype[Any]]] = {
 }
 
 
+def _dynamic_or_constant(specs, *, symbols=None):
+    dynamic_checker = EG(specs, symbols=symbols, no_unused_inputs=True)
+    constant_checker = EG([])
+
+    def _check(model):
+        return dynamic_checker(model) or constant_checker(model)
+
+    return _check
+
+
 def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
     if isinstance(enum, ir.DataType):
         return _IR_TO_NP_DTYPE.get(enum)
@@ -274,6 +284,10 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 ("B", 49, 256)
             ],  # Use a concrete batch for non-dynamic test
             "expected_output_shapes": [("B", 1, 256)],
+            "post_check_onnx_graph": _dynamic_or_constant(
+                ["Shape -> Gather -> Concat -> Expand:Bx1x256"],
+                symbols={"B": None},
+            ),
         },
         # ------------------------------------------------------------------
         # dynamic-batch test: symbolic B
@@ -283,6 +297,15 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 0.5, shape=(x.shape[0], 3, 4), broadcast_dimensions=()
             ),
             "input_shapes": [("B",)],  # symbolic batch dim
+            "post_check_onnx_graph": _dynamic_or_constant(
+                [
+                    {
+                        "inputs": {0: {"const": 0.5}},
+                        "path": "Shape -> Gather -> Concat -> Expand:Bx3x4",
+                    }
+                ],
+                symbols={"B": None},
+            ),
         },
     ],
 )

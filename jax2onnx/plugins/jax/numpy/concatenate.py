@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -69,12 +70,20 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             "testcase": "concatenate_basic",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Concat:6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_mixed_dtypes",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0),
             "input_shapes": [(3,), (3,)],
             "input_dtypes": [np.float32, np.int32],
+            "post_check_onnx_graph": EG(
+                ["Cast:3 -> Concat:6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_with_explicit_dtype",
@@ -82,6 +91,10 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             "input_shapes": [(3,), (3,)],
             "input_dtypes": [np.float32, np.int32],
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                ["Concat:6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_with_explicit_dtype_casts_inputs",
@@ -90,18 +103,32 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             "input_dtypes": [np.int32, np.int32],
             "expected_output_shapes": [(5, 2)],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Cast:5x1 -> Concat:5x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_abstract_middle_dim",
             "callable": lambda a, b: jnp.concatenate((a, b), axis=1),
             "input_shapes": [("B", 1, 8), ("B", 10, 8)],
             "expected_output_shapes": [("B", 11, 8)],
+            "post_check_onnx_graph": EG(
+                ["Concat:Bx11x8"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "concatenate_tile_and_symbolic",
             "callable": _concat_dynamic_tile,
             "input_shapes": [("B", 49, 256)],
             "expected_output_shapes": [("B", 50, 256)],
+            "post_check_onnx_graph": EG(
+                ["Concat:Bx50x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

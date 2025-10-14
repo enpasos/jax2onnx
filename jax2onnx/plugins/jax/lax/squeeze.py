@@ -81,12 +81,20 @@ def _dim_const_value(dim) -> int | None:
             "callable": lambda x: jnp.squeeze(x),
             "input_shapes": [(1, 3, 1, 4, 1)],
             "expected_output_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_specific_axis_0",
             "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 3)],
             "expected_output_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Squeeze:3", "inputs": {1: {"const": 0.0}}}],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_multiple_axes",
@@ -103,12 +111,20 @@ def _dim_const_value(dim) -> int | None:
             "callable": lambda x: lax.squeeze(x, dimensions=()),
             "input_shapes": [(1, 3, 1)],
             "expected_output_shapes": [(1, 3, 1)],
+            "post_check_onnx_graph": EG(
+                [],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_problem_case_input_squeeze_only_axis_0",
             "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 201, 1, 1)],
             "expected_output_shapes": [(201, 1, 1)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Squeeze:201x1x1", "inputs": {1: {"const": 0.0}}}],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_problem_case_input_squeeze_axes_0_2",
@@ -125,6 +141,10 @@ def _dim_const_value(dim) -> int | None:
             "callable": lambda x: lax.squeeze(x, dimensions=(0, 2, 3)),
             "input_shapes": [(1, 201, 1, 1)],
             "expected_output_shapes": [(201,)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:201"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

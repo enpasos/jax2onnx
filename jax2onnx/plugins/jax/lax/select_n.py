@@ -64,6 +64,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(2, 2)],
             "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["Where:2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_n_bool_predicate_scalar_broadcast",
@@ -77,6 +81,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Where:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_n_int_indices_three_cases",
@@ -91,6 +99,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ],
             "expected_output_shapes": [(4,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["CastLike:4 -> Equal:4 -> Where:4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_n_int_indices_four_cases",

@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -46,73 +47,135 @@ def _einsum_shape(avals, equation: str):
             "testcase": "einsum_vector_dot",
             "callable": lambda x, y: jnp.einsum("i,i->", x, y),
             "input_shapes": [(5,), (5,)],
+            "post_check_onnx_graph": EG(
+                ["Einsum"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_matrix_vector",
             "callable": lambda x, y: jnp.einsum("ij,j->i", x, y),
             "input_shapes": [(3, 5), (5,)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_matrix_matrix",
             "callable": lambda x, y: jnp.einsum("ij,jk->ik", x, y),
             "input_shapes": [("B", 5), (5, 2)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:Bx2"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_transpose",
             "callable": lambda x: jnp.einsum("ij->ji", x),
             "input_shapes": [(3, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:5x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_batch_transpose",
             "callable": lambda x: jnp.einsum("...ij->...ji", x),
             "input_shapes": [("B", 3, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:Bx5x3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_diag",
             "callable": lambda x: jnp.einsum("ii->i", x),
             "input_shapes": [(5, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_sum_reduce",
             "callable": lambda x: jnp.einsum("ij->", x),
             "input_shapes": [(3, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_multi_operand",
             "callable": lambda a, b, c: jnp.einsum("ij,jk,kl->il", a, b, c),
             "input_shapes": [(2, 3), (3, 4), (4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_attention_logits_orig",
             "callable": lambda q, k: jnp.einsum("BTNH,BSNH->BNTS", q, k),
             "input_shapes": [("B", 4, 8, 32), ("B", 4, 8, 32)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:Bx8x4x4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_attention_output_orig",
             "callable": lambda attn, v: jnp.einsum("BNTS,BSNH->BTNH", attn, v),
             "input_shapes": [("B", 8, 4, 4), ("B", 4, 8, 32)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:Bx4x8x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_attention_logits_batched",
             "callable": lambda q, k: jnp.einsum("...BTNH,BSNH->...BNTS", q, k),
             "input_shapes": [("B", 1, 4, 8, 32), ("B", 4, 8, 32)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:BxBx8x4x4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_attention_output_batched",
             "callable": lambda attn, v: jnp.einsum("...BNTS,BSNH->...BTNH", attn, v),
             "input_shapes": [("B", 1, 8, 4, 4), ("B", 4, 8, 32)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:BxBx4x8x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_ellipsis_rank_mismatch",
             "callable": lambda q, k: jnp.einsum("...BTNH,...BSNH->...BNTS", q, k),
             "input_shapes": [(2, 1, 4, 8, 32), (2, 5, 8, 32)],
             "expected_output_shapes": [(2, 2, 8, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:2x2x8x4x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "einsum_attention_logits_batched_rank_mismatch",
             "callable": lambda q, k: jnp.einsum("...BTNH,BSNH->...BNTS", q, k),
             "input_shapes": [(2, 1, 4, 8, 16), (2, 5, 8, 16)],
             "expected_output_shapes": [(2, 2, 8, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Einsum:2x2x8x4x5"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

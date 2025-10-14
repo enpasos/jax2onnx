@@ -7,12 +7,23 @@ from typing import TYPE_CHECKING
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - import is only for type hints
     from jax2onnx.converter.ir_context import IRContext
+
+
+def _dynamic_or_constant(specs):
+    dynamic_checker = EG(specs, no_unused_inputs=True)
+    constant_checker = EG([])
+
+    def _check(model):
+        return dynamic_checker(model) or constant_checker(model)
+
+    return _check
 
 
 def _infer_rank(value: ir.Value, axis: int) -> int:
@@ -75,6 +86,9 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
             "testcase": "dim_as_value",
             "callable": lambda x: x.shape[0],
             "input_shapes": [("B", 8)],
+            "post_check_onnx_graph": _dynamic_or_constant(
+                ["Shape:2 -> Gather:1 -> Reshape -> Cast"]
+            ),
         }
     ],
 )

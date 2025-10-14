@@ -233,6 +233,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_multiaxis",
@@ -247,6 +252,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 3, 3, 64)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape:Bx576 -> LayerNormalization:Bx576 -> Reshape:Bx3x3x64"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_symbolic_batch",

@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -62,76 +63,144 @@ def _tile_with_symbolic_repeats(a):
             "testcase": "tile_repeats",
             "callable": lambda a: jnp.tile(a, (3, 1, 1)),
             "input_shapes": [(1, 1, 8)],
+            "post_check_onnx_graph": EG(
+                ["Tile:3x1x8"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_a",
             "callable": lambda a: jnp.tile(a, (1, 2)),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Tile:2x6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_b",
             "callable": lambda a: jnp.tile(a, (1, 2, 1)),
             "input_shapes": [(1, 5, 5)],
+            "post_check_onnx_graph": EG(
+                ["Tile:1x10x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_c",
             "callable": lambda a: jnp.tile(a, (1, 4)),
             "input_shapes": [(3, 3)],
+            "post_check_onnx_graph": EG(
+                ["Tile:3x12"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_d",
             "callable": lambda a: jnp.tile(a, 2),
             "input_shapes": [(3, 3)],
+            "post_check_onnx_graph": EG(
+                ["Tile:3x6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_dynamic_input_static",
             "callable": lambda a: jnp.tile(a, (2, 1)),
             "input_shapes": [(7, 3)],
+            "post_check_onnx_graph": EG(
+                ["Tile:14x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_dynamic_input",
             "callable": lambda a: jnp.tile(a, (2, 1)),
             "input_shapes": [("B", 3)],
+            "post_check_onnx_graph": EG(
+                ["Tile:Bx3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_pad",
             "callable": lambda a: jnp.tile(a, (2, 3, 4)),
             "input_shapes": [(4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:1x4x5 -> Tile:2x12x20"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_param_symbolic",
             "callable": _tile_param,
             "input_shapes": [("B", 5)],
+            "post_check_onnx_graph": EG(
+                ["Concat -> Tile:Bx1x4"],
+                symbols={"B": None},
+            ),
         },
         {
             "testcase": "tile_with_symbolic_repeats_static",
             "callable": _tile_with_symbolic_repeats,
             "input_shapes": [(11, 1, 256)],
+            "post_check_onnx_graph": EG(
+                ["Tile:121x1x256"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "tile_with_symbolic_repeats",
             "callable": _tile_with_symbolic_repeats,
             "input_shapes": [("B", 1, 256)],
+            "post_check_onnx_graph": EG(
+                ["Tile:Bx1x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_tile_basic",
             "callable": lambda a: jnp.tile(a, (2, 1)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Tile:6x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_tile_scalar_repeats",
             "callable": lambda a: jnp.tile(a, 3),
             "input_shapes": [(4,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 3.0}},
+                        "path": "Tile:12",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_tile_pad_rank",
             "callable": lambda a: jnp.tile(a, (2, 3, 4)),
             "input_shapes": [(5, 6)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:1x5x6 -> Tile:2x15x24"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_tile_symbolic",
             "callable": lambda a: jnp.tile(a, (a.shape[0], 1, 1)),
             "input_shapes": [("B", 1, 8)],
+            "post_check_onnx_graph": EG(
+                ["Tile:Bx1x8"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

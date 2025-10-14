@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -71,26 +72,62 @@ def _split_sizes(
             "testcase": "split_by_sections",
             "callable": lambda x: jnp.split(x, 3, axis=1),
             "input_shapes": [(1, 9)],
+            "post_check_onnx_graph": EG(
+                ["Split"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "split_by_indices",
             "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(1, 9)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "split_by_indices_symbolic",
             "callable": lambda x: jnp.split(x, [3, 7], axis=2),
             "input_shapes": [("B", 4, 10)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "split_sections",
             "callable": lambda x: jnp.split(x, 3, axis=1),
             "input_shapes": [(1, 9)],
+            "post_check_onnx_graph": EG(
+                ["Split"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "split_indices_numpy",
             "callable": lambda x: jnp.split(x, np.array([2, 5]), axis=1),
             "input_shapes": [(1, 9)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

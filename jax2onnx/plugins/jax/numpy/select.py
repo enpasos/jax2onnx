@@ -8,6 +8,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -46,6 +47,10 @@ def _promote_dtype(*dtypes):
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=jnp.array([0, 0]),
             ),
+            "post_check_onnx_graph": EG(
+                ["Where:2 -> Where:2 -> Identity:2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_broadcast",
@@ -53,6 +58,10 @@ def _promote_dtype(*dtypes):
                 [jnp.array([True, False]), jnp.array([False, True])],
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=0,
+            ),
+            "post_check_onnx_graph": EG(
+                ["Where:2 -> Where:2 -> Identity:2"],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -62,6 +71,11 @@ def _promote_dtype(*dtypes):
             ),
             "input_shapes": [("B", 12, "T", "T"), ("B", 1, "T", "T")],
             "input_dtypes": [np.float32, np.bool_],
+            "post_check_onnx_graph": EG(
+                ["Where:Bx12xTxT -> Identity:Bx12xTxT"],
+                symbols={"B": None, "T": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "select_basic",
@@ -69,6 +83,10 @@ def _promote_dtype(*dtypes):
                 [jnp.array([True, False]), jnp.array([False, True])],
                 [jnp.array([1, 2]), jnp.array([3, 4])],
                 default=jnp.array([0, 0]),
+            ),
+            "post_check_onnx_graph": EG(
+                ["Where:2 -> Where:2 -> Identity:2"],
+                no_unused_inputs=True,
             ),
         },
     ],
