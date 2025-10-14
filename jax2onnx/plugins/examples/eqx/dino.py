@@ -9,7 +9,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jaxtyping import Array
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -22,68 +22,11 @@ from jax2onnx.plugins.plugin_system import (
 
 # --- Model code from https://github.com/clementpoiret/Equimo ---
 
-
-# Shape string constant to reuse in annotations (avoids double-quoted literal lint).
-_ROPE_SHAPE: str = "b n d"
-
-
-@onnx_function
-class RoPE(eqx.Module):
-    """Rotary Positional Embedding."""
-
-    dim: int
-
-    def __call__(
-        self, x: Float[Array, _ROPE_SHAPE], seq_len: int
-    ) -> Float[Array, _ROPE_SHAPE]:
-        half_dim = self.dim // 2
-        dtype = x.dtype
-        theta = jnp.array(10000.0, dtype=x.dtype)
-        freqs = jnp.power(theta, -jnp.arange(half_dim, dtype=x.dtype) / half_dim)
-        positions = jnp.arange(seq_len, dtype=x.dtype)
-        angles = jnp.einsum("n,d->nd", positions, freqs)
-        sin = jnp.sin(angles)
-        cos = jnp.cos(angles)
-
-        # Broadcast to match the leading axes of x (assume sequence on penultimate axis).
-        x.shape[:-1]
-        x_reshaped = x.reshape(*x.shape[:-1], half_dim, 2)
-        sin_shape = sin.shape
-        prefix = (1,) * (x.ndim - 2)
-        sin = sin.reshape(prefix + sin_shape)
-        cos = cos.reshape(prefix + sin_shape)
-        sin = sin[..., None]
-        cos = cos[..., None]
-
-        x_even = x_reshaped[..., 0]
-        x_odd = x_reshaped[..., 1]
-
-        rotated = jnp.stack(
-            [
-                (x_even * cos) - (x_odd * sin),
-                (x_even * sin) + (x_odd * cos),
-            ],
-            axis=-1,
-        )
-        return rotated.reshape(x.shape).astype(dtype)
-
-
-register_example(
-    component="RoPE",
-    description="Rotary Positional Embedding.",
-    source="https://github.com/clementpoiret/Equimo",
-    since="v0.9.1",
-    context="examples.eqx",
-    children=[],
-    testcases=[
-        {
-            "testcase": "rope_embedding",
-            "callable": construct_and_call(RoPE, dim=64),
-            "input_shapes": [("B", 50, 64), 50],
-            "post_check_onnx_graph": EG(["RoPE_1:Bx50x64"], symbols={"B": None}),
-        }
-    ],
-)
+def _apply_pointwise(module, x: Array) -> Array:
+    """Apply an Equinox module independently across batch and sequence axes."""
+    apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)
+    apply_batch = eqx.filter_vmap(apply_tokens, in_axes=0, out_axes=0)
+    return apply_batch(x)
 
 
 @onnx_function
@@ -109,7 +52,8 @@ class PatchEmbed(eqx.Module):
         )
 
     def __call__(self, x: Array) -> Array:
-        x = self.proj(x)
+        apply_conv = eqx.filter_vmap(self.proj, in_axes=0, out_axes=0)
+        x = apply_conv(x)
         x = jnp.transpose(x.reshape(x.shape[0], x.shape[1], -1), (0, 2, 1))
         return x
 
@@ -118,8 +62,8 @@ register_example(
     component="PatchEmbed",
     description="Image to Patch Embedding.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.9.0",
-    context="examples.eqx",
+    since="v0.9.1",
+    context="examples.eqx_dino",
     children=["equinox.nn.Conv2d"],
     testcases=[
         {
@@ -141,47 +85,64 @@ register_example(
 
 @onnx_function
 class Attention(eqx.Module):
-    """Multi-Head Self-Attention."""
+    """Multi-Head Self-Attention driven by Equinox primitives."""
 
-    qkv: eqx.nn.Linear
-    proj: eqx.nn.Linear
+    attn: eqx.nn.MultiheadAttention
+    rope: eqx.nn.RotaryPositionalEmbedding
     num_heads: int
-    scale: float
-    rope: RoPE
 
     def __init__(self, dim: int, num_heads: int, *, key: jax.Array):
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        self.scale = head_dim**-0.5
-        keys = jax.random.split(key, 2)
-        self.qkv = eqx.nn.Linear(dim, dim * 3, use_bias=True, key=keys[0])
-        self.proj = eqx.nn.Linear(dim, dim, use_bias=True, key=keys[1])
-        self.rope = RoPE(dim=head_dim)
+        self.attn = eqx.nn.MultiheadAttention(
+            num_heads=num_heads,
+            query_size=dim,
+            key_size=dim,
+            value_size=dim,
+            output_size=dim,
+            use_query_bias=True,
+            use_key_bias=True,
+            use_value_bias=True,
+            use_output_bias=True,
+            key=key,
+        )
+        self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=head_dim)
 
     def __call__(self, x: Array) -> Array:
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
-        qkv = jnp.transpose(qkv, (2, 0, 3, 1, 4))
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        rope_heads = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
 
-        q = self.rope(q)
-        k = self.rope(k)
+        def _process_heads(
+            query_heads: Array,
+            key_heads: Array,
+            value_heads: Array,
+        ) -> tuple[Array, Array, Array]:
+            query_rot = rope_heads(query_heads)
+            key_rot = rope_heads(key_heads)
+            return query_rot, key_rot, value_heads
 
-        attn = (q @ jnp.transpose(k, (0, 1, 3, 2))) * self.scale
-        attn = jax.nn.softmax(attn, axis=-1)
+        def _attend(tokens: Array) -> Array:
+            return self.attn(
+                tokens,
+                tokens,
+                tokens,
+                inference=True,
+                process_heads=_process_heads,
+            )
 
-        x = jnp.transpose((attn @ v), (0, 2, 1, 3)).reshape(B, N, C)
-        x = self.proj(x)
-        return x
+        apply_batch = eqx.filter_vmap(_attend, in_axes=0, out_axes=0)
+        return apply_batch(x)
 
 
 register_example(
     component="Attention",
-    description="Multi-Head Self-Attention with RoPE.",
+    description="Multi-Head Self-Attention using Equinox modules.",
     source="https://github.com/clementpoiret/Equimo",
     since="v0.9.1",
-    context="examples.eqx",
-    children=["equinox.nn.Linear", "RoPE"],
+    context="examples.eqx_dino",
+    children=[
+        "equinox.nn.MultiheadAttention",
+        "equinox.nn.RotaryPositionalEmbedding",
+    ],
     testcases=[
         {
             "testcase": "attention",
@@ -189,7 +150,11 @@ register_example(
                 Attention, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
-            "post_check_onnx_graph": EG(["Attention_1:Bx257x384"], symbols={"B": None}),
+            "post_check_onnx_graph": EG(
+                ["MatMul -> Softmax -> MatMul"],
+                symbols={"B": None},
+                search_functions=True,
+            ),
             "run_only_f32_variant": True,
         }
     ],
@@ -223,8 +188,12 @@ class Block(eqx.Module):
         )
 
     def __call__(self, x: Array) -> Array:
-        x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
+        norm1_out = _apply_pointwise(self.norm1, x)
+        x = x + self.attn(norm1_out)
+
+        norm2_out = _apply_pointwise(self.norm2, x)
+        mlp_out = _apply_pointwise(self.mlp, norm2_out)
+        x = x + mlp_out
         return x
 
 
@@ -233,7 +202,7 @@ register_example(
     description="Transformer Block.",
     source="https://github.com/clementpoiret/Equimo",
     since="v0.9.1",
-    context="examples.eqx",
+    context="examples.eqx_dino",
     children=["equinox.nn.LayerNorm", "Attention", "equinox.nn.MLP"],
     testcases=[
         {
@@ -334,7 +303,7 @@ register_example(
     description="DINOv3 Vision Transformer.",
     source="https://github.com/clementpoiret/Equimo",
     since="v0.9.1",
-    context="examples.eqx",
+    context="examples.eqx_dino",
     children=["PatchEmbed", "Block"],
     testcases=_get_test_cases(),
 )

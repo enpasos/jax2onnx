@@ -30,3 +30,7 @@
 - Converter-side fix in progress: updated `jax2onnx/plugins/jax/numpy/pow.py` to derive abstract shapes via `_broadcast_shape`, so dynamic dimensions in RoPE no longer break during broadcast inference. Further validation pending.
 - Began porting RoPE toward Equimo’s complex rotation; still blocked because the sequence-length parameter becomes a tracer under `construct_and_call`, so the reshape/broadcast logic needs to avoid symbolic dims or the metadata must supply a concrete length.
 - Rolled `jax2onnx/plugins/jax/numpy/pow.py` back to the original implementation after recursion failures in `tests/primitives/test_jnp.py`; future dynamic-dim support will need a new approach.
+- Restored RoPE to the upstream two-argument signature; `Attention` now passes the token length explicitly, and the standalone example infers it from the input to keep tests deterministic without new metadata slots.
+- Batched LayerNorm/MLP calls in `Block` via `eqx.filter_vmap` to mirror Equimo semantics while keeping the module definitions unchanged. VisionTransformer should now map cleanly once RoPE export stabilises.
+- Registered Equinox `eqx.nn.Conv2d`, `eqx.nn.MultiheadAttention`, and `eqx.nn.RotaryPositionalEmbedding` as ONNX functions with focused examples, keeping coverage anchored in `primitives.eqx`.
+- Replaced the custom RoPE/attention helpers inside `dino.py` with their upstream Equinox counterparts, tightened the contexts to `examples.eqx_dino`, and routed rotary application through `process_heads` so tests exercise the new plugins.
