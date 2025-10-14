@@ -192,7 +192,7 @@ We warmly welcome contributions!
 **How you can help:**
 
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins):
-  a custom primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step using
+  a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step using
   [`jax2onnx/plugins/jax/lax/abs.py`](./jax2onnx/plugins/jax/lax/abs.py) as a concrete template.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
