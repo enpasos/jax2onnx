@@ -191,9 +191,9 @@ We warmly welcome contributions!
 
 **How you can help:**
 
-- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins): 
-a custom primitive or an example. See the [plugin quickstart](https://enpasos.github.io/jax2onnx/design#roles--responsibilities) for architecture details and lowering patterns.
-- **Follow builder conventions:** The [ONNX IR Builder Guide](https://enpasos.github.io/jax2onnx/dev_guides/onnx_ir_builder) covers required `_outputs`/initializer naming rules and the helper script/tests that enforce them.
+- **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins):
+  a custom primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step using
+  [`jax2onnx/plugins/jax/lax/abs.py`](./jax2onnx/plugins/jax/lax/abs.py) as a concrete template.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
 
 ---

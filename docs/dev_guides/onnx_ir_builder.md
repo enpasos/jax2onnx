@@ -3,7 +3,7 @@
 This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: how to wire values, record initializers, and keep tests green now that the IR pipeline is builder-first.
 
 ## Policy Checklist
-- Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py` verifies this.
+- Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` verifies this.
 - `_outputs` must be a list/tuple (or alias that resolves to one); string literals are rejected by `tests/extra_tests/framework/test_ir_builder_contracts.py` and `scripts/check_ir_builder_usage.py`.
 - Keep converter/plugins IR-only—no `onnx` protobuf helpers—per the same policy suite.
 - Run `scripts/check_ir_builder_usage.py` before sending patches (it is also wired into the pre-commit stack).
@@ -22,7 +22,7 @@ This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: ho
 - Respect the single-use RNG rule: split keys per consumer and never cache module instances inside traced calls—`construct_and_call(...).with_dtype(...)` already handles per-dtype reuse.
 
 ## Validation Hooks
-- `tests/extra_tests/framework/test_no_onnx_in_converter2_plugins2.py` enforces both the "no protobuf" policy and initializer naming for every builder call.
+- `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` enforces both the "no protobuf" policy and initializer naming for every builder call.
 - `tests/extra_tests/framework/test_ir_builder_contracts.py` walks the AST to guarantee `_outputs=` uses sequence types.
 - `scripts/check_ir_builder_usage.py` wraps the same heuristics for local iteration and runs as a pre-commit hook. Invoke it manually with `poetry run python scripts/check_ir_builder_usage.py` when editing converter/plugins code.
 
