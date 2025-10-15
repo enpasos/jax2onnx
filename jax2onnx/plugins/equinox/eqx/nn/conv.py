@@ -45,4 +45,3 @@ register_example(
         }
     ],
 )
-

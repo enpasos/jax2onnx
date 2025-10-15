@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _SOFTMAX_PRIM: Final[Primitive] = Primitive("jax.nn.softmax")
 _SOFTMAX_PRIM.multiple_results = False
-_JAX_SOFTMAX_ORIG = jax.nn.softmax
+_JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
 
 
 @register_primitive(
@@ -131,7 +131,6 @@ def _softmax_batch_rule(batched_args, batch_dims, *, axis=-1):
     if canon_axis < 0 or canon_axis >= rank:
         raise ValueError("Invalid axis for softmax batching rule")
 
-    kwargs = {"axis": axis}
     if x_bdim != 0:
         x = jnp.moveaxis(x, x_bdim, 0)
 

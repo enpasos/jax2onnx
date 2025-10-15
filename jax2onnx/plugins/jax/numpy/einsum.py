@@ -420,6 +420,4 @@ def _einsum_batch_rule(
     return result, 0
 
 
-jax.interpreters.batching.primitive_batchers[
-    JnpEinsumPlugin._PRIM
-] = _einsum_batch_rule
+jax.interpreters.batching.primitive_batchers[JnpEinsumPlugin._PRIM] = _einsum_batch_rule

@@ -22,6 +22,7 @@ from jax2onnx.plugins.plugin_system import (
 
 # --- Model code from https://github.com/clementpoiret/Equimo ---
 
+
 def _apply_pointwise(module, x: Array) -> Array:
     """Apply an Equinox module independently across batch and sequence axes."""
     apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)

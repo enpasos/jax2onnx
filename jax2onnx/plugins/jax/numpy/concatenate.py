@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_ORIGINAL_JNP_CONCATENATE = jnp.concatenate
+_ORIGINAL_JNP_CONCATENATE: Final = jnp.concatenate
 
 
 def _to_tuple(arrays: Iterable[jnp.ndarray]) -> tuple:
