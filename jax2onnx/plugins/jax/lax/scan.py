@@ -41,6 +41,22 @@ if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext
 
 
+def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
+    if hasattr(jpr_like, "eqns"):
+        for eqn in jpr_like.eqns:
+            prim_name = getattr(eqn.primitive, "name", "")
+            if prim_name.startswith("scatter"):
+                return True
+            for val in getattr(eqn, "params", {}).values():
+                if _jaxpr_contains_scatter(val):
+                    return True
+    if hasattr(jpr_like, "jaxpr"):
+        return _jaxpr_contains_scatter(jpr_like.jaxpr)
+    if isinstance(jpr_like, (tuple, list)):
+        return any(_jaxpr_contains_scatter(item) for item in jpr_like)
+    return False
+
+
 def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
     aval = getattr(var, "aval", None)
     if aval is None:
@@ -756,6 +772,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         jaxpr = closed_jaxpr.jaxpr
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+
+        has_scatter = _jaxpr_contains_scatter(jaxpr)
         jaxpr = closed_jaxpr.jaxpr
         dtypes = [
             np.dtype(getattr(var.aval, "dtype"))
@@ -808,6 +826,18 @@ class ScanPlugin(PrimitiveLeafPlugin):
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
 
+        if has_scatter:
+            loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
+            loop_extent_vec = _unsqueeze_scalar(
+                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+            )
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            extent_hints.setdefault(0, []).append(loop_extent_vec)
+            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+
         loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
         loop_extent_vec = _unsqueeze_scalar(
             loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
@@ -816,7 +846,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         if not isinstance(extent_hints, dict):
             extent_hints = {}
             setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-        extent_hints.setdefault(0, loop_extent_vec)
+        extent_hints.setdefault(0, []).append(loop_extent_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
@@ -1175,22 +1205,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision and not function_keep_float32
         )
 
-        def _jaxpr_contains_scatter(jpr: Any) -> bool:
-            for inner_eqn in getattr(jpr, "eqns", ()):  # type: ignore[attr-defined]
-                prim_name = getattr(inner_eqn.primitive, "name", "")
-                if prim_name.startswith("scatter"):
-                    return True
-                for val in getattr(inner_eqn, "params", {}).values():
-                    if hasattr(val, "jaxpr") and _jaxpr_contains_scatter(val.jaxpr):
-                        return True
-                    if isinstance(val, (tuple, list)):
-                        for item in val:
-                            if hasattr(item, "jaxpr") and _jaxpr_contains_scatter(
-                                item.jaxpr
-                            ):
-                                return True
-            return False
-
         has_scatter = _jaxpr_contains_scatter(jaxpr)
 
         state_inputs: list[ir.Value] = []
@@ -1245,7 +1259,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             if not isinstance(extent_hints, dict):
                 extent_hints = {}
                 setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            extent_hints.setdefault(0, loop_extent_vec)
+            extent_hints.setdefault(0, []).append(loop_extent_vec)
             setattr(loop_ctx, "_loop_extent_hints_enabled", True)
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan

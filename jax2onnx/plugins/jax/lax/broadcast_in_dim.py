@@ -333,7 +333,21 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         loop_extents = (
             getattr(ctx, "_loop_extent_hints", None) if use_loop_hints else None
         )
+
+        def _loop_hint(axis: int) -> ir.Value | None:
+            if not isinstance(loop_extents, dict):
+                return None
+            if axis != 0:
+                return None
+            values = loop_extents.get(axis)
+            if not values:
+                return None
+            if isinstance(values, list):
+                return values[-1]
+            return values
+
         allow_hints = bool(bdims)
+        allow_loop_hints = bool(loop_extents)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
         op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
@@ -355,10 +369,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
         for axis, d in enumerate(shape):
-            if allow_hints and axis not in bdims:
+            if axis not in bdims and (allow_hints or allow_loop_hints):
                 override_val = _peek_scatter_hint(axis) if hints else None
-                if override_val is None and isinstance(loop_extents, dict):
-                    override_val = loop_extents.get(axis)
+                if override_val is None:
+                    override_val = _loop_hint(axis)
                 if override_val is not None:
                     dim_pieces.append(override_val)
                     continue
@@ -437,8 +451,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             reshape_dim_pieces: list[ir.Value] = []
             for axis, dim in enumerate(reshape_dims):
                 override_val = None
-                if allow_hints and hints and axis not in bdims:
-                    override_val = _peek_scatter_hint(axis)
+                if axis not in bdims and (allow_hints or allow_loop_hints):
+                    override_val = _peek_scatter_hint(axis) if hints else None
+                    if override_val is None:
+                        override_val = _loop_hint(axis)
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue
