@@ -856,6 +856,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         loop_extent_vec = _unsqueeze_scalar(
             loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
         )
+        trip_count_val: ir.Value | None = None
         extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
         if not isinstance(extent_hints, dict):
             extent_hints = {}
@@ -867,6 +868,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
             print("[loop_hint_static]", scatter_static_extent, flush=True)
         if scatter_static_extent is not None:
+            setattr(loop_ctx, "_force_loop_extent_axis0", True)
             matching_idx: int | None = None
             for idx, var in enumerate(jaxpr.invars):
                 aval = getattr(var, "aval", None)
@@ -880,7 +882,19 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     matching_idx = idx
                     break
             if matching_idx is not None and matching_idx < len(state_inputs):
+                trip_count_val = _scalar_i64(
+                    ctx,
+                    int(scatter_static_extent),
+                    "scan_trip_extent_static",
+                )
                 src_val = state_inputs[matching_idx]
+                if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+                    print(
+                        "[loop_hint_source]",
+                        matching_idx,
+                        getattr(getattr(src_val, "shape", None), "dims", None),
+                        flush=True,
+                    )
                 src_shape = _shape_of(loop_ctx, src_val, "scan_loop_extent_dyn_shape")
                 dynamic_scalar = _gather_int_scalar(
                     loop_ctx, src_shape, 0, "scan_loop_extent_dyn"
@@ -1000,7 +1014,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
             opset_imports={"": getattr(ctx.builder, "opset", 21)},
         )
 
-        trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
+        if trip_count_val is None:
+            trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
+        else:
+            trip_count = trip_count_val
 
         cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),

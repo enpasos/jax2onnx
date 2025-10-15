@@ -1,5 +1,6 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
+import os
 from typing import TYPE_CHECKING, Any, Final, Optional, Set
 import jax
 import jax.numpy as jnp
@@ -370,10 +371,27 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         dim_pieces: list[ir.Value] = []
         for axis, d in enumerate(shape):
             if axis not in bdims and (allow_hints or allow_loop_hints):
-                override_val = _peek_scatter_hint(axis) if hints else None
-                if override_val is None:
+                force_loop_axis0 = bool(
+                    getattr(ctx, "_force_loop_extent_axis0", False) and axis == 0
+                )
+                override_val = None
+                if force_loop_axis0:
                     override_val = _loop_hint(axis)
+                    if override_val is None and hints:
+                        override_val = _peek_scatter_hint(axis)
+                else:
+                    override_val = _peek_scatter_hint(axis) if hints else None
+                    if override_val is None:
+                        override_val = _loop_hint(axis)
                 if override_val is not None:
+                    if os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1":
+                        print(
+                            "[broadcast_hint]",
+                            axis,
+                            bdims,
+                            getattr(ctx, "_loop_extent_hints_enabled", False),
+                            flush=True,
+                        )
                     dim_pieces.append(override_val)
                     continue
             if isinstance(d, (int, np.integer)):

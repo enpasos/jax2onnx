@@ -12,6 +12,7 @@ The lowering keeps a few key invariants in sync with the ONNX backend:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Sequence, Tuple
 
@@ -494,6 +495,14 @@ def _compute_window_sizes(
             size_scalar = _gather_int_scalar(
                 ctx, updates_shape_val, upd_axis, f"scatter_window_size_{axis}"
             )
+            if os.environ.get("J2O_DEBUG_SCATTER_SIZES") == "1":
+                print(
+                    "[scatter_window_size]",
+                    axis,
+                    upd_axis,
+                    getattr(getattr(updates_val, "shape", None), "dims", None),
+                    flush=True,
+                )
         else:
             size_scalar = _scalar_i64(ctx, 1, f"scatter_window_size_const_{axis}")
         size_scalars.append(size_scalar)
