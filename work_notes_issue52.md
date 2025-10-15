@@ -2,20 +2,21 @@
 
 ## Current Status (2025-10-02)
 
-- Updated `jax2onnx/plugins/jax/lax/scatter_utils.py`
-  - `_compute_window_sizes` now returns the unsqueezed window-size tensors and stores dynamic window extents per operand axis on the IR context via `_scatter_window_hints`.
-- Updated `jax2onnx/plugins/jax/lax/broadcast_in_dim.py`
-  - Broadcast lowering consumes those hints (only when the primitive actually broadcasts) to build `Concat` inputs for both the expand target and reshape shape from live IR values instead of hard-coded `1`s.
-- Sandbox repro (`poetry run python jax2onnx/sandbox/issue52_scatter_payload_repro.py`) now gets past the original `Expand_13` ShapeInferenceError. ONNX export succeeds but onnxruntime fails inside `scan_loop_0/scan_loop_0/Mul_15` because the loop body still receives mismatched window extents.
-- Added temporary debug prints during the last run; they are already removed.
+- Added `_jaxpr_contains_scatter` in `scan.py` so we only emit loop extent hints when a scan (or nested subgraph) actually contains a scatter; the hints ride along via `make_subgraph_context`.
+- `broadcast_in_dim` now falls back to loop extent hints (axis `0` only) when scatter hints are absent, and continues to use the scatter-derived vectors for the other axes. Reshape/expand shapes inside loop bodies now pick up dynamic values instead of always hard-coding `1`.
+- Regression coverage:
+  - `tests/extra_tests/loop/test_loop_ff_like_broadcast_mul_regression.py`
+  - `tests/primitives/test_lax.py::Test_scan::test_scan_identity_slice_helper{,_f64}`
+  - `tests/primitives/test_lax.py::Test_slice::test_slice_scan_axis_drop{,_f64}`
+  all pass with the new loop-hint gating.
+- Sandbox repro still fails inside `node_Mul_*` with a reshape mismatch. The extent vectors we emit for loop broadcasts stop at the inner `scan` boundary because the trip-count is still materialised via a constant `1`; we’re not yet deriving the interior update length from scatter metadata.
 
 ## What Remains
 
-1. For loop bodies, propagate scatter window hints in the same way as at top-level. The inner scatter lowering is producing hints, but nested `broadcast_in_dim` calls still emit partial shapes (leading dimension stays 1). Need to ensure the loop IR context reuses the stored hints when building reshape/expand shapes inside the scan body.
-2. After fixing the loop broadcast, re-run the sandbox script and confirm the exported model loads in ORT and produces numerically correct outputs.
-3. Update `tests/extra_tests/loop/test_loop_scatter_payload_regression.py`:
-   - Remove the `xfail` guard and assert that ORT results match the JAX feed-forward outputs.
-4. Remove any remaining debug logging once the fix is confirmed.
+1. Source the loop extent from the scatter metadata when a scan has no explicit scanned inputs (e.g. derive it from the scatter updates/indices shape) so the inner loop no longer holds a constant `1` trip-count.
+2. Once the reshape mismatch is resolved, rerun the sandbox script and validate the ONNX graph executes end-to-end in ORT with numerically correct outputs.
+3. Un-XFAIL `tests/extra_tests/loop/test_loop_scatter_payload_regression.py` and tighten assertions to compare ORT vs. JAX outputs.
+4. Drop any temporary debug prints (`J2O_DEBUG_LOOP_HINTS`, etc.) before landing the fix.
 
 ## Useful Commands
 

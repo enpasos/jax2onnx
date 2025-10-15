@@ -57,6 +57,32 @@ def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
     return False
 
 
+def _static_scatter_extent(jpr_like: Any) -> int | None:
+    if hasattr(jpr_like, "eqns"):
+        for eqn in jpr_like.eqns:
+            prim_name = getattr(eqn.primitive, "name", "")
+            if prim_name.startswith("scatter") and len(getattr(eqn, "invars", ())) >= 3:
+                updates_var = eqn.invars[2]
+                aval = getattr(updates_var, "aval", None)
+                shape = getattr(aval, "shape", None)
+                if shape and len(shape) > 0:
+                    dim0 = shape[0]
+                    if isinstance(dim0, (int, np.integer)):
+                        return int(dim0)
+            for val in getattr(eqn, "params", {}).values():
+                extent = _static_scatter_extent(val)
+                if extent is not None:
+                    return extent
+    if hasattr(jpr_like, "jaxpr"):
+        return _static_scatter_extent(jpr_like.jaxpr)
+    if isinstance(jpr_like, (tuple, list)):
+        for item in jpr_like:
+            extent = _static_scatter_extent(item)
+            if extent is not None:
+                return extent
+    return None
+
+
 def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
     aval = getattr(var, "aval", None)
     if aval is None:
@@ -826,18 +852,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
 
-        if has_scatter:
-            loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
-            loop_extent_vec = _unsqueeze_scalar(
-                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
-            )
-            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            extent_hints.setdefault(0, []).append(loop_extent_vec)
-            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
-
         loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
         loop_extent_vec = _unsqueeze_scalar(
             loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
@@ -847,6 +861,34 @@ class ScanPlugin(PrimitiveLeafPlugin):
             extent_hints = {}
             setattr(loop_ctx, "_loop_extent_hints", extent_hints)
         extent_hints.setdefault(0, []).append(loop_extent_vec)
+        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
+        if has_scatter:
+            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+        if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+            print("[loop_hint_static]", scatter_static_extent, flush=True)
+        if scatter_static_extent is not None:
+            matching_idx: int | None = None
+            for idx, var in enumerate(jaxpr.invars):
+                aval = getattr(var, "aval", None)
+                shape = getattr(aval, "shape", None)
+                if (
+                    shape
+                    and len(shape) > 0
+                    and isinstance(shape[0], (int, np.integer))
+                    and int(shape[0]) == int(scatter_static_extent)
+                ):
+                    matching_idx = idx
+                    break
+            if matching_idx is not None and matching_idx < len(state_inputs):
+                src_val = state_inputs[matching_idx]
+                src_shape = _shape_of(loop_ctx, src_val, "scan_loop_extent_dyn_shape")
+                dynamic_scalar = _gather_int_scalar(
+                    loop_ctx, src_shape, 0, "scan_loop_extent_dyn"
+                )
+                dynamic_vec = _unsqueeze_scalar(
+                    loop_ctx, dynamic_scalar, 0, "scan_loop_extent_dyn_vec"
+                )
+                extent_hints.setdefault(0, []).append(dynamic_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
