@@ -1,11 +1,13 @@
 # jax2onnx/quickstart_functions.py
 
-from onnx import save_model
+from __future__ import annotations
+
+from pathlib import Path
+
 from flax import nnx
 from jax2onnx import onnx_function, to_onnx
 
 
-# just an @onnx_function decorator to make your callable an ONNX function
 @onnx_function
 class MLPBlock(nnx.Module):
     def __init__(self, dim, *, rngs):
@@ -17,7 +19,6 @@ class MLPBlock(nnx.Module):
         return nnx.gelu(self.linear2(self.batchnorm(nnx.gelu(self.linear1(x)))))
 
 
-# Use it inside another module
 class MyModel(nnx.Module):
     def __init__(self, dim, *, rngs):
         self.block1 = MLPBlock(dim, rngs=rngs)
@@ -27,6 +28,22 @@ class MyModel(nnx.Module):
         return self.block2(self.block1(x))
 
 
-callable = MyModel(256, rngs=nnx.Rngs(0))
-model = to_onnx(callable, [(100, 256)])
-save_model(model, "docs/onnx/model_with_function.onnx")
+def _default_output_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "onnx"
+        / "model_with_function.onnx"
+    )
+
+
+def export_quickstart_functions_model(output_path: str | Path | None = None) -> Path:
+    target = Path(output_path) if output_path is not None else _default_output_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    callable_model = MyModel(256, rngs=nnx.Rngs(0))
+    to_onnx(callable_model, [(100, 256)], return_mode="file", output_path=target)
+    return target
+
+
+if __name__ == "__main__":
+    export_quickstart_functions_model()
