@@ -329,6 +329,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         bdims = tuple(eqn.params["broadcast_dimensions"])
 
         hints = getattr(ctx, "_scatter_window_hints", None)
+        use_loop_hints = bool(getattr(ctx, "_loop_extent_hints_enabled", False))
+        loop_extents = (
+            getattr(ctx, "_loop_extent_hints", None) if use_loop_hints else None
+        )
         allow_hints = bool(bdims)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
@@ -351,8 +355,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
         for axis, d in enumerate(shape):
-            if allow_hints and hints and axis not in bdims:
-                override_val = _peek_scatter_hint(axis)
+            if allow_hints and axis not in bdims:
+                override_val = _peek_scatter_hint(axis) if hints else None
+                if override_val is None and isinstance(loop_extents, dict):
+                    override_val = loop_extents.get(axis)
                 if override_val is not None:
                     dim_pieces.append(override_val)
                     continue

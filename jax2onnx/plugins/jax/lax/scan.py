@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Final, Union
+from typing import TYPE_CHECKING, Any, Final, Union
 
 import jax
 import jax.numpy as jnp
@@ -31,6 +31,7 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _gather_int_scalar,
     _scalar_i64,
     _shape_of,
+    _unsqueeze_scalar,
 )
 
 import jax.extend.core as jax_core_ext
@@ -806,6 +807,16 @@ class ScanPlugin(PrimitiveLeafPlugin):
             _set_value_dtype_from_var(loop_ctx, state_input, var)
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
+
+        loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
+        loop_extent_vec = _unsqueeze_scalar(
+            loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+        )
+        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+        if not isinstance(extent_hints, dict):
+            extent_hints = {}
+            setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+        extent_hints.setdefault(0, loop_extent_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
@@ -1164,6 +1175,24 @@ class ScanPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision and not function_keep_float32
         )
 
+        def _jaxpr_contains_scatter(jpr: Any) -> bool:
+            for inner_eqn in getattr(jpr, "eqns", ()):  # type: ignore[attr-defined]
+                prim_name = getattr(inner_eqn.primitive, "name", "")
+                if prim_name.startswith("scatter"):
+                    return True
+                for val in getattr(inner_eqn, "params", {}).values():
+                    if hasattr(val, "jaxpr") and _jaxpr_contains_scatter(val.jaxpr):
+                        return True
+                    if isinstance(val, (tuple, list)):
+                        for item in val:
+                            if hasattr(item, "jaxpr") and _jaxpr_contains_scatter(
+                                item.jaxpr
+                            ):
+                                return True
+            return False
+
+        has_scatter = _jaxpr_contains_scatter(jaxpr)
+
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
@@ -1176,6 +1205,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             _set_value_dtype_from_var(loop_ctx, state_input, var)
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
+
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_with_inputs_state]",
@@ -1202,6 +1232,21 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
             sequence_states.append(seq_state)
 
+        if has_scatter and sequence_states:
+            seq_state = sequence_states[0]
+            seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
+            loop_extent_scalar = _gather_int_scalar(
+                loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+            )
+            loop_extent_vec = _unsqueeze_scalar(
+                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+            )
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            extent_hints.setdefault(0, loop_extent_vec)
+            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]
