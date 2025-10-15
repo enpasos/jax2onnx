@@ -184,12 +184,16 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, result)
             return
 
-        def _resolve_contract_pair():
-            # Supported cases mirror the legacy plugin: single axis contraction.
-            if lhs_contract == (1,) and rhs_contract == (0,):
-                return False  # no transpose
-            if lhs_contract == (1,) and rhs_contract == (1,):
-                return True  # only RHS transpose needed
+        def _resolve_contract_pair() -> bool:
+            # Allow single-axis contractions where the contracting dimension may
+            # appear at either end of the RHS matrix. If it is already the leading
+            # axis (standard (K, N) layout) we can use MatMul directly; if it is
+            # trailing we transpose to bring it to the leading position.
+            rhs_contract_axis = rhs_contract[0]
+            if rhs_contract_axis == 0:
+                return False
+            if rhs_contract_axis == len(rhs_shape) - 1:
+                return True
             raise NotImplementedError(
                 f"dot_general contraction {lhs_contract}/{rhs_contract} not supported"
             )

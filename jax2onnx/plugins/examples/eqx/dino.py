@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-# jax2onnx/plugins/examples/eqx/dino.py
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import math
 from jaxtyping import Array
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -85,12 +84,118 @@ register_example(
 
 
 @onnx_function
+class AttentionCore(eqx.Module):
+    """Multi-Head Self-Attention"""
+
+    attn: eqx.nn.MultiheadAttention
+    num_heads: int
+
+    def __init__(self, dim: int, num_heads: int, *, key: jax.Array):
+        self.num_heads = num_heads
+        self.attn = eqx.nn.MultiheadAttention(
+            num_heads=num_heads,
+            query_size=dim,
+            key_size=dim,
+            value_size=dim,
+            output_size=dim,
+            use_query_bias=True,
+            use_key_bias=True,
+            use_value_bias=True,
+            use_output_bias=True,
+            key=key,
+        )
+
+    def __call__(self, x: Array) -> Array:
+        def _attend(tokens: Array) -> Array:
+            return self.attn(tokens, tokens, tokens, inference=True)
+
+        apply_batch = eqx.filter_vmap(_attend, in_axes=0, out_axes=0)
+        return apply_batch(x)
+
+
+register_example(
+    component="AttentionCore",
+    description="Multi-Head Self-Attention without rotary processing.",
+    source="https://github.com/clementpoiret/Equimo",
+    since="v0.9.1",
+    context="examples.eqx_dino",
+    children=[
+        "equinox.nn.MultiheadAttention",
+    ],
+    testcases=[
+        {
+            "testcase": "attention_core",
+            "callable": construct_and_call(
+                AttentionCore, dim=384, num_heads=6, key=with_prng_key(0)
+            ),
+            "input_shapes": [("B", 257, 384)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "MatMul", "counts": {"MatMul": 2}},
+                    "ReduceMax",
+                ],
+                symbols={"B": None},
+                search_functions=True,
+            ),
+            "run_only_f32_variant": True,
+        }
+    ],
+)
+
+
+@onnx_function
+class RotaryHeads(eqx.Module):
+    """Apply rotary positional embeddings to attention heads."""
+
+    rope: eqx.nn.RotaryPositionalEmbedding
+
+    def __init__(self, embedding_size: int):
+        self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=embedding_size)
+
+    def __call__(self, heads: Array) -> Array:
+        rotate_heads = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
+        return rotate_heads(heads)
+
+
+register_example(
+    component="RotaryHeads",
+    description="Apply rotary positional embeddings to attention heads.",
+    source="https://github.com/clementpoiret/Equimo",
+    since="v0.9.1",
+    context="examples.eqx_dino",
+    children=[
+        "equinox.nn.RotaryPositionalEmbedding",
+    ],
+    testcases=[
+        {
+            "testcase": "rotary_heads",
+            "callable": construct_and_call(
+                RotaryHeads,
+                embedding_size=64,
+            ),
+            "input_shapes": [(257, 6, 64)],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Concat", "counts": {"Concat": 1}},
+                    {"path": "Mul", "counts": {"Mul": 2}},
+                    "Add",
+                ],
+                search_functions=True,
+            ),
+            "run_only_f32_variant": True,
+        }
+    ],
+)
+
+
+@onnx_function
 class Attention(eqx.Module):
     """Multi-Head Self-Attention driven by Equinox primitives."""
 
     attn: eqx.nn.MultiheadAttention
     rope: eqx.nn.RotaryPositionalEmbedding
     num_heads: int
+    head_dim: int
 
     def __init__(self, dim: int, num_heads: int, *, key: jax.Array):
         self.num_heads = num_heads
@@ -108,27 +213,46 @@ class Attention(eqx.Module):
             key=key,
         )
         self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=head_dim)
+        self.head_dim = head_dim
 
     def __call__(self, x: Array) -> Array:
         rope_heads = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
-
-        def _process_heads(
-            query_heads: Array,
-            key_heads: Array,
-            value_heads: Array,
-        ) -> tuple[Array, Array, Array]:
-            query_rot = rope_heads(query_heads)
-            key_rot = rope_heads(key_heads)
-            return query_rot, key_rot, value_heads
+        num_heads = self.num_heads
+        head_dim = self.head_dim
+        value_head_dim = self.attn.vo_size
 
         def _attend(tokens: Array) -> Array:
-            return self.attn(
-                tokens,
-                tokens,
-                tokens,
-                inference=True,
-                process_heads=_process_heads,
+            q_proj = self.attn.query_proj(tokens)
+            k_proj = self.attn.key_proj(tokens)
+            v_proj = self.attn.value_proj(tokens)
+
+            q_heads = q_proj.reshape(tokens.shape[0], num_heads, head_dim)
+            k_heads = k_proj.reshape(tokens.shape[0], num_heads, head_dim)
+            v_heads = v_proj.reshape(tokens.shape[0], num_heads, value_head_dim)
+
+            q_rot = rope_heads(q_heads)
+            k_rot = rope_heads(k_heads)
+
+            q_rot = jax.lax.transpose(q_rot, (1, 0, 2))
+            k_rot = jax.lax.transpose(k_rot, (1, 2, 0))
+            v_heads_t = jax.lax.transpose(v_heads, (1, 0, 2))
+
+            scale = 1.0 / math.sqrt(float(head_dim))
+
+            def _matmul(lhs, rhs):
+                return jax.lax.dot_general(
+                    lhs,
+                    rhs,
+                    dimension_numbers=(((1,), (0,)), ((), ())),
+                )
+
+            scores = jax.vmap(_matmul)(q_rot, k_rot) * scale
+            attn = jax.nn.softmax(scores, axis=-1)
+            context = jax.vmap(_matmul)(attn, v_heads_t)
+            context = jax.lax.transpose(context, (1, 0, 2)).reshape(
+                tokens.shape[0], num_heads * value_head_dim
             )
+            return self.attn.output_proj(context)
 
         apply_batch = eqx.filter_vmap(_attend, in_axes=0, out_axes=0)
         return apply_batch(x)
@@ -155,7 +279,6 @@ register_example(
                 [
                     {"path": "MatMul", "counts": {"MatMul": 2}},
                     "ReduceMax",
-                    "Dropout",
                 ],
                 symbols={"B": None},
                 search_functions=True,
@@ -304,8 +427,8 @@ def _get_test_cases():
 
 
 register_example(
-    component="VisionTransformer",
-    description="DINOv3 Vision Transformer.",
+    component="DINOv3VisionTransformer",
+    description="DINOv3 Vision Transformer",
     source="https://github.com/clementpoiret/Equimo",
     since="v0.9.1",
     context="examples.eqx_dino",
