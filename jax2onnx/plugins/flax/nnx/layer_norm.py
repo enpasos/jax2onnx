@@ -16,6 +16,7 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
 # Cast helper that inserts CastLike only when needed; no-op if dtypes already match
 from jax2onnx.plugins._utils import cast_param_like
@@ -153,6 +154,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
@@ -167,6 +173,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_bias_no_scale",
@@ -184,6 +195,11 @@ LAYER_NORM_PRIM.multiple_results = False
             # Small drift depending on epsilon and tensor contents; relax slightly.
             "rtol": 6e-5,
             "atol": 1e-6,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_no_bias_scale",
@@ -198,6 +214,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_bias_scale",
@@ -212,6 +233,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 20, 32)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_multiaxis",
@@ -226,6 +252,11 @@ LAYER_NORM_PRIM.multiple_results = False
             ),
             "input_shapes": [("B", 3, 3, 64)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape:Bx576 -> LayerNormalization:Bx576 -> Reshape:Bx3x3x64"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "layer_norm_symbolic_batch",

@@ -6,6 +6,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -68,6 +69,11 @@ register_example(
             # GeLU inside the function leverages erf which accumulates ~1e-3 FP32 noise
             # across the nested calls. Relax the numeric tolerance accordingly.
             "rtol": 2e-3,
+            "post_check_onnx_graph": expect_graph(
+                ["SuperBlock_1:Bx10x3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

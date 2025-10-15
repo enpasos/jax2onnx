@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -44,11 +45,20 @@ def _shape_eval(x):
             "testcase": "shape_basic",
             "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Shape -> Cast:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "shape_dynamic",
             "callable": lambda x: jnp.asarray(jnp.shape(x), dtype=jnp.int32),
             "input_shapes": [("B", 12, "T", "T")],
+            "post_check_onnx_graph": EG(
+                ["Shape -> Cast:4"],
+                symbols={"B": None, "T": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -34,18 +35,31 @@ _SELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Selu:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_selu_1",
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Selu:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_selu_basic",
             "callable": lambda x: jax.nn.selu(x),
             "input_shapes": [("B", 8)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Selu:Bx8"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

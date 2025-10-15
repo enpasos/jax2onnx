@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -55,6 +56,15 @@ def _cast_value(
             ),
             "input_values": [np.array([-3, 1, 9, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Max:4 -> Min:4",
+                        "inputs": {1: {"const": 4.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clamp_scalar_float_bounds_match_x",
@@ -65,6 +75,15 @@ def _cast_value(
             ),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Max:3 -> Min:3",
+                        "inputs": {1: {"const": 2.5}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clamp_vector_bounds_match",
@@ -77,6 +96,10 @@ def _cast_value(
             "expected_output_shapes": [(5,)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Max:5 -> Min:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clamp_pyint_bounds_promote_to_x_dtype",
@@ -87,6 +110,15 @@ def _cast_value(
             ),
             "input_values": [np.array([-2.0, 0.25, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Max:3 -> Min:3",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

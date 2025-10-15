@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -39,16 +40,28 @@ _JAX_SOFTMAX_ORIG = jax.nn.softmax
             "testcase": "softmax",
             "callable": lambda x: jax.nn.softmax(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Softmax:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "softmax_2d",
             "callable": lambda x: jax.nn.softmax(x, axis=1),
             "input_shapes": [(4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Softmax:4x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "softmax_3d",
             "callable": lambda x: jax.nn.softmax(x, axis=2),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Softmax:2x3x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

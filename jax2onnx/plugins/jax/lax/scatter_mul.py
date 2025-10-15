@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
+# Ensure cond plugin is registered when scatter_mul metadata uses it.
+from jax2onnx.plugins.jax.lax import cond as _cond_plugin  # noqa: F401
+
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.scatter_utils import lower_scatter_common
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -41,6 +45,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 1), (2,)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_batch_updates_1d_operand",
@@ -56,6 +64,10 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_shapes": [(5,), (2, 2, 1), (2, 2)],
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_window_2d_operand_1d_indices",
@@ -74,6 +86,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.array([[0]], dtype=jnp.int32),
                 jnp.array([[10.0, 20.0, 30.0]], dtype=jnp.float32),
             ],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:2x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report",
@@ -93,6 +109,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((5, 200, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5x208x1x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report2",
@@ -112,6 +132,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((3, 140, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:3x150x1x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_mismatched_window_dims_from_user_report3",
@@ -131,6 +155,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:8x50x1x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_fluids_pattern_updates_5_4_1_1",
@@ -150,6 +178,10 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((5, 4, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ScatterND:5x208x1x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scatter_mul_in_cond_float64",
@@ -177,6 +209,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["If:8x50x1x1"],
+            ),
         },
     ],
 )

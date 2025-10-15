@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import (
     _gather_int_scalar,
@@ -33,11 +34,19 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "testcase": "rev_vector",
             "callable": lambda x: jax.lax.rev(x, (0,)),
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                ["Gather:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "rev_matrix_axes01",
             "callable": lambda x: jax.lax.rev(x, (0, 1)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Gather:3x4 -> Gather:3x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

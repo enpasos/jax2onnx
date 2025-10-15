@@ -22,6 +22,7 @@ from jax import nn as jax_nn
 from jax.extend.core import Primitive
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -228,6 +229,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_positional_bias_mask",
@@ -237,6 +245,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_diff_heads_embed",
@@ -244,6 +259,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 2, 4, 16), (1, 2, 4, 16), (1, 2, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x4x2x16 -> MatMul:1x4x2x2 -> Mul:1x4x2x2 -> "
+                    "Softmax:1x4x2x2 -> MatMul:1x4x2x16 -> Transpose:1x2x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_batch4_seq16",
@@ -251,6 +273,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(4, 2, 16, 8), (4, 2, 16, 8), (4, 2, 16, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:4x16x2x8 -> MatMul:4x16x2x2 -> Mul:4x16x2x2 -> "
+                    "Softmax:4x16x2x2 -> MatMul:4x16x2x8 -> Transpose:4x2x16x8"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_float64",
@@ -260,6 +289,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_heads1_embed4",
@@ -267,6 +303,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 1, 8, 4), (2, 1, 8, 4), (2, 1, 8, 4)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x1x4 -> MatMul:2x8x1x1 -> Mul:2x8x1x1 -> "
+                    "Softmax:2x8x1x1 -> MatMul:2x8x1x4 -> Transpose:2x1x8x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_heads8_embed8",
@@ -274,6 +317,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 8, 8, 8), (2, 8, 8, 8), (2, 8, 8, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x8x8 -> MatMul:2x8x8x8 -> Mul:2x8x8x8 -> "
+                    "Softmax:2x8x8x8 -> MatMul:2x8x8x8 -> Transpose:2x8x8x8"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_batch1_seq2",
@@ -281,6 +331,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 2, 2, 8), (1, 2, 2, 8), (1, 2, 2, 8)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x2x2x8 -> MatMul:1x2x2x2 -> Mul:1x2x2x2 -> "
+                    "Softmax:1x2x2x2 -> MatMul:1x2x2x8 -> Transpose:1x2x2x8"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_batch8_seq4",
@@ -288,6 +345,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(8, 2, 4, 16), (8, 2, 4, 16), (8, 2, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:8x4x2x16 -> MatMul:8x4x2x2 -> Mul:8x4x2x2 -> "
+                    "Softmax:8x4x2x2 -> MatMul:8x4x2x16 -> Transpose:8x2x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_axis1",
@@ -295,6 +359,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 4, 8, 32), (2, 4, 8, 32), (2, 4, 8, 32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_with_tensor_mask",
@@ -325,6 +396,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
+                    "-> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_tiny_mask_mixed",
@@ -339,6 +417,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
+                    "-> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_one_false",
@@ -359,6 +444,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
+                    "-> MatMul:1x1x1x4 -> Transpose:1x1x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_mostly_false",
@@ -374,6 +466,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "expected_output_numpy": [np.zeros((1, 1, 1, 4), dtype=np.float32)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
+                    "-> MatMul:1x1x1x4 -> Transpose:1x1x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_with_causal_mask",
@@ -383,6 +482,14 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x4x8x16 -> MatMul:2x4x8x8 -> Mul:2x4x8x8 -> "
+                    "Where:2x4x8x8 -> Softmax:2x4x8x8 -> MatMul:2x4x8x16 -> "
+                    "Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_with_padding_mask",
@@ -404,6 +511,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
+                    "-> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_with_local_window_mask",
@@ -413,6 +527,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x1x16x4 -> MatMul:1x1x16x16 -> Mul:1x1x16x16 -> "
+                    "Softmax:1x1x16x16 -> MatMul:1x1x16x4 -> Transpose:1x16x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_mask_none",
@@ -425,6 +546,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 (2, 4, 8, 32),
             ],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

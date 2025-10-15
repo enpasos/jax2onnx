@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -44,12 +45,20 @@ _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
             "callable": lambda: jnp.stack(
                 [np.arange(3, dtype=np.float32), np.arange(3, dtype=np.float32)], axis=0
             ),
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:1x3 -> Concat:2x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "stack_axis_1",
             "callable": lambda: jnp.stack(
                 [np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)],
                 axis=1,
+            ),
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:2x1x2 -> Concat:2x2x2"],
+                no_unused_inputs=True,
             ),
         },
         {
@@ -61,32 +70,61 @@ _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
                 ],
                 axis=-1,
             ),
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:3x1 -> Concat:3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "stack_scalars",
             "callable": lambda: jnp.stack(
                 [np.array(1.0, dtype=np.float32), np.array(2.0, dtype=np.float32)]
             ),
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {0: {"const": 1.0}, 1: {"const": 2.0}},
+                        "path": "Unsqueeze:1 -> Concat:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_stack_axis0",
             "callable": lambda x, y: jnp.stack((x, y), axis=0),
             "input_shapes": [(2,), (2,)],
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:1x2 -> Concat:2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_stack_axis1",
             "callable": lambda x, y: jnp.stack((x, y), axis=1),
             "input_shapes": [(2, 2), (2, 2)],
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:2x1x2 -> Concat:2x2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_stack_negative_axis",
             "callable": lambda x, y: jnp.stack((x, y), axis=-1),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:3x1 -> Concat:3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_stack_scalars",
             "callable": lambda x, y: jnp.stack((x, y), axis=0),
             "input_shapes": [(), ()],
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:1 -> Concat:2"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

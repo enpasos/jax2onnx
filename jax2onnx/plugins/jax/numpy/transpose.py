@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
 import jax.numpy as jnp
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -64,41 +65,73 @@ def _normalize_axes(axes: Sequence[int] | int | None, rank: int) -> tuple[int, .
             "testcase": "transpose_basic",
             "callable": lambda a: jnp.transpose(a, axes=(1, 0)),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_reverse_default",
             "callable": lambda a: jnp.transpose(a),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:4x3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_high_dim",
             "callable": lambda a: jnp.transpose(a, axes=(4, 3, 2, 1, 0)),
             "input_shapes": [(2, 3, 4, 5, 6)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:6x5x4x3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_3d",
             "callable": lambda a: jnp.transpose(a, axes=(0, 2, 1)),
             "input_shapes": [(3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:3x5x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_4d",
             "callable": lambda a: jnp.transpose(a, axes=(0, 2, 3, 1)),
             "input_shapes": [(2, 3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x4x5x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_no_axes",
             "callable": lambda a: jnp.transpose(a, axes=None),
             "input_shapes": [(4, 5, 6)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:6x5x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_reverse",
             "callable": lambda a: jnp.transpose(a, axes=(2, 1, 0)),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:4x3x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "transpose_square_matrix",
             "callable": lambda a: jnp.transpose(a),
             "input_shapes": [(5, 5)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:5x5"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

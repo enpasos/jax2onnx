@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import onnx_ir as ir
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -47,36 +48,66 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
             "testcase": "matmul_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(4,), (4,)],
+            "post_check_onnx_graph": EG(
+                ["MatMul"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_1d_2d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(4,), (4, 5)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_2d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4, 5)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:3x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_2d_1d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(3, 4), (4,)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_3d",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [(2, 3, 4), (2, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:2x3x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_dynamic",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [("B", 3, 4), ("B", 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:Bx3x5"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "matmul_dynamic_a",
             "callable": lambda a, b: jnp.matmul(a, b),
             "input_shapes": [("B", 3), (3, 4)],
+            "post_check_onnx_graph": EG(
+                ["MatMul:Bx4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.pow import lower_pow
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
@@ -78,6 +79,10 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
             "testcase": "jnp_power_vector",
             "callable": lambda x, y: jnp.power(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Pow:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pow_jnp_power",
@@ -87,6 +92,15 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
             "input_values": [],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.0}},
+                        "path": "Pow:3",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -116,6 +130,10 @@ _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
             "testcase": "jnp_pow_vector",
             "callable": lambda x, y: jnp.pow(x, y),
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Pow:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pow_jnp_pow",
@@ -125,6 +143,15 @@ _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
             "input_values": [],
             "expected_output_shapes": [(3,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 3.0}},
+                        "path": "Pow:3",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

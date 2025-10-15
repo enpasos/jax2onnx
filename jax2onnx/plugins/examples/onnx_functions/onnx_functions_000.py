@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -61,6 +62,11 @@ register_example(
             # Match the tolerances used by LN unit tests.
             "rtol": 1e-3,
             "atol": 1e-5,
+            "post_check_onnx_graph": EG(
+                ["SuperBlock_1:Bx10x3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

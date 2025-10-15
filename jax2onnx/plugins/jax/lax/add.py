@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -45,11 +46,24 @@ def lower_add(ctx, eqn) -> None:
             "testcase": "add",
             "callable": lambda x1, x2: x1 + x2,
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Add:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "add_const",
             "callable": lambda x: x + 1.0,
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Add:3",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

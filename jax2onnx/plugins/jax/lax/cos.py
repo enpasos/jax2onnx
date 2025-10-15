@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 
@@ -29,6 +30,11 @@ if TYPE_CHECKING:
             "testcase": "cos",
             "callable": lambda x: jax.lax.cos(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Cos:3", "Add:3 -> Sin:3"],
+                mode="any",
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

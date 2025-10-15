@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -35,6 +36,15 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 x, jnp.asarray(0.0, dtype=x.dtype), ((1, 2, 0),)
             ),
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": 0.0}},
+                        "path": "Pad:8",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pad_const_2d",
@@ -42,6 +52,15 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 x, jnp.asarray(1.0, dtype=x.dtype), ((0, 0, 0), (1, 1, 0))
             ),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": 1.0}},
+                        "path": "Pad:2x5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pad_const_2d_cval",
@@ -51,6 +70,15 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 ((0, 0, 0), (1, 1, 0)),
             ),
             "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": 0.0}},
+                        "path": "Pad:2x5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pad_inside_scan_smoke_f64",
@@ -71,6 +99,10 @@ def _flatten(seq: Iterable[int]) -> list[int]:
             "input_shapes": [(1, 3, 8, 8)],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 1, 3, 8, 8)],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "pad_inside_nested_scan_smoke_f64",
@@ -98,6 +130,10 @@ def _flatten(seq: Iterable[int]) -> list[int]:
                 ("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2, 1, 3, 8, 8)
             ],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

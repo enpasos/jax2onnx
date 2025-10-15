@@ -9,6 +9,7 @@ import numpy as np
 
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
@@ -28,6 +29,10 @@ from jax2onnx.plugins.plugin_system import (
             "testcase": "jit_identity",
             "callable": lambda x: jax.jit(lambda y: y + 1)(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Add:3", "inputs": {1: {"const": 1.0}}}],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

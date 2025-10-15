@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -21,16 +22,33 @@ if TYPE_CHECKING:
             "testcase": "sub_test1",
             "callable": lambda x1, x2: x1 - x2,
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Sub:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "sub_test2",
             "callable": lambda x1, x2: jax.lax.sub(x1, x2),
             "input_shapes": [(2, 2), (2, 2)],
+            "post_check_onnx_graph": EG(
+                ["Sub:2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "sub_const",
             "callable": lambda x: x - 1.0,
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Sub:3",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

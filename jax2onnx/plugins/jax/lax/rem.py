@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -39,6 +40,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                 np.array([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], dtype=np.int32),
                 np.array([4, 4, 3, 3, 2, 2, 1, 1, 5, 5], dtype=np.int32),
             ],
+            "post_check_onnx_graph": EG(
+                ["Sub:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "rem_float",
@@ -53,6 +58,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                     dtype=np.float32,
                 ),
             ],
+            "post_check_onnx_graph": EG(
+                ["Mod:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "rem_int_neg",
@@ -61,6 +70,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                 np.array([-10, -9, -8, -7, 6, 5, 4, 3, -2, -1], dtype=np.int32),
                 np.array([4, -4, 3, -3, 2, -2, 1, -1, 5, -5], dtype=np.int32),
             ],
+            "post_check_onnx_graph": EG(
+                ["Sub:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "rem_float_neg",
@@ -75,6 +88,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
                     dtype=np.float32,
                 ),
             ],
+            "post_check_onnx_graph": EG(
+                ["Mod:10"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

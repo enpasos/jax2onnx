@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -30,11 +31,19 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "sort_1d",
             "callable": lambda x: jax.lax.sort(x),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["TopK:3 -> Identity:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "sort_2d",
             "callable": lambda x: jax.lax.sort(x, dimension=0),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["TopK:3x4 -> Identity:3x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

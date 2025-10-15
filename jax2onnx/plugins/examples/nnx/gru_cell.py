@@ -7,6 +7,7 @@ import jax
 from flax import nnx
 from flax.nnx.nn.activations import tanh
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -65,6 +66,13 @@ register_example(
             ],
             "expected_output_shapes": [(2, 4), (2, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Gemm:2x12 -> Split -> Add:2x4 -> Sigmoid:2x4 -> Mul:2x4 -> Add:2x4 -> Tanh:2x4",
+                    "Sigmoid:2x4 -> Sub:2x4 -> Mul:2x4 -> Add:2x4 -> Add:2x4",
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

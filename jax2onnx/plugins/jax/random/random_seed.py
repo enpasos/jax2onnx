@@ -12,6 +12,7 @@ import onnx_ir as ir
 import jax
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover - import guard for typing only
@@ -82,6 +83,15 @@ def _unsqueeze(ctx: "IRContext", value: ir.Value, axis: int) -> ir.Value:
             "input_dtypes": [np.int32],
             "expected_output_shapes": [(2,)],
             "expected_output_dtypes": [np.dtype(np.uint32)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Cast -> Unsqueeze:1 -> Concat:2",
+                        "inputs": {0: {"const": 0.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

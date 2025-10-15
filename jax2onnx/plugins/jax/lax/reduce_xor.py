@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_boolean_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -38,6 +39,15 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
             "input_values": [np.zeros((3, 4), dtype=np.bool_)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Cast:3x4 -> ReduceSum:4 -> Mod:4 -> Equal:4",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_xor_one_true",
@@ -47,6 +57,15 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [
                 np.array([[True, False, False], [False, False, False]], dtype=np.bool_)
             ],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Cast:2x3 -> ReduceSum:3 -> Mod:3 -> Equal:3",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_xor_two_true",
@@ -56,6 +75,15 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [
                 np.array([[True, False, False], [False, True, False]], dtype=np.bool_)
             ],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Cast:2x3 -> ReduceSum:3 -> Mod:3 -> Equal:3",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_xor_keepdims",
@@ -72,6 +100,12 @@ if TYPE_CHECKING:  # pragma: no cover
                     dtype=np.bool_,
                 )
             ],
+            "post_check_onnx_graph": EG(
+                [
+                    "Cast:3x4 -> ReduceSum:3 -> Mod:3 -> Equal:3 -> Reshape:3x1 -> Expand:3x1"
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -1,10 +1,11 @@
 # jax2onnx/plugins/jax/lax/or.py
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import jax
 
+from typing import TYPE_CHECKING
+
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -24,7 +25,36 @@ if TYPE_CHECKING:  # pragma: no cover
     since="v0.7.2",
     context="primitives.lax",
     component="or",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "or_bool_vec",
+            "callable": lambda x, y: jax.lax.bitwise_or(x, y),
+            "input_values": [
+                np.array([True, False, True, False], dtype=np.bool_),
+                np.array([False, True, False, True], dtype=np.bool_),
+            ],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [np.bool_],
+            "post_check_onnx_graph": EG(
+                ["Or:4"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "or_int_vec",
+            "callable": lambda x, y: jax.lax.bitwise_or(x, y),
+            "input_values": [
+                np.array([1, 2, 3, 4], dtype=np.int32),
+                np.array([4, 3, 2, 1], dtype=np.int32),
+            ],
+            "expected_output_shapes": [(4,)],
+            "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["BitwiseOr:4"],
+                no_unused_inputs=True,
+            ),
+        },
+    ],
 )
 class OrPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitwise_or`` and boolean ``or``."""

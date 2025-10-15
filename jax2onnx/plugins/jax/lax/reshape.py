@@ -133,7 +133,11 @@ def _reshape_flatten_trailing(x):
             ),
             "input_shapes": [(3, 28, 28, 1)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": _no_const_concat_shape,
+            "post_check_onnx_graph": lambda m, check=EG(
+                ["Transpose:3x1x28x28 -> Reshape:3x784"],
+                no_unused_inputs=True,
+            ): _no_const_concat_shape(m)
+            and check(m),
         },
         {
             # Catch regression: when the input’s leading axis is static, the shape fed to
@@ -142,7 +146,10 @@ def _reshape_flatten_trailing(x):
             "callable": _reshape_flatten_leading,
             "input_shapes": [(3, 4, 5)],
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: (
+            "post_check_onnx_graph": lambda m, check=EG(
+                ["Reshape:3x20"],
+                no_unused_inputs=True,
+            ): (
                 EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING(m)
                 and EXPECT_NO_DYNAMIC_SHAPE_NODES(m)
                 # and the shape input to Reshape is a constant initializer:
@@ -151,13 +158,23 @@ def _reshape_flatten_trailing(x):
                     == next(n for n in m.graph.node if n.op_type == "Reshape").input[1]
                     for init in m.graph.initializer
                 )
-            ),
+            )
+            and check(m),
         },
         {
             "testcase": "reshape",
             "callable": lambda x: jax.lax.reshape(x, (9,)),
             "input_shapes": [(3, 3)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Reshape:9",
+                        "inputs": {1: {"const": 9.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_valid_squeeze_middle_dim_from_problematic_source",
@@ -166,30 +183,50 @@ def _reshape_flatten_trailing(x):
             ),
             "input_shapes": [(201, 1, 201)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape:201x201"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_valid_flatten_trailing",
             "callable": _reshape_flatten_leading,
             "input_shapes": [(201, 1, 5)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape:201x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
             "callable": _reshape_flatten_leading,
             "input_shapes": [("N", "M", "K")],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_with_inferred_dimension_from_input_dynamic",
             "callable": _reshape_flatten_leading,
             "input_shapes": [("B", 10, 10)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_with_inferred_dimension_from_input",
             "callable": _reshape_flatten_leading,
             "input_shapes": [(3, 10, 10)],
             "use_onnx_ir": True,
+            "post_check_onnx_graph": EG(
+                ["Reshape"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_merge_symbolic_with_static_and_check_name",
@@ -197,10 +234,15 @@ def _reshape_flatten_trailing(x):
             "input_shapes": [("B", 4, 16)],
             "run_only_f32_variant": True,
             "use_onnx_ir": True,
-            "post_check_onnx_graph": lambda m: (
+            "post_check_onnx_graph": lambda m, check=EG(
+                ["Reshape:Bx16"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ): (
                 m.graph.output[0].type.tensor_type.shape.dim[0].dim_param != "B"
                 and m.graph.output[0].type.tensor_type.shape.dim[1].dim_value == 16
-            ),
+            )
+            and check(m),
         },
     ],
 )

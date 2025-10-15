@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover
     DimExpr = object  # type: ignore[misc,assignment]
 
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -67,21 +68,38 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "testcase": "reshape_1",
             "callable": lambda a: jnp.reshape(a, (2, 6)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:2x6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_2",
             "callable": lambda a: jnp.reshape(a, (-1, 2)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:6x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_3",
             "callable": lambda a: jnp.reshape(a, (2, -1)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:2x6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_4",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:Bx12"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_to_scalar",
@@ -89,6 +107,15 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "input_values": [],
             "expected_output_shapes": [()],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {0: {"const": 7.0}},
+                        "path": "Reshape",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_from_scalar",
@@ -96,36 +123,75 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             "input_values": [],
             "expected_output_shapes": [(1,)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 3.0},
+                            1: {"const": 1.0},
+                        },
+                        "path": "Reshape:1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_cnn",
             "callable": lambda x: x.reshape(x.shape[0], -1),
             "input_shapes": [("B", 64, 14, 14)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:Bx12544"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_valid_flatten_trailing",
             "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
             "input_shapes": [(201, 1, 5)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:201x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_with_target_shape_from_symbolic_dim_computation",
             "callable": lambda x: jnp.reshape(x, (x.shape[0], x.shape[1] * x.shape[2])),
             "input_shapes": [("N", 3, 5)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:Nx15"],
+                symbols={"N": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_basic",
             "callable": lambda a: jnp.reshape(a, (2, 6)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:2x6"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_infer",
             "callable": lambda a: jnp.reshape(a, (-1, 2)),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:6x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reshape_symbolic_flatten",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 8, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:Bx32"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -10,6 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -73,6 +74,10 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "input_shapes": [(1, 2, 3, 3), (1, 2, 2, 2)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Conv:1x1x2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "conv2",
@@ -85,6 +90,10 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "input_shapes": [(1, 3, 3, 2), (2, 2, 2, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Transpose:1x2x3x3 -> Conv:1x1x2x2 -> Transpose:1x2x2x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "conv_nchw",
@@ -93,6 +102,10 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "input_shapes": [(1, 2, 5, 5), (3, 2, 3, 3)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Conv:1x3x3x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "conv_nhwc",
@@ -105,6 +118,10 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "input_shapes": [(1, 5, 5, 3), (3, 3, 3, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Transpose:1x3x5x5 -> Conv:1x4x5x5 -> Transpose:1x5x5x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "conv_general_dilated_nhwc_output",
@@ -121,6 +138,10 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ],
             "expected_output_shapes": [(1, 5, 5, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Transpose:1x3x5x5 -> Conv:1x4x5x5 -> Transpose:1x5x5x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

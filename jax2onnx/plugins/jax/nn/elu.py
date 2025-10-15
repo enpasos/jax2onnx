@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -32,24 +33,41 @@ _ELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.elu(x, alpha=0.1),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Elu:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_elu_1",
             "callable": lambda x: jax.nn.elu(x, alpha=0.2),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Elu:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_elu_default",
             "callable": lambda x: jax.nn.elu(x),
             "input_shapes": [(5, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Elu:5x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_elu_custom_alpha",
             "callable": lambda x: jax.nn.elu(x, alpha=0.2),
             "input_shapes": [("B", 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Elu:Bx4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

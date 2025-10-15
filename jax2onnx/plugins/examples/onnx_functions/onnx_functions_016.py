@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -53,6 +54,9 @@ register_example(
             "input_shapes": [("B", 10, 256)],
             "expected_number_of_function_instances": 2,
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["SuperBlock_1:Bx10x256"], symbols={"B": None}, no_unused_inputs=True
+            ),
         },
     ],
 )

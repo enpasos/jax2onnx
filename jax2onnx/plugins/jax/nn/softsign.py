@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -37,18 +38,30 @@ _SOFTSIGN_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Softsign:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_soft_sign_1",
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Softsign:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_softsign_basic",
             "callable": lambda x: jax.nn.soft_sign(x),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Softsign:2x3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

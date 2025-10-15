@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -367,6 +368,11 @@ register_example(
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["VisionTransformer_1:Bx10"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

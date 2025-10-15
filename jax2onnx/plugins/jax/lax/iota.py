@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -42,16 +43,28 @@ _DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
             "testcase": "iota_int32",
             "callable": lambda: jax.lax.iota(np.int32, 5),
             "input_shapes": [],
+            "post_check_onnx_graph": EG(
+                ["Range:5 -> Cast:5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "iota_float32",
             "callable": lambda: jax.lax.iota(np.float32, 10),
             "input_shapes": [],
+            "post_check_onnx_graph": EG(
+                ["Range:10 -> Cast:10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "broadcasted_iota",
             "callable": lambda: jax.lax.broadcasted_iota(np.int32, (3, 4), 1),
             "input_shapes": [],
+            "post_check_onnx_graph": EG(
+                ["Range:4 -> Unsqueeze:1x4 -> Expand:3x4 -> Cast:3x4"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

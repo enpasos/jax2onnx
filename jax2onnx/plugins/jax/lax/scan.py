@@ -14,6 +14,7 @@ from jax import lax
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
@@ -279,6 +280,11 @@ def _two_scans_diff_len_with_broadcast_f32():
                 x,
             )[1],
             "input_shapes": [(2, 3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Loop"],
+                search_functions=True,
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scan_cumsum",
@@ -288,6 +294,11 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[1],
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                ["Loop"],
+                search_functions=True,
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scan_carry_only",
@@ -297,6 +308,19 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[0],
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Loop",
+                        "inputs": {
+                            0: {"const": 3.0},
+                            1: {"const_bool": True},
+                            2: {"const": 0.0},
+                        },
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scan_multiple_sequences",
@@ -306,6 +330,9 @@ def _two_scans_diff_len_with_broadcast_f32():
                 (xs, ys),
             )[1],
             "input_shapes": [(4,), (4,)],
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_multiple_carry",
@@ -321,6 +348,9 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs,
             )[1],
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_matrix_carry_multidim_xs",
@@ -330,6 +360,9 @@ def _two_scans_diff_len_with_broadcast_f32():
                 xs_seq,
             )[1],
             "input_shapes": [(3, 2), (5, 3, 2)],
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_no_xs",
@@ -339,12 +372,18 @@ def _two_scans_diff_len_with_broadcast_f32():
             "input_shapes": [()],
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_fn",
             "callable": scan_fn,
             "input_values": [jnp.array(0.0, dtype=jnp.float32)],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_jit_no_xs",
@@ -353,6 +392,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_jit_no_xs_f64",
@@ -361,6 +403,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [(10,)],
             "expected_output_dtypes": [jnp.int64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_captured_scalar",
@@ -378,6 +423,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_captured_scalar_f64",
@@ -395,6 +443,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_rank0_sequence_vectorized",
@@ -409,6 +460,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
@@ -423,6 +477,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
         },
         {
             "testcase": "scan_two_diff_lengths",
@@ -434,6 +491,13 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Identity -> Loop",
+                    "Identity -> Loop",
+                ],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -446,6 +510,13 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Identity -> Loop",
+                    "Identity -> Loop",
+                ],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -458,6 +529,13 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Identity -> Loop",
+                    "Identity -> Loop",
+                ],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -470,6 +548,13 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float64, jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Identity -> Loop",
+                    "Identity -> Loop",
+                ],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -482,6 +567,13 @@ def _two_scans_diff_len_with_broadcast_f32():
             ],
             "expected_output_dtypes": [jnp.float32, jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Identity -> Loop",
+                    "Identity -> Loop",
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "scan_nested_len_mismatch",
@@ -490,6 +582,10 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Range -> Shape -> Gather -> Squeeze -> Loop"],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -499,6 +595,10 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Range -> Shape -> Gather -> Squeeze -> Loop"],
+                no_unused_inputs=True,
+            ),
             "check_onnx_load": True,
         },
         {
@@ -516,6 +616,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
             "check_onnx_load": True,
         },
         {
@@ -533,6 +636,9 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2)],
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
             "check_onnx_load": True,
         },
     ],

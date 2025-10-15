@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
             "testcase": "neg",
             "callable": lambda x: -x,
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Neg:3"],
+                no_unused_inputs=True,
+            ),
         }
     ],
 )

@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -96,6 +97,11 @@ register_example(
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["PatchEmbedding_1:Bx49x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -189,6 +195,11 @@ register_example(
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ConvEmbedding_1:Bx49x128"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -231,6 +242,11 @@ register_example(
             ),
             "input_shapes": [("B", 10, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["FeedForward_1:Bx10x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -329,6 +345,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["TransformerBlock_1:Bx10x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -392,6 +413,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["TransformerStack_1:Bx10x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -414,6 +440,11 @@ register_example(
             "callable": get_first_token,
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["GatherND", "Slice -> Squeeze"],
+                mode="any",
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -457,6 +488,11 @@ register_example(
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ClassificationHead_1:Bx10"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -499,6 +535,11 @@ register_example(
             ),
             "input_shapes": [("B", 49, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ConcatClsToken_1:Bx50x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -538,6 +579,11 @@ register_example(
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["PositionalEmbedding_1:Bx50x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -681,6 +727,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["VisionTransformer_1:Bx10"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "vit_patch_embedding",
@@ -702,6 +753,10 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["VisionTransformer_1:2x10"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
@@ -82,6 +83,15 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "callable": lambda x: jnp.clip(x, 0, 4),
             "input_values": [np.array([-3, 1, 9, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 4.0}},
+                        "path": "Max:4 -> Min:4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clip_f32_scalar_bounds_no_upcast_f64_mode",
@@ -89,18 +99,45 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.5}},
+                        "path": "Max:3 -> Min:3",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clip_only_upper",
             "callable": lambda x: jnp.clip(x, None, 1.0),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Max:3 -> Min:3",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clip_only_lower",
             "callable": lambda x: jnp.clip(x, -1, None),
             "input_values": [np.array([-5, -1, 0, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2147483647.0}},
+                        "path": "Max:4 -> Min:4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "clip_broadcast_bounds",
@@ -113,6 +150,10 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "expected_output_shapes": [(2, 3)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Max:2x3 -> Min:2x3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

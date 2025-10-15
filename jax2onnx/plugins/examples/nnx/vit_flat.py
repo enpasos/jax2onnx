@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -88,6 +89,15 @@ register_example(
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Reshape:Bx7x4x7x4x1 -> Transpose:Bx7x7x4x4x1 -> "
+                    "Reshape:Bx49x16 -> Reshape:?x16 -> Gemm:?x256 -> "
+                    "Reshape:Bx49x256"
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -183,6 +193,17 @@ register_example(
             ),
             "input_shapes": [("B", 28, 28, 1)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:Bx1x28x28 -> Conv:Bx32x28x28 -> Gelu:Bx32x28x28 -> "
+                    "Conv:Bx64x14x14 -> Gelu:Bx64x14x14 -> Conv:Bx128x7x7 -> "
+                    "Transpose:Bx7x7x128 -> Gelu:Bx7x7x128 -> Reshape:Bx6272 -> "
+                    "LayerNormalization:Bx6272 -> Reshape:Bx7x7x128 -> "
+                    "Dropout:Bx7x7x128 -> Reshape:Bx49x128"
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         }
     ],
 )
@@ -230,6 +251,21 @@ register_example(
             ),
             "input_shapes": [("B", 10, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            1: {"const": 0.1},
+                            2: {"const_bool": False},
+                        },
+                        "path": "Reshape:?x256 -> Gemm:?x512 -> Reshape:Bx10x512 -> "
+                        "Gelu:Bx10x512 -> Dropout:Bx10x512 -> Reshape:?x512 -> "
+                        "Gemm:?x256 -> Reshape:Bx10x256 -> Dropout:Bx10x256",
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -325,6 +361,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Add:Bx10x256 -> Add:Bx10x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -387,6 +428,15 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256 -> "
+                    "Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256 -> "
+                    "Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256 -> Add:Bx10x256"
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -408,6 +458,11 @@ register_example(
             "callable": lambda x: get_token(x, 0),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["GatherND", "Slice -> Squeeze"],
+                mode="any",
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -449,6 +504,11 @@ register_example(
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization -> Gemm -> LogSoftmax"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -490,6 +550,11 @@ register_example(
             ),
             "input_shapes": [("B", 49, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Tile -> Concat:Bx50x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -528,6 +593,11 @@ register_example(
             ),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Add:Bx50x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -667,6 +737,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization -> Gemm -> LogSoftmax"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "vit_patch_embedding_flat",
@@ -688,6 +763,11 @@ register_example(
                 "deterministic": True,
             },
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization -> Gemm -> LogSoftmax"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

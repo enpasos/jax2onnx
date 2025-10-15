@@ -6,6 +6,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -31,11 +32,28 @@ if TYPE_CHECKING:
             "testcase": "slice_test1",
             "callable": lambda x: x[1:3],
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            1: {"const": 1.0},
+                            2: {"const": 3.0},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Slice:2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "slice_3d_none_strides",
             "callable": lambda a: a[0:2, 0:1, 0:256],
             "input_shapes": [(2, 50, 256)],
+            "post_check_onnx_graph": EG(
+                ["Slice:2x1x256"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "slice_scan_axis_drop",
@@ -50,6 +68,10 @@ if TYPE_CHECKING:
                 )[1]
             ),
             "input_shapes": [(2, 3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Loop"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

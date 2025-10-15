@@ -17,6 +17,16 @@ _Metadata = Dict[str, object]
 # the graph yet (document the reason beside the metadata entry).
 _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     ("primitives.lax", "reduce_max", "reduce_max_axes_input"),
+    (
+        "primitives.lax",
+        "bitcast_convert_type",
+        "bitcast_scalar_f32_to_i32",
+    ),
+    (
+        "primitives.lax",
+        "bitcast_convert_type",
+        "bitcast_tensor_i32_to_f32",
+    ),
     ("primitives.eqx", "dropout", "eqx_dropout_training_mode"),
     ("examples.eqx", "MlpExample", "mlp_training_mode"),
     ("examples.eqx", "MlpExample", "mlp_batched_training_mode"),

@@ -11,6 +11,7 @@ import onnx_ir as ir
 from flax import nnx
 from jax import core
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -101,6 +102,10 @@ def _as_int64(
             "input_shapes": [(3, 10)],
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Range:10 -> Cast:10 -> Gather:Bx16"],
+                symbols={"B": None},
+            ),
         },
         {
             "testcase": "take_basic_axis1",
@@ -111,6 +116,10 @@ def _as_int64(
             ],
             "expected_output_shapes": [(3, 2)],
             "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Gather:3x2"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

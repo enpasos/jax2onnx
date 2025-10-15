@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -31,11 +32,24 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "testcase": "lax_split_equal_parts",
             "callable": lambda x: jnp.split(x, 2, axis=1),
             "input_shapes": [(4, 6)],
+            "post_check_onnx_graph": EG(
+                ["Split:4x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_split_unequal_parts",
             "callable": lambda x: jnp.split(x, [2, 5], axis=1),
             "input_shapes": [(4, 9)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

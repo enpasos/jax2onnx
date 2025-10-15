@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -21,11 +22,19 @@ if TYPE_CHECKING:
             "testcase": "mul_test1",
             "callable": lambda x1, x2: x1 * x2,
             "input_shapes": [(3,), (3,)],
+            "post_check_onnx_graph": EG(
+                ["Mul:3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "mul_test2",
             "callable": lambda x1, x2: x1 * x2,
             "input_shapes": [(2, 2), (2, 2)],
+            "post_check_onnx_graph": EG(
+                ["Mul:2x2"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "mul_pyfloat_promotes_to_array_dtype_f64",
@@ -33,6 +42,15 @@ if TYPE_CHECKING:
             "input_values": [np.array([1.0, 2.0], dtype=np.float64)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Mul:2",
+                        "inputs": {1: {"const": 1.5}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "mul_scalar_broadcast_promote_to_f64",
@@ -40,6 +58,15 @@ if TYPE_CHECKING:
             "input_values": [np.array([1.0, 2.0], dtype=np.float32)],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Mul:2",
+                        "inputs": {1: {"const": 1.5}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

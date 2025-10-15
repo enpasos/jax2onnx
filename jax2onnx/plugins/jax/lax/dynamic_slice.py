@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict
 import jax
 import onnx_ir as ir
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import (
@@ -34,16 +35,33 @@ if TYPE_CHECKING:
             "testcase": "dynamic_slice_test1",
             "callable": lambda x: jax.lax.dynamic_slice(x, [1], [2]),
             "input_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Slice:2",
+                        "inputs": {3: {"const": 0.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dynamic_slice_2d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 2), (2, 3)),
             "input_shapes": [(4, 6)],
+            "post_check_onnx_graph": EG(
+                ["Slice:2x3"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dynamic_slice_3d",
             "callable": lambda x: jax.lax.dynamic_slice(x, (1, 0, 2), (2, 3, 1)),
             "input_shapes": [(3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Slice:2x3x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dynamic_slice_vit_like",
@@ -53,6 +71,11 @@ if TYPE_CHECKING:
             ),
             "input_shapes": [("B", 50, 256)],
             "expected_output_shapes": [("B", 1, 256)],
+            "post_check_onnx_graph": EG(
+                ["Slice:Bx1x256"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

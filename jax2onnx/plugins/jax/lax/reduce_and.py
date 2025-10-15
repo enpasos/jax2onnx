@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_boolean_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -32,17 +33,29 @@ if TYPE_CHECKING:  # pragma: no cover
             "callable": lambda x: jnp.all(x, axis=None),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.bool_],
+            "post_check_onnx_graph": EG(
+                ["Cast:3x3 -> ReduceMin -> Cast"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_and_one_false",
             "callable": lambda x: jnp.all(x, axis=None),
             "input_values": [jnp.array([[True, True], [True, False]], dtype=jnp.bool_)],
+            "post_check_onnx_graph": EG(
+                ["Cast:2x2 -> ReduceMin -> Cast"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "reduce_and_keepdims",
             "callable": lambda x: jnp.all(x, axis=(1,), keepdims=True),
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
+            "post_check_onnx_graph": EG(
+                ["Cast:3x4 -> ReduceMin:3 -> Cast:3 -> Reshape:3x1 -> Expand:3x1"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

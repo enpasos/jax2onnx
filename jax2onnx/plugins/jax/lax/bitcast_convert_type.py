@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -26,7 +29,32 @@ if TYPE_CHECKING:  # pragma: no cover
     since="v0.7.2",
     context="primitives.lax",
     component="bitcast_convert_type",
-    testcases=[],
+    testcases=[
+        {
+            "testcase": "bitcast_scalar_f32_to_i32",
+            "callable": lambda x: jax.lax.bitcast_convert_type(x, new_dtype=jnp.int32),
+            "input_values": [np.array(3.5, dtype=np.float32)],
+            "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["Bitcast"],
+                no_unused_inputs=True,
+            ),
+            "skip_numeric_validation": True,
+        },
+        {
+            "testcase": "bitcast_tensor_i32_to_f32",
+            "callable": lambda x: jax.lax.bitcast_convert_type(
+                x, new_dtype=jnp.float32
+            ),
+            "input_values": [np.array([0x3F800000, 0x40000000], dtype=np.uint32)],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Bitcast:2"],
+                no_unused_inputs=True,
+            ),
+            "skip_numeric_validation": True,
+        },
+    ],
 )
 class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitcast_convert_type`` via ONNX Bitcast."""

@@ -9,6 +9,7 @@ import onnx_ir as ir
 
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
@@ -32,6 +33,16 @@ _IR_TO_NP_DTYPE: Final[dict[ir.DataType | None, np.dtype[Any]]] = {
     getattr(ir.DataType, "UINT64", None): np.uint64,
     ir.DataType.BOOL: np.bool_,
 }
+
+
+def _dynamic_or_constant(specs, *, symbols=None):
+    dynamic_checker = EG(specs, symbols=symbols, no_unused_inputs=True)
+    constant_checker = EG([])
+
+    def _check(model):
+        return dynamic_checker(model) or constant_checker(model)
+
+    return _check
 
 
 def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
@@ -230,6 +241,10 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 x, (3,), broadcast_dimensions=(0,)
             ),
             "input_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "broadcast_in_dim_2d_to_3d",
@@ -237,6 +252,10 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 x, (2, 3, 4), broadcast_dimensions=(1, 2)
             ),
             "input_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:1x3x4 -> Expand:2x3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "broadcast_in_dim_scalar",
@@ -246,6 +265,10 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
             "input_shapes": [()],
             # switch to value-based numeric testing
             "input_values": [0.5],
+            "post_check_onnx_graph": EG(
+                ["Expand:2x3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             # ------------------------------------------------------------------
@@ -261,6 +284,10 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 ("B", 49, 256)
             ],  # Use a concrete batch for non-dynamic test
             "expected_output_shapes": [("B", 1, 256)],
+            "post_check_onnx_graph": _dynamic_or_constant(
+                ["Shape -> Gather -> Concat -> Expand:Bx1x256"],
+                symbols={"B": None},
+            ),
         },
         # ------------------------------------------------------------------
         # dynamic-batch test: symbolic B
@@ -270,8 +297,14 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
                 0.5, shape=(x.shape[0], 3, 4), broadcast_dimensions=()
             ),
             "input_shapes": [("B",)],  # symbolic batch dim
-            "post_check_onnx_graph": lambda m: (
-                __import__("onnx").checker.check_model(m) or True
+            "post_check_onnx_graph": _dynamic_or_constant(
+                [
+                    {
+                        "inputs": {0: {"const": 0.5}},
+                        "path": "Shape -> Gather -> Concat -> Expand:Bx3x4",
+                    }
+                ],
+                symbols={"B": None},
             ),
         },
     ],

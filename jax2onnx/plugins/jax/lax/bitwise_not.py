@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import jax
 import numpy as np
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:
@@ -33,12 +34,20 @@ if TYPE_CHECKING:
             "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(True, dtype=np.bool_)],
             "expected_output_dtypes": [np.bool_],
+            "post_check_onnx_graph": EG(
+                ["Not"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "bitwise_not_i32",
             "callable": lambda x: jax.lax.bitwise_not(x),
             "input_values": [np.array(7, dtype=np.int32)],
             "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["BitwiseNot"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

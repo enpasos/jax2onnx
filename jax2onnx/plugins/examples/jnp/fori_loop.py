@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -34,6 +35,27 @@ register_example(
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [(2,), ()],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const_bool": True},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Loop",
+                    },
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const_bool": True},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Loop:2",
+                    },
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "fori_loop_test_f64",
@@ -42,6 +64,27 @@ register_example(
             "input_dtypes": [jnp.float64],
             "expected_output_shapes": [(3,), ()],
             "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const_bool": True},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Loop",
+                    },
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const_bool": True},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Loop:3",
+                    },
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

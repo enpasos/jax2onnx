@@ -14,6 +14,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -65,48 +66,85 @@ def _dim_const_value(dim) -> int | None:
             "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 3, 4)],
             "expected_output_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Squeeze:3x4",
+                        "inputs": {1: {"const": 0.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_all_unit_dims_default",
             "callable": lambda x: jnp.squeeze(x),
             "input_shapes": [(1, 3, 1, 4, 1)],
             "expected_output_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_specific_axis_0",
             "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 3)],
             "expected_output_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Squeeze:3", "inputs": {1: {"const": 0.0}}}],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_multiple_axes",
             "callable": lambda x: lax.squeeze(x, dimensions=(0, 2, 4)),
             "input_shapes": [(1, 3, 1, 4, 1)],
             "expected_output_shapes": [(3, 4)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_no_op_empty_dims",
             "callable": lambda x: lax.squeeze(x, dimensions=()),
             "input_shapes": [(1, 3, 1)],
             "expected_output_shapes": [(1, 3, 1)],
+            "post_check_onnx_graph": EG(
+                [],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_problem_case_input_squeeze_only_axis_0",
             "callable": lambda x: lax.squeeze(x, dimensions=(0,)),
             "input_shapes": [(1, 201, 1, 1)],
             "expected_output_shapes": [(201, 1, 1)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Squeeze:201x1x1", "inputs": {1: {"const": 0.0}}}],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_problem_case_input_squeeze_axes_0_2",
             "callable": lambda x: lax.squeeze(x, dimensions=(0, 2)),
             "input_shapes": [(1, 201, 1, 1)],
             "expected_output_shapes": [(201, 1)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:201x1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "lax_squeeze_problem_case_input_squeeze_all_dims_explicitly",
             "callable": lambda x: lax.squeeze(x, dimensions=(0, 2, 3)),
             "input_shapes": [(1, 201, 1, 1)],
             "expected_output_shapes": [(201,)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:201"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

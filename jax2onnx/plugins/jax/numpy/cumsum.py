@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._patching import AssignSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -40,6 +41,15 @@ _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
             "testcase": "jnp_cumsum_axis1",
             "callable": lambda x: jnp.cumsum(x, axis=1),
             "input_shapes": [(2, 3, 4)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "CumSum:2x3x4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jnp_cumsum_reverse_dtype",
@@ -48,18 +58,45 @@ _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
             ),
             "input_shapes": [(1, 5)],
             "enable_double_precision": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "CumSum:1x5",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "cumsum_axis2_i32",
             "callable": lambda x: jnp.cumsum(x, axis=2),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.0}},
+                        "path": "CumSum:2x3x4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "cumsum_axis2_reverse_i32",
             "callable": lambda x: jnp.cumsum(x, axis=2, reverse=True),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.0}},
+                        "path": "CumSum:2x3x4",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

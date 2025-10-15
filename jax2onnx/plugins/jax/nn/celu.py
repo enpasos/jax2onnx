@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import jax
 from jax.extend.core import Primitive
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -34,24 +35,41 @@ _CELU_PRIM.multiple_results = False
             "callable": lambda x: jax.nn.celu(x, alpha=0.1),
             "input_shapes": [(1,)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Celu:1"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_celu_1",
             "callable": lambda x: jax.nn.celu(x, alpha=0.2),
             "input_shapes": [(2, 5)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Celu:2x5"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_celu_alpha_default",
             "callable": lambda x: jax.nn.celu(x),
             "input_shapes": [(3, 4)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Celu:3x4"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "jaxnn_celu_alpha_custom",
             "callable": lambda x: jax.nn.celu(x, alpha=0.3),
             "input_shapes": [("B", 2, 2)],
             "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Celu:Bx2x2"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

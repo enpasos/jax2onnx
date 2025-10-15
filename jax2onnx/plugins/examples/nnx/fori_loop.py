@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
@@ -32,6 +33,19 @@ register_example(
             "callable": _model,
             "input_shapes": [(1,)],
             "expected_output_shapes": [(1,)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {
+                            0: {"const": 5.0},
+                            1: {"const_bool": True},
+                            3: {"const": 0.0},
+                        },
+                        "path": "Loop:1",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

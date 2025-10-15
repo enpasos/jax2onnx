@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -39,12 +40,30 @@ def _cumsum_last_axis_reverse(x):
             "callable": lambda x: jax.lax.cumsum(x, axis=2),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "CumSum:2x3x4",
+                        "inputs": {1: {"const": 2.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "cumsum_f32_axism1_reverse",
             "callable": lambda x: jax.lax.cumsum(x, axis=x.ndim - 1, reverse=True),
             "input_shapes": [(1, 2, 3, 4)],
             "input_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "CumSum:1x2x3x4",
+                        "inputs": {1: {"const": 3.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

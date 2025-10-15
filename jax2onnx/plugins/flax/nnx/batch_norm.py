@@ -225,7 +225,7 @@ EXPECT_T_BN_T: Final = EG(
             "input_shapes": [("B", 4, 3)],
             "expected_output_shapes": [("B", 4, 3)],
             "run_only_f32_variant": True,
-            # "post_check_onnx_graph": EXPECT_T_BN_T,
+            "post_check_onnx_graph": EXPECT_T_BN_T,
         },
         {
             "testcase": "batch_norm_4d",

@@ -11,6 +11,7 @@ from jax import core
 from jax.interpreters import batching
 from jax._src.lax import lax as lax_internal
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -60,41 +61,95 @@ def _normalize_axes(axes: int | Sequence[int] | None, rank: int) -> tuple[int, .
             "testcase": "squeeze_single_dim",
             "callable": lambda a: jnp.squeeze(a, axis=0),
             "input_shapes": [(1, 49, 10)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 0.0}},
+                        "path": "Squeeze:49x10",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_multiple_dims",
             "callable": lambda a: jnp.squeeze(a, axis=(0, 2)),
             "input_shapes": [(1, 49, 1, 10)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:49x10"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_vit_output",
             "callable": lambda a: jnp.squeeze(a, axis=1),
             "input_shapes": [(1, 1, 10)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Squeeze:1x10",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_dynamic_batch",
             "callable": lambda a: jnp.squeeze(a, axis=1),
             "input_shapes": [("B", 1, 10)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Squeeze:Bx10",
+                    }
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_all_dims",
             "callable": lambda a: jnp.squeeze(a),
             "input_shapes": [(1, 1, 1)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_negative_axis",
             "callable": lambda a: jnp.squeeze(a, axis=-1),
             "input_shapes": [(1, 49, 1)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 2.0}},
+                        "path": "Squeeze:1x49",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_negative_axis_tuple",
             "callable": lambda a: jnp.squeeze(a, axis=(-1, -3)),
             "input_shapes": [(1, 49, 1)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:49"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "squeeze_dynamic_and_negative_axis",
             "callable": lambda a: jnp.squeeze(a, axis=(-1, -3)),
             "input_shapes": [(1, "B", 1)],
+            "post_check_onnx_graph": EG(
+                ["Squeeze:B"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
