@@ -37,6 +37,19 @@ def _normalized_dim(dim: object) -> object:
     return dim
 
 
+def _static_dims(dims: tuple[object, ...]) -> tuple[int, ...] | None:
+    static_dims: list[int] = []
+    for dim in dims:
+        try:
+            dim_val = int(dim)
+        except Exception:  # symbolic or dynamic
+            return None
+        if dim_val < 0:
+            return None
+        static_dims.append(dim_val)
+    return tuple(static_dims)
+
+
 def _linear_forward(x, weight, bias, *, use_bias: bool):
     orig_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
@@ -173,14 +186,16 @@ def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
             ),
             "input_shapes": [("B", 257, 384)],
             "run_only_f32_variant": True,
-            # "post_check_onnx_graph": expect_graph(
-            #     [
-            #         {"path": "MatMul", "counts": {"MatMul": 2}},
-            #         "ReduceMax",
-            #     ],
-            #     symbols={"B": None},
-            #     search_functions=True,
-            # ),
+            "post_check_onnx_graph": expect_graph(
+                [
+                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x6x64 -> Reshape:?x?x6x64 -> "
+                    "Transpose:?x6x?x64 -> MatMul:?x6x?x? -> Mul:?x6x?x? -> "
+                    "Softmax:?x6x?x? -> MatMul:?x6x?x64 -> Transpose:?x?x6x64 -> "
+                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x384"
+                ],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -314,46 +329,39 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             axis = max(rank - 1, 0)
 
             leading_dims = None
-            static_leading: list[int] = []
-            feature_static: int | None = None
             sequence_dim_val = None
-            is_static = True
+            leading_static_dims: tuple[int, ...] | None = None
+            seq_len_static: int | None = None
+            feature_static: int | None = None
             if rank > 0:
-                for dim in aval_shape[:-1]:
-                    try:
-                        dim_val = int(dim)
-                    except Exception:  # symbolic dims may not coerce to int
-                        is_static = False
-                        break
-                    if dim_val < 0:
-                        is_static = False
-                        break
-                    static_leading.append(dim_val)
-                if is_static:
-                    try:
-                        feature_static = int(aval_shape[-1]) if aval_shape else None
-                        if feature_static is not None and feature_static < 0:
-                            is_static = False
-                    except Exception:
-                        is_static = False
+                leading_static_dims = _static_dims(aval_shape[:-1])
+                try:
+                    feature_candidate = int(aval_shape[-1]) if aval_shape else None
+                except Exception:
+                    feature_candidate = None
+                if feature_candidate is not None and feature_candidate >= 0:
+                    feature_static = feature_candidate
+                if leading_static_dims is not None and leading_static_dims:
+                    seq_len_static = leading_static_dims[-1]
 
+            flatten_shape: ir.Value | None = None
             if rank > 1:
-                if is_static and feature_static is not None:
-                    if static_leading:
-                        leading_vals = np.asarray(static_leading, dtype=np.int64)
+                if leading_static_dims is not None and feature_static is not None:
+                    if leading_static_dims:
+                        leading_vals = np.asarray(leading_static_dims, dtype=np.int64)
                         leading_dims = _const_i64(
                             ctx,
                             leading_vals,
                             f"{prefix}_leading_static",
                         )
                         _ensure_value_metadata(ctx, leading_dims)
-                        seq_static = static_leading[-1]
-                        sequence_dim_val = _const_i64(
-                            ctx,
-                            np.asarray([seq_static], dtype=np.int64),
-                            f"{prefix}_seq_len_static",
-                        )
-                        _ensure_value_metadata(ctx, sequence_dim_val)
+                        if seq_len_static is not None:
+                            sequence_dim_val = _const_i64(
+                                ctx,
+                                np.asarray([seq_len_static], dtype=np.int64),
+                                f"{prefix}_seq_len_static",
+                            )
+                            _ensure_value_metadata(ctx, sequence_dim_val)
                     flatten_vals = np.asarray([-1, feature_static], dtype=np.int64)
                     flatten_shape = _const_i64(
                         ctx,
@@ -505,7 +513,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 )
                 _ensure_value_metadata(ctx, sequence_dim_val)
 
-            return flat, leading_dims, aval_shape, sequence_dim_val
+            return (
+                flat,
+                leading_dims,
+                aval_shape,
+                sequence_dim_val,
+                leading_static_dims,
+            )
 
         def _project(
             x_val,
@@ -517,6 +531,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             use_bias,
             leading_dims,
             aval_shape,
+            leading_static_dims: tuple[int, ...] | None,
         ):
             gemm_inputs = [x_val, weight_val]
             beta = 1.0 if use_bias else 0.0
@@ -537,7 +552,19 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 np.asarray(tail_dims, dtype=np.int64),
                 f"{prefix}_tail",
             )
-            if leading_dims is not None:
+            if leading_static_dims:
+                reshape_vals = np.asarray(
+                    tuple(int(dim) for dim in leading_static_dims) + tail_dims,
+                    dtype=np.int64,
+                )
+                reshape_shape = _const_i64(
+                    ctx,
+                    reshape_vals,
+                    f"{prefix}_shape_static",
+                )
+                _stamp_type_and_shape(reshape_shape, (len(reshape_vals),))
+                _ensure_value_metadata(ctx, reshape_shape)
+            elif leading_dims is not None:
                 reshape_shape = builder.Concat(
                     leading_dims,
                     reshape_tail,
@@ -572,42 +599,59 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             prefix,
             tail_dims: tuple[int, int],
             seq_dim_val: ir.Value | None,
+            leading_static_dims: tuple[int, ...] | None,
         ):
-            if seq_dim_val is None:
-                seq_dim_val = _const_i64(
-                    ctx,
-                    np.asarray([1], dtype=np.int64),
-                    f"{prefix}_seq_auto",
+            if leading_static_dims is not None:
+                seq_static = leading_static_dims[-1] if leading_static_dims else 1
+                prefix_dims = leading_static_dims[:-1] if leading_static_dims else ()
+                batch_static = int(np.prod(prefix_dims)) if prefix_dims else 1
+                full_vals = np.asarray(
+                    (batch_static, seq_static) + tail_dims,
+                    dtype=np.int64,
                 )
-                _ensure_value_metadata(ctx, seq_dim_val)
-            minus_one = _const_i64(
-                ctx,
-                np.asarray([-1], dtype=np.int64),
-                f"{prefix}_batch_flat",
-            )
-            prefix_shape = builder.Concat(
-                minus_one,
-                seq_dim_val,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"{prefix}_batch_seq_shape")],
-            )
-            prefix_shape.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(prefix_shape, (2,))
-            _ensure_value_metadata(ctx, prefix_shape)
-            tail_vals = _const_i64(
-                ctx,
-                np.asarray(tail_dims, dtype=np.int64),
-                f"{prefix}_tail_shape",
-            )
-            full_shape = builder.Concat(
-                prefix_shape,
-                tail_vals,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"{prefix}_reshape4_shape")],
-            )
-            full_shape.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(full_shape, (2 + len(tail_dims),))
-            _ensure_value_metadata(ctx, full_shape)
+                full_shape = _const_i64(
+                    ctx,
+                    full_vals,
+                    f"{prefix}_reshape4_shape_static",
+                )
+                _stamp_type_and_shape(full_shape, (len(full_vals),))
+                _ensure_value_metadata(ctx, full_shape)
+            else:
+                if seq_dim_val is None:
+                    seq_dim_val = _const_i64(
+                        ctx,
+                        np.asarray([1], dtype=np.int64),
+                        f"{prefix}_seq_auto",
+                    )
+                    _ensure_value_metadata(ctx, seq_dim_val)
+                minus_one = _const_i64(
+                    ctx,
+                    np.asarray([-1], dtype=np.int64),
+                    f"{prefix}_batch_flat",
+                )
+                prefix_shape = builder.Concat(
+                    minus_one,
+                    seq_dim_val,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"{prefix}_batch_seq_shape")],
+                )
+                prefix_shape.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(prefix_shape, (2,))
+                _ensure_value_metadata(ctx, prefix_shape)
+                tail_vals = _const_i64(
+                    ctx,
+                    np.asarray(tail_dims, dtype=np.int64),
+                    f"{prefix}_tail_shape",
+                )
+                full_shape = builder.Concat(
+                    prefix_shape,
+                    tail_vals,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"{prefix}_reshape4_shape")],
+                )
+                full_shape.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(full_shape, (2 + len(tail_dims),))
+                _ensure_value_metadata(ctx, full_shape)
             reshaped = builder.Reshape(
                 val,
                 full_shape,
@@ -616,20 +660,43 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             val_dtype = getattr(getattr(val, "type", None), "dtype", None)
             if val_dtype is not None:
                 reshaped.type = ir.TensorType(val_dtype)
-            reshape_meta = (None, None) + tuple(_normalized_dim(d) for d in tail_dims)
+            if leading_static_dims is not None:
+                seq_static = leading_static_dims[-1] if leading_static_dims else 1
+                prefix_dims = leading_static_dims[:-1] if leading_static_dims else ()
+                batch_static = int(np.prod(prefix_dims)) if prefix_dims else 1
+                reshape_meta = (
+                    _normalized_dim(batch_static),
+                    _normalized_dim(seq_static),
+                ) + tuple(_normalized_dim(d) for d in tail_dims)
+            else:
+                reshape_meta = (None, None) + tuple(
+                    _normalized_dim(d) for d in tail_dims
+                )
             _stamp_type_and_shape(reshaped, reshape_meta)
             _ensure_value_metadata(ctx, reshaped)
             return reshaped
 
-        query_flat, query_leading, query_aval_shape, query_seq_dim = _prepare_input(
-            query_val, query_var, "mha_query"
-        )
-        key_flat, key_leading, key_aval_shape, key_seq_dim = _prepare_input(
-            key_val, key_var, "mha_key"
-        )
-        value_flat, value_leading, value_aval_shape, value_seq_dim = _prepare_input(
-            value_val, value_var, "mha_value"
-        )
+        (
+            query_flat,
+            query_leading,
+            query_aval_shape,
+            query_seq_dim,
+            query_leading_static,
+        ) = _prepare_input(query_val, query_var, "mha_query")
+        (
+            key_flat,
+            key_leading,
+            key_aval_shape,
+            key_seq_dim,
+            key_leading_static,
+        ) = _prepare_input(key_val, key_var, "mha_key")
+        (
+            value_flat,
+            value_leading,
+            value_aval_shape,
+            value_seq_dim,
+            value_leading_static,
+        ) = _prepare_input(value_val, value_var, "mha_value")
 
         q_heads = _project(
             query_flat,
@@ -640,6 +707,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             use_bias=use_query_bias,
             leading_dims=query_leading,
             aval_shape=query_aval_shape,
+            leading_static_dims=query_leading_static,
         )
         k_heads = _project(
             key_flat,
@@ -650,6 +718,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             use_bias=use_key_bias,
             leading_dims=key_leading,
             aval_shape=key_aval_shape,
+            leading_static_dims=key_leading_static,
         )
         v_heads = _project(
             value_flat,
@@ -660,11 +729,18 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             use_bias=use_value_bias,
             leading_dims=value_leading,
             aval_shape=value_aval_shape,
+            leading_static_dims=value_leading_static,
         )
 
-        q_heads = _reshape_heads(q_heads, "mha_q", (num_heads, qk_size), query_seq_dim)
-        k_heads = _reshape_heads(k_heads, "mha_k", (num_heads, qk_size), key_seq_dim)
-        v_heads = _reshape_heads(v_heads, "mha_v", (num_heads, vo_size), value_seq_dim)
+        q_heads = _reshape_heads(
+            q_heads, "mha_q", (num_heads, qk_size), query_seq_dim, query_leading_static
+        )
+        k_heads = _reshape_heads(
+            k_heads, "mha_k", (num_heads, qk_size), key_seq_dim, key_leading_static
+        )
+        v_heads = _reshape_heads(
+            v_heads, "mha_v", (num_heads, vo_size), value_seq_dim, value_leading_static
+        )
 
         q_trans = builder.Transpose(
             q_heads,
@@ -798,7 +874,19 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             np.asarray([output_dim], dtype=np.int64),
             "mha_output_tail",
         )
-        if query_leading is not None:
+        if query_leading_static is not None:
+            output_vals = np.asarray(
+                tuple(int(dim) for dim in query_leading_static) + (output_dim,),
+                dtype=np.int64,
+            )
+            output_shape_val = _const_i64(
+                ctx,
+                output_vals,
+                "mha_output_shape_static",
+            )
+            _stamp_type_and_shape(output_shape_val, (len(output_vals),))
+            _ensure_value_metadata(ctx, output_shape_val)
+        elif query_leading is not None:
             output_shape_val = builder.Concat(
                 query_leading,
                 output_tail,

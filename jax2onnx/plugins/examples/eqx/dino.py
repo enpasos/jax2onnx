@@ -76,7 +76,10 @@ register_example(
                 key=with_prng_key(0),
             ),
             "input_shapes": [(1, 3, 224, 224)],
-            "post_check_onnx_graph": EG(["PatchEmbed_1:1x256x384"]),
+            "post_check_onnx_graph": EG(
+                ["PatchEmbed_1:1x256x384"],
+                no_unused_inputs=True,
+            ),
             "run_only_f32_variant": True,
         }
     ],
@@ -131,11 +134,14 @@ register_example(
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(
                 [
-                    {"path": "MatMul", "counts": {"MatMul": 2}},
-                    "ReduceMax",
+                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x6x64 -> Reshape:?x?x6x64 -> "
+                    "Transpose:?x6x?x64 -> MatMul:?x6x?x? -> Mul:?x6x?x? -> "
+                    "Softmax:?x6x?x? -> MatMul:?x6x?x64 -> Transpose:?x?x6x64 -> "
+                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x384"
                 ],
                 symbols={"B": None},
                 search_functions=True,
+                no_unused_inputs=True,
             ),
             "run_only_f32_variant": True,
         }
@@ -220,11 +226,15 @@ class Attention(eqx.Module):
         num_heads = self.num_heads
         head_dim = self.head_dim
         value_head_dim = self.attn.vo_size
+        query_project = eqx.filter_vmap(self.attn.query_proj, in_axes=0, out_axes=0)
+        key_project = eqx.filter_vmap(self.attn.key_proj, in_axes=0, out_axes=0)
+        value_project = eqx.filter_vmap(self.attn.value_proj, in_axes=0, out_axes=0)
+        output_project = eqx.filter_vmap(self.attn.output_proj, in_axes=0, out_axes=0)
 
         def _attend(tokens: Array) -> Array:
-            q_proj = self.attn.query_proj(tokens)
-            k_proj = self.attn.key_proj(tokens)
-            v_proj = self.attn.value_proj(tokens)
+            q_proj = query_project(tokens)
+            k_proj = key_project(tokens)
+            v_proj = value_project(tokens)
 
             q_heads = q_proj.reshape(tokens.shape[0], num_heads, head_dim)
             k_heads = k_proj.reshape(tokens.shape[0], num_heads, head_dim)
@@ -252,7 +262,7 @@ class Attention(eqx.Module):
             context = jax.lax.transpose(context, (1, 0, 2)).reshape(
                 tokens.shape[0], num_heads * value_head_dim
             )
-            return self.attn.output_proj(context)
+            return output_project(context)
 
         apply_batch = eqx.filter_vmap(_attend, in_axes=0, out_axes=0)
         return apply_batch(x)
@@ -339,7 +349,10 @@ register_example(
                 Block, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
-            "post_check_onnx_graph": EG(["Block_1:Bx257x384"], symbols={"B": None}),
+            "post_check_onnx_graph": EG(
+                ["Block_1:Bx257x384"],
+                symbols={"B": None},
+            ),
             "run_only_f32_variant": True,
         }
     ],
@@ -417,7 +430,8 @@ def _get_test_cases():
                 ),
                 "input_shapes": [("B", 3, img_size, img_size)],
                 "post_check_onnx_graph": EG(
-                    [f"VisionTransformer_1:{output_shape}"], symbols={"B": None}
+                    [f"VisionTransformer_1:{output_shape}"],
+                    symbols={"B": None},
                 ),
                 "run_only_f32_variant": True,
             }
