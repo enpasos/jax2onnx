@@ -204,21 +204,21 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         o_bias,
         **params,
     ):
-        specs = [
-            jax.ShapeDtypeStruct(query.shape, query.dtype),
-            jax.ShapeDtypeStruct(key.shape, key.dtype),
-            jax.ShapeDtypeStruct(value.shape, value.dtype),
-            jax.ShapeDtypeStruct(q_weight.shape, q_weight.dtype),
-            jax.ShapeDtypeStruct(q_bias.shape, q_bias.dtype),
-            jax.ShapeDtypeStruct(k_weight.shape, k_weight.dtype),
-            jax.ShapeDtypeStruct(k_bias.shape, k_bias.dtype),
-            jax.ShapeDtypeStruct(v_weight.shape, v_weight.dtype),
-            jax.ShapeDtypeStruct(v_bias.shape, v_bias.dtype),
-            jax.ShapeDtypeStruct(o_weight.shape, o_weight.dtype),
-            jax.ShapeDtypeStruct(o_bias.shape, o_bias.dtype),
-        ]
-        out = jax.eval_shape(lambda *args: _mha_forward(*args, **params), *specs)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        query_shape = tuple(getattr(query, "shape", ()))
+        query_dtype = getattr(query, "dtype", None)
+        o_weight_shape = tuple(getattr(o_weight, "shape", ()))
+
+        if o_weight_shape:
+            output_dim = o_weight_shape[0]
+        else:
+            num_heads = params.get("num_heads", 1)
+            vo_size = params.get("vo_size", query_shape[-1] if query_shape else 1)
+            output_dim = num_heads * vo_size
+
+        output_shape = query_shape[:-1] + (output_dim,)
+        if query_dtype is None:
+            query_dtype = getattr(value, "dtype", getattr(key, "dtype", jnp.float32))
+        return jax.core.ShapedArray(output_shape, query_dtype)
 
     def lower(self, ctx, eqn):
         builder = getattr(ctx, "builder", None)
@@ -313,94 +313,199 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             rank = len(aval_shape)
             axis = max(rank - 1, 0)
 
-            shape_vec = builder.Shape(
-                val,
-                _outputs=[ctx.fresh_name(f"{prefix}_shape")],
-            )
-            _ensure_value_metadata(ctx, shape_vec)
-
             leading_dims = None
+            static_leading: list[int] = []
+            feature_static: int | None = None
+            sequence_dim_val = None
+            is_static = True
+            if rank > 0:
+                for dim in aval_shape[:-1]:
+                    try:
+                        dim_val = int(dim)
+                    except Exception:  # symbolic dims may not coerce to int
+                        is_static = False
+                        break
+                    if dim_val < 0:
+                        is_static = False
+                        break
+                    static_leading.append(dim_val)
+                if is_static:
+                    try:
+                        feature_static = int(aval_shape[-1]) if aval_shape else None
+                        if feature_static is not None and feature_static < 0:
+                            is_static = False
+                    except Exception:
+                        is_static = False
+
             if rank > 1:
-                start = _const_i64(
-                    ctx,
-                    np.asarray([0], dtype=np.int64),
-                    f"{prefix}_leading_start",
+                if is_static and feature_static is not None:
+                    if static_leading:
+                        leading_vals = np.asarray(static_leading, dtype=np.int64)
+                        leading_dims = _const_i64(
+                            ctx,
+                            leading_vals,
+                            f"{prefix}_leading_static",
+                        )
+                        _ensure_value_metadata(ctx, leading_dims)
+                        seq_static = static_leading[-1]
+                        sequence_dim_val = _const_i64(
+                            ctx,
+                            np.asarray([seq_static], dtype=np.int64),
+                            f"{prefix}_seq_len_static",
+                        )
+                        _ensure_value_metadata(ctx, sequence_dim_val)
+                    flatten_vals = np.asarray([-1, feature_static], dtype=np.int64)
+                    flatten_shape = _const_i64(
+                        ctx,
+                        flatten_vals,
+                        f"{prefix}_flatten_shape_static",
+                    )
+                    _ensure_value_metadata(ctx, flatten_shape)
+                else:
+                    shape_vec = builder.Shape(
+                        val,
+                        _outputs=[ctx.fresh_name(f"{prefix}_shape")],
+                    )
+                    shape_vec.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(shape_vec, (rank,))
+                    _ensure_value_metadata(ctx, shape_vec)
+
+                    start = _const_i64(
+                        ctx,
+                        np.asarray([0], dtype=np.int64),
+                        f"{prefix}_leading_start",
+                    )
+                    end = _const_i64(
+                        ctx,
+                        np.asarray([axis], dtype=np.int64),
+                        f"{prefix}_leading_end",
+                    )
+                    axes = _const_i64(
+                        ctx,
+                        np.asarray([0], dtype=np.int64),
+                        f"{prefix}_leading_axes",
+                    )
+                    steps = _const_i64(
+                        ctx,
+                        np.asarray([1], dtype=np.int64),
+                        f"{prefix}_leading_steps",
+                    )
+                    leading_dims = builder.Slice(
+                        shape_vec,
+                        start,
+                        end,
+                        axes,
+                        steps,
+                        _outputs=[ctx.fresh_name(f"{prefix}_leading")],
+                    )
+                    leading_dims.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(leading_dims, (axis,))
+                    _ensure_value_metadata(ctx, leading_dims)
+
+                    if axis > 0:
+                        seq_index = _const_i64(
+                            ctx,
+                            np.asarray([axis - 1], dtype=np.int64),
+                            f"{prefix}_seq_index",
+                        )
+                        seq_scalar = builder.Gather(
+                            shape_vec,
+                            seq_index,
+                            axis=0,
+                            _outputs=[ctx.fresh_name(f"{prefix}_seq_scalar")],
+                        )
+                        seq_scalar.type = ir.TensorType(ir.DataType.INT64)
+                        _stamp_type_and_shape(seq_scalar, (1,))
+                        _ensure_value_metadata(ctx, seq_scalar)
+                        seq_shape = _const_i64(
+                            ctx,
+                            np.asarray([1], dtype=np.int64),
+                            f"{prefix}_seq_shape",
+                        )
+                        sequence_dim_val = builder.Reshape(
+                            seq_scalar,
+                            seq_shape,
+                            _outputs=[ctx.fresh_name(f"{prefix}_seq_dim")],
+                        )
+                        sequence_dim_val.type = ir.TensorType(ir.DataType.INT64)
+                        _stamp_type_and_shape(sequence_dim_val, (1,))
+                        _ensure_value_metadata(ctx, sequence_dim_val)
+                    else:
+                        sequence_dim_val = _const_i64(
+                            ctx,
+                            np.asarray([1], dtype=np.int64),
+                            f"{prefix}_seq_default",
+                        )
+                        _ensure_value_metadata(ctx, sequence_dim_val)
+
+                    feature_index = _const_i64(
+                        ctx,
+                        np.asarray([axis], dtype=np.int64),
+                        f"{prefix}_feature_index",
+                    )
+                    feature_scalar = builder.Gather(
+                        shape_vec,
+                        feature_index,
+                        axis=0,
+                        _outputs=[ctx.fresh_name(f"{prefix}_feature_scalar")],
+                    )
+                    feature_scalar.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(feature_scalar, (1,))
+                    _ensure_value_metadata(ctx, feature_scalar)
+                    feature_shape = _const_i64(
+                        ctx,
+                        np.asarray([1], dtype=np.int64),
+                        f"{prefix}_feature_shape",
+                    )
+                    feature_dim = builder.Reshape(
+                        feature_scalar,
+                        feature_shape,
+                        _outputs=[ctx.fresh_name(f"{prefix}_feature_dim")],
+                    )
+                    feature_dim.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(feature_dim, (1,))
+                    _ensure_value_metadata(ctx, feature_dim)
+                    minus_one = _const_i64(
+                        ctx,
+                        np.asarray([-1], dtype=np.int64),
+                        f"{prefix}_minus_one",
+                    )
+                    flatten_shape = builder.Concat(
+                        minus_one,
+                        feature_dim,
+                        axis=0,
+                        _outputs=[ctx.fresh_name(f"{prefix}_flatten_shape")],
+                    )
+                    flatten_shape.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(flatten_shape, (2,))
+                    _ensure_value_metadata(ctx, flatten_shape)
+
+                flat = builder.Reshape(
+                    val,
+                    flatten_shape,
+                    _outputs=[ctx.fresh_name(f"{prefix}_flat")],
                 )
-                end = _const_i64(
-                    ctx,
-                    np.asarray([axis], dtype=np.int64),
-                    f"{prefix}_leading_end",
+                val_dtype = getattr(getattr(val, "type", None), "dtype", None)
+                if val_dtype is not None:
+                    flat.type = ir.TensorType(val_dtype)
+                flat_meta = (
+                    None,
+                    _normalized_dim(aval_shape[-1]) if aval_shape else None,
                 )
-                axes = _const_i64(
-                    ctx,
-                    np.asarray([0], dtype=np.int64),
-                    f"{prefix}_leading_axes",
-                )
-                steps = _const_i64(
+                _stamp_type_and_shape(flat, flat_meta)
+                _ensure_value_metadata(ctx, flat)
+            else:
+                flat = val
+
+            if sequence_dim_val is None:
+                sequence_dim_val = _const_i64(
                     ctx,
                     np.asarray([1], dtype=np.int64),
-                    f"{prefix}_leading_steps",
+                    f"{prefix}_seq_fallback",
                 )
-                leading_dims = builder.Slice(
-                    shape_vec,
-                    start,
-                    end,
-                    axes,
-                    steps,
-                    _outputs=[ctx.fresh_name(f"{prefix}_leading")],
-                )
-                _ensure_value_metadata(ctx, leading_dims)
+                _ensure_value_metadata(ctx, sequence_dim_val)
 
-            feature_index = _const_i64(
-                ctx,
-                np.asarray([axis], dtype=np.int64),
-                f"{prefix}_feature_index",
-            )
-            feature_scalar = builder.Gather(
-                shape_vec,
-                feature_index,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"{prefix}_feature_scalar")],
-            )
-            _ensure_value_metadata(ctx, feature_scalar)
-            feature_shape = _const_i64(
-                ctx,
-                np.asarray([1], dtype=np.int64),
-                f"{prefix}_feature_shape",
-            )
-            feature_dim = builder.Reshape(
-                feature_scalar,
-                feature_shape,
-                _outputs=[ctx.fresh_name(f"{prefix}_feature_dim")],
-            )
-            _ensure_value_metadata(ctx, feature_dim)
-            minus_one = _const_i64(
-                ctx,
-                np.asarray([-1], dtype=np.int64),
-                f"{prefix}_minus_one",
-            )
-            flatten_shape = builder.Concat(
-                minus_one,
-                feature_dim,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"{prefix}_flatten_shape")],
-            )
-            _ensure_value_metadata(ctx, flatten_shape)
-            flat = builder.Reshape(
-                val,
-                flatten_shape,
-                _outputs=[ctx.fresh_name(f"{prefix}_flat")],
-            )
-            val_dtype = getattr(getattr(val, "type", None), "dtype", None)
-            if val_dtype is not None:
-                flat.type = ir.TensorType(val_dtype)
-            _ensure_value_metadata(ctx, flat)
-            flat_meta = (
-                None,
-                _normalized_dim(aval_shape[-1]) if aval_shape else None,
-            )
-            _stamp_type_and_shape(flat, flat_meta)
-            return flat, leading_dims, aval_shape
+            return flat, leading_dims, aval_shape, sequence_dim_val
 
         def _project(
             x_val,
@@ -439,6 +544,10 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     axis=0,
                     _outputs=[ctx.fresh_name(f"{prefix}_shape")],
                 )
+                concat_len = len(aval_shape[:-1]) + len(tail_dims)
+                reshape_shape.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(reshape_shape, (concat_len,))
+                _ensure_value_metadata(ctx, reshape_shape)
             else:
                 reshape_shape = reshape_tail
             reshaped = builder.Reshape(
@@ -458,15 +567,67 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, reshaped)
             return reshaped
 
-        tuple(getattr(getattr(query_var, "aval", None), "shape", ()))
+        def _reshape_heads(
+            val,
+            prefix,
+            tail_dims: tuple[int, int],
+            seq_dim_val: ir.Value | None,
+        ):
+            if seq_dim_val is None:
+                seq_dim_val = _const_i64(
+                    ctx,
+                    np.asarray([1], dtype=np.int64),
+                    f"{prefix}_seq_auto",
+                )
+                _ensure_value_metadata(ctx, seq_dim_val)
+            minus_one = _const_i64(
+                ctx,
+                np.asarray([-1], dtype=np.int64),
+                f"{prefix}_batch_flat",
+            )
+            prefix_shape = builder.Concat(
+                minus_one,
+                seq_dim_val,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{prefix}_batch_seq_shape")],
+            )
+            prefix_shape.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(prefix_shape, (2,))
+            _ensure_value_metadata(ctx, prefix_shape)
+            tail_vals = _const_i64(
+                ctx,
+                np.asarray(tail_dims, dtype=np.int64),
+                f"{prefix}_tail_shape",
+            )
+            full_shape = builder.Concat(
+                prefix_shape,
+                tail_vals,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{prefix}_reshape4_shape")],
+            )
+            full_shape.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(full_shape, (2 + len(tail_dims),))
+            _ensure_value_metadata(ctx, full_shape)
+            reshaped = builder.Reshape(
+                val,
+                full_shape,
+                _outputs=[ctx.fresh_name(f"{prefix}_reshape4")],
+            )
+            val_dtype = getattr(getattr(val, "type", None), "dtype", None)
+            if val_dtype is not None:
+                reshaped.type = ir.TensorType(val_dtype)
+            reshape_meta = (None, None) + tuple(_normalized_dim(d) for d in tail_dims)
+            _stamp_type_and_shape(reshaped, reshape_meta)
+            _ensure_value_metadata(ctx, reshaped)
+            return reshaped
 
-        query_flat, query_leading, query_aval_shape = _prepare_input(
+        query_flat, query_leading, query_aval_shape, query_seq_dim = _prepare_input(
             query_val, query_var, "mha_query"
         )
-        key_flat, key_leading, key_aval_shape = _prepare_input(
+        key_flat, key_leading, key_aval_shape, key_seq_dim = _prepare_input(
             key_val, key_var, "mha_key"
         )
-        value_flat, value_leading, value_aval_shape = _prepare_input(
+        value_flat, value_leading, value_aval_shape, value_seq_dim = _prepare_input(
             value_val, value_var, "mha_value"
         )
 
@@ -501,28 +662,41 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             aval_shape=value_aval_shape,
         )
 
+        q_heads = _reshape_heads(q_heads, "mha_q", (num_heads, qk_size), query_seq_dim)
+        k_heads = _reshape_heads(k_heads, "mha_k", (num_heads, qk_size), key_seq_dim)
+        v_heads = _reshape_heads(v_heads, "mha_v", (num_heads, vo_size), value_seq_dim)
+
         q_trans = builder.Transpose(
             q_heads,
-            perm=(1, 0, 2),
+            perm=(0, 2, 1, 3),
             _outputs=[ctx.fresh_name("mha_q_trans")],
         )
-        _stamp_type_and_shape(q_trans, (num_heads, None, qk_size))
+        q_dtype = getattr(getattr(q_heads, "type", None), "dtype", None)
+        if q_dtype is not None:
+            q_trans.type = ir.TensorType(q_dtype)
+        _stamp_type_and_shape(q_trans, (None, num_heads, None, qk_size))
         _ensure_value_metadata(ctx, q_trans)
 
         k_trans = builder.Transpose(
             k_heads,
-            perm=(1, 2, 0),
+            perm=(0, 2, 3, 1),
             _outputs=[ctx.fresh_name("mha_k_trans")],
         )
-        _stamp_type_and_shape(k_trans, (num_heads, qk_size, None))
+        k_dtype = getattr(getattr(k_heads, "type", None), "dtype", None)
+        if k_dtype is not None:
+            k_trans.type = ir.TensorType(k_dtype)
+        _stamp_type_and_shape(k_trans, (None, num_heads, qk_size, None))
         _ensure_value_metadata(ctx, k_trans)
 
         v_trans = builder.Transpose(
             v_heads,
-            perm=(1, 0, 2),
+            perm=(0, 2, 1, 3),
             _outputs=[ctx.fresh_name("mha_v_trans")],
         )
-        _stamp_type_and_shape(v_trans, (num_heads, None, vo_size))
+        v_dtype = getattr(getattr(v_heads, "type", None), "dtype", None)
+        if v_dtype is not None:
+            v_trans.type = ir.TensorType(v_dtype)
+        _stamp_type_and_shape(v_trans, (None, num_heads, None, vo_size))
         _ensure_value_metadata(ctx, v_trans)
 
         scores = builder.MatMul(
@@ -530,8 +704,10 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             k_trans,
             _outputs=[ctx.fresh_name("mha_scores")],
         )
-        scores_dtype = getattr(getattr(scores, "type", None), "dtype", None)
-        _stamp_type_and_shape(scores, (num_heads, None, None))
+        scores_dtype = q_dtype
+        if scores_dtype is not None:
+            scores.type = ir.TensorType(scores_dtype)
+        _stamp_type_and_shape(scores, (None, num_heads, None, None))
         _ensure_value_metadata(ctx, scores)
 
         scale_value = ctx.bind_const_for_var(
@@ -549,7 +725,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             scaled_scores.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(scaled_scores, (num_heads, None, None))
+        _stamp_type_and_shape(scaled_scores, (None, num_heads, None, None))
         _ensure_value_metadata(ctx, scaled_scores)
 
         attn = builder.Softmax(
@@ -559,7 +735,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             attn.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(attn, (num_heads, None, None))
+        _stamp_type_and_shape(attn, (None, num_heads, None, None))
         _ensure_value_metadata(ctx, attn)
 
         context = builder.MatMul(
@@ -569,17 +745,17 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             context.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(context, (num_heads, None, vo_size))
+        _stamp_type_and_shape(context, (None, num_heads, None, vo_size))
         _ensure_value_metadata(ctx, context)
 
         context_trans = builder.Transpose(
             context,
-            perm=(1, 0, 2),
+            perm=(0, 2, 1, 3),
             _outputs=[ctx.fresh_name("mha_context_trans")],
         )
         if scores_dtype is not None:
             context_trans.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(context_trans, (None, num_heads, vo_size))
+        _stamp_type_and_shape(context_trans, (None, None, num_heads, vo_size))
         _ensure_value_metadata(ctx, context_trans)
 
         context_flat = builder.Reshape(
@@ -629,6 +805,10 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 axis=0,
                 _outputs=[ctx.fresh_name("mha_output_shape")],
             )
+            out_len = len(query_aval_shape[:-1]) + 1
+            output_shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(output_shape_val, (out_len,))
+            _ensure_value_metadata(ctx, output_shape_val)
         else:
             output_shape_val = output_tail
 
@@ -820,27 +1000,27 @@ def _mha_batch_rule(batched_args, batch_dims, **params):
         )
         return out, None
 
-    query = jnp.moveaxis(query, q_bdim, 0)
-    key = jnp.moveaxis(key, k_bdim, 0)
-    value = jnp.moveaxis(value, v_bdim, 0)
+    if q_bdim != 0:
+        query = jnp.moveaxis(query, q_bdim, 0)
+    if k_bdim != 0:
+        key = jnp.moveaxis(key, k_bdim, 0)
+    if v_bdim != 0:
+        value = jnp.moveaxis(value, v_bdim, 0)
 
-    def _call_mha(q, k, v):
-        return _mha_forward(
-            q,
-            k,
-            v,
-            q_weight,
-            q_bias,
-            k_weight,
-            k_bias,
-            v_weight,
-            v_bias,
-            o_weight,
-            o_bias,
-            **params,
-        )
-
-    out = jax.vmap(_call_mha)(query, key, value)
+    out = MultiheadAttentionPlugin._PRIM.bind(
+        query,
+        key,
+        value,
+        q_weight,
+        q_bias,
+        k_weight,
+        k_bias,
+        v_weight,
+        v_bias,
+        o_weight,
+        o_bias,
+        **params,
+    )
     if q_bdim != 0:
         out = jnp.moveaxis(out, 0, q_bdim)
     return out, q_bdim
