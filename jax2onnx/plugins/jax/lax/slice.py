@@ -2,9 +2,15 @@
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import jax
 import onnx_ir as ir
 
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
+from jax2onnx.plugins._loop_extent_meta import (
+    get_axis0_override,
+    propagate_axis0_override,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -102,5 +108,34 @@ class SlicePlugin(PrimitiveLeafPlugin):
         out_tensor = ctx.builder.Slice(*inputs, _outputs=[out_name])
         if dtype is not None:
             out_tensor.type = ir.TensorType(dtype)
-        _stamp_type_and_shape(out_tensor, getattr(out_var.aval, "shape", ()))
+
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        x_override = get_axis0_override(x_val)
+        spec_override = get_axis0_override(out_val)
+        ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        override_sources = (x_override, spec_override, ctx_override)
+        _axis0_debug(
+            "slice override sources "
+            f"value={getattr(out_tensor, 'name', None)} "
+            f"sources={override_sources} "
+            f"x={getattr(x_val, 'name', None)} "
+            f"spec={getattr(out_val, 'name', None)}"
+        )
+        override_candidates = [
+            int(candidate)
+            for candidate in override_sources
+            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+        ]
+        _axis0_debug(
+            "slice override candidates "
+            f"value={getattr(out_tensor, 'name', None)} "
+            f"candidates={override_candidates}"
+        )
+        axis0_override = max(override_candidates, default=None)
+        if axis0_override is not None and target_shape:
+            target_shape = (axis0_override,) + target_shape[1:]
+        out_tensor = ensure_axis0_extent(ctx, out_tensor, axis0_override)
+
+        _stamp_type_and_shape(out_tensor, target_shape)
+        propagate_axis0_override(x_val, out_tensor)
         ctx.bind_value_for_var(out_var, out_tensor)

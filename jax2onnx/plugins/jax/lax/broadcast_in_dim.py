@@ -12,6 +12,7 @@ import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import get_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
@@ -369,6 +370,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
+        meta_override_axis0 = get_axis0_override(x_val)
+        debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
             if axis not in bdims and (allow_hints or allow_loop_hints):
                 force_loop_axis0 = bool(
@@ -379,10 +382,30 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     override_val = _loop_hint(axis)
                     if override_val is None and hints:
                         override_val = _peek_scatter_hint(axis)
+                    if debug:
+                        print(
+                            "[broadcast_hint_check]",
+                            axis,
+                            bdims,
+                            override_val is not None,
+                            getattr(ctx, "_force_loop_extent_axis0", False),
+                            getattr(ctx, "_static_loop_extent_axis0", None),
+                            flush=True,
+                        )
                 else:
                     override_val = _peek_scatter_hint(axis) if hints else None
                     if override_val is None:
                         override_val = _loop_hint(axis)
+                    if debug:
+                        print(
+                            "[broadcast_hint_check]",
+                            axis,
+                            bdims,
+                            override_val is not None,
+                            getattr(ctx, "_force_loop_extent_axis0", False),
+                            getattr(ctx, "_static_loop_extent_axis0", None),
+                            flush=True,
+                        )
                 if override_val is not None:
                     if os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1":
                         print(
@@ -394,6 +417,19 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         )
                     dim_pieces.append(override_val)
                     continue
+            if (
+                axis == 0
+                and isinstance(meta_override_axis0, (int, np.integer))
+                and int(meta_override_axis0) > 0
+            ):
+                dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([int(meta_override_axis0)], dtype=np.int64),
+                        ctx.fresh_name("bcast_dim_override"),
+                    )
+                )
+                continue
             if isinstance(d, (int, np.integer)):
                 dim_pieces.append(
                     _const_i64(
@@ -476,6 +512,19 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue
+                if (
+                    axis == 0
+                    and isinstance(meta_override_axis0, (int, np.integer))
+                    and int(meta_override_axis0) > 0
+                ):
+                    reshape_dim_pieces.append(
+                        _const_i64(
+                            ctx,
+                            np.asarray([int(meta_override_axis0)], dtype=np.int64),
+                            ctx.fresh_name("bcast_reshape_dim_override"),
+                        )
+                    )
+                    continue
                 reshape_dim_pieces.append(
                     _const_i64(
                         ctx,
@@ -507,8 +556,19 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
         # Final expanded tensor should match the outvar's jax aval.
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
+        if meta_override_axis0 is None:
+            meta_override_axis0 = get_axis0_override(out_spec)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         out_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+
+        if os.environ.get("J2O_DEBUG_BCAST_SHAPE") == "1":
+            print(
+                "[broadcast_shape]",
+                getattr(out_spec, "name", None),
+                out_shape,
+                bdims,
+                flush=True,
+            )
 
         in_dt = getattr(getattr(expand_input, "type", None), "dtype", None)
         if in_dt is not None and out_dtype is not None and in_dt != out_dtype:

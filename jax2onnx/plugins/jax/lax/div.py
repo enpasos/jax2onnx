@@ -5,6 +5,14 @@ from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
 
+from jax2onnx.plugins._axis0_utils import (
+    maybe_expand_binary_axis0,
+    stamp_axis0_binary_result,
+)
+from jax2onnx.plugins._loop_extent_meta import (
+    propagate_axis0_override,
+    set_axis0_override,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -62,7 +70,15 @@ class DivPlugin(PrimitiveLeafPlugin):
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("div_out"))
 
+        lhs_val, rhs_val, override = maybe_expand_binary_axis0(
+            ctx, lhs_val, rhs_val, out_spec
+        )
         result = ctx.builder.Div(lhs_val, rhs_val, _outputs=[out_spec.name])
-        result.type = out_spec.type
-        result.shape = out_spec.shape
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        stamp_axis0_binary_result(result, out_var, out_spec, override)
+        if override is not None:
+            set_axis0_override(result, override)
+        propagate_axis0_override(lhs_val, result)
+        propagate_axis0_override(rhs_val, result)
         ctx.bind_value_for_var(out_var, result)

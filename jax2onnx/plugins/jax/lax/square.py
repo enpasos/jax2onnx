@@ -4,6 +4,12 @@ from typing import TYPE_CHECKING
 
 import jax
 
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
+from jax2onnx.plugins._loop_extent_meta import (
+    get_axis0_override,
+    propagate_axis0_override,
+    set_axis0_override,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -50,9 +56,31 @@ class SquarePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("square_out")
 
+        x_override = get_axis0_override(x_val)
+        spec_override = get_axis0_override(out_spec)
+        ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        override_candidates = [
+            int(candidate)
+            for candidate in (x_override, spec_override, ctx_override)
+            if isinstance(candidate, int) and candidate > 1
+        ]
+        axis0_override = max(override_candidates, default=None)
+        _axis0_debug(
+            "square override resolution "
+            f"value={desired_name} "
+            f"x={getattr(x_val, 'name', None)} "
+            f"sources={(x_override, spec_override, ctx_override)} "
+            f"candidates={override_candidates} "
+            f"selected={axis0_override}"
+        )
+        x_val = ensure_axis0_extent(ctx, x_val, axis0_override)
+
         result = ctx.builder.Mul(x_val, x_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
+        if axis0_override is not None:
+            set_axis0_override(result, axis0_override)
+        propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(out_var, result)
