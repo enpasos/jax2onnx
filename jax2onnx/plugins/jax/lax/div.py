@@ -71,7 +71,7 @@ class DivPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("div_out"))
 
         lhs_val, rhs_val, override = maybe_expand_binary_axis0(
-            ctx, lhs_val, rhs_val, out_spec
+            ctx, lhs_val, rhs_val, out_spec, out_var
         )
         result = ctx.builder.Div(lhs_val, rhs_val, _outputs=[out_spec.name])
         if getattr(out_spec, "type", None) is not None:

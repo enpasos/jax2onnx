@@ -91,7 +91,9 @@ class MulPlugin(PrimitiveLeafPlugin):
             y_var, name_hint=ctx.fresh_name("mul_rhs"), prefer_np_dtype=prefer_dt
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mul_out"))
-        a_val, b_val, override = maybe_expand_binary_axis0(ctx, a_val, b_val, out_spec)
+        a_val, b_val, override = maybe_expand_binary_axis0(
+            ctx, a_val, b_val, out_spec, out_var
+        )
 
         result = ctx.builder.Mul(a_val, b_val, _outputs=[out_spec.name])
         if getattr(out_spec, "type", None) is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from types import SimpleNamespace
 
 import os
 
@@ -145,7 +146,9 @@ def ensure_axis0_extent(
     return expanded
 
 
-def maybe_expand_binary_axis0(ctx: Any, lhs: Any, rhs: Any, out_val: Any):
+def maybe_expand_binary_axis0(
+    ctx: Any, lhs: Any, rhs: Any, out_val: Any, out_var: Any | None = None
+):
     override_sources = [
         get_axis0_override(lhs),
         get_axis0_override(rhs),
@@ -187,15 +190,35 @@ def maybe_expand_binary_axis0(ctx: Any, lhs: Any, rhs: Any, out_val: Any):
             f"lhs_override={lhs2_override} rhs_override={rhs2_override} "
         )
         return fallback_lhs, fallback_rhs, override
+
+    if out_var is not None:
+        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+        if out_shape:
+            fake_ref = SimpleNamespace(shape=SimpleNamespace(dims=out_shape))
+            lhs_alt = ensure_axis0_extent(ctx, lhs, override, reference=fake_ref)
+            rhs_alt = ensure_axis0_extent(ctx, rhs, override, reference=fake_ref)
+            lhs3_override = get_axis0_override(lhs_alt)
+            rhs3_override = get_axis0_override(rhs_alt)
+            if lhs3_override == override or rhs3_override == override:
+                _axis0_debug(
+                    "maybe_expand_binary_axis0 override forced via target shape "
+                    f"lhs_override={lhs3_override} rhs_override={rhs3_override} "
+                )
+                return lhs_alt, rhs_alt, override
+    out_shape = ()
+    if out_var is not None:
+        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
     _axis0_debug(
         "maybe_expand_binary_axis0 override dropped "
         f"lhs_override={lhs_override} rhs_override={rhs_override} "
-        f"selected={override}"
+        f"selected={override} out_shape={out_shape}"
     )
     return lhs, rhs, None
 
 
-def stamp_axis0_binary_result(result: Any, out_var: Any, out_spec: Any, override: int | None) -> None:
+def stamp_axis0_binary_result(
+    result: Any, out_var: Any, out_spec: Any, override: int | None
+) -> None:
     out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
     if override is not None and out_shape:
         out_shape = (override,) + out_shape[1:]

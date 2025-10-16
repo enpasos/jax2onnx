@@ -225,7 +225,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
             f"candidates={override_candidates}"
         )
         axis0_override = max(override_candidates, default=None)
-        result = ensure_axis0_extent(ctx, result, axis0_override)
+        result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
 
         if x_shape:
             out_dims = [d for i, d in enumerate(x_shape) if i not in axes]

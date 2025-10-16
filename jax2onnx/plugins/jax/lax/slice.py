@@ -134,7 +134,9 @@ class SlicePlugin(PrimitiveLeafPlugin):
         axis0_override = max(override_candidates, default=None)
         if axis0_override is not None and target_shape:
             target_shape = (axis0_override,) + target_shape[1:]
-        out_tensor = ensure_axis0_extent(ctx, out_tensor, axis0_override)
+        out_tensor = ensure_axis0_extent(
+            ctx, out_tensor, axis0_override, reference=x_val
+        )
 
         _stamp_type_and_shape(out_tensor, target_shape)
         propagate_axis0_override(x_val, out_tensor)
