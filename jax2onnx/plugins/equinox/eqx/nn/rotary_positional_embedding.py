@@ -54,6 +54,145 @@ def _rope_heads(embedding_size: int):
     return _call
 
 
+class RotaryProcessHeads(eqx.Module):
+    """process_heads adapter that applies RoPE to Q/K heads and forwards V."""
+
+    rope: eqx.nn.RotaryPositionalEmbedding
+
+    def __init__(self, rope: eqx.nn.RotaryPositionalEmbedding):
+        self.rope = rope
+
+    def __call__(
+        self,
+        query_heads: jax.Array,
+        key_heads: jax.Array,
+        value_heads: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        rotate = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
+        rotated_query = rotate(query_heads)
+        rotated_key = rotate(key_heads)
+        return rotated_query, rotated_key, value_heads
+
+
+def compute_rope_caches(
+    rope: eqx.nn.RotaryPositionalEmbedding, seq_length: int
+) -> tuple[np.ndarray, np.ndarray]:
+    theta = np.float32(rope.theta)
+    embedding_size = int(rope.embedding_size)
+    base = np.arange(0.0, embedding_size, 2, dtype=np.float32)
+    freq_exponent = base / np.float32(embedding_size)
+    freqs = np.power(theta, freq_exponent).astype(np.float32)
+    freqs = np.float32(1.0) / freqs
+    positions = np.arange(float(seq_length), dtype=np.float32)
+    freqs_outer = (positions[:, None] * freqs[None, :]).astype(np.float32)
+    rope_dtype = np.dtype(jnp.dtype(rope.dtype))
+    cos = np.cos(freqs_outer).astype(rope_dtype)
+    sin = np.sin(freqs_outer).astype(rope_dtype)
+    cos = np.tile(cos, (1, 2)).astype(rope_dtype)
+    sin = np.tile(sin, (1, 2)).astype(rope_dtype)
+    return cos, sin
+
+
+def _value_dims(value: ir.Value) -> tuple[object, ...]:
+    shape = getattr(value, "shape", None)
+    if isinstance(shape, ir.Shape):
+        return tuple(shape.dims)
+    return ()
+
+
+def lower_rotary_application(
+    ctx,
+    builder,
+    x_val: ir.Value,
+    cos_val: ir.Value,
+    sin_val: ir.Value,
+    *,
+    embedding_size: int,
+    prefix: str,
+) -> ir.Value:
+    half = embedding_size // 2
+    dims = _value_dims(x_val)
+    axis = len(dims) - 1 if dims else 0
+    prefix_dims = dims[:-1]
+    first_half_shape = prefix_dims + (half,)
+    rotated_shape = prefix_dims + (embedding_size,)
+
+    split_sizes = _const_i64(
+        ctx,
+        np.asarray([half, half], dtype=np.int64),
+        ctx.fresh_name(f"{prefix}_split_sizes"),
+    )
+    split_outputs = [
+        ctx.fresh_name(f"{prefix}_first_half"),
+        ctx.fresh_name(f"{prefix}_second_half"),
+    ]
+    first_half, second_half = builder.Split(
+        x_val,
+        split_sizes,
+        axis=axis,
+        _outputs=split_outputs,
+    )
+    x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+    if x_dtype is not None:
+        first_half.type = ir.TensorType(x_dtype)
+        second_half.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(first_half, first_half_shape)
+    _stamp_type_and_shape(second_half, first_half_shape)
+    _ensure_value_metadata(ctx, first_half)
+    _ensure_value_metadata(ctx, second_half)
+
+    neg_second = builder.Neg(
+        second_half,
+        _outputs=[ctx.fresh_name(f"{prefix}_neg_second")],
+    )
+    if x_dtype is not None:
+        neg_second.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(neg_second, first_half_shape)
+    _ensure_value_metadata(ctx, neg_second)
+
+    rotated = builder.Concat(
+        neg_second,
+        first_half,
+        axis=axis,
+        _outputs=[ctx.fresh_name(f"{prefix}_rotated")],
+    )
+    if x_dtype is not None:
+        rotated.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(rotated, rotated_shape)
+    _ensure_value_metadata(ctx, rotated)
+
+    x_mul_cos = builder.Mul(
+        x_val,
+        cos_val,
+        _outputs=[ctx.fresh_name(f"{prefix}_mul_cos")],
+    )
+    if x_dtype is not None:
+        x_mul_cos.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(x_mul_cos, rotated_shape)
+    _ensure_value_metadata(ctx, x_mul_cos)
+
+    rotated_mul_sin = builder.Mul(
+        rotated,
+        sin_val,
+        _outputs=[ctx.fresh_name(f"{prefix}_mul_sin")],
+    )
+    if x_dtype is not None:
+        rotated_mul_sin.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(rotated_mul_sin, rotated_shape)
+    _ensure_value_metadata(ctx, rotated_mul_sin)
+
+    output = builder.Add(
+        x_mul_cos,
+        rotated_mul_sin,
+        _outputs=[ctx.fresh_name(f"{prefix}_output")],
+    )
+    if x_dtype is not None:
+        output.type = ir.TensorType(x_dtype)
+    _stamp_type_and_shape(output, rotated_shape)
+    _ensure_value_metadata(ctx, output)
+    return output
+
+
 @register_primitive(
     jaxpr_primitive="eqx.nn.rotary_positional_embedding",
     jax_doc="https://docs.kidger.site/equinox/api/nn/embedding/#rotary-positional-embedding",
@@ -140,8 +279,8 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
         if split_axis < 0:
             split_axis = 0
         prefix_dims = tuple(aval_shape[:-1]) if aval_shape else ()
-        first_half_shape = prefix_dims + (half,)
-        rotated_shape = prefix_dims + (embedding_size,)
+        prefix_dims + (half,)
+        prefix_dims + (embedding_size,)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("rope_input"))
         cos_val = cast_param_like(
@@ -161,79 +300,15 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, cos_val)
         _ensure_value_metadata(ctx, sin_val)
 
-        split_sizes = _const_i64(
+        output = lower_rotary_application(
             ctx,
-            np.asarray([half, half], dtype=np.int64),
-            "rope_split_sizes",
-        )
-        split_outputs = [
-            ctx.fresh_name("rope_first_half"),
-            ctx.fresh_name("rope_second_half"),
-        ]
-        first_half, second_half = builder.Split(
-            x_val,
-            split_sizes,
-            axis=split_axis,
-            _outputs=split_outputs,
-        )
-        x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        if x_dtype is not None:
-            first_half.type = ir.TensorType(x_dtype)
-            second_half.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(first_half, first_half_shape)
-        _stamp_type_and_shape(second_half, first_half_shape)
-        _ensure_value_metadata(ctx, first_half)
-        _ensure_value_metadata(ctx, second_half)
-
-        neg_second = builder.Neg(
-            second_half,
-            _outputs=[ctx.fresh_name("rope_neg_second")],
-        )
-        if x_dtype is not None:
-            neg_second.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(neg_second, first_half_shape)
-        _ensure_value_metadata(ctx, neg_second)
-
-        rotated = builder.Concat(
-            neg_second,
-            first_half,
-            axis=split_axis,
-            _outputs=[ctx.fresh_name("rope_rotated")],
-        )
-        if x_dtype is not None:
-            rotated.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(rotated, rotated_shape)
-        _ensure_value_metadata(ctx, rotated)
-
-        x_mul_cos = builder.Mul(
+            builder,
             x_val,
             cos_val,
-            _outputs=[ctx.fresh_name("rope_mul_cos")],
-        )
-        if x_dtype is not None:
-            x_mul_cos.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(x_mul_cos, rotated_shape)
-        _ensure_value_metadata(ctx, x_mul_cos)
-
-        rotated_mul_sin = builder.Mul(
-            rotated,
             sin_val,
-            _outputs=[ctx.fresh_name("rope_mul_sin")],
+            embedding_size=embedding_size,
+            prefix="rope",
         )
-        if x_dtype is not None:
-            rotated_mul_sin.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(rotated_mul_sin, rotated_shape)
-        _ensure_value_metadata(ctx, rotated_mul_sin)
-
-        output = builder.Add(
-            x_mul_cos,
-            rotated_mul_sin,
-            _outputs=[ctx.fresh_name("rope_output")],
-        )
-        if x_dtype is not None:
-            output.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(output, rotated_shape)
-        _ensure_value_metadata(ctx, output)
         ctx.bind_value_for_var(out_var, output)
 
     @classmethod

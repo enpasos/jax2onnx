@@ -33,4 +33,15 @@
 - Restored RoPE to the upstream two-argument signature; `Attention` now passes the token length explicitly, and the standalone example infers it from the input to keep tests deterministic without new metadata slots.
 - Batched LayerNorm/MLP calls in `Block` via `eqx.filter_vmap` to mirror Equimo semantics while keeping the module definitions unchanged. VisionTransformer should now map cleanly once RoPE export stabilises.
 - Registered Equinox `eqx.nn.Conv2d`, `eqx.nn.MultiheadAttention`, and `eqx.nn.RotaryPositionalEmbedding` as ONNX functions with focused examples, keeping coverage anchored in `primitives.eqx`.
-- Replaced the custom RoPE/attention helpers inside `dino.py` with their upstream Equinox counterparts, tightened the contexts to `examples.eqx_dino`, and routed rotary application through `process_heads` so tests exercise the new plugins.
+- Refactored `dino.py` so `Attention` now reuses `AttentionCore` for projections and delegates rotary handling via a shared `RotaryProcessHeads` adapter; the plugin recognises this callback and lowers the RoPE step alongside the attention primitive. Dynamic batch exports (`('B', 257, 384)`) now succeed after reshaping the RoPE caches for broadcasting.
+
+## Structuring Plan (Attention + RoPE)
+1. **Module Layers**
+   - Confirm any additional RoPE variants (e.g., learned cache reuse) still compose cleanly via the new `RotaryProcessHeads`.
+   - Evaluate whether other Equinox helpers (relative position shifts, etc.) can be expressed as lightweight process-head adapters.
+2. **Plugin Enhancements**
+   - Generalise detection so closely related closures (e.g., custom modules wrapping `RotaryProcessHeads`) can be white-listed without re-implementing the lowering.
+   - Explore surfacing the rotary caches as reusable nodes when multiple attention layers share the same sequence length, to reduce constant duplication.
+3. **Testing & Docs**
+   - Extend coverage with a regression that toggles between rotary/no-rotary `process_heads` to ensure the plugin continues to dispatch correctly.
+   - Document the supported pattern in the example docstring (and plugin README) so contributors know to reuse `RotaryProcessHeads` instead of hand-written head rewrites.

@@ -20,6 +20,12 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.equinox.eqx.nn.rotary_positional_embedding import (
+    RotaryProcessHeads,
+    compute_rope_caches,
+    lower_rotary_application,
+    _value_dims,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -57,6 +63,153 @@ def _first_defined(*values: int | None) -> int | None:
     return None
 
 
+def _apply_process_heads_python(process_heads, q_heads, k_heads, v_heads):
+    if q_heads.ndim <= 3:
+        return process_heads(q_heads, k_heads, v_heads)
+    leading = q_heads.shape[:-3]
+    if not leading:
+        return process_heads(q_heads, k_heads, v_heads)
+    seq_len, num_heads, q_width = (
+        q_heads.shape[-3],
+        q_heads.shape[-2],
+        q_heads.shape[-1],
+    )
+    v_width = v_heads.shape[-1]
+    flat = int(np.prod(leading))
+    q_flat = q_heads.reshape((flat, seq_len, num_heads, q_width))
+    k_flat = k_heads.reshape((flat, seq_len, num_heads, q_width))
+    v_flat = v_heads.reshape((flat, seq_len, num_heads, v_width))
+    mapped = jax.vmap(process_heads, in_axes=(0, 0, 0), out_axes=0)
+    q_proc, k_proc, v_proc = mapped(q_flat, k_flat, v_flat)
+    new_shape_q = leading + (seq_len, num_heads, q_width)
+    new_shape_v = leading + (seq_len, num_heads, v_width)
+    return (
+        q_proc.reshape(new_shape_q),
+        k_proc.reshape(new_shape_q),
+        v_proc.reshape(new_shape_v),
+    )
+
+
+def _apply_rotary_process_heads_lowering(
+    ctx,
+    builder,
+    process_heads,
+    q_heads,
+    k_heads,
+    *,
+    q_seq_static: int | None,
+    k_seq_static: int | None,
+    prefix: str,
+):
+    if not isinstance(process_heads, RotaryProcessHeads):
+        raise NotImplementedError(
+            "Only RotaryProcessHeads callbacks are supported for process_heads."
+        )
+    if q_seq_static is None or k_seq_static is None:
+        raise NotImplementedError(
+            "Rotary process_heads requires a static sequence length."
+        )
+    if q_seq_static != k_seq_static:
+        raise NotImplementedError(
+            "Query and key sequence lengths must match for rotary process_heads."
+        )
+    seq_len = int(q_seq_static)
+    rope_module = process_heads.rope
+    embedding_size = int(rope_module.embedding_size)
+    cos_np, sin_np = compute_rope_caches(rope_module, seq_len)
+
+    cos_val_q = ctx.bind_const_for_var(object(), cos_np)
+    sin_val_q = ctx.bind_const_for_var(object(), sin_np)
+    _stamp_type_and_shape(cos_val_q, (seq_len, embedding_size))
+    _stamp_type_and_shape(sin_val_q, (seq_len, embedding_size))
+    _ensure_value_metadata(ctx, cos_val_q)
+    _ensure_value_metadata(ctx, sin_val_q)
+
+    def _reshape_cache(cache_val: ir.Value, dims: tuple[object, ...], tag: str):
+        rank = len(dims)
+        if rank <= 2:
+            return cache_val
+        reshape_vals = np.ones(rank, dtype=np.int64)
+        seq_axis = rank - 3
+        if seq_axis < 0:
+            seq_axis = 0
+        reshape_vals[seq_axis] = seq_len
+        reshape_vals[-1] = embedding_size
+        reshape_shape = _const_i64(
+            ctx,
+            reshape_vals,
+            f"{prefix}_{tag}_reshape_shape",
+        )
+        cache_val = builder.Reshape(
+            cache_val,
+            reshape_shape,
+            _outputs=[ctx.fresh_name(f"{prefix}_{tag}_reshape")],
+        )
+        out_meta = []
+        for idx in range(rank):
+            if idx == seq_axis:
+                out_meta.append(_normalized_dim(seq_len))
+            elif idx == rank - 1:
+                out_meta.append(_normalized_dim(embedding_size))
+            else:
+                out_meta.append(_normalized_dim(1))
+        _stamp_type_and_shape(cache_val, tuple(out_meta))
+        _ensure_value_metadata(ctx, cache_val)
+        return cache_val
+
+    dims_q = _value_dims(q_heads)
+    cos_val_q = _reshape_cache(cos_val_q, dims_q, "q_cos")
+    sin_val_q = _reshape_cache(sin_val_q, dims_q, "q_sin")
+
+    cos_val_q = cast_param_like(
+        ctx, cos_val_q, q_heads, name_hint=f"{prefix}_q_cos_cast"
+    )
+    sin_val_q = cast_param_like(
+        ctx, sin_val_q, q_heads, name_hint=f"{prefix}_q_sin_cast"
+    )
+    _ensure_value_metadata(ctx, cos_val_q)
+    _ensure_value_metadata(ctx, sin_val_q)
+    q_heads = lower_rotary_application(
+        ctx,
+        builder,
+        q_heads,
+        cos_val_q,
+        sin_val_q,
+        embedding_size=embedding_size,
+        prefix=f"{prefix}_q",
+    )
+
+    cos_val_k = ctx.bind_const_for_var(object(), cos_np)
+    sin_val_k = ctx.bind_const_for_var(object(), sin_np)
+    _stamp_type_and_shape(cos_val_k, (seq_len, embedding_size))
+    _stamp_type_and_shape(sin_val_k, (seq_len, embedding_size))
+    _ensure_value_metadata(ctx, cos_val_k)
+    _ensure_value_metadata(ctx, sin_val_k)
+    dims_k = _value_dims(k_heads)
+    cos_val_k = _reshape_cache(cos_val_k, dims_k, "k_cos")
+    sin_val_k = _reshape_cache(sin_val_k, dims_k, "k_sin")
+
+    cos_val_k = cast_param_like(
+        ctx, cos_val_k, k_heads, name_hint=f"{prefix}_k_cos_cast"
+    )
+    sin_val_k = cast_param_like(
+        ctx, sin_val_k, k_heads, name_hint=f"{prefix}_k_sin_cast"
+    )
+    _ensure_value_metadata(ctx, cos_val_k)
+    _ensure_value_metadata(ctx, sin_val_k)
+    k_heads = lower_rotary_application(
+        ctx,
+        builder,
+        k_heads,
+        cos_val_k,
+        sin_val_k,
+        embedding_size=embedding_size,
+        prefix=f"{prefix}_k",
+    )
+
+    return q_heads, k_heads
+
+
 def _linear_forward(x, weight, bias, *, use_bias: bool):
     orig_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
@@ -86,6 +239,7 @@ def _mha_forward(
     use_key_bias: bool,
     use_value_bias: bool,
     use_output_bias: bool,
+    process_heads=None,
 ):
     query_proj = _linear_forward(query, q_weight, q_bias, use_bias=use_query_bias)
     key_proj = _linear_forward(key, k_weight, k_bias, use_bias=use_key_bias)
@@ -94,6 +248,11 @@ def _mha_forward(
     q_heads = query_proj.reshape(query.shape[0], num_heads, qk_size)
     k_heads = key_proj.reshape(key.shape[0], num_heads, qk_size)
     v_heads = value_proj.reshape(value.shape[0], num_heads, vo_size)
+
+    if process_heads is not None:
+        q_heads, k_heads, v_heads = _apply_process_heads_python(
+            process_heads, q_heads, k_heads, v_heads
+        )
 
     q_heads = lax.transpose(q_heads, (1, 0, 2))  # (num_heads, Q, d_k)
     k_heads = lax.transpose(k_heads, (1, 2, 0))  # (num_heads, d_k, K)
@@ -289,6 +448,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         use_key_bias = bool(params["use_key_bias"])
         use_value_bias = bool(params["use_value_bias"])
         use_output_bias = bool(params["use_output_bias"])
+        process_heads_param = params.get("process_heads")
 
         query_val = ctx.get_value_for_var(
             query_var, name_hint=ctx.fresh_name("mha_query")
@@ -357,6 +517,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             leading_static_dims: tuple[int, ...] | None = None
             seq_len_static: int | None = None
             feature_static: int | None = None
+            seq_len_hint: int | None = None
             if rank > 0:
                 leading_static_dims = _static_dims(aval_shape[:-1])
                 try:
@@ -367,6 +528,23 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     feature_static = feature_candidate
                 if leading_static_dims is not None and leading_static_dims:
                     seq_len_static = leading_static_dims[-1]
+                    seq_len_hint = seq_len_static
+                elif rank >= 2:
+                    try:
+                        seq_candidate = int(aval_shape[-2])
+                    except Exception:
+                        seq_candidate = None
+                    if seq_candidate is not None and seq_candidate >= 0:
+                        seq_len_static = seq_candidate
+                        seq_len_hint = seq_candidate
+
+            if seq_len_static is not None and sequence_dim_val is None:
+                sequence_dim_val = _const_i64(
+                    ctx,
+                    np.asarray([seq_len_static], dtype=np.int64),
+                    f"{prefix}_seq_len_hint",
+                )
+                _ensure_value_metadata(ctx, sequence_dim_val)
 
             flatten_shape: ir.Value | None = None
             flatten_first_static: int | None = None
@@ -569,6 +747,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 leading_static_dims,
                 flatten_first_static,
                 flat_meta,
+                seq_len_hint,
             )
 
         def _project(
@@ -654,9 +833,10 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             tail_dims: tuple[int, int],
             seq_dim_val: ir.Value | None,
             leading_static_dims: tuple[int, ...] | None,
+            static_seq_hint: int | None,
         ):
             batch_static: int | None = None
-            seq_static: int | None = None
+            seq_static: int | None = static_seq_hint
             if leading_static_dims is not None:
                 seq_static = leading_static_dims[-1] if leading_static_dims else 1
                 prefix_dims = leading_static_dims[:-1] if leading_static_dims else ()
@@ -740,6 +920,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             query_leading_static,
             _query_flatten_static,
             query_flat_meta,
+            query_seq_static_hint,
         ) = _prepare_input(query_val, query_var, "mha_query")
         (
             key_flat,
@@ -749,6 +930,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             key_leading_static,
             _key_flatten_static,
             key_flat_meta,
+            key_seq_static_hint,
         ) = _prepare_input(key_val, key_var, "mha_key")
         (
             value_flat,
@@ -758,6 +940,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             value_leading_static,
             _value_flatten_static,
             value_flat_meta,
+            value_seq_static_hint,
         ) = _prepare_input(value_val, value_var, "mha_value")
 
         q_heads = _project(
@@ -798,14 +981,41 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
 
         q_heads, q_batch_static, q_seq_static = _reshape_heads(
-            q_heads, "mha_q", (num_heads, qk_size), query_seq_dim, query_leading_static
+            q_heads,
+            "mha_q",
+            (num_heads, qk_size),
+            query_seq_dim,
+            query_leading_static,
+            query_seq_static_hint,
         )
         k_heads, k_batch_static, k_seq_static = _reshape_heads(
-            k_heads, "mha_k", (num_heads, qk_size), key_seq_dim, key_leading_static
+            k_heads,
+            "mha_k",
+            (num_heads, qk_size),
+            key_seq_dim,
+            key_leading_static,
+            key_seq_static_hint,
         )
         v_heads, v_batch_static, v_seq_static = _reshape_heads(
-            v_heads, "mha_v", (num_heads, vo_size), value_seq_dim, value_leading_static
+            v_heads,
+            "mha_v",
+            (num_heads, vo_size),
+            value_seq_dim,
+            value_leading_static,
+            value_seq_static_hint,
         )
+
+        if isinstance(process_heads_param, RotaryProcessHeads):
+            q_heads, k_heads = _apply_rotary_process_heads_lowering(
+                ctx,
+                builder,
+                process_heads_param,
+                q_heads,
+                k_heads,
+                q_seq_static=q_seq_static,
+                k_seq_static=k_seq_static,
+                prefix=ctx.fresh_name("mha_rotary_process"),
+            )
 
         q_trans = builder.Transpose(
             q_heads,
@@ -1049,6 +1259,16 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
+    def _normalize_process_heads(cls, process_heads):
+        if process_heads is None:
+            return None
+        if isinstance(process_heads, RotaryProcessHeads):
+            return process_heads
+        raise NotImplementedError(
+            "process_heads callable is not supported by the MultiheadAttention lowering."
+        )
+
+    @classmethod
     def binding_specs(cls):
         def _make_patch(orig):
             def wrapped(
@@ -1077,10 +1297,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     raise NotImplementedError(
                         "Inference overrides for Dropout are not supported"
                     )
-                if process_heads is not None:
-                    raise NotImplementedError(
-                        "process_heads is not supported by the ONNX lowering."
-                    )
+                process_param = cls._normalize_process_heads(process_heads)
                 dropout = getattr(self, "dropout", None)
                 if dropout is not None and getattr(dropout, "p", 0.0):
                     raise NotImplementedError(
@@ -1129,6 +1346,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     use_key_bias=self.use_key_bias,
                     use_value_bias=self.use_value_bias,
                     use_output_bias=self.use_output_bias,
+                    process_heads=process_param,
                 )
 
             return wrapped

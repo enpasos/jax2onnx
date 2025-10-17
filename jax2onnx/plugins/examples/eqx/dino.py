@@ -7,10 +7,12 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import math
 from jaxtyping import Array
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.equinox.eqx.nn.rotary_positional_embedding import (
+    RotaryProcessHeads,
+)
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -198,74 +200,29 @@ register_example(
 class Attention(eqx.Module):
     """Multi-Head Self-Attention driven by Equinox primitives."""
 
-    attn: eqx.nn.MultiheadAttention
+    core: AttentionCore
     rope: eqx.nn.RotaryPositionalEmbedding
+    process_heads: RotaryProcessHeads
     num_heads: int
-    head_dim: int
 
     def __init__(self, dim: int, num_heads: int, *, key: jax.Array):
         self.num_heads = num_heads
+        self.core = AttentionCore(dim=dim, num_heads=num_heads, key=key)
         head_dim = dim // num_heads
-        self.attn = eqx.nn.MultiheadAttention(
-            num_heads=num_heads,
-            query_size=dim,
-            key_size=dim,
-            value_size=dim,
-            output_size=dim,
-            use_query_bias=True,
-            use_key_bias=True,
-            use_value_bias=True,
-            use_output_bias=True,
-            key=key,
-        )
         self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=head_dim)
-        self.head_dim = head_dim
+        self.process_heads = RotaryProcessHeads(self.rope)
 
     def __call__(self, x: Array) -> Array:
-        rope_heads = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
-        num_heads = self.num_heads
-        head_dim = self.head_dim
-        value_head_dim = self.attn.vo_size
-        query_project = eqx.filter_vmap(self.attn.query_proj, in_axes=0, out_axes=0)
-        key_project = eqx.filter_vmap(self.attn.key_proj, in_axes=0, out_axes=0)
-        value_project = eqx.filter_vmap(self.attn.value_proj, in_axes=0, out_axes=0)
-        output_project = eqx.filter_vmap(self.attn.output_proj, in_axes=0, out_axes=0)
-
         def _attend(tokens: Array) -> Array:
-            q_proj = query_project(tokens)
-            k_proj = key_project(tokens)
-            v_proj = value_project(tokens)
-
-            q_heads = q_proj.reshape(tokens.shape[0], num_heads, head_dim)
-            k_heads = k_proj.reshape(tokens.shape[0], num_heads, head_dim)
-            v_heads = v_proj.reshape(tokens.shape[0], num_heads, value_head_dim)
-
-            q_rot = rope_heads(q_heads)
-            k_rot = rope_heads(k_heads)
-
-            q_rot = jax.lax.transpose(q_rot, (1, 0, 2))
-            k_rot = jax.lax.transpose(k_rot, (1, 2, 0))
-            v_heads_t = jax.lax.transpose(v_heads, (1, 0, 2))
-
-            scale = 1.0 / math.sqrt(float(head_dim))
-
-            def _matmul(lhs, rhs):
-                return jax.lax.dot_general(
-                    lhs,
-                    rhs,
-                    dimension_numbers=(((1,), (0,)), ((), ())),
-                )
-
-            scores = jax.vmap(_matmul)(q_rot, k_rot) * scale
-            attn = jax.nn.softmax(scores, axis=-1)
-            context = jax.vmap(_matmul)(attn, v_heads_t)
-            context = jax.lax.transpose(context, (1, 0, 2)).reshape(
-                tokens.shape[0], num_heads * value_head_dim
+            return self.core.attn(
+                tokens,
+                tokens,
+                tokens,
+                inference=True,
+                process_heads=self.process_heads,
             )
-            return output_project(context)
 
-        apply_batch = eqx.filter_vmap(_attend, in_axes=0, out_axes=0)
-        return apply_batch(x)
+        return eqx.filter_vmap(_attend, in_axes=0, out_axes=0)(x)
 
 
 register_example(
@@ -275,8 +232,8 @@ register_example(
     since="v0.9.1",
     context="examples.eqx_dino",
     children=[
-        "equinox.nn.MultiheadAttention",
-        "equinox.nn.RotaryPositionalEmbedding",
+        "AttentionCore",
+        "RotaryHeads",
     ],
     testcases=[
         {
@@ -288,7 +245,7 @@ register_example(
             "post_check_onnx_graph": EG(
                 [
                     {"path": "MatMul", "counts": {"MatMul": 2}},
-                    "ReduceMax",
+                    "Softmax",
                 ],
                 symbols={"B": None},
                 search_functions=True,
