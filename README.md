@@ -110,6 +110,12 @@ to_onnx(
   * Advanced ONNX function support, including function reuse, and improved variable naming
 
 
+### **Upcoming Version**
+ 
+* **0.9.1**:
+  * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
+
+
 ### **Current Productive Version**
  
 * **0.9.0** *(PyPI)*:
@@ -162,18 +168,19 @@ See [`examples`](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examp
 
 ## 📌 Dependencies
 
-**Versions of Major Dependencies:**
+**Latest supported version of major dependencies:**
 
 | Library       | Versions |  
 |:--------------|:---------| 
-| `JAX`         | 0.7.2    | 
+| `JAX`         | 0.8.0    | 
 | `Flax`        | 0.12.0   | 
 | `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.10   | 
+| `onnx-ir`     | 0.1.11   | 
 | `onnx`        | 1.19.1   |  
 | `onnxruntime` | 1.23.1   |  
 
-*Note: For more details, check `pyproject.toml`.*
+*For exact pins and extras, see `pyproject.toml`.*
+
 
 ---
 
