@@ -2,14 +2,21 @@
 
 import json
 import logging
+import os
 import subprocess
 import time
+import warnings
 from pathlib import Path
 from typing import Any
+from tests.t_generator import get_plugin_grouping
 
-from tests.t_generator import (
-    get_plugin_grouping,
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+warnings.filterwarnings(
+    "ignore",
+    message=r"Explicitly requested dtype <class 'jax\.numpy\.float64'>.*truncated to dtype float32",
+    category=UserWarning,
 )
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
