@@ -9,6 +9,8 @@ import os
 
 import numpy as np
 
+import onnx_ir as ir
+
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -46,9 +48,12 @@ def ensure_axis0_extent(
         )
         return value
 
-    dims = getattr(getattr(value, "shape", None), "dims", None)
+    shape_obj = getattr(value, "shape", None)
+    dims_tuple = getattr(shape_obj, "dims", None)
+    dims = list(dims_tuple) if dims_tuple else None
     if (not dims or len(dims) == 0) and reference is not None:
-        ref_dims = getattr(getattr(reference, "shape", None), "dims", None)
+        ref_shape = getattr(reference, "shape", None)
+        ref_dims = getattr(ref_shape, "dims", None)
         if ref_dims and len(ref_dims) > 0:
             dims = list(ref_dims)
     if not dims or len(dims) == 0:
@@ -56,7 +61,14 @@ def ensure_axis0_extent(
             f"ensure_axis0_extent no dims override={override} value={getattr(value, 'name', None)}"
         )
         return value
-
+    if not dims_tuple or len(dims_tuple) == 0:
+        try:
+            stamp_dims = tuple(_to_ir_dim_for_shape(dim) for dim in dims)
+            _stamp_type_and_shape(value, stamp_dims)
+        except Exception:
+            _axis0_debug(
+                f"ensure_axis0_extent failed to stamp input shape value={getattr(value, 'name', None)}"
+            )
     dim0 = dims[0]
     if isinstance(dim0, (int, np.integer)):
         dim0_int = int(dim0)
@@ -76,50 +88,70 @@ def ensure_axis0_extent(
             f"ensure_axis0_extent non-static dim0 override={override} value={getattr(value, 'name', None)}"
         )
 
+    rank = len(dims)
+    override_vec = _const_i64(
+        ctx,
+        np.asarray([override], dtype=np.int64),
+        ctx.fresh_name("axis0_override"),
+    )
+
     _axis0_debug(
         "ensure_axis0_extent expanding "
         f"value={getattr(value, 'name', None)} override={override} dims={dims}"
     )
-    shape_parts = [
-        _const_i64(
-            ctx,
-            np.asarray([override], dtype=np.int64),
-            ctx.fresh_name("axis0_override"),
-        )
-    ]
-
-    rank = len(dims)
     if rank > 1:
         shape_tensor = ctx.builder.Shape(
             value,
             _outputs=[ctx.fresh_name("axis0_shape")],
         )
+        shape_tensor.dtype = ir.DataType.INT64
         _stamp_type_and_shape(shape_tensor, (rank,))
         _ensure_value_metadata(ctx, shape_tensor)
 
-        for axis in range(1, rank):
-            idx = _const_i64(
-                ctx,
-                np.asarray([axis], dtype=np.int64),
-                ctx.fresh_name("axis0_idx"),
-            )
-            dim_val = ctx.builder.Gather(
-                shape_tensor,
-                idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("axis0_dim")],
-            )
-            _stamp_type_and_shape(dim_val, (1,))
-            _ensure_value_metadata(ctx, dim_val)
-            shape_parts.append(dim_val)
+        starts = _const_i64(
+            ctx,
+            np.asarray([1], dtype=np.int64),
+            ctx.fresh_name("axis0_tail_starts"),
+        )
+        ends = _const_i64(
+            ctx,
+            np.asarray([np.iinfo(np.int64).max], dtype=np.int64),
+            ctx.fresh_name("axis0_tail_ends"),
+        )
+        axes = _const_i64(
+            ctx,
+            np.asarray([0], dtype=np.int64),
+            ctx.fresh_name("axis0_tail_axes"),
+        )
+        steps = _const_i64(
+            ctx,
+            np.asarray([1], dtype=np.int64),
+            ctx.fresh_name("axis0_tail_steps"),
+        )
+        tail_shape = ctx.builder.Slice(
+            shape_tensor,
+            starts,
+            ends,
+            axes,
+            steps,
+            _outputs=[ctx.fresh_name("axis0_shape_tail")],
+        )
+        tail_shape.dtype = ir.DataType.INT64
+        _stamp_type_and_shape(tail_shape, (max(rank - 1, 0),))
+        _ensure_value_metadata(ctx, tail_shape)
 
-    target_shape = ctx.builder.Concat(
-        *shape_parts,
-        axis=0,
-        _outputs=[ctx.fresh_name("axis0_target_shape")],
-    )
-    _stamp_type_and_shape(target_shape, (len(shape_parts),))
-    _ensure_value_metadata(ctx, target_shape)
+        target_shape = ctx.builder.Concat(
+            override_vec,
+            tail_shape,
+            axis=0,
+            _outputs=[ctx.fresh_name("axis0_target_shape")],
+        )
+        target_shape.dtype = ir.DataType.INT64
+        _stamp_type_and_shape(target_shape, (rank,))
+        _ensure_value_metadata(ctx, target_shape)
+    else:
+        target_shape = override_vec
+        _ensure_value_metadata(ctx, target_shape)
 
     expanded = ctx.builder.Expand(
         value,

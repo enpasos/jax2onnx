@@ -10,6 +10,7 @@ from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
     propagate_axis0_override,
+    set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
@@ -110,6 +111,11 @@ class SlicePlugin(PrimitiveLeafPlugin):
             out_tensor.type = ir.TensorType(dtype)
 
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        axis0_extent = None
+        if target_shape:
+            dim0 = target_shape[0]
+            if isinstance(dim0, (int, np.integer)):
+                axis0_extent = int(dim0)
         x_override = get_axis0_override(x_val)
         spec_override = get_axis0_override(out_val)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
@@ -132,12 +138,16 @@ class SlicePlugin(PrimitiveLeafPlugin):
             f"candidates={override_candidates}"
         )
         axis0_override = max(override_candidates, default=None)
+        if axis0_override is not None and axis0_extent is not None and axis0_extent > 1:
+            axis0_override = min(axis0_override, axis0_extent)
         if axis0_override is not None and target_shape:
             target_shape = (axis0_override,) + target_shape[1:]
+        _stamp_type_and_shape(out_tensor, target_shape)
         out_tensor = ensure_axis0_extent(
             ctx, out_tensor, axis0_override, reference=x_val
         )
-
-        _stamp_type_and_shape(out_tensor, target_shape)
-        propagate_axis0_override(x_val, out_tensor)
+        if axis0_override is not None:
+            set_axis0_override(out_tensor, axis0_override)
+        else:
+            propagate_axis0_override(x_val, out_tensor)
         ctx.bind_value_for_var(out_var, out_tensor)

@@ -355,6 +355,13 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_axis0_static = (
+            int(out_shape[0])
+            if out_shape
+            and isinstance(out_shape[0], (int, np.integer))
+            and int(out_shape[0]) >= 0
+            else None
+        )
 
         if _maybe_inline_constant_broadcast(
             ctx, out_var, x_val, shape, bdims, op_shape
@@ -390,9 +397,21 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             and meta_override_axis0 > 0
             and out_shape
         ):
-            out_shape = (int(meta_override_axis0),) + out_shape[1:]
+            meta_override_axis0 = int(meta_override_axis0)
+            if out_axis0_static is not None and out_axis0_static > 1:
+                meta_override_axis0 = min(meta_override_axis0, out_axis0_static)
+            out_shape = (meta_override_axis0,) + out_shape[1:]
         debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
+            if axis == 0 and out_axis0_static is not None:
+                dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([out_axis0_static], dtype=np.int64),
+                        ctx.fresh_name("bcast_dim_axis0"),
+                    )
+                )
+                continue
             if axis not in bdims and (allow_hints or allow_loop_hints):
                 force_loop_axis0 = bool(
                     getattr(ctx, "_force_loop_extent_axis0", False) and axis == 0
@@ -524,8 +543,15 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
             reshape_dim_pieces: list[ir.Value] = []
             for axis, dim in enumerate(reshape_dims):
+                axis_hint_allowed = not (
+                    axis == 0 and axis not in bdims and out_axis0_static is not None
+                )
                 override_val = None
-                if axis not in bdims and (allow_hints or allow_loop_hints):
+                if (
+                    axis not in bdims
+                    and axis_hint_allowed
+                    and (allow_hints or allow_loop_hints)
+                ):
                     override_val = _peek_scatter_hint(axis) if hints else None
                     if override_val is None:
                         override_val = _loop_hint(axis)
