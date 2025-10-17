@@ -75,7 +75,6 @@ def ensure_axis0_extent(
         _axis0_debug(
             f"ensure_axis0_extent non-static dim0 override={override} value={getattr(value, 'name', None)}"
         )
-        return value
 
     _axis0_debug(
         "ensure_axis0_extent expanding "
