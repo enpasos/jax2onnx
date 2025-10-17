@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib
 import json
 import pathlib
-import pkgutil
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, List
@@ -144,16 +144,42 @@ def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> core.Jaxpr:
 
 @lru_cache(maxsize=1)
 def _primitive_registry() -> Dict[str, core.Primitive]:
+    def _collect(module: Any, registry: Dict[str, core.Primitive]) -> None:
+        for attr in getattr(module, "__dict__", {}).values():
+            if isinstance(attr, core.Primitive):
+                registry.setdefault(attr.name, attr)
+
     registry: Dict[str, core.Primitive] = {}
-    for _, module_name, _ in pkgutil.walk_packages(jax.__path__, prefix="jax."):
+    for module in list(sys.modules.values()):
+        if module is None:
+            continue
+        name = getattr(module, "__name__", "")
+        if not name.startswith("jax"):
+            continue
+        _collect(module, registry)
+
+    safe_modules = (
+        "jax",
+        "jax.core",
+        "jax.lax",
+        "jax.numpy",
+        "jax.scipy",
+        "jax._src.lax.lax",
+        "jax._src.lax.control_flow",
+        "jax._src.lax.parallel",
+        "jax._src.lax.slicing",
+        "jax._src.lax.lax_control_flow",
+        "jax._src.numpy.lax_numpy",
+        "jax._src.numpy.reductions",
+        "jax._src.nn.functions",
+    )
+    for module_name in safe_modules:
         try:
             module = importlib.import_module(module_name)
         except Exception:
             continue
-        for attr in module.__dict__.values():
-            if isinstance(attr, core.Primitive):
-                registry.setdefault(attr.name, attr)
-    # Ensure core module primitives are included
+        _collect(module, registry)
+
     for attr in core.__dict__.values():
         if isinstance(attr, core.Primitive):
             registry.setdefault(attr.name, attr)

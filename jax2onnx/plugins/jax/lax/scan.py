@@ -493,8 +493,8 @@ def _two_scans_diff_len_with_broadcast_f32():
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Identity -> Loop",
-                    "Identity -> Loop",
+                    "Loop",
+                    "Loop",
                 ],
                 no_unused_inputs=True,
             ),
@@ -512,8 +512,8 @@ def _two_scans_diff_len_with_broadcast_f32():
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Identity -> Loop",
-                    "Identity -> Loop",
+                    "Loop",
+                    "Loop",
                 ],
                 no_unused_inputs=True,
             ),
@@ -531,8 +531,8 @@ def _two_scans_diff_len_with_broadcast_f32():
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Identity -> Loop",
-                    "Identity -> Loop",
+                    "Loop",
+                    "Loop",
                 ],
                 no_unused_inputs=True,
             ),
@@ -550,8 +550,8 @@ def _two_scans_diff_len_with_broadcast_f32():
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Identity -> Loop",
-                    "Identity -> Loop",
+                    "Loop",
+                    "Loop",
                 ],
                 no_unused_inputs=True,
             ),
@@ -569,8 +569,8 @@ def _two_scans_diff_len_with_broadcast_f32():
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Identity -> Loop",
-                    "Identity -> Loop",
+                    "Loop",
+                    "Loop",
                 ],
                 no_unused_inputs=True,
             ),
