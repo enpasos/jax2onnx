@@ -138,8 +138,14 @@ class SlicePlugin(PrimitiveLeafPlugin):
             f"candidates={override_candidates}"
         )
         axis0_override = max(override_candidates, default=None)
-        if axis0_override is not None and axis0_extent is not None and axis0_extent > 1:
-            axis0_override = min(axis0_override, axis0_extent)
+        if (
+            axis0_override is not None
+            and axis0_extent is not None
+            and isinstance(axis0_extent, (int, np.integer))
+            and axis0_extent >= 0
+            and axis0_override > axis0_extent
+        ):
+            axis0_override = int(axis0_extent)
         if axis0_override is not None and target_shape:
             target_shape = (axis0_override,) + target_shape[1:]
         _stamp_type_and_shape(out_tensor, target_shape)
