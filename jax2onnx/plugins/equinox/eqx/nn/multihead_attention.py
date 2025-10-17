@@ -50,6 +50,13 @@ def _static_dims(dims: tuple[object, ...]) -> tuple[int, ...] | None:
     return tuple(static_dims)
 
 
+def _first_defined(*values: int | None) -> int | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _linear_forward(x, weight, bias, *, use_bias: bool):
     orig_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
@@ -170,11 +177,10 @@ def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
-                    "Gemm",
-                    "Gemm -> Reshape -> Transpose",
-                    "Softmax",
-                    "Softmax -> MatMul",
-                    "MatMul -> Transpose -> Reshape -> Gemm",
+                    "Reshape:17x32 -> Gemm:17x32 -> Reshape:17x4x8 -> Reshape:1x17x4x8 -> "
+                    "Transpose:1x4x17x8 -> MatMul:1x4x17x17 -> Mul:1x4x17x17 -> "
+                    "Softmax:1x4x17x17 -> MatMul:1x4x17x8 -> Transpose:1x17x4x8 -> "
+                    "Reshape:17x32 -> Gemm:17x32 -> Reshape:17x32"
                 ],
                 no_unused_inputs=True,
             ),
@@ -194,6 +200,24 @@ def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
                     "Reshape:?x384 -> Gemm -> Reshape:Bx257x384"
                 ],
                 symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+            "run_only_dynamic": True,
+        },
+        {
+            "testcase": "eqx_multihead_attention_core_static",
+            "callable": construct_and_call(
+                _attention_core, dim=384, num_heads=6, key=with_prng_key(0)
+            ),
+            "input_shapes": [(3, 257, 384)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    "Reshape:771x384 -> Gemm:771x384 -> Reshape:3x257x6x64",
+                    "Transpose:3x6x257x64 -> MatMul:3x6x257x257 -> Mul:3x6x257x257 -> "
+                    "Softmax:3x6x257x257 -> MatMul:3x6x257x64 -> Transpose:3x257x6x64",
+                    "Reshape:771x384 -> Gemm:771x384 -> Reshape:3x257x384",
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -345,6 +369,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     seq_len_static = leading_static_dims[-1]
 
             flatten_shape: ir.Value | None = None
+            flatten_first_static: int | None = None
             if rank > 1:
                 if leading_static_dims is not None and feature_static is not None:
                     if leading_static_dims:
@@ -362,7 +387,18 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                                 f"{prefix}_seq_len_static",
                             )
                             _ensure_value_metadata(ctx, sequence_dim_val)
-                    flatten_vals = np.asarray([-1, feature_static], dtype=np.int64)
+                    try:
+                        flatten_first_static = int(
+                            np.prod(tuple(int(dim) for dim in leading_static_dims))
+                        )
+                    except Exception:
+                        flatten_first_static = None
+                    if flatten_first_static is not None:
+                        flatten_vals = np.asarray(
+                            [flatten_first_static, feature_static], dtype=np.int64
+                        )
+                    else:
+                        flatten_vals = np.asarray([-1, feature_static], dtype=np.int64)
                     flatten_shape = _const_i64(
                         ctx,
                         flatten_vals,
@@ -496,10 +532,22 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 val_dtype = getattr(getattr(val, "type", None), "dtype", None)
                 if val_dtype is not None:
                     flat.type = ir.TensorType(val_dtype)
-                flat_meta = (
-                    None,
-                    _normalized_dim(aval_shape[-1]) if aval_shape else None,
-                )
+                flat_first_meta = None
+                if flatten_first_static is not None:
+                    flat_first_meta = _normalized_dim(flatten_first_static)
+                elif leading_static_dims is not None:
+                    try:
+                        flat_first_meta = _normalized_dim(
+                            int(np.prod(tuple(int(dim) for dim in leading_static_dims)))
+                        )
+                    except Exception:
+                        flat_first_meta = None
+                flat_second_meta = None
+                if feature_static is not None:
+                    flat_second_meta = _normalized_dim(feature_static)
+                elif aval_shape:
+                    flat_second_meta = _normalized_dim(aval_shape[-1])
+                flat_meta = (flat_first_meta, flat_second_meta)
                 _stamp_type_and_shape(flat, flat_meta)
                 _ensure_value_metadata(ctx, flat)
             else:
@@ -519,6 +567,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 aval_shape,
                 sequence_dim_val,
                 leading_static_dims,
+                flatten_first_static,
+                flat_meta,
             )
 
         def _project(
@@ -532,6 +582,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             leading_dims,
             aval_shape,
             leading_static_dims: tuple[int, ...] | None,
+            flat_meta,
         ):
             gemm_inputs = [x_val, weight_val]
             beta = 1.0 if use_bias else 0.0
@@ -547,6 +598,9 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             proj_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
             if proj_dtype is not None:
                 proj.type = ir.TensorType(proj_dtype)
+            if isinstance(flat_meta, tuple):
+                _stamp_type_and_shape(proj, flat_meta)
+                _ensure_value_metadata(ctx, proj)
             reshape_tail = _const_i64(
                 ctx,
                 np.asarray(tail_dims, dtype=np.int64),
@@ -601,6 +655,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             seq_dim_val: ir.Value | None,
             leading_static_dims: tuple[int, ...] | None,
         ):
+            batch_static: int | None = None
+            seq_static: int | None = None
             if leading_static_dims is not None:
                 seq_static = leading_static_dims[-1] if leading_static_dims else 1
                 prefix_dims = leading_static_dims[:-1] if leading_static_dims else ()
@@ -674,7 +730,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 )
             _stamp_type_and_shape(reshaped, reshape_meta)
             _ensure_value_metadata(ctx, reshaped)
-            return reshaped
+            return reshaped, batch_static, seq_static
 
         (
             query_flat,
@@ -682,6 +738,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             query_aval_shape,
             query_seq_dim,
             query_leading_static,
+            _query_flatten_static,
+            query_flat_meta,
         ) = _prepare_input(query_val, query_var, "mha_query")
         (
             key_flat,
@@ -689,6 +747,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             key_aval_shape,
             key_seq_dim,
             key_leading_static,
+            _key_flatten_static,
+            key_flat_meta,
         ) = _prepare_input(key_val, key_var, "mha_key")
         (
             value_flat,
@@ -696,6 +756,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             value_aval_shape,
             value_seq_dim,
             value_leading_static,
+            _value_flatten_static,
+            value_flat_meta,
         ) = _prepare_input(value_val, value_var, "mha_value")
 
         q_heads = _project(
@@ -708,6 +770,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             leading_dims=query_leading,
             aval_shape=query_aval_shape,
             leading_static_dims=query_leading_static,
+            flat_meta=query_flat_meta,
         )
         k_heads = _project(
             key_flat,
@@ -719,6 +782,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             leading_dims=key_leading,
             aval_shape=key_aval_shape,
             leading_static_dims=key_leading_static,
+            flat_meta=key_flat_meta,
         )
         v_heads = _project(
             value_flat,
@@ -730,15 +794,16 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             leading_dims=value_leading,
             aval_shape=value_aval_shape,
             leading_static_dims=value_leading_static,
+            flat_meta=value_flat_meta,
         )
 
-        q_heads = _reshape_heads(
+        q_heads, q_batch_static, q_seq_static = _reshape_heads(
             q_heads, "mha_q", (num_heads, qk_size), query_seq_dim, query_leading_static
         )
-        k_heads = _reshape_heads(
+        k_heads, k_batch_static, k_seq_static = _reshape_heads(
             k_heads, "mha_k", (num_heads, qk_size), key_seq_dim, key_leading_static
         )
-        v_heads = _reshape_heads(
+        v_heads, v_batch_static, v_seq_static = _reshape_heads(
             v_heads, "mha_v", (num_heads, vo_size), value_seq_dim, value_leading_static
         )
 
@@ -750,7 +815,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         q_dtype = getattr(getattr(q_heads, "type", None), "dtype", None)
         if q_dtype is not None:
             q_trans.type = ir.TensorType(q_dtype)
-        _stamp_type_and_shape(q_trans, (None, num_heads, None, qk_size))
+        q_trans_meta = (
+            _normalized_dim(q_batch_static),
+            _normalized_dim(num_heads),
+            _normalized_dim(q_seq_static),
+            _normalized_dim(qk_size),
+        )
+        _stamp_type_and_shape(q_trans, q_trans_meta)
         _ensure_value_metadata(ctx, q_trans)
 
         k_trans = builder.Transpose(
@@ -761,7 +832,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         k_dtype = getattr(getattr(k_heads, "type", None), "dtype", None)
         if k_dtype is not None:
             k_trans.type = ir.TensorType(k_dtype)
-        _stamp_type_and_shape(k_trans, (None, num_heads, qk_size, None))
+        k_trans_meta = (
+            _normalized_dim(_first_defined(k_batch_static, q_batch_static)),
+            _normalized_dim(num_heads),
+            _normalized_dim(qk_size),
+            _normalized_dim(k_seq_static),
+        )
+        _stamp_type_and_shape(k_trans, k_trans_meta)
         _ensure_value_metadata(ctx, k_trans)
 
         v_trans = builder.Transpose(
@@ -772,7 +849,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         v_dtype = getattr(getattr(v_heads, "type", None), "dtype", None)
         if v_dtype is not None:
             v_trans.type = ir.TensorType(v_dtype)
-        _stamp_type_and_shape(v_trans, (None, num_heads, None, vo_size))
+        v_trans_meta = (
+            _normalized_dim(_first_defined(v_batch_static, q_batch_static)),
+            _normalized_dim(num_heads),
+            _normalized_dim(v_seq_static),
+            _normalized_dim(vo_size),
+        )
+        _stamp_type_and_shape(v_trans, v_trans_meta)
         _ensure_value_metadata(ctx, v_trans)
 
         scores = builder.MatMul(
@@ -783,7 +866,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         scores_dtype = q_dtype
         if scores_dtype is not None:
             scores.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(scores, (None, num_heads, None, None))
+        scores_meta = (
+            _normalized_dim(_first_defined(q_batch_static, k_batch_static)),
+            _normalized_dim(num_heads),
+            _normalized_dim(q_seq_static),
+            _normalized_dim(k_seq_static),
+        )
+        _stamp_type_and_shape(scores, scores_meta)
         _ensure_value_metadata(ctx, scores)
 
         scale_value = ctx.bind_const_for_var(
@@ -801,7 +890,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             scaled_scores.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(scaled_scores, (None, num_heads, None, None))
+        _stamp_type_and_shape(scaled_scores, scores_meta)
         _ensure_value_metadata(ctx, scaled_scores)
 
         attn = builder.Softmax(
@@ -811,7 +900,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             attn.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(attn, (None, num_heads, None, None))
+        _stamp_type_and_shape(attn, scores_meta)
         _ensure_value_metadata(ctx, attn)
 
         context = builder.MatMul(
@@ -821,7 +910,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             context.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(context, (None, num_heads, None, vo_size))
+        context_meta = (
+            _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
+            _normalized_dim(num_heads),
+            _normalized_dim(q_seq_static),
+            _normalized_dim(vo_size),
+        )
+        _stamp_type_and_shape(context, context_meta)
         _ensure_value_metadata(ctx, context)
 
         context_trans = builder.Transpose(
@@ -831,21 +926,49 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
         if scores_dtype is not None:
             context_trans.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(context_trans, (None, None, num_heads, vo_size))
+        context_trans_meta = (
+            _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
+            _normalized_dim(q_seq_static),
+            _normalized_dim(num_heads),
+            _normalized_dim(vo_size),
+        )
+        _stamp_type_and_shape(context_trans, context_trans_meta)
         _ensure_value_metadata(ctx, context_trans)
 
+        if q_batch_static is not None and q_seq_static is not None:
+            context_flat_vals = np.asarray(
+                [q_batch_static * q_seq_static, num_heads * vo_size],
+                dtype=np.int64,
+            )
+        else:
+            context_flat_vals = np.asarray(
+                [-1, num_heads * vo_size],
+                dtype=np.int64,
+            )
+        context_flat_shape = _const_i64(
+            ctx,
+            context_flat_vals,
+            "mha_context_flat_shape",
+        )
+        _stamp_type_and_shape(context_flat_shape, (2,))
+        _ensure_value_metadata(ctx, context_flat_shape)
         context_flat = builder.Reshape(
             context_trans,
-            _const_i64(
-                ctx,
-                np.asarray([-1, num_heads * vo_size], dtype=np.int64),
-                "mha_context_flat_shape",
-            ),
+            context_flat_shape,
             _outputs=[ctx.fresh_name("mha_context_flat")],
         )
         if scores_dtype is not None:
             context_flat.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(context_flat, (None, num_heads * vo_size))
+        flat_first = None
+        if q_batch_static is not None and q_seq_static is not None:
+            flat_first = _normalized_dim(q_batch_static * q_seq_static)
+        _stamp_type_and_shape(
+            context_flat,
+            (
+                flat_first,
+                _normalized_dim(num_heads * vo_size),
+            ),
+        )
         _ensure_value_metadata(ctx, context_flat)
 
         gemm_inputs = [context_flat, o_weight]
@@ -862,6 +985,11 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         out_dtype = getattr(getattr(query_val, "type", None), "dtype", None)
         if out_dtype is not None:
             output.type = ir.TensorType(out_dtype)
+        context_flat_shape = getattr(getattr(context_flat, "shape", None), "dims", None)
+        if isinstance(context_flat_shape, tuple):
+            output_meta = tuple(_normalized_dim(dim) for dim in context_flat_shape)
+            _stamp_type_and_shape(output, output_meta)
+            _ensure_value_metadata(ctx, output)
 
         o_weight_shape = getattr(getattr(o_weight_var, "aval", None), "shape", None)
         if o_weight_shape is None and getattr(o_weight, "shape", None) is not None:
