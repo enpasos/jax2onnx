@@ -2,7 +2,7 @@
 
 
 from __future__ import annotations
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, MutableMapping, Optional, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
@@ -40,54 +40,33 @@ class IRBuilder:
 
     def __init__(self, *, opset: int, enable_double_precision: bool):
         self.opset = opset
+        self.graph = ir.Graph(
+            inputs=self.inputs,
+            outputs=self.outputs,
+            nodes=self.nodes,
+            name="main_graph",
+            opset_imports={"": self.opset},
+        )
         self.enable_double_precision = enable_double_precision
-        self._tape_builder = _TapeBuilder()
-        self.inputs: list[ir.Value] = []
-        self.outputs: list[ir.Value] = []
-        self.nodes: list[ir.Node] = []
-        self.initializers: list[ir.Value] = []
+        self._tape_builder = _TapeBuilder(self.graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
-        self.initializers_by_name: dict[str, ir.Value] = {}
+
         # Intermediate ValueInfo entries (propagated to ir.Graph)
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
-        self._tape_node_index = 0
-        self._tape_initializer_index = 0
+
+    @property
+    def initializers(self) -> MutableMapping[str, ir.Value]:
+        return self.graph.initializers
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
         return f"{base}_{i}"
-
-    def _sync_from_tape_builder(self) -> None:
-        tape_nodes = self._tape_builder.nodes
-        for node in tape_nodes[self._tape_node_index :]:
-            self.nodes.append(node)
-        self._tape_node_index = len(tape_nodes)
-
-        tape_initializers = self._tape_builder.initializers
-        for value in tape_initializers[self._tape_initializer_index :]:
-            init_name = value.name or None
-            existing = (
-                self.initializers_by_name.get(init_name)
-                if init_name is not None
-                else None
-            )
-            if existing is not None:
-                try:
-                    idx = self.initializers.index(existing)
-                    self.initializers[idx] = value
-                except ValueError:
-                    self.initializers.append(value)
-            else:
-                self.initializers.append(value)
-            if init_name is not None:
-                self.initializers_by_name[init_name] = value
-        self._tape_initializer_index = len(tape_initializers)
 
     # ---------- values ----------
     def _make_value(
@@ -100,6 +79,9 @@ class IRBuilder:
 
     # public helpers for initializers (used by FunctionPlugin)
     def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
+        if name in self.graph.initializers:
+            return self.graph.initializers[name]
+
         arr = np.asarray(value)
         if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
             arr = arr.astype(np.float32)
@@ -127,9 +109,6 @@ class IRBuilder:
             self.nodes.append(node)
             return v
         v = self._tape_builder.initializer(tensor, name=name)
-        self._sync_from_tape_builder()
-        # overwrite-safe: last wins
-        self.initializers_by_name[name] = v
         return v
 
     def add_initializer_from_array(self, name: str, array: np.ndarray) -> ir.Value:
@@ -238,7 +217,6 @@ class IRBuilder:
 
             def _wrapped(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
-                self._sync_from_tape_builder()
                 return result
 
             return _wrapped
@@ -252,13 +230,6 @@ class IRBuilder:
         return self._sym_origin.get(sym)
 
     def to_ir_model(self, *, name: str, ir_version: int = 11) -> ir.Model:
-        self._sync_from_tape_builder()
-        graph = ir.Graph(
-            inputs=self.inputs,
-            outputs=self.outputs,
-            nodes=self.nodes,
-            initializers=self.initializers,
-            name=name or "main_graph",
-            opset_imports={"": self.opset},
-        )
-        return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")
+        if name:
+            self.graph.name = name
+        return ir.Model(self.graph, ir_version=ir_version, producer_name="jax2onnx")

@@ -33,6 +33,6 @@ def test_ir_builder_initializer_registration() -> None:
         name="weight", value=np.array([1.0], dtype=np.float32)
     )
 
-    assert builder.initializers_by_name["weight"] is weight
+    assert builder.graph.initializers["weight"] is weight
     assert weight in builder.initializers
     assert getattr(weight, "const_value", None) is not None
