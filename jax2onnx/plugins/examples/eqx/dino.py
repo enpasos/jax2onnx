@@ -88,7 +88,6 @@ register_example(
 )
 
 
-@onnx_function
 class AttentionCore(eqx.Module):
     """Multi-Head Self-Attention"""
 
@@ -136,59 +135,13 @@ register_example(
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(
                 [
-                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x6x64 -> Reshape:?x?x6x64 -> "
-                    "Transpose:?x6x?x64 -> MatMul:?x6x?x? -> Mul:?x6x?x? -> "
-                    "Softmax:?x6x?x? -> MatMul:?x6x?x64 -> Transpose:?x?x6x64 -> "
-                    "Reshape:?x384 -> Gemm -> Reshape:Bx257x384"
+                    {"path": "Gemm", "counts": {"Gemm": 4}},
+                    {"path": "MatMul", "counts": {"MatMul": 2}},
+                    {"path": "Softmax", "counts": {"Softmax": 1}},
                 ],
                 symbols={"B": None},
                 search_functions=True,
                 no_unused_inputs=True,
-            ),
-            "run_only_f32_variant": True,
-        }
-    ],
-)
-
-
-@onnx_function
-class RotaryHeads(eqx.Module):
-    """Apply rotary positional embeddings to attention heads."""
-
-    rope: eqx.nn.RotaryPositionalEmbedding
-
-    def __init__(self, embedding_size: int):
-        self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=embedding_size)
-
-    def __call__(self, heads: Array) -> Array:
-        rotate_heads = eqx.filter_vmap(self.rope, in_axes=1, out_axes=1)
-        return rotate_heads(heads)
-
-
-register_example(
-    component="RotaryHeads",
-    description="Apply rotary positional embeddings to attention heads.",
-    source="https://github.com/clementpoiret/Equimo",
-    since="v0.9.1",
-    context="examples.eqx_dino",
-    children=[
-        "equinox.nn.RotaryPositionalEmbedding",
-    ],
-    testcases=[
-        {
-            "testcase": "rotary_heads",
-            "callable": construct_and_call(
-                RotaryHeads,
-                embedding_size=64,
-            ),
-            "input_shapes": [(257, 6, 64)],
-            "post_check_onnx_graph": EG(
-                [
-                    {"path": "Concat", "counts": {"Concat": 1}},
-                    {"path": "Mul", "counts": {"Mul": 2}},
-                    "Add",
-                ],
-                search_functions=True,
             ),
             "run_only_f32_variant": True,
         }

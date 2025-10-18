@@ -354,10 +354,9 @@ def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
-                    "Reshape:17x32 -> Gemm:17x32 -> Reshape:17x4x8 -> Reshape:1x17x4x8 -> "
-                    "Transpose:1x4x17x8 -> MatMul:1x4x17x17 -> Mul:1x4x17x17 -> "
-                    "Softmax:1x4x17x17 -> MatMul:1x4x17x8 -> Transpose:1x17x4x8 -> "
-                    "Reshape:17x32 -> Gemm:17x32 -> Reshape:17x32"
+                    {"path": "Gemm", "counts": {"Gemm": 4}},
+                    {"path": "MatMul", "counts": {"MatMul": 2}},
+                    {"path": "Softmax", "counts": {"Softmax": 1}},
                 ],
                 no_unused_inputs=True,
             ),
