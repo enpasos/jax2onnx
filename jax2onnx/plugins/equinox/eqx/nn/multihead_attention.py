@@ -18,7 +18,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.equinox.eqx.nn.rotary_positional_embedding import (
     RotaryProcessHeads,
@@ -135,16 +135,34 @@ def _apply_rotary_process_heads_lowering(
             seq_axis = 0
         reshape_vals[seq_axis] = seq_len
         reshape_vals[-1] = embedding_size
-        reshape_shape = _const_i64(
-            ctx,
-            reshape_vals,
-            f"{prefix}_{tag}_reshape_shape",
-        )
-        cache_val = builder.Reshape(
-            cache_val,
-            reshape_shape,
-            _outputs=[ctx.fresh_name(f"{prefix}_{tag}_reshape")],
-        )
+        target_shape = tuple(int(v) for v in reshape_vals)
+        const_payload = getattr(cache_val, "const_value", None)
+        if const_payload is not None:
+            original = cache_val
+            cache_val = inline_reshape_initializer(
+                ctx,
+                cache_val,
+                target_shape,
+                name_hint=f"{prefix}_{tag}_reshape_inline",
+            )
+            try:
+                ctx.builder.initializers.remove(original)
+            except (ValueError, AttributeError):
+                try:
+                    ctx._initializers.remove(original)
+                except Exception:
+                    pass
+        else:
+            reshape_shape = _const_i64(
+                ctx,
+                reshape_vals,
+                f"{prefix}_{tag}_reshape_shape",
+            )
+            cache_val = builder.Reshape(
+                cache_val,
+                reshape_shape,
+                _outputs=[ctx.fresh_name(f"{prefix}_{tag}_reshape")],
+            )
         out_meta = []
         for idx in range(rank):
             if idx == seq_axis:

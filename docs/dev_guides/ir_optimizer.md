@@ -45,4 +45,3 @@ This pass is intentionally conservative, portable across `onnx_ir` variants, and
 - Verify mutations persist across all node containers (`graph.nodes`, `_nodes`, `node`).
 - Add focused regression tests under `tests/extra_tests/framework/`.
 - Document the new rule here and reference the guide from `docs/design.md`.
-

@@ -1413,13 +1413,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.6.8"
+version = "8.7.0"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.6.8-py3-none-any.whl", hash = "sha256:86380ff27e851fd43299f44a7e7e098c9d4334d88f5445a91ee681ddc00ef63f"},
+    {file = "netron-8.7.0-py3-none-any.whl", hash = "sha256:1b05475dff4516e289c0c2e151a685bc1b8d68f8fbb0f857cdd0ac864e2a7b24"},
 ]
 
 [[package]]
@@ -2704,14 +2704,14 @@ numpy = ">=1.22.0"
 
 [[package]]
 name = "toolz"
-version = "1.0.0"
+version = "1.1.0"
 description = "List processing tools and functional utilities"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "toolz-1.0.0-py3-none-any.whl", hash = "sha256:292c8f1c4e7516bf9086f8850935c799a874039c8bcf959d47b600e4c44a6236"},
-    {file = "toolz-1.0.0.tar.gz", hash = "sha256:2c86e3d9a04798ac556793bced838816296a2f085017664e4995cb40a1047a02"},
+    {file = "toolz-1.1.0-py3-none-any.whl", hash = "sha256:15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8"},
+    {file = "toolz-1.1.0.tar.gz", hash = "sha256:27a5c770d068c110d9ed9323f24f1543e83b2f300a687b7891c1a6d56b697b5b"},
 ]
 
 [[package]]
