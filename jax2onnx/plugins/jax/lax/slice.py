@@ -142,16 +142,22 @@ class SlicePlugin(PrimitiveLeafPlugin):
             axis0_override is not None
             and axis0_extent is not None
             and isinstance(axis0_extent, (int, np.integer))
-            and axis0_extent >= 0
-            and axis0_override > axis0_extent
+            and axis0_extent > 1
+            and axis0_override < axis0_extent
         ):
             axis0_override = int(axis0_extent)
-        if axis0_override is not None and target_shape:
-            target_shape = (axis0_override,) + target_shape[1:]
-        _stamp_type_and_shape(out_tensor, target_shape)
-        out_tensor = ensure_axis0_extent(
-            ctx, out_tensor, axis0_override, reference=x_val
+        need_expand = (
+            axis0_override is not None
+            and (axis0_extent is None or axis0_extent > 1)
         )
+        if axis0_override is not None and target_shape and need_expand:
+            target_shape = (axis0_override,) + target_shape[1:]
+        if need_expand:
+            out_tensor = ensure_axis0_extent(
+                ctx, out_tensor, axis0_override, reference=x_val
+            )
+        if target_shape:
+            _stamp_type_and_shape(out_tensor, target_shape)
         if axis0_override is not None:
             set_axis0_override(out_tensor, axis0_override)
         else:

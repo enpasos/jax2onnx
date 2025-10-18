@@ -18,6 +18,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
     propagate_axis0_override,
+    set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -225,11 +226,18 @@ class SqueezePlugin(PrimitiveLeafPlugin):
             f"candidates={override_candidates}"
         )
         axis0_override = max(override_candidates, default=None)
-        result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
+        axis0_removed = 0 in axes
+        _axis0_debug(
+            "squeeze axis0 state "
+            f"value={getattr(result, 'name', None)} "
+            f"override={axis0_override} removed={axis0_removed}"
+        )
+        if not axis0_removed:
+            result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
 
         if x_shape:
             out_dims = [d for i, d in enumerate(x_shape) if i not in axes]
-            if axis0_override is not None and out_dims:
+            if axis0_override is not None and out_dims and not axis0_removed:
                 out_dims = list(out_dims)
                 out_dims[0] = axis0_override
             _stamp_type_and_shape(
@@ -237,10 +245,21 @@ class SqueezePlugin(PrimitiveLeafPlugin):
             )
         else:
             target_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
-            if axis0_override is not None and target_shape:
+            if axis0_override is not None and target_shape and not axis0_removed:
                 target_shape = (axis0_override,) + target_shape[1:]
             _stamp_type_and_shape(result, target_shape)
 
-        propagate_axis0_override(x_val, result)
         _ensure_value_metadata(ctx, result)
+        if axis0_removed and axis0_override is not None:
+            _ensure_value_metadata(ctx, out_spec)
+            set_axis0_override(result, axis0_override)
+            set_axis0_override(out_spec, axis0_override)
+            _axis0_debug(
+                "squeeze axis0 override applied "
+                f"value={getattr(result, 'name', None)} "
+                f"out_spec={getattr(out_spec, 'name', None)} "
+                f"override={axis0_override}"
+            )
+        elif not axis0_removed:
+            propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(y_var, result)

@@ -1,4 +1,10 @@
-# Work Notes – Issue 52 Scatter Window Broadcast 
+# Work Notes – Issue 52 Scatter Window Broadcast
+
+## Status Update – 2025-10-18
+
+- Added a focused xfail regression (`tests/extra_tests/loop/test_loop_scatter_payload_regression.py::test_issue52_const_slice_broadcast`) capturing the constant slice vs. loop extent mismatch as a small JAX example.
+- Initial attempts to clamp loop overrides inside `broadcast_in_dim` and `slice` revealed that axis-0 hints are leaking even when the broadcast dimensions don’t include the leading axis. The minimal repro still fails under ORT (`node_Expand_179`), so the next iteration should concentrate on padding the constant slice path before the add/mul combination.
+- With instrumentation, the failing adds all showed mismatched overrides (`bcast_out_*` @ axis0=5, `slice_out_*` @ axis0=3). We’ll start a new conversation to explore targeted padding or alternative expansion strategies for that constant branch.
 
 ## Current Status (2025-10-16)
 
