@@ -329,6 +329,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
         shape = tuple(eqn.params["shape"])
         bdims = tuple(eqn.params["broadcast_dimensions"])
+        axis0_in_bdims = 0 in bdims
 
         hints = getattr(ctx, "_scatter_window_hints", None)
         use_loop_hints = bool(getattr(ctx, "_loop_extent_hints_enabled", False))
@@ -382,8 +383,9 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         override_candidates = [
             get_axis0_override(x_val),
             get_axis0_override(out_spec),
-            getattr(ctx, "_static_loop_extent_axis0", None),
         ]
+        if axis0_in_bdims:
+            override_candidates.append(getattr(ctx, "_static_loop_extent_axis0", None))
         meta_override_axis0 = next(
             (
                 int(val)
@@ -393,7 +395,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             None,
         )
         if (
-            isinstance(meta_override_axis0, (int, np.integer))
+            axis0_in_bdims
+            and isinstance(meta_override_axis0, (int, np.integer))
             and meta_override_axis0 > 0
             and out_shape
         ):
@@ -403,7 +406,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             out_shape = (meta_override_axis0,) + out_shape[1:]
         debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
-            if axis == 0 and out_axis0_static is not None:
+            if axis == 0 and out_axis0_static is not None and axis0_in_bdims:
                 dim_pieces.append(
                     _const_i64(
                         ctx,
@@ -414,7 +417,9 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 continue
             if axis not in bdims and (allow_hints or allow_loop_hints):
                 force_loop_axis0 = bool(
-                    getattr(ctx, "_force_loop_extent_axis0", False) and axis == 0
+                    getattr(ctx, "_force_loop_extent_axis0", False)
+                    and axis == 0
+                    and axis0_in_bdims
                 )
                 override_val = None
                 if force_loop_axis0:
@@ -644,7 +649,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(expanded_out, out_shape)
         _ensure_value_metadata(ctx, expanded_out)
         if (
-            isinstance(meta_override_axis0, (int, np.integer))
+            axis0_in_bdims
+            and isinstance(meta_override_axis0, (int, np.integer))
             and int(meta_override_axis0) >= 0
         ):
             set_axis0_override(expanded_out, int(meta_override_axis0))
