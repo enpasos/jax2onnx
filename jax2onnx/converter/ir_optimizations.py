@@ -343,6 +343,21 @@ def _shape_dims_key(shape: object | None) -> Optional[Tuple[str, ...]]:
     return tuple(key)
 
 
+def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
+    if not isinstance(val, ir.Value):
+        return None
+    arr = _to_numpy_from_any(getattr(val, "const_value", None))
+    if arr is None:
+        return None
+    np_arr = np.asarray(arr)
+    if np_arr.dtype is None or np_arr.dtype.kind not in {"i"}:
+        return None
+    try:
+        return tuple(int(x) for x in np_arr.reshape(-1).tolist())
+    except Exception:
+        return None
+
+
 def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
     ta, tb = _shape_tuple(a), _shape_tuple(b)
     if ta is None or tb is None or len(ta) != len(tb):
@@ -875,6 +890,62 @@ def remove_redundant_reshape_pairs_ir(graph) -> None:
             _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
             kill = {T1_idx, i}
             nodes = [m for k, m in enumerate(nodes) if k not in kill]
+            persist(nodes)
+            changed = True
+            break
+    persist(nodes)
+
+
+def _shapes_match_exact(
+    src_dims: Optional[Tuple[object, ...]], target_dims: Tuple[int, ...]
+) -> bool:
+    if src_dims is None or len(src_dims) != len(target_dims):
+        return False
+    for src_dim, tgt_dim in zip(src_dims, target_dims):
+        if not isinstance(src_dim, (int, np.integer)):
+            return False
+        if int(src_dim) != int(tgt_dim):
+            return False
+    return True
+
+
+def remove_identity_reshapes_ir(graph) -> None:
+    nodes, persist = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+
+    def _value_dims(val: Optional[ir.Value]) -> Optional[Tuple[object, ...]]:
+        if val is None:
+            return None
+        return _shape_dims_seq(getattr(val, "shape", None))
+
+    changed = True
+    while changed:
+        changed = False
+        for idx, node in enumerate(list(nodes)):
+            if node.op_type != "Reshape":
+                continue
+            ins = _node_inputs(node)
+            outs = _node_outputs(node)
+            if len(ins) < 2 or not outs:
+                continue
+            data_val = ins[0]
+            shape_val = ins[1]
+            target_dims = _value_const_ints(shape_val)
+            if target_dims is None or not target_dims:
+                continue
+            if any(int(dim) in (-1, 0) for dim in target_dims):
+                continue
+            src_dims = _value_dims(data_val if isinstance(data_val, ir.Value) else None)
+            if not _shapes_match_exact(src_dims, target_dims):
+                continue
+            dst_val = outs[0]
+            dst_dims = _value_dims(dst_val)
+            if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
+                continue
+            _replace_everywhere(nodes, dst_val, _v_name(dst_val), data_val)
+            _replace_in_graph_outputs(graph, dst_val, _v_name(dst_val), data_val)
+            nodes.pop(idx)
             persist(nodes)
             changed = True
             break
@@ -1517,6 +1588,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         remove_redundant_casts_ir(gr)
         remove_redundant_transpose_pairs_ir(gr)
         remove_redundant_reshape_pairs_ir(gr)
+        remove_identity_reshapes_ir(gr)
         inline_dropout_training_mode_constants_ir(gr)
         propagate_unary_shapes_ir(gr)
         remove_redundant_casts_ir(gr)
@@ -1540,6 +1612,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
                 remove_redundant_casts_ir(fgr)
                 remove_redundant_transpose_pairs_ir(fgr)
                 remove_redundant_reshape_pairs_ir(fgr)
+                remove_identity_reshapes_ir(fgr)
                 inline_dropout_training_mode_constants_ir(fgr)
                 propagate_unary_shapes_ir(fgr)
                 remove_redundant_casts_ir(fgr)

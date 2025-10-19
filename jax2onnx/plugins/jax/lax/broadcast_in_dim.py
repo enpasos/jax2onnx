@@ -1,5 +1,6 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
+import os
 from typing import TYPE_CHECKING, Any, Final, Optional, Set
 import jax
 import jax.numpy as jnp
@@ -10,7 +11,13 @@ import onnx_ir as ir
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
+)
+from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
@@ -326,13 +333,42 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         shape = tuple(eqn.params["shape"])
+        target_shape_dims: list[Any] = list(shape)
         bdims = tuple(eqn.params["broadcast_dimensions"])
+        axis0_in_bdims = 0 in bdims
 
         hints = getattr(ctx, "_scatter_window_hints", None)
+        use_loop_hints = bool(getattr(ctx, "_loop_extent_hints_enabled", False))
+        loop_extents = (
+            getattr(ctx, "_loop_extent_hints", None) if use_loop_hints else None
+        )
+
+        def _loop_hint(axis: int) -> ir.Value | None:
+            if not isinstance(loop_extents, dict):
+                return None
+            if axis != 0:
+                return None
+            values = loop_extents.get(axis)
+            if not values:
+                return None
+            if isinstance(values, list):
+                return values[-1]
+            return values
+
         allow_hints = bool(bdims)
+        allow_loop_hints = bool(loop_extents)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
         op_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_axis0_static = (
+            int(out_shape[0])
+            if out_shape
+            and isinstance(out_shape[0], (int, np.integer))
+            and int(out_shape[0]) >= 0
+            else None
+        )
 
         if _maybe_inline_constant_broadcast(
             ctx, out_var, x_val, shape, bdims, op_shape
@@ -350,12 +386,104 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
+        override_candidates = [
+            get_axis0_override(x_val),
+            get_axis0_override(out_spec),
+        ]
+        if axis0_in_bdims:
+            override_candidates.append(getattr(ctx, "_static_loop_extent_axis0", None))
+        meta_override_axis0 = next(
+            (
+                int(val)
+                for val in override_candidates
+                if isinstance(val, (int, np.integer)) and int(val) > 0
+            ),
+            None,
+        )
+        if meta_override_axis0 is None:
+            fallback_ctx = getattr(ctx, "_static_loop_extent_axis0", None)
+            if isinstance(fallback_ctx, (int, np.integer)) and int(fallback_ctx) > 0:
+                meta_override_axis0 = int(fallback_ctx)
+        if (
+            isinstance(meta_override_axis0, (int, np.integer))
+            and meta_override_axis0 > 0
+            and out_shape
+        ):
+            meta_override_axis0 = int(meta_override_axis0)
+            if out_axis0_static is not None and out_axis0_static > 1:
+                meta_override_axis0 = min(meta_override_axis0, out_axis0_static)
+            out_shape = (meta_override_axis0,) + out_shape[1:]
+            target_shape_dims[0] = meta_override_axis0
+        debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
-            if allow_hints and hints and axis not in bdims:
-                override_val = _peek_scatter_hint(axis)
+            if axis == 0 and out_axis0_static is not None and axis0_in_bdims:
+                dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([out_axis0_static], dtype=np.int64),
+                        ctx.fresh_name("bcast_dim_axis0"),
+                    )
+                )
+                continue
+            if axis not in bdims and (allow_hints or allow_loop_hints):
+                force_loop_axis0 = bool(
+                    getattr(ctx, "_force_loop_extent_axis0", False)
+                    and axis == 0
+                    and axis0_in_bdims
+                )
+                override_val = None
+                if force_loop_axis0:
+                    override_val = _loop_hint(axis)
+                    if override_val is None and hints:
+                        override_val = _peek_scatter_hint(axis)
+                    if debug:
+                        print(
+                            "[broadcast_hint_check]",
+                            axis,
+                            bdims,
+                            override_val is not None,
+                            getattr(ctx, "_force_loop_extent_axis0", False),
+                            getattr(ctx, "_static_loop_extent_axis0", None),
+                            flush=True,
+                        )
+                else:
+                    override_val = _peek_scatter_hint(axis) if hints else None
+                    if override_val is None:
+                        override_val = _loop_hint(axis)
+                    if debug:
+                        print(
+                            "[broadcast_hint_check]",
+                            axis,
+                            bdims,
+                            override_val is not None,
+                            getattr(ctx, "_force_loop_extent_axis0", False),
+                            getattr(ctx, "_static_loop_extent_axis0", None),
+                            flush=True,
+                        )
                 if override_val is not None:
+                    if os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1":
+                        print(
+                            "[broadcast_hint]",
+                            axis,
+                            bdims,
+                            getattr(ctx, "_loop_extent_hints_enabled", False),
+                            flush=True,
+                        )
                     dim_pieces.append(override_val)
                     continue
+            if (
+                axis == 0
+                and isinstance(meta_override_axis0, (int, np.integer))
+                and int(meta_override_axis0) > 0
+            ):
+                dim_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([int(meta_override_axis0)], dtype=np.int64),
+                        ctx.fresh_name("bcast_dim_override"),
+                    )
+                )
+                continue
             if isinstance(d, (int, np.integer)):
                 dim_pieces.append(
                     _const_i64(
@@ -364,6 +492,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         ctx.fresh_name("bcast_dim_c"),
                     )
                 )
+                target_shape_dims[axis] = int(d)
             else:
                 # Dynamic/symbolic dimension: fetch from its recorded origin.
                 origin = getattr(ctx, "get_symbolic_dim_origin", None)
@@ -372,6 +501,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         "symbolic dims require ctx.get_symbolic_dim_origin"
                     )
                 src = origin(d)
+                if src is None:
+                    src = origin(str(d))
                 if src is None:
                     raise NotImplementedError(
                         f"no origin recorded for symbolic dim '{d}'"
@@ -418,31 +549,73 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         if need_reshape:
             # Build reshape_shape by placing operand dims into their mapped result axes, 1 elsewhere.
             rrank = len(shape)
-            reshape_dims: list[int] = [1] * rrank
+            reshape_dims: list[object] = [1] * rrank
             for i, r_axis in enumerate(bdims):
-                # guard if aval dims are unknown (shouldn't happen on tests)
-                dim = (
-                    int(op_shape[i])
-                    if i < len(op_shape) and isinstance(op_shape[i], (int, np.integer))
-                    else 1
-                )
+                dim = op_shape[i] if i < len(op_shape) else 1
                 reshape_dims[r_axis] = dim
 
             reshape_dim_pieces: list[ir.Value] = []
             for axis, dim in enumerate(reshape_dims):
+                axis_hint_allowed = not (
+                    axis == 0 and axis not in bdims and out_axis0_static is not None
+                )
                 override_val = None
-                if allow_hints and hints and axis not in bdims:
-                    override_val = _peek_scatter_hint(axis)
+                if (
+                    axis not in bdims
+                    and axis_hint_allowed
+                    and (allow_hints or allow_loop_hints)
+                ):
+                    override_val = _peek_scatter_hint(axis) if hints else None
+                    if override_val is None:
+                        override_val = _loop_hint(axis)
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue
-                reshape_dim_pieces.append(
-                    _const_i64(
-                        ctx,
-                        np.asarray([int(dim)], dtype=np.int64),
-                        ctx.fresh_name("bcast_reshape_dim"),
+                if isinstance(dim, (int, np.integer)):
+                    reshape_dim_pieces.append(
+                        _const_i64(
+                            ctx,
+                            np.asarray([int(dim)], dtype=np.int64),
+                            ctx.fresh_name("bcast_reshape_dim"),
+                        )
                     )
+                    continue
+                origin = getattr(ctx, "get_symbolic_dim_origin", None)
+                if origin is None:
+                    raise NotImplementedError(
+                        "symbolic dims require ctx.get_symbolic_dim_origin"
+                    )
+                src = origin(dim)
+                if src is None:
+                    src = origin(str(dim))
+                if src is None:
+                    raise NotImplementedError(
+                        f"no origin recorded for symbolic dim '{dim}'"
+                    )
+                src_val, src_axis = src
+                src_rank = len(
+                    getattr(getattr(src_val, "shape", None), "dims", ()) or ()
                 )
+                shp = builder.Shape(
+                    src_val,
+                    _outputs=[ctx.fresh_name("bcast_reshape_sym_shape")],
+                )
+                _stamp_type_and_shape(shp, (src_rank,))
+                _ensure_value_metadata(ctx, shp)
+                idx = _const_i64(
+                    ctx,
+                    np.asarray([int(src_axis)], dtype=np.int64),
+                    ctx.fresh_name("bcast_reshape_sym_idx"),
+                )
+                dim_val = builder.Gather(
+                    shp,
+                    idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("bcast_reshape_sym_dim")],
+                )
+                _stamp_type_and_shape(dim_val, (1,))
+                _ensure_value_metadata(ctx, dim_val)
+                reshape_dim_pieces.append(dim_val)
 
             rs_val = builder.Concat(
                 *reshape_dim_pieces,
@@ -466,9 +639,29 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             expand_input = x_val  # scalar or already aligned
 
         # Final expanded tensor should match the outvar's jax aval.
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        if meta_override_axis0 is None:
+            fallback_override = next(
+                (
+                    int(val)
+                    for val in (
+                        get_axis0_override(out_spec),
+                        getattr(ctx, "_static_loop_extent_axis0", None),
+                    )
+                    if isinstance(val, (int, np.integer)) and int(val) > 0
+                ),
+                None,
+            )
+            meta_override_axis0 = fallback_override
         out_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
+
+        if os.environ.get("J2O_DEBUG_BCAST_SHAPE") == "1":
+            print(
+                "[broadcast_shape]",
+                getattr(out_spec, "name", None),
+                out_shape,
+                bdims,
+                flush=True,
+            )
 
         in_dt = getattr(getattr(expand_input, "type", None), "dtype", None)
         if in_dt is not None and out_dtype is not None and in_dt != out_dtype:
@@ -501,4 +694,28 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             expanded_out.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(expanded_out, out_shape)
         _ensure_value_metadata(ctx, expanded_out)
+        if (
+            isinstance(meta_override_axis0, (int, np.integer))
+            and int(meta_override_axis0) >= 0
+        ):
+            override_int = int(meta_override_axis0)
+            set_axis0_override(expanded_out, override_int)
+            if override_int > 1:
+                expanded_out = ensure_axis0_extent(
+                    ctx, expanded_out, override_int, reference=out_spec
+                )
+                out_shape = (override_int,) + out_shape[1:] if out_shape else out_shape
+                target_shape_dims[0] = override_int
+        if target_shape_dims:
+            try:
+                stamped_dims = tuple(
+                    _to_ir_dim_for_shape(dim) if not isinstance(dim, ir.Value) else None
+                    for dim in target_shape_dims
+                )
+                if any(dim is not None for dim in stamped_dims):
+                    _stamp_type_and_shape(expanded_out, stamped_dims)
+                    _stamp_type_and_shape(out_spec, stamped_dims)
+                    _ensure_value_metadata(ctx, expanded_out)
+            except Exception:
+                pass
         ctx.bind_value_for_var(out_var, expanded_out)

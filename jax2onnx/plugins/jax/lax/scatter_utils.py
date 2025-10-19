@@ -12,12 +12,14 @@ The lowering keeps a few key invariants in sync with the ONNX backend:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import (
     _builder_op,
     _cast_to_i64,
@@ -27,6 +29,12 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _shape_of,
     _unsqueeze_scalar,
 )
+
+
+def _maybe_static_extent(value: Any) -> int | None:
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    return None
 
 
 @dataclass(frozen=True)
@@ -494,6 +502,14 @@ def _compute_window_sizes(
             size_scalar = _gather_int_scalar(
                 ctx, updates_shape_val, upd_axis, f"scatter_window_size_{axis}"
             )
+            if os.environ.get("J2O_DEBUG_SCATTER_SIZES") == "1":
+                print(
+                    "[scatter_window_size]",
+                    axis,
+                    upd_axis,
+                    getattr(getattr(updates_val, "shape", None), "dims", None),
+                    flush=True,
+                )
         else:
             size_scalar = _scalar_i64(ctx, 1, f"scatter_window_size_const_{axis}")
         size_scalars.append(size_scalar)
@@ -1050,6 +1066,19 @@ def _lower_scatter_window_full(
         if axis in scatter_axes:
             continue
         hints.setdefault(axis, []).append(size_unsqueezed[axis])
+        if os.environ.get("J2O_DEBUG_SCATTER_HINTS") == "1":
+            try:
+                val = size_unsqueezed[axis]
+                dims = getattr(getattr(val, "shape", None), "dims", None)
+                print(
+                    "[scatter_hint]",
+                    axis,
+                    getattr(val, "name", None),
+                    dims,
+                    flush=True,
+                )
+            except Exception:
+                pass
 
     updates_rank = len(updates_shape)
     window_axes_update = {
@@ -1180,6 +1209,12 @@ def _lower_scatter_window_full(
     out_val.type = ir.TensorType(operand_val.type.dtype)
     out_val.dtype = operand_val.type.dtype
     _ensure_value_metadata(ctx, out_val)
+    axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
+    if axis0_extent and axis0_extent > 1:
+        set_axis0_override(out_val, axis0_extent)
+    axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
+    if axis0_extent and axis0_extent > 1:
+        set_axis0_override(out_val, axis0_extent)
     return True
 
 
