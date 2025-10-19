@@ -882,6 +882,12 @@ class FunctionPlugin(PrimitivePlugin):
                         *(tuple(sds) + tuple(dynamic_sds))
                     )
                 jpr_f = closed.jaxpr
+                # Allow plugins inside the function body to fold constants by
+                # giving the child context visibility into producer equations.
+                try:
+                    fscope.ctx._const_folder.install_producers(jpr_f)
+                except AttributeError:
+                    pass
             finally:
                 _IN_FUNCTION_BUILD.set(active)
 
