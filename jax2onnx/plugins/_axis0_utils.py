@@ -126,7 +126,8 @@ def _pad_axis0_to_extent(
         array=np.asarray(pads_vec, dtype=np.int64),
     )
     pads_val.type = ir.TensorType(ir.DataType.INT64)
-    _stamp_type_and_shape(pads_val, (len(pads_vec),))
+    dynamic_pad_dims = tuple(None for _ in pads_vec)
+    _stamp_type_and_shape(pads_val, dynamic_pad_dims)
     _ensure_value_metadata(ctx, pads_val)
 
     pad_inputs = [value, pads_val, zero_init]

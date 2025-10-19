@@ -251,15 +251,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
 
         _ensure_value_metadata(ctx, result)
         if axis0_removed and axis0_override is not None:
-            _ensure_value_metadata(ctx, out_spec)
-            set_axis0_override(result, axis0_override)
             set_axis0_override(out_spec, axis0_override)
-            _axis0_debug(
-                "squeeze axis0 override applied "
-                f"value={getattr(result, 'name', None)} "
-                f"out_spec={getattr(out_spec, 'name', None)} "
-                f"override={axis0_override}"
-            )
         elif not axis0_removed:
             propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(y_var, result)
