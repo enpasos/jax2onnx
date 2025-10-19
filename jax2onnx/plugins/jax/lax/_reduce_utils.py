@@ -111,7 +111,6 @@ def lower_reduction(
             np.dtype(aval_dtype), ctx.builder.enable_double_precision
         )
         result.type = ir.TensorType(out_dtype_enum)
-    result.shape = ir.Shape(out_shape)
     _stamp_type_and_shape(result, out_shape)
 
     _ensure_value_metadata(ctx, result)
@@ -157,7 +156,6 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
         _outputs=[ctx.fresh_name(reduce_op)],
     )
     reduce_out.type = ir.TensorType(ir.DataType.INT64)
-    reduce_out.shape = ir.Shape(tuple(out_shape))
     _stamp_type_and_shape(reduce_out, out_shape)
     _ensure_value_metadata(ctx, reduce_out)
 
@@ -170,7 +168,6 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
             _outputs=[ctx.fresh_name(f"{mode}_mod")],
         )
         mod_out.type = ir.TensorType(ir.DataType.INT64)
-        mod_out.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(mod_out, out_shape)
         _ensure_value_metadata(ctx, mod_out)
 
@@ -181,7 +178,6 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
             _outputs=[ctx.fresh_name(f"{mode}_eq")],
         )
         result.type = ir.TensorType(ir.DataType.BOOL)
-        result.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
@@ -193,7 +189,6 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
             to=int(ir.DataType.BOOL.value),
         )
         result.type = ir.TensorType(ir.DataType.BOOL)
-        result.shape = ir.Shape(tuple(out_shape))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

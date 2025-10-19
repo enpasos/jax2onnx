@@ -502,6 +502,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     )
                 src = origin(d)
                 if src is None:
+                    src = origin(str(d))
+                if src is None:
                     raise NotImplementedError(
                         f"no origin recorded for symbolic dim '{d}'"
                     )
@@ -547,14 +549,9 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         if need_reshape:
             # Build reshape_shape by placing operand dims into their mapped result axes, 1 elsewhere.
             rrank = len(shape)
-            reshape_dims: list[int] = [1] * rrank
+            reshape_dims: list[object] = [1] * rrank
             for i, r_axis in enumerate(bdims):
-                # guard if aval dims are unknown (shouldn't happen on tests)
-                dim = (
-                    int(op_shape[i])
-                    if i < len(op_shape) and isinstance(op_shape[i], (int, np.integer))
-                    else 1
-                )
+                dim = op_shape[i] if i < len(op_shape) else 1
                 reshape_dims[r_axis] = dim
 
             reshape_dim_pieces: list[ir.Value] = []
@@ -574,13 +571,51 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue
-                reshape_dim_pieces.append(
-                    _const_i64(
-                        ctx,
-                        np.asarray([int(dim)], dtype=np.int64),
-                        ctx.fresh_name("bcast_reshape_dim"),
+                if isinstance(dim, (int, np.integer)):
+                    reshape_dim_pieces.append(
+                        _const_i64(
+                            ctx,
+                            np.asarray([int(dim)], dtype=np.int64),
+                            ctx.fresh_name("bcast_reshape_dim"),
+                        )
                     )
+                    continue
+                origin = getattr(ctx, "get_symbolic_dim_origin", None)
+                if origin is None:
+                    raise NotImplementedError(
+                        "symbolic dims require ctx.get_symbolic_dim_origin"
+                    )
+                src = origin(dim)
+                if src is None:
+                    src = origin(str(dim))
+                if src is None:
+                    raise NotImplementedError(
+                        f"no origin recorded for symbolic dim '{dim}'"
+                    )
+                src_val, src_axis = src
+                src_rank = len(
+                    getattr(getattr(src_val, "shape", None), "dims", ()) or ()
                 )
+                shp = builder.Shape(
+                    src_val,
+                    _outputs=[ctx.fresh_name("bcast_reshape_sym_shape")],
+                )
+                _stamp_type_and_shape(shp, (src_rank,))
+                _ensure_value_metadata(ctx, shp)
+                idx = _const_i64(
+                    ctx,
+                    np.asarray([int(src_axis)], dtype=np.int64),
+                    ctx.fresh_name("bcast_reshape_sym_idx"),
+                )
+                dim_val = builder.Gather(
+                    shp,
+                    idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("bcast_reshape_sym_dim")],
+                )
+                _stamp_type_and_shape(dim_val, (1,))
+                _ensure_value_metadata(ctx, dim_val)
+                reshape_dim_pieces.append(dim_val)
 
             rs_val = builder.Concat(
                 *reshape_dim_pieces,

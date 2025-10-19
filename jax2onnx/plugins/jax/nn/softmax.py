@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Final
 
 import jax
+import jax.numpy as jnp
 from jax.extend.core import Primitive
+from jax.interpreters import batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -18,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _SOFTMAX_PRIM: Final[Primitive] = Primitive("jax.nn.softmax")
 _SOFTMAX_PRIM.multiple_results = False
+_JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
 
 
 @register_primitive(
@@ -113,4 +116,35 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
 @SoftmaxPlugin._PRIM.def_impl
 def _softmax_impl(*args, **kwargs):
-    return jax.nn.softmax(*args, **kwargs)
+    return _JAX_SOFTMAX_ORIG(*args, **kwargs)
+
+
+def _softmax_batch_rule(batched_args, batch_dims, *, axis=-1):
+    (x,) = batched_args
+    (x_bdim,) = batch_dims
+
+    if x_bdim is None:
+        return SoftmaxPlugin._PRIM.bind(x, axis=axis), None
+
+    rank = x.ndim
+    canon_axis = axis if axis >= 0 else axis + rank
+    if canon_axis < 0 or canon_axis >= rank:
+        raise ValueError("Invalid axis for softmax batching rule")
+
+    if x_bdim != 0:
+        x = jnp.moveaxis(x, x_bdim, 0)
+
+    if canon_axis == x_bdim:
+        result = _JAX_SOFTMAX_ORIG(x, axis=0)
+        return result, 0
+
+    if canon_axis < x_bdim:
+        axis_body = canon_axis
+    else:
+        axis_body = canon_axis - 1
+
+    result = jax.vmap(lambda t: _JAX_SOFTMAX_ORIG(t, axis=axis_body))(x)
+    return result, 0
+
+
+batching.primitive_batchers[SoftmaxPlugin._PRIM] = _softmax_batch_rule

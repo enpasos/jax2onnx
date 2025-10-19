@@ -97,7 +97,14 @@ class SlicePlugin(PrimitiveLeafPlugin):
         axes = tuple(range(len(starts)))
 
         starts_val = _const_i64(ctx, starts, "slice_starts")
-        limits_val = _const_i64(ctx, limits, "slice_limits")
+
+        def _coerce_limit(val):
+            if isinstance(val, (int, np.integer)):
+                return int(val)
+            return np.iinfo(np.int64).max
+
+        normalized_limits = tuple(_coerce_limit(v) for v in limits)
+        limits_val = _const_i64(ctx, normalized_limits, "slice_limits")
         axes_val = _const_i64(ctx, axes, "slice_axes")
 
         inputs = [x_val, starts_val, limits_val, axes_val]

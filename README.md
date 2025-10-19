@@ -114,6 +114,8 @@ to_onnx(
  
 * **0.9.1**:
   * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
+  * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
+  * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
 
 
 ### **Current Productive Version**
@@ -201,7 +203,7 @@ We warmly welcome contributions!
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins):
   a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
-
+ 
 ---
 
 ## 💾 Installation
@@ -222,6 +224,8 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ---
 
 ## 🌟 Special Thanks
+
+✨ Special thanks to [@clementpoiret](https://github.com/clementpoiret) for initiating Equinox support and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as DINOv3—to JAX/Equinox.
 
 ✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 

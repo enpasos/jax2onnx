@@ -8,6 +8,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import core
+from jax.interpreters import batching
+from jax._src.lax import lax as lax_internal
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -260,3 +262,20 @@ def _squeeze_impl(a, axis=None):
 
 
 JnpSqueezePlugin._PRIM.def_abstract_eval(JnpSqueezePlugin.abstract_eval)
+
+
+def _squeeze_batch_rule(batched_args, batch_dims, *, axis=None):
+    (operand,), (_bdim,) = batched_args, batch_dims
+    operand_shape = getattr(operand, "shape", ())
+    rank = len(operand_shape)
+    axes = _normalize_axes(axis, rank)
+    if not axes:
+        axes = tuple(
+            idx
+            for idx, dim in enumerate(operand_shape)
+            if isinstance(dim, int) and dim == 1
+        )
+    return lax_internal._squeeze_batch_rule(batched_args, batch_dims, dimensions=axes)
+
+
+batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule

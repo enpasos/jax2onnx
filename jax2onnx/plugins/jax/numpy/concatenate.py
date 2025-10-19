@@ -15,9 +15,13 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax.interpreters import batching
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
+
+
+_ORIGINAL_JNP_CONCATENATE: Final = jnp.concatenate
 
 
 def _to_tuple(arrays: Iterable[jnp.ndarray]) -> tuple:
@@ -280,5 +284,50 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
 
 @JnpConcatenatePlugin._PRIM.def_impl
 def _concatenate_impl(*args, **kwargs):
-    orig = get_orig_impl(JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME)
+    try:
+        orig = get_orig_impl(
+            JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
+        )
+    except RuntimeError:
+        orig = _ORIGINAL_JNP_CONCATENATE
     return orig(*args, **kwargs)
+
+
+def _concatenate_batch_rule(batched_args, batch_dims, *, axis=0, dtype=None):
+    axis_int = int(axis)
+    axis_size = None
+    for arg, bdim in zip(batched_args, batch_dims):
+        if bdim is batching.not_mapped:
+            continue
+        shape = getattr(arg, "shape", None)
+        if shape is None or bdim >= len(shape):
+            continue
+        axis_size = shape[bdim]
+        break
+
+    if axis_size is None:
+        out = JnpConcatenatePlugin._PRIM.bind(*batched_args, axis=axis_int, dtype=dtype)
+        return out, batching.not_mapped
+
+    prepared_args = [
+        batching.bdim_at_front(arg, bdim, axis_size)
+        for arg, bdim in zip(batched_args, batch_dims)
+    ]
+
+    try:
+        orig = get_orig_impl(
+            JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
+        )
+    except RuntimeError:
+        orig = _ORIGINAL_JNP_CONCATENATE
+
+    def _call_single(*slices):
+        if dtype is None:
+            return orig(slices, axis=axis_int)
+        return orig(slices, axis=axis_int, dtype=dtype)
+
+    result = jax.vmap(_call_single)(*prepared_args)
+    return result, 0
+
+
+batching.primitive_batchers[JnpConcatenatePlugin._PRIM] = _concatenate_batch_rule

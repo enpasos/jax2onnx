@@ -96,25 +96,104 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             "dimension_numbers"
         ]
 
-        if lhs_batch or rhs_batch:
-            raise NotImplementedError(
-                "Batched dot_general not yet supported in plugins"
-            )
-
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("dot_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("dot_rhs"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dot_out"))
 
-        tuple(getattr(lhs_var.aval, "shape", ()))
+        lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
-        def _resolve_contract_pair():
-            # Supported cases mirror the legacy plugin: single axis contraction.
-            if lhs_contract == (1,) and rhs_contract == (0,):
-                return False  # no transpose
-            if lhs_contract == (1,) and rhs_contract == (1,):
-                return True  # only RHS transpose needed
+        if lhs_batch or rhs_batch:
+            if tuple(lhs_batch) != tuple(rhs_batch):
+                raise NotImplementedError(
+                    "dot_general batch dimensions must match between operands"
+                )
+            if len(lhs_contract) != 1 or len(rhs_contract) != 1:
+                raise NotImplementedError(
+                    "dot_general batching supports a single contract axis"
+                )
+
+            lhs_contract_axis = lhs_contract[0]
+            rhs_contract_axis = rhs_contract[0]
+            lhs_rank = len(lhs_shape)
+            rhs_rank = len(rhs_shape)
+
+            lhs_free_axes = [
+                axis
+                for axis in range(lhs_rank)
+                if axis not in lhs_batch and axis != lhs_contract_axis
+            ]
+            rhs_free_axes = [
+                axis
+                for axis in range(rhs_rank)
+                if axis not in rhs_batch and axis != rhs_contract_axis
+            ]
+
+            if len(lhs_free_axes) != 1 or len(rhs_free_axes) != 1:
+                raise NotImplementedError(
+                    "dot_general batching currently supports rank-2 matrix dims"
+                )
+
+            lhs_perm = list(lhs_batch) + lhs_free_axes + [lhs_contract_axis]
+            rhs_perm = list(rhs_batch) + [rhs_contract_axis] + rhs_free_axes
+
+            def _transpose_if_needed(
+                value, perm, original_shape, name_hint: str
+            ) -> tuple:
+                if perm == list(range(len(original_shape))):
+                    return value, original_shape
+                permuted = ctx.builder.Transpose(
+                    value,
+                    _outputs=[ctx.fresh_name(name_hint)],
+                    perm=perm,
+                )
+                val_dtype = getattr(getattr(value, "type", None), "dtype", None)
+                if val_dtype is not None:
+                    permuted.type = ir.TensorType(val_dtype)
+                perm_shape = tuple(original_shape[i] for i in perm)
+                _stamp_type_and_shape(permuted, perm_shape)
+                _ensure_value_metadata(ctx, permuted)
+                return permuted, perm_shape
+
+            lhs_prepped, lhs_prep_shape = _transpose_if_needed(
+                lhs_val, lhs_perm, lhs_shape, "dot_lhs_perm"
+            )
+            rhs_prepped, rhs_prep_shape = _transpose_if_needed(
+                rhs_val, rhs_perm, rhs_shape, "dot_rhs_perm"
+            )
+
+            desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
+            result = ctx.builder.MatMul(
+                lhs_prepped,
+                rhs_prepped,
+                _outputs=[desired_name],
+            )
+            out_dtype = np.dtype(
+                getattr(
+                    out_var.aval,
+                    "dtype",
+                    getattr(lhs_var.aval, "dtype", np.float32),
+                )
+            )
+            result.type = ir.TensorType(
+                _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+            )
+            _stamp_type_and_shape(result, out_shape)
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
+
+        def _resolve_contract_pair() -> bool:
+            # Allow single-axis contractions where the contracting dimension may
+            # appear at either end of the RHS matrix. If it is already the leading
+            # axis (standard (K, N) layout) we can use MatMul directly; if it is
+            # trailing we transpose to bring it to the leading position.
+            rhs_contract_axis = rhs_contract[0]
+            if rhs_contract_axis == 0:
+                return False
+            if rhs_contract_axis == len(rhs_shape) - 1:
+                return True
             raise NotImplementedError(
                 f"dot_general contraction {lhs_contract}/{rhs_contract} not supported"
             )
