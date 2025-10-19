@@ -38,8 +38,8 @@ class LowerDimExpr:
         self.compute_cache[scalar] = val
         return val
     
-    def _set_metadata(self, value: ir.Value) -> None:
-        _stamp_type_and_shape(value, (1,))
+    def _set_metadata(self, value: ir.Value, size: int = 1) -> None:
+        _stamp_type_and_shape(value, (size,))
         value.type = ir.TensorType(ir.DataType.INT64)
         _ensure_value_metadata(self.ctx, value)
 
@@ -150,8 +150,8 @@ class LowerDimExpr:
         self.compute_cache[str(expr)] = result_value
         return result_value
     
-    def __call__(self, exprs: list[_DimExpr | int]) -> ir.Value:
-        values = [self._lower_expr(expr) for expr in exprs]
+    def __call__(self, exprs: list[_DimExpr | int | ir.Value]) -> ir.Value:
+        values = [expr if isinstance(expr, ir.Value) else self._lower_expr(expr) for expr in exprs]
         if len(values) == 1:
             return values[0]
         else:
@@ -160,5 +160,5 @@ class LowerDimExpr:
                 axis=0,
                 _outputs=[self.ctx.fresh_name("dimexpr_concat")]
             )
-            self._set_metadata(result)
+            self._set_metadata(result, len(values))
             return result

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Final, Optional, Set
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jax._src.export.shape_poly import _DimExpr
 import numpy as np
 import onnx_ir as ir
 
@@ -45,15 +46,15 @@ def _dynamic_or_constant(specs, *, symbols=None):
     return _check
 
 
-def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
-    if isinstance(enum, ir.DataType):
-        return _IR_TO_NP_DTYPE.get(enum)
-    if isinstance(enum, (int, np.integer)):
-        try:
-            return _IR_TO_NP_DTYPE.get(ir.DataType(enum))
-        except Exception:
-            return None
-    return None
+# def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
+#     if isinstance(enum, ir.DataType):
+#         return _IR_TO_NP_DTYPE.get(enum)
+#     if isinstance(enum, (int, np.integer)):
+#         try:
+#             return _IR_TO_NP_DTYPE.get(ir.DataType(enum))
+#         except Exception:
+#             return None
+#     return None
 
 
 def _value_to_numpy(val: ir.Value | None):
@@ -82,92 +83,11 @@ def _static_shape_tuple(shape_tuple):
             return None
     return tuple(dims)
 
-
-def _node_constant_array(ctx, node, target_value, seen: Set[object]):
-    op_type = getattr(node, "op_type", "")
-    inputs = _iro_node_inputs(node)
-    if op_type == "Cast" and inputs:
-        arr = _materialize_constant_array(ctx, inputs[0], seen)
-        if arr is None:
-            return None
-        target_enum = getattr(getattr(target_value, "type", None), "dtype", None)
-        dtype = _np_dtype_from_ir(target_enum)
-        if dtype is not None:
-            return np.asarray(arr, dtype=dtype)
-        return arr
-    if op_type == "CastLike" and len(inputs) >= 2:
-        arr = _materialize_constant_array(ctx, inputs[0], seen)
-        like_arr = _materialize_constant_array(ctx, inputs[1], seen)
-        if arr is None or like_arr is None:
-            return None
-        return np.asarray(arr, dtype=like_arr.dtype)
-    if op_type == "Reshape" and len(inputs) >= 2:
-        data_arr = _materialize_constant_array(ctx, inputs[0], seen)
-        shape_arr = _materialize_constant_array(ctx, inputs[1], seen)
-        if data_arr is None or shape_arr is None:
-            return None
-        try:
-            target_shape = tuple(int(x) for x in np.asarray(shape_arr).reshape(-1))
-        except Exception:
-            return None
-        try:
-            return np.reshape(data_arr, target_shape)
-        except Exception:
-            return None
-    return None
-
-
-def _materialize_constant_array(ctx, value, seen: Optional[Set[object]] = None):
-    arr = _value_to_numpy(value)
-    if arr is not None:
-        return arr
-    name = getattr(value, "name", None)
-    if name:
-        inits = []
-        for attr in ("initializers", "_initializers"):
-            seq = getattr(ctx.builder, attr, None)
-            if seq is None:
-                continue
-            try:
-                inits.extend(list(seq))
-            except Exception:
-                try:
-                    inits.extend(iter(seq))
-                except Exception:
-                    pass
-        for init in inits:
-            if getattr(init, "name", None) == name:
-                arr = _value_to_numpy(init)
-                if arr is not None:
-                    return arr
-
-    producer_fn = getattr(value, "producer", None)
-    node = None
-    if callable(producer_fn):
-        try:
-            node = producer_fn()
-        except Exception:
-            node = None
-    if node is None:
-        return None
-    if seen is None:
-        seen = set()
-    if node in seen:
-        return None
-    seen.add(node)
-    arr = _node_constant_array(ctx, node, value, seen)
-    if arr is not None:
-        return arr
-    # Fallback: Constant node attributes
-    if getattr(node, "op_type", "") == "Constant":
-        attr = _iro_get_attr(node, "value")
-        if attr is not None:
-            return _value_to_numpy(attr)
-    return None
-
+def _eval_primitive(primitive, *args, **kwargs):
+    return primitive.bind(*args, **kwargs)
 
 def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape):
-    const_arr = _materialize_constant_array(ctx, x_val)
+    const_arr = ctx.try_evaluate_const(x_val, _eval_primitive)
     if const_arr is None:
         return False
 
@@ -347,114 +267,30 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 return None
             return values[-1]
 
-        # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
-        # Each dimension becomes a length-1 vector; we Concat along axis=0.
-        dim_pieces: list[ir.Value] = []
+        modified_target_shape: list[ir.Value | _DimExpr | int] = []
         for axis, d in enumerate(shape):
-            if allow_hints and hints and axis not in bdims:
-                override_val = _peek_scatter_hint(axis)
-                if override_val is not None:
-                    dim_pieces.append(override_val)
-                    continue
-            if isinstance(d, (int, np.integer)):
-                dim_pieces.append(
-                    _const_i64(
-                        ctx,
-                        np.asarray([int(d)], dtype=np.int64),
-                        ctx.fresh_name("bcast_dim_c"),
-                    )
-                )
+            override_val = _peek_scatter_hint(axis)
+            if allow_hints and hints and axis not in bdims and override_val is not None:
+                modified_target_shape.append(override_val)
             else:
-                # Dynamic/symbolic dimension: fetch from its recorded origin.
-                origin = getattr(ctx, "get_symbolic_dim_origin", None)
-                if origin is None:
-                    raise NotImplementedError(
-                        "symbolic dims require ctx.get_symbolic_dim_origin"
-                    )
-                src = origin(d)
-                if src is None:
-                    raise NotImplementedError(
-                        f"no origin recorded for symbolic dim '{d}'"
-                    )
-                src_val, axis = src
-                # Shape(src) → Gather(…, [axis]) → length-1 vector
-                src_rank = len(
-                    getattr(getattr(src_val, "shape", None), "dims", ()) or ()
-                )
-                shp = builder.Shape(
-                    src_val,
-                    _outputs=[ctx.fresh_name("bcast_src_shape")],
-                )
-                _stamp_type_and_shape(shp, (src_rank,))
-                _ensure_value_metadata(ctx, shp)
+                modified_target_shape.append(d)
 
-                idx = _const_i64(
-                    ctx,
-                    np.asarray([int(axis)], dtype=np.int64),
-                    ctx.fresh_name("bcast_idx"),
-                )
-
-                dim1 = builder.Gather(
-                    shp,
-                    idx,
-                    axis=0,
-                    _outputs=[ctx.fresh_name("bcast_dim_dyn")],
-                )
-                _stamp_type_and_shape(dim1, (1,))
-                _ensure_value_metadata(ctx, dim1)
-                dim_pieces.append(dim1)
-
-        tgt_shape_val = builder.Concat(
-            *dim_pieces,
-            axis=0,
-            _outputs=[ctx.fresh_name("bcast_target_shape")],
-        )
-        _stamp_type_and_shape(tgt_shape_val, (len(shape),))
-        _ensure_value_metadata(ctx, tgt_shape_val)
-
-        # If operand is a scalar, we can skip the Reshape and go straight to Expand.
+        # If operand is a scalar or the number of dimensions does not change, we can skip the Reshape and go straight to Expand.
         need_reshape = len(op_shape) > 0 and len(shape) != len(op_shape)
 
+        rrank = len(shape)
+        reshape_dims: Optional[list[int]] = [1] * rrank
+        
+        # Build reshape_shape by placing operand dims into their mapped result axes, 1 elsewhere.
+        for i, r_axis in enumerate(bdims):
+            reshape_dims[r_axis] = op_shape[i]
+        
         if need_reshape:
-            # Build reshape_shape by placing operand dims into their mapped result axes, 1 elsewhere.
-            rrank = len(shape)
-            reshape_dims: list[int] = [1] * rrank
-            for i, r_axis in enumerate(bdims):
-                # guard if aval dims are unknown (shouldn't happen on tests)
-                dim = (
-                    int(op_shape[i])
-                    if i < len(op_shape) and isinstance(op_shape[i], (int, np.integer))
-                    else 1
-                )
-                reshape_dims[r_axis] = dim
-
-            reshape_dim_pieces: list[ir.Value] = []
-            for axis, dim in enumerate(reshape_dims):
-                override_val = None
-                if allow_hints and hints and axis not in bdims:
-                    override_val = _peek_scatter_hint(axis)
-                if override_val is not None:
-                    reshape_dim_pieces.append(override_val)
-                    continue
-                reshape_dim_pieces.append(
-                    _const_i64(
-                        ctx,
-                        np.asarray([int(dim)], dtype=np.int64),
-                        ctx.fresh_name("bcast_reshape_dim"),
-                    )
-                )
-
-            rs_val = builder.Concat(
-                *reshape_dim_pieces,
-                axis=0,
-                _outputs=[ctx.fresh_name("bcast_reshape_shape")],
-            )
-            _stamp_type_and_shape(rs_val, (rrank,))
-            _ensure_value_metadata(ctx, rs_val)
-
+            reshape_dim_vals = ctx.dim_expr_lowerer(reshape_dims)
+            
             reshaped_val = builder.Reshape(
                 x_val,
-                rs_val,
+                reshape_dim_vals,
                 _outputs=[ctx.fresh_name("bcast_reshape_out")],
             )
             _stamp_type_and_shape(reshaped_val, tuple(reshape_dims))
@@ -470,35 +306,29 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         out_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
 
-        in_dt = getattr(getattr(expand_input, "type", None), "dtype", None)
-        if in_dt is not None and out_dtype is not None and in_dt != out_dtype:
-            casted = builder.Cast(
+        if getattr(out_spec, "producer", lambda: None)() is not None:
+            desired_name = ctx.fresh_name("Expand")  # Already produced, need unique name
+        else:
+            desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Expand")
+
+        # Only do the Expand if we actually need to Broadcast. The lax.broadcast_in_dim is often used for simple reshaping by JAX
+        if modified_target_shape != reshape_dims:
+            modified_target_shape_val = ctx.dim_expr_lowerer(modified_target_shape)
+            
+            #Final Expand
+            expanded_out = builder.Expand(
                 expand_input,
-                _outputs=[ctx.fresh_name("bcast_in_cast")],
-                to=int(out_dtype.value),
+                modified_target_shape_val,
+                _outputs=[desired_name],
             )
-            expand_input_shape = tuple(
-                getattr(getattr(expand_input, "shape", None), "dims", ()) or out_shape
+            final_dtype = out_dtype or getattr(
+                getattr(expand_input, "type", None), "dtype", None
             )
-            _stamp_type_and_shape(casted, expand_input_shape)
-            _ensure_value_metadata(ctx, casted)
-            expand_input = casted
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Expand")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("Expand")
-
-        expanded_out = builder.Expand(
-            expand_input,
-            tgt_shape_val,
-            _outputs=[desired_name],
-        )
-        final_dtype = out_dtype or getattr(
-            getattr(expand_input, "type", None), "dtype", None
-        )
-        if final_dtype is not None:
-            expanded_out.type = ir.TensorType(final_dtype)
-        _stamp_type_and_shape(expanded_out, out_shape)
-        _ensure_value_metadata(ctx, expanded_out)
-        ctx.bind_value_for_var(out_var, expanded_out)
+            if final_dtype is not None:
+                expanded_out.type = ir.TensorType(final_dtype)
+            _stamp_type_and_shape(expanded_out, out_shape)
+            _ensure_value_metadata(ctx, expanded_out)
+            ctx.bind_value_for_var(out_var, expanded_out)
+        else:
+            ctx.bind_value_for_var(out_var, expand_input)
+    
