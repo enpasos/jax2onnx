@@ -20,6 +20,9 @@
 - **Strict Directive:** Keep the Equinox example code as close as reasonably possible to the upstream Equimo implementation; prefer enhancing `jax2onnx` over diverging from the source unless a minimal shim is absolutely required.
 
 ## Progress Log (Completed)
+- Pretrained export: CLI script `scripts/export_dinov3_pretrained.py` now produces ONNX directly via IR. Added runtime shims (RoPE cache freezing, deterministic dropout paths, GELU activation) so Equimo’s `dinov3_vits16_pretrain_lvd1689m` checkpoint exports successfully and deterministically.
+- Added `tests/examples/test_eqx_dino_pretrained_runtime.py` – optional ONNX Runtime smoke test comparing the exported graph against the patched JAX model when `DINO_EQX_ONNX` (and optionally `DINO_EQX_WEIGHTS`) are provided.
+- Added `scripts/map_equimo_dino_weights.py` to lift Equimo checkpoints into the simplified `examples.eqx_dino` VisionTransformer (`.eqx` serialisation output). The mapper currently bails out when register tokens are present because the plain example architecture does not model them yet.
 - PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
 - Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
 - Attention + RoPE:
@@ -33,6 +36,7 @@
   - Adjusted EQX multihead attention expect-graphs to reflect the optimized operator layout after the reshape cleanup.
 
 ## Notes & Attempts
+- Export script applies Equimo-specific shims (freeze RoPE caches, bypass dropout randomness, replace exact GELU) to keep the IR pipeline deterministic. These patches deliberately stay inside the CLI so core example modules remain untouched.
 - Float64 runtime gaps still push the examples toward `run_only_f32_variant`; revisit once ONNX Runtime catches up.
 - Earlier attempt to reshape RoPE caches by changing `jax.numpy.pow` abstract evaluation was rolled back due to recursion failures—keep in mind if dynamic-dim support resurfaces.
 
