@@ -1,14 +1,19 @@
+# jax2onnx/converter/ir_constants.py
+
 from __future__ import annotations
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 import numpy as np
+from numpy.typing import NDArray
+
 
 class ConstantFolder:
     def __init__(self) -> None:
-        self._known: Dict[int, np.ndarray] = {}
+        self._known: Dict[int, NDArray[np.generic]] = {}
         self._producer: Dict[int, Any] = {}
 
     def register_const(self, var: Any, value: np.ndarray) -> None:
-        self._known[id(var)] = np.asarray(value)
+        arr = np.asarray(value)
+        self._known[id(var)] = cast(NDArray[np.generic], arr)
 
     def install_producers(self, jaxpr) -> None:
         self._producer.clear()
@@ -16,7 +21,9 @@ class ConstantFolder:
             for out in eqn.outvars:
                 self._producer[id(out)] = eqn
 
-    def try_evaluate(self, var: Any, handler: Callable[..., Any]) -> Optional[np.ndarray]:
+    def try_evaluate(
+        self, var: Any, handler: Callable[..., Any]
+    ) -> Optional[NDArray[np.generic]]:
         vid = id(var)
         if vid in self._known:
             return self._known[vid]
@@ -24,14 +31,15 @@ class ConstantFolder:
         literal = getattr(var, "val", None)
         if literal is not None:
             arr = np.asarray(literal)
-            self._known[vid] = arr
-            return arr
+            cast_arr = cast(NDArray[np.generic], arr)
+            self._known[vid] = cast_arr
+            return cast_arr
 
         eqn = self._producer.get(vid)
         if eqn is None:
             return None
 
-        inputs: list[np.ndarray] = []
+        inputs: list[NDArray[np.generic]] = []
         for invar in eqn.invars:
             val = self.try_evaluate(invar, handler)
             if val is None:
@@ -44,5 +52,6 @@ class ConstantFolder:
             return None
 
         arr = np.asarray(out)
-        self._known[vid] = arr
-        return arr
+        cast_arr = cast(NDArray[np.generic], arr)
+        self._known[vid] = cast_arr
+        return cast_arr

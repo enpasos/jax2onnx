@@ -11,6 +11,7 @@ from typing import (
     Iterable,
     Iterator,
     Union,
+    Callable,
     cast,
 )
 from typing import overload
@@ -22,6 +23,7 @@ from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from jax.extend import core as jcore_ext
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .conversion_api import FunctionRegistry
@@ -33,7 +35,7 @@ class _InitializerProxy(MutableSequence[ir.Value]):
     def __init__(self, ctx: "IRContext") -> None:
         self._ctx = ctx
         self._storage = ctx.builder.initializers
-    
+
     def append(self, value: ir.Value) -> None:
         self._ctx._handle_initializer_append(value)
 
@@ -211,8 +213,11 @@ class IRContext:
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
 
-    def try_evaluate_const(self, var, handler):
-        return self._const_folder.try_evaluate(var, handler)
+    def try_evaluate_const(
+        self, var: Any, handler: Callable[..., Any]
+    ) -> Optional[NDArray[np.generic]]:
+        result = self._const_folder.try_evaluate(var, handler)
+        return cast(Optional[NDArray[np.generic]], result)
 
     @property
     def opset(self) -> int:

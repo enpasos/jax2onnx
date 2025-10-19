@@ -441,8 +441,15 @@ register_example(
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["GatherND", "Slice -> Squeeze"],
+                [
+                    "Slice -> Squeeze",
+                    {
+                        "path": "Transpose:50xBx256 -> Gather:Bx256",
+                        "inputs": {1: {"const": 0.0}},
+                    },
+                ],
                 mode="any",
+                symbols={"B": None},
                 no_unused_inputs=True,
             ),
         },
