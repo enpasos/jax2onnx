@@ -371,3 +371,35 @@ def test_identity_cast_removed_inside_function_body():
         raise AssertionError("optimized model has no function registry")
     fn_nodes = _nodes(fn_graph)
     assert [n.op_type for n in fn_nodes] == ["Relu"]
+
+
+def test_identity_reshape_removed_when_target_matches_source():
+    data = V_ir("in", ir.DataType.FLOAT, (3, 4))
+    shape_tensor = ir.tensor(np.asarray([3, 4], dtype=np.int64))
+    shape_val = ir.Value(
+        name="shape",
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((2,)),
+        const_value=shape_tensor,
+    )
+    out_val = V_ir("out", ir.DataType.FLOAT, (3, 4))
+    reshape = ir.Node(
+        op_type="Reshape",
+        domain="",
+        inputs=[data, shape_val],
+        outputs=[out_val],
+        name="Reshape_identity",
+    )
+    graph = ir.Graph(
+        name="reshape_identity",
+        inputs=[data],
+        outputs=[out_val],
+        nodes=[reshape],
+        initializers=[shape_val],
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    optimized = optimize_graph(model)
+    nodes = _nodes(optimized.graph)
+    assert all(n.op_type != "Reshape" for n in nodes)
+    out_names = {getattr(v, "name", "") for v in optimized.graph.outputs}
+    assert "in" in out_names
