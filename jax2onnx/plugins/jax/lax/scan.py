@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Final, Union
+from typing import TYPE_CHECKING, Any, Final, Union
 
 import jax
 import jax.numpy as jnp
@@ -14,6 +14,7 @@ from jax import lax
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
@@ -31,6 +32,8 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _gather_int_scalar,
     _scalar_i64,
     _shape_of,
+    _const_i64,
+    _unsqueeze_scalar,
 )
 
 import jax.extend.core as jax_core_ext
@@ -38,6 +41,48 @@ import jax._src.core as jax_core_internal
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext
+
+
+def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
+    if hasattr(jpr_like, "eqns"):
+        for eqn in jpr_like.eqns:
+            prim_name = getattr(eqn.primitive, "name", "")
+            if prim_name.startswith("scatter"):
+                return True
+            for val in getattr(eqn, "params", {}).values():
+                if _jaxpr_contains_scatter(val):
+                    return True
+    if hasattr(jpr_like, "jaxpr"):
+        return _jaxpr_contains_scatter(jpr_like.jaxpr)
+    if isinstance(jpr_like, (tuple, list)):
+        return any(_jaxpr_contains_scatter(item) for item in jpr_like)
+    return False
+
+
+def _static_scatter_extent(jpr_like: Any) -> int | None:
+    if hasattr(jpr_like, "eqns"):
+        for eqn in jpr_like.eqns:
+            prim_name = getattr(eqn.primitive, "name", "")
+            if prim_name.startswith("scatter") and len(getattr(eqn, "invars", ())) >= 3:
+                updates_var = eqn.invars[2]
+                aval = getattr(updates_var, "aval", None)
+                shape = getattr(aval, "shape", None)
+                if shape and len(shape) > 0:
+                    dim0 = shape[0]
+                    if isinstance(dim0, (int, np.integer)):
+                        return int(dim0)
+            for val in getattr(eqn, "params", {}).values():
+                extent = _static_scatter_extent(val)
+                if extent is not None:
+                    return extent
+    if hasattr(jpr_like, "jaxpr"):
+        return _static_scatter_extent(jpr_like.jaxpr)
+    if isinstance(jpr_like, (tuple, list)):
+        for item in jpr_like:
+            extent = _static_scatter_extent(item)
+            if extent is not None:
+                return extent
+    return None
 
 
 def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
@@ -755,6 +800,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         jaxpr = closed_jaxpr.jaxpr
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+
+        has_scatter = _jaxpr_contains_scatter(jaxpr)
         jaxpr = closed_jaxpr.jaxpr
         dtypes = [
             np.dtype(getattr(var.aval, "dtype"))
@@ -806,6 +853,42 @@ class ScanPlugin(PrimitiveLeafPlugin):
             _set_value_dtype_from_var(loop_ctx, state_input, var)
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
+
+        loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
+        loop_extent_vec = _unsqueeze_scalar(
+            loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+        )
+        trip_count_val: ir.Value | None = None
+        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+        if not isinstance(extent_hints, dict):
+            extent_hints = {}
+            setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+        extent_hints.setdefault(0, []).append(loop_extent_vec)
+        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
+        if has_scatter:
+            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+        if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+            print("[loop_hint_static]", scatter_static_extent, flush=True)
+        if scatter_static_extent is not None:
+            setattr(loop_ctx, "_force_loop_extent_axis0", True)
+            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            override_scalar = _scalar_i64(
+                loop_ctx,
+                int(scatter_static_extent),
+                "scan_loop_extent_override",
+            )
+            override_vec = _unsqueeze_scalar(
+                loop_ctx,
+                override_scalar,
+                0,
+                "scan_loop_extent_override_vec",
+            )
+            axis_hints = extent_hints.setdefault(0, [])
+            axis_hints.clear()
+            axis_hints.append(override_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
@@ -917,7 +1000,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
             opset_imports={"": getattr(ctx.builder, "opset", 21)},
         )
 
-        trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
+        if trip_count_val is None:
+            trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
+        else:
+            trip_count = trip_count_val
 
         cond_init = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("scan_cond_init"),
@@ -1068,6 +1154,16 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 produced.shape = tmpl_shape
             _ensure_value_metadata(ctx, produced)
 
+        loop_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
+        if (
+            getattr(loop_ctx, "_force_loop_extent_axis0", False)
+            and isinstance(loop_override_extent, (int, np.integer))
+            and int(loop_override_extent) > 1
+        ):
+            override_int = int(loop_override_extent)
+            for produced in loop_results:
+                set_axis0_override(produced, override_int)
+
         const_count = len(const_body_outs)
         carry_count = num_carry
         seq_count = 0
@@ -1164,6 +1260,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision and not function_keep_float32
         )
 
+        has_scatter = _jaxpr_contains_scatter(jaxpr)
+
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
@@ -1176,6 +1274,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             _set_value_dtype_from_var(loop_ctx, state_input, var)
             relax_value_to_rank_only(state_input)
             state_inputs.append(state_input)
+
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_with_inputs_state]",
@@ -1202,6 +1301,47 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
             sequence_states.append(seq_state)
 
+        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+        if has_scatter and sequence_states:
+            seq_state = sequence_states[0]
+            seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
+            loop_extent_scalar = _gather_int_scalar(
+                loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+            )
+            loop_extent_vec = _unsqueeze_scalar(
+                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+            )
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            extent_hints.setdefault(0, []).append(loop_extent_vec)
+            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
+        if scatter_static_extent is not None:
+            setattr(loop_ctx, "_force_loop_extent_axis0", True)
+            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            override_scalar = _scalar_i64(
+                loop_ctx,
+                int(scatter_static_extent),
+                "scan_loop_extent_override",
+            )
+            override_vec = _unsqueeze_scalar(
+                loop_ctx,
+                override_scalar,
+                0,
+                "scan_loop_extent_override_vec",
+            )
+            axis_hints = extent_hints.setdefault(0, [])
+            axis_hints.clear()
+            axis_hints.append(override_vec)
+            trip_count_val = _scalar_i64(
+                ctx,
+                int(scatter_static_extent),
+                "scan_trip_extent_static",
+            )
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]
@@ -1231,6 +1371,65 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     per_step_val.type = ir.TensorType(target_enum)
                     _ensure_value_metadata(loop_ctx, per_step_val)
                     loop_ctx.bind_value_for_var(per_step_var, per_step_val)
+            if (
+                scatter_static_extent is not None
+                and isinstance(scatter_static_extent, (int, np.integer))
+                and int(scatter_static_extent) > 1
+            ):
+                per_step_shape = getattr(
+                    getattr(per_step_var, "aval", None), "shape", ()
+                )
+                rank = len(per_step_shape)
+                if rank >= 1:
+                    gather_shape = _shape_of(
+                        loop_ctx, per_step_val, "scan_per_step_shape"
+                    )
+                    start_tail = _const_i64(
+                        loop_ctx,
+                        np.asarray([1], dtype=np.int64),
+                        "scan_per_step_shape_start",
+                    )
+                    limit_tail = _const_i64(
+                        loop_ctx,
+                        np.asarray([rank], dtype=np.int64),
+                        "scan_per_step_shape_limit",
+                    )
+                    axes_tail = _const_i64(
+                        loop_ctx,
+                        np.asarray([0], dtype=np.int64),
+                        "scan_per_step_shape_axes",
+                    )
+                    tail_shape = loop_ctx.builder.Slice(
+                        gather_shape,
+                        start_tail,
+                        limit_tail,
+                        axes_tail,
+                        _outputs=[loop_ctx.fresh_name("scan_per_step_tail_shape")],
+                    )
+                    override_scalar = _scalar_i64(
+                        loop_ctx,
+                        int(scatter_static_extent),
+                        "scan_per_step_extent",
+                    )
+                    override_vec = _unsqueeze_scalar(
+                        loop_ctx,
+                        override_scalar,
+                        0,
+                        "scan_per_step_extent_vec",
+                    )
+                    target_shape = loop_ctx.builder.Concat(
+                        override_vec,
+                        tail_shape,
+                        axis=0,
+                        _outputs=[loop_ctx.fresh_name("scan_per_step_target_shape")],
+                    )
+                    expanded = loop_ctx.builder.Expand(
+                        per_step_val,
+                        target_shape,
+                        _outputs=[loop_ctx.fresh_name("scan_per_step_expand")],
+                    )
+                    _ensure_value_metadata(loop_ctx, expanded)
+                    loop_ctx.bind_value_for_var(per_step_var, expanded)
 
         lower_jaxpr_eqns(loop_ctx, jaxpr)
 
@@ -1490,6 +1689,16 @@ class ScanPlugin(PrimitiveLeafPlugin):
             if tmpl_shape is not None:
                 produced.shape = tmpl_shape
             _ensure_value_metadata(ctx, produced)
+
+        loop_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
+        if (
+            getattr(loop_ctx, "_force_loop_extent_axis0", False)
+            and isinstance(loop_override_extent, (int, np.integer))
+            and int(loop_override_extent) > 1
+        ):
+            override_int = int(loop_override_extent)
+            for produced in loop_results:
+                set_axis0_override(produced, override_int)
 
         const_count = len(const_body_outs)
         carry_count = num_carry

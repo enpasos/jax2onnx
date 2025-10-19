@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -293,6 +294,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         if result_dtype is not None:
             result.type = ir.TensorType(result_dtype)
         _ensure_value_metadata(ctx, result)
+        propagate_axis0_override(data_val, result)
         ctx.bind_value_for_var(out_var, result)
 
 
