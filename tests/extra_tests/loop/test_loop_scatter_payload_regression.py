@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import onnx
 from onnx import numpy_helper
@@ -137,3 +139,32 @@ def test_issue52_scatter_window_keeps_update_axis(tmp_path):
         const_value,
         expected,
     ), "Scatter window dimension should match the 6-element updates axis"
+
+
+@pytest.mark.xfail(reason="Constant slice still trims the loop extent (issue #52)")
+def test_issue52_const_slice_broadcast(tmp_path):
+    ort = pytest.importorskip(
+        "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
+    )
+
+    @jax.jit
+    def _const_slice_add():
+        const = jnp.arange(1.0, 6.0, dtype=jnp.float32).reshape(5, 1, 1)
+        loop_values = jnp.arange(5.0, dtype=jnp.float32).reshape(5, 1, 1)
+        window = const[1:4]
+        return loop_values + window
+
+    model = to_onnx(
+        _const_slice_add,
+        inputs=[],
+        model_name="issue52_const_slice",
+        opset=21,
+    )
+    model_path = tmp_path / "issue52_const_slice.onnx"
+    model_path.write_bytes(model.SerializeToString())
+
+    session = ort.InferenceSession(
+        str(model_path),
+        providers=["CPUExecutionProvider"],
+    )
+    session.run(None, {})

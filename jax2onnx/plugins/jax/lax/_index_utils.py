@@ -183,13 +183,14 @@ def _builder_op(
 def _shape_of(ctx: Any, value: ir.Value, name_hint: str) -> ir.Value:
     """Materialize ``Shape`` for ``value`` via the builder."""
 
+    rank = _infer_rank(value, 0)
     return _builder_op(
         ctx,
         "Shape",
         [value],
         name_hint=name_hint,
         dtype=ir.DataType.INT64,
-        shape=(None,),
+        shape=(rank,),
     )
 
 
