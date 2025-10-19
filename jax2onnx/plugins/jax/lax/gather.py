@@ -12,7 +12,7 @@ from jax import lax
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _shape_of
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 from .gather_helpers import get_gir_output_shape
@@ -375,20 +375,242 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def _emit_index_expand_range_gir_from_gir(
         self, ctx: "IRContext", gir_instr: dict, index_tensor: ir.Value
     ) -> ir.Value:
-        # TODO: relatively complex, one possible implementation in numpy:
+        new_dims = gir_instr.get("new_dims", [])
+        if not new_dims:
+            return index_tensor
 
-        # new_dims_shape = [dim["slice_size"] for dim in instr["new_dims"]]
-        # indices_var_index = [dim["indices_var_index"] for dim in instr["new_dims"]]
-        # index_tensor = np.reshape(index_tensor, tuple(instr["input_shape"][:-1] + [1]*len(new_dims_shape) + instr["input_shape"][-1:]))
-        # new_parts = np.zeros(tuple([1]*(len(instr["input_shape"])-1) + new_dims_shape + instr["input_shape"][-1:]))
-        # for i,size in enumerate(new_dims_shape):
-        #     A = np.reshape(np.arange(size), tuple([1]*(len(instr["input_shape"])-1) + [1]*i + [size] + [1]*(len(new_dims_shape)-1-i)))
-        #     new_parts[...,indices_var_index[i]] = A
-        # index_tensor = index_tensor + new_parts
+        input_shape_descr = list(gir_instr.get("input_shape", []))
+        if not input_shape_descr:
+            raise RuntimeError("Missing input_shape metadata for index_expand")
 
-        raise RuntimeError(
-            "index expand for breaking complex gather+slice is not yet supported"
+        base_shape_descr = input_shape_descr[:-1]
+        index_dim_descr = input_shape_descr[-1]
+        if not isinstance(index_dim_descr, (int, np.integer)):
+            raise NotImplementedError(
+                "Dynamic gather index vector length is not supported in index_expand"
+            )
+        index_dim_value = int(index_dim_descr)
+
+        new_dims_shape = [int(dim["slice_size"]) for dim in new_dims]
+        indices_positions = [int(dim["indices_var_index"]) for dim in new_dims]
+
+        base_rank = len(base_shape_descr)
+        num_new_dims = len(new_dims_shape)
+
+        dtype_enum = _dtype_enum_from_value(index_tensor)
+
+        # Insert unit dimensions before the index component.
+        current_shape_descr = list(input_shape_descr)
+        current_val = index_tensor
+        for offset in range(num_new_dims):
+            axis = base_rank + offset
+            axes_const = _const_i64(
+                ctx,
+                np.asarray([axis], dtype=np.int64),
+                f"index_expand_unsq_axes_{offset}",
+            )
+            current_val = ctx.builder.Unsqueeze(
+                current_val,
+                axes_const,
+                _outputs=[ctx.fresh_name("index_expand_unsqueeze")],
+            )
+            current_shape_descr.insert(axis, 1)
+            _stamp_type_and_shape(current_val, tuple(current_shape_descr))
+            current_val.type = ir.TensorType(dtype_enum)
+            _ensure_value_metadata(ctx, current_val)
+
+        # Prepare shape helpers.
+        input_shape_val = _shape_of(ctx, index_tensor, "index_expand_input_shape")
+        _stamp_type_and_shape(input_shape_val, (len(input_shape_descr),))
+        input_shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _ensure_value_metadata(ctx, input_shape_val)
+
+        if base_rank > 0:
+            base_slice_starts = _const_i64(
+                ctx, np.asarray([0], dtype=np.int64), "index_expand_base_start"
+            )
+            base_slice_ends = _const_i64(
+                ctx,
+                np.asarray([base_rank], dtype=np.int64),
+                "index_expand_base_end",
+            )
+            slice_axes = _const_i64(
+                ctx, np.asarray([0], dtype=np.int64), "index_expand_base_axes"
+            )
+            slice_steps = _const_i64(
+                ctx, np.asarray([1], dtype=np.int64), "index_expand_base_steps"
+            )
+            base_shape_val = ctx.builder.Slice(
+                input_shape_val,
+                base_slice_starts,
+                base_slice_ends,
+                slice_axes,
+                slice_steps,
+                _outputs=[ctx.fresh_name("index_expand_base_shape")],
+            )
+            _stamp_type_and_shape(base_shape_val, (base_rank,))
+            base_shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, base_shape_val)
+        else:
+            base_shape_val = None
+
+        new_dims_const_val = _const_i64(
+            ctx,
+            np.asarray(new_dims_shape, dtype=np.int64),
+            "index_expand_new_dims",
         )
+
+        if base_shape_val is not None:
+            target_no_index_shape_val = ctx.builder.Concat(
+                base_shape_val,
+                new_dims_const_val,
+                axis=0,
+                _outputs=[ctx.fresh_name("index_expand_target_shape")],
+            )
+        else:
+            target_no_index_shape_val = new_dims_const_val
+        target_no_index_descr = list(base_shape_descr) + new_dims_shape
+        _stamp_type_and_shape(target_no_index_shape_val, (len(target_no_index_descr),))
+        target_no_index_shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _ensure_value_metadata(ctx, target_no_index_shape_val)
+
+        index_dim_const = _const_i64(
+            ctx,
+            np.asarray([index_dim_value], dtype=np.int64),
+            "index_expand_index_dim",
+        )
+        target_full_shape_val = ctx.builder.Concat(
+            target_no_index_shape_val,
+            index_dim_const,
+            axis=0,
+            _outputs=[ctx.fresh_name("index_expand_full_shape")],
+        )
+        target_full_descr = target_no_index_descr + [index_dim_descr]
+        _stamp_type_and_shape(target_full_shape_val, (len(target_full_descr),))
+        target_full_shape_val.type = ir.TensorType(ir.DataType.INT64)
+        _ensure_value_metadata(ctx, target_full_shape_val)
+
+        total_add: ir.Value | None = None
+
+        for dim_idx, (slice_size, coord_position) in enumerate(
+            zip(new_dims_shape, indices_positions)
+        ):
+            start_val = _scalar_i64(ctx, 0, f"index_expand_range_start_{dim_idx}")
+            limit_val = _scalar_i64(
+                ctx, slice_size, f"index_expand_range_limit_{dim_idx}"
+            )
+            delta_val = _scalar_i64(ctx, 1, f"index_expand_range_delta_{dim_idx}")
+            range_val = ctx.builder.Range(
+                start_val,
+                limit_val,
+                delta_val,
+                _outputs=[ctx.fresh_name("index_expand_range")],
+            )
+            _stamp_type_and_shape(range_val, (slice_size,))
+            range_val.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, range_val)
+
+            reshape_shape = (
+                [1] * (base_rank + dim_idx)
+                + [slice_size]
+                + [1] * (num_new_dims - dim_idx - 1)
+            )
+            reshape_shape_const = _const_i64(
+                ctx,
+                np.asarray(reshape_shape, dtype=np.int64),
+                f"index_expand_range_shape_{dim_idx}",
+            )
+            range_reshaped = ctx.builder.Reshape(
+                range_val,
+                reshape_shape_const,
+                _outputs=[ctx.fresh_name("index_expand_range_reshape")],
+            )
+            _stamp_type_and_shape(range_reshaped, tuple(reshape_shape))
+            range_reshaped.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, range_reshaped)
+
+            range_expanded = ctx.builder.Expand(
+                range_reshaped,
+                target_no_index_shape_val,
+                _outputs=[ctx.fresh_name("index_expand_range_expand")],
+            )
+            _stamp_type_and_shape(range_expanded, tuple(target_no_index_descr))
+            range_expanded.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, range_expanded)
+
+            unsqueeze_axis = len(target_no_index_descr)
+            axes_last_const = _const_i64(
+                ctx,
+                np.asarray([unsqueeze_axis], dtype=np.int64),
+                f"index_expand_range_unsq_axes_{dim_idx}",
+            )
+            range_unsqueezed = ctx.builder.Unsqueeze(
+                range_expanded,
+                axes_last_const,
+                _outputs=[ctx.fresh_name("index_expand_range_unsq")],
+            )
+            _stamp_type_and_shape(range_unsqueezed, tuple(target_no_index_descr + [1]))
+            range_unsqueezed.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, range_unsqueezed)
+
+            one_hot = np.zeros(index_dim_value, dtype=np.int64)
+            one_hot[coord_position] = 1
+            one_hot_const = _const_i64(ctx, one_hot, f"index_expand_one_hot_{dim_idx}")
+            one_hot_shape = [1] * len(target_no_index_descr) + [index_dim_value]
+            one_hot_shape_const = _const_i64(
+                ctx,
+                np.asarray(one_hot_shape, dtype=np.int64),
+                f"index_expand_one_hot_shape_{dim_idx}",
+            )
+            one_hot_reshaped = ctx.builder.Reshape(
+                one_hot_const,
+                one_hot_shape_const,
+                _outputs=[ctx.fresh_name("index_expand_one_hot_reshape")],
+            )
+            _stamp_type_and_shape(one_hot_reshaped, tuple(one_hot_shape))
+            one_hot_reshaped.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, one_hot_reshaped)
+
+            range_contribution = ctx.builder.Mul(
+                range_unsqueezed,
+                one_hot_reshaped,
+                _outputs=[ctx.fresh_name("index_expand_contribution")],
+            )
+            _stamp_type_and_shape(range_contribution, tuple(target_full_descr))
+            range_contribution.type = ir.TensorType(ir.DataType.INT64)
+            _ensure_value_metadata(ctx, range_contribution)
+
+            if total_add is None:
+                total_add = range_contribution
+            else:
+                total_add = ctx.builder.Add(
+                    total_add,
+                    range_contribution,
+                    _outputs=[ctx.fresh_name("index_expand_total_add")],
+                )
+                _stamp_type_and_shape(total_add, tuple(target_full_descr))
+                total_add.type = ir.TensorType(ir.DataType.INT64)
+                _ensure_value_metadata(ctx, total_add)
+
+        if dtype_enum != ir.DataType.INT64:
+            total_add = ctx.builder.Cast(
+                total_add,
+                _outputs=[ctx.fresh_name("index_expand_cast")],
+                to=int(dtype_enum.value),
+            )
+            _stamp_type_and_shape(total_add, tuple(target_full_descr))
+            total_add.type = ir.TensorType(dtype_enum)
+            _ensure_value_metadata(ctx, total_add)
+
+        result_val = ctx.builder.Add(
+            current_val,
+            total_add,
+            _outputs=[ctx.fresh_name("index_expand_apply")],
+        )
+        _stamp_type_and_shape(result_val, tuple(target_full_descr))
+        result_val.type = ir.TensorType(dtype_enum)
+        _ensure_value_metadata(ctx, result_val)
+        return result_val
 
     def _emit_gather_from_gir(
         self,
