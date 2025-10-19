@@ -11,8 +11,13 @@ import onnx_ir as ir
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+    _to_ir_dim_for_shape,
+)
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
@@ -328,6 +333,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         shape = tuple(eqn.params["shape"])
+        target_shape_dims: list[Any] = list(shape)
         bdims = tuple(eqn.params["broadcast_dimensions"])
         axis0_in_bdims = 0 in bdims
 
@@ -394,9 +400,12 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             ),
             None,
         )
+        if meta_override_axis0 is None:
+            fallback_ctx = getattr(ctx, "_static_loop_extent_axis0", None)
+            if isinstance(fallback_ctx, (int, np.integer)) and int(fallback_ctx) > 0:
+                meta_override_axis0 = int(fallback_ctx)
         if (
-            axis0_in_bdims
-            and isinstance(meta_override_axis0, (int, np.integer))
+            isinstance(meta_override_axis0, (int, np.integer))
             and meta_override_axis0 > 0
             and out_shape
         ):
@@ -404,6 +413,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             if out_axis0_static is not None and out_axis0_static > 1:
                 meta_override_axis0 = min(meta_override_axis0, out_axis0_static)
             out_shape = (meta_override_axis0,) + out_shape[1:]
+            target_shape_dims[0] = meta_override_axis0
         debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
             if axis == 0 and out_axis0_static is not None and axis0_in_bdims:
@@ -482,6 +492,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         ctx.fresh_name("bcast_dim_c"),
                     )
                 )
+                target_shape_dims[axis] = int(d)
             else:
                 # Dynamic/symbolic dimension: fetch from its recorded origin.
                 origin = getattr(ctx, "get_symbolic_dim_origin", None)
@@ -649,9 +660,27 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(expanded_out, out_shape)
         _ensure_value_metadata(ctx, expanded_out)
         if (
-            axis0_in_bdims
-            and isinstance(meta_override_axis0, (int, np.integer))
+            isinstance(meta_override_axis0, (int, np.integer))
             and int(meta_override_axis0) >= 0
         ):
-            set_axis0_override(expanded_out, int(meta_override_axis0))
+            override_int = int(meta_override_axis0)
+            set_axis0_override(expanded_out, override_int)
+            if override_int > 1:
+                expanded_out = ensure_axis0_extent(
+                    ctx, expanded_out, override_int, reference=out_spec
+                )
+                out_shape = (override_int,) + out_shape[1:] if out_shape else out_shape
+                target_shape_dims[0] = override_int
+        if target_shape_dims:
+            try:
+                stamped_dims = tuple(
+                    _to_ir_dim_for_shape(dim) if not isinstance(dim, ir.Value) else None
+                    for dim in target_shape_dims
+                )
+                if any(dim is not None for dim in stamped_dims):
+                    _stamp_type_and_shape(expanded_out, stamped_dims)
+                    _stamp_type_and_shape(out_spec, stamped_dims)
+                    _ensure_value_metadata(ctx, expanded_out)
+            except Exception:
+                pass
         ctx.bind_value_for_var(out_var, expanded_out)
