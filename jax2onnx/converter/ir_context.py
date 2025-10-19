@@ -213,10 +213,29 @@ class IRContext:
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
 
-    def try_evaluate_const(
-        self, var: Any, handler: Callable[..., Any]
-    ) -> Optional[NDArray[np.generic]]:
-        result = self._const_folder.try_evaluate(var, handler)
+    def register_constant_evaluator(
+        self, primitive: Any, handler: Callable[..., Any] | None = None
+    ) -> None:
+        if isinstance(primitive, str):
+            prim_name: str = primitive
+        else:
+            prim_name_obj = getattr(primitive, "name", None)
+            if not isinstance(prim_name_obj, str):
+                raise TypeError(
+                    "register_constant_evaluator expects a primitive or primitive name"
+                )
+            prim_name = prim_name_obj
+        if handler is None:
+            bind = getattr(primitive, "bind", None)
+            if not callable(bind):
+                raise TypeError(
+                    "register_constant_evaluator requires a handler when primitive has no 'bind'"
+                )
+            handler = cast(Callable[..., Any], bind)
+        self._const_folder.register_handler(prim_name, handler)
+
+    def try_evaluate_const(self, var: Any) -> Optional[NDArray[np.generic]]:
+        result = self._const_folder.try_evaluate(var)
         return cast(Optional[NDArray[np.generic]], result)
 
     @property

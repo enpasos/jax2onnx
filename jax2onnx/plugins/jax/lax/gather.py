@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax import lax
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -16,6 +17,55 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 from .gather_helpers import get_gir_output_shape
 from .gather_compile import compile_to_gir
+
+
+_CONST_HANDLERS_REGISTERED: bool = False
+
+
+def _ensure_constant_folders_registered(ctx: "IRContext") -> None:
+    global _CONST_HANDLERS_REGISTERED
+    if _CONST_HANDLERS_REGISTERED:
+        return
+
+    register = getattr(ctx, "register_constant_evaluator", None)
+    if not callable(register):
+        _CONST_HANDLERS_REGISTERED = True
+        return
+
+    from jax import lax
+
+    def _bind(primitive: Any) -> Callable[..., Any]:
+        return lambda *args, **kwargs: primitive.bind(*args, **kwargs)
+
+    primitive_names = [
+        "broadcast_in_dim_p",
+        "reshape_p",
+        "squeeze_p",
+        "dynamic_slice_p",
+        "slice_p",
+        "concatenate_p",
+        "add_p",
+        "sub_p",
+        "mul_p",
+        "min_p",
+        "max_p",
+        "transpose_p",
+        "rev_p",
+        "broadcasted_iota_p",
+        "convert_element_type_p",
+    ]
+
+    for name in primitive_names:
+        primitive = getattr(lax, name, None)
+        if primitive is None:
+            continue
+        try:
+            register(primitive, _bind(primitive))
+        except Exception:
+            continue
+
+    _CONST_HANDLERS_REGISTERED = True
+
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from jax2onnx.converter.ir_context import IRContext
@@ -195,7 +245,19 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         data_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
-        constant_indices_value = ctx.try_evaluate_const(indices_var, _eval_primitive)
+        mode = eqn.params.get("mode", lax.GatherScatterMode.PROMISE_IN_BOUNDS)
+        allowed_modes = {
+            lax.GatherScatterMode.PROMISE_IN_BOUNDS,
+            lax.GatherScatterMode.FILL_OR_DROP,
+            lax.GatherScatterMode.CLIP,
+        }
+        if mode is not None and mode not in allowed_modes:
+            raise NotImplementedError(
+                "gather lowering currently supports modes "
+                f"{sorted(m.name for m in allowed_modes)}; got {mode!r}"
+            )
+        _ensure_constant_folders_registered(ctx)
+        constant_indices_value = ctx.try_evaluate_const(indices_var)
 
         ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gather_out"))
 
@@ -465,7 +527,3 @@ def _masked_gather_trig_local(data, indices):
     result = jnp.sin(result) + jnp.cos(result)
     mask = result > jnp.array(0.5, dtype=jnp.float64)
     return jnp.where(mask, result, jnp.array(0.0, dtype=jnp.float64))
-
-
-def _eval_primitive(primitive, *args, **kwargs):
-    return primitive.bind(*args, **kwargs)

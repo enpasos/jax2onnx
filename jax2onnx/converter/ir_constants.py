@@ -10,6 +10,7 @@ class ConstantFolder:
     def __init__(self) -> None:
         self._known: Dict[int, NDArray[np.generic]] = {}
         self._producer: Dict[int, Any] = {}
+        self._handlers: Dict[str, Callable[..., Any]] = {}
 
     def register_const(self, var: Any, value: np.ndarray) -> None:
         arr = np.asarray(value)
@@ -21,9 +22,12 @@ class ConstantFolder:
             for out in eqn.outvars:
                 self._producer[id(out)] = eqn
 
-    def try_evaluate(
-        self, var: Any, handler: Callable[..., Any]
-    ) -> Optional[NDArray[np.generic]]:
+    def register_handler(
+        self, primitive_name: str, handler: Callable[..., Any]
+    ) -> None:
+        self._handlers[str(primitive_name)] = handler
+
+    def try_evaluate(self, var: Any) -> Optional[NDArray[np.generic]]:
         vid = id(var)
         if vid in self._known:
             return self._known[vid]
@@ -39,15 +43,19 @@ class ConstantFolder:
         if eqn is None:
             return None
 
+        handler = self._handlers.get(eqn.primitive.name)
+        if handler is None:
+            return None
+
         inputs: list[NDArray[np.generic]] = []
         for invar in eqn.invars:
-            val = self.try_evaluate(invar, handler)
+            val = self.try_evaluate(invar)
             if val is None:
                 return None
             inputs.append(val)
 
         try:
-            out = handler(eqn.primitive, *inputs, **eqn.params)
+            out = handler(*inputs, **eqn.params)
         except Exception:
             return None
 
