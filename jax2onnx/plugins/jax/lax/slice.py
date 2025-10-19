@@ -146,9 +146,8 @@ class SlicePlugin(PrimitiveLeafPlugin):
             and axis0_override < axis0_extent
         ):
             axis0_override = int(axis0_extent)
-        need_expand = (
-            axis0_override is not None
-            and (axis0_extent is None or axis0_extent > 1)
+        need_expand = axis0_override is not None and (
+            axis0_extent is None or axis0_extent > 1
         )
         if axis0_override is not None and target_shape and need_expand:
             target_shape = (axis0_override,) + target_shape[1:]

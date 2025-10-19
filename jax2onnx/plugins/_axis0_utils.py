@@ -158,7 +158,11 @@ def _pad_axis0_to_extent(
     if _axis0_debug_enabled():
         shape_dims = getattr(getattr(padded, "shape", None), "dims", ()) or ()
         shape_desc = [
-            _static_dim_as_int(dim) if _static_dim_as_int(dim) is not None else repr(dim)
+            (
+                _static_dim_as_int(dim)
+                if _static_dim_as_int(dim) is not None
+                else repr(dim)
+            )
             for dim in shape_dims
         ]
         _axis0_debug(
@@ -412,20 +416,24 @@ def maybe_expand_binary_axis0(
             return True
         return dim_int != override
 
-    lhs_needs = (
-        override is not None and _needs_expand(lhs0_int, len(lhs_shape0))
-    )
-    rhs_needs = (
-        override is not None and _needs_expand(rhs0_int, len(rhs_shape0))
-    )
+    lhs_needs = override is not None and _needs_expand(lhs0_int, len(lhs_shape0))
+    rhs_needs = override is not None and _needs_expand(rhs0_int, len(rhs_shape0))
 
     if _axis0_debug_enabled() and override is not None and override > 1:
         lhs_dims_desc = [
-            _static_dim_as_int(dim) if _static_dim_as_int(dim) is not None else repr(dim)
+            (
+                _static_dim_as_int(dim)
+                if _static_dim_as_int(dim) is not None
+                else repr(dim)
+            )
             for dim in lhs_shape0
         ]
         rhs_dims_desc = [
-            _static_dim_as_int(dim) if _static_dim_as_int(dim) is not None else repr(dim)
+            (
+                _static_dim_as_int(dim)
+                if _static_dim_as_int(dim) is not None
+                else repr(dim)
+            )
             for dim in rhs_shape0
         ]
         _axis0_debug(
