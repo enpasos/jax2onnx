@@ -6,6 +6,7 @@ import numpy as np
 import jax
 from flax import nnx
 from flax.nnx.nn.activations import tanh
+import jax.nn.initializers as init
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -27,6 +28,8 @@ class GRUCellWrapper(nnx.Module):
             in_features=in_feat,
             hidden_features=hid_feat,
             activation_fn=tanh,
+            kernel_init=init.glorot_uniform(),
+            recurrent_kernel_init=init.glorot_uniform(),
             rngs=rngs,
         )
 

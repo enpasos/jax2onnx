@@ -12,28 +12,29 @@
 - Kickoff from @clementpoiret: greenlight to use Equinox DINOv3 as first bigger ONNX-IR export example for jax2onnx 0.9.0, replacing protobuf path.
 - DINOv3 includes RoPE positional embeddings; to be thorough, also cover a standard learned positional embedding variant (see Equimo `posemb.py` at commit `ca0dae7`).
 - Learned posemb across multiple image sizes needs `jax.image.resize` (with/without antialiasing) support, aligning with ONNX `Resize`.
+- Long-term alignment: keep the example as close as possible to Equimo’s DINOv3 implementation and source trained parameters directly from upstream Equimo or the Meta/Facebook DINOv3 releases once format compatibility is clear.
 
 ## Focus
 - `jax2onnx/plugins/examples/eqx/dino.py`: ensure the example runs under the IR-only pipeline and adheres to the above guardrails.
 - Track blockers, test coverage, and export parity updates directly in this document as work progresses.
 - **Strict Directive:** Keep the Equinox example code as close as reasonably possible to the upstream Equimo implementation; prefer enhancing `jax2onnx` over diverging from the source unless a minimal shim is absolutely required.
 
-## Progress Log
-- Ran `Test_PatchEmbed::test_patch_embed`; initial failure because `eqx.nn.Conv2d` expects unbatched inputs and our patched `jnp.squeeze` lacked a batching rule when vmapped.
-- Updated `PatchEmbed.__call__` to apply `eqx.filter_vmap` over the batch dimension.
-- Implemented a batching rule for the custom `jnp.squeeze` primitive (`jax2onnx/plugins/jax/numpy/squeeze.py`) by delegating to JAX’s native `_squeeze_batch_rule`.
-- Re-ran the focused test; `Test_PatchEmbed::test_patch_embed` now passes.
-- Float64 variant surfaced ONNX Runtime gaps: align convolution parameters with the input dtype inside `PatchEmbed.__call__`; constrain the example to the float32 test path via `run_only_f32_variant` to keep numeric validation enabled.
-- Full `tests/examples/test_eqx.py` sweep (baseline): RoPE/Attention paths crash because `dim` math mixes ints with dynamic batch sentinels; need to express rotary embedding frequency math in JAX so dynamic dims flow through.
-- Transformer blocks and VisionTransformer fail LayerNorm shape checks; match the PatchEmbed fix by wrapping LayerNorm/MLP in `eqx.filter_vmap` to handle batched inputs.
-- Policy guard rails flag the new `run_only_f32_variant` usage—update the allowlist or teach the checker to recognize the flag once float64 support is intentionally dropped.
-- Converter-side fix in progress: updated `jax2onnx/plugins/jax/numpy/pow.py` to derive abstract shapes via `_broadcast_shape`, so dynamic dimensions in RoPE no longer break during broadcast inference. Further validation pending.
-- Began porting RoPE toward Equimo’s complex rotation; still blocked because the sequence-length parameter becomes a tracer under `construct_and_call`, so the reshape/broadcast logic needs to avoid symbolic dims or the metadata must supply a concrete length.
-- Rolled `jax2onnx/plugins/jax/numpy/pow.py` back to the original implementation after recursion failures in `tests/primitives/test_jnp.py`; future dynamic-dim support will need a new approach.
-- Restored RoPE to the upstream two-argument signature; `Attention` now passes the token length explicitly, and the standalone example infers it from the input to keep tests deterministic without new metadata slots.
-- Batched LayerNorm/MLP calls in `Block` via `eqx.filter_vmap` to mirror Equimo semantics while keeping the module definitions unchanged. VisionTransformer should now map cleanly once RoPE export stabilises.
-- Registered Equinox `eqx.nn.Conv2d`, `eqx.nn.MultiheadAttention`, and `eqx.nn.RotaryPositionalEmbedding` as ONNX functions with focused examples, keeping coverage anchored in `primitives.eqx`.
-- Refactored `dino.py` so `Attention` now reuses `AttentionCore` for projections and delegates rotary handling via a shared `RotaryProcessHeads` adapter; the plugin recognises this callback and lowers the RoPE step alongside the attention primitive. Dynamic batch exports (`('B', 257, 384)`) now succeed after reshaping the RoPE caches for broadcasting.
+## Progress Log (Completed)
+- PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
+- Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
+- Attention + RoPE:
+  - Restored the upstream two-argument rotary API and threaded token length explicitly so dynamic batches export cleanly.
+  - Refactored `Attention` to reuse an in-module `AttentionCore` and a shared `RotaryProcessHeads` helper; the plugin lowers RoPE alongside the attention primitive, including dynamic batch support.
+- EQX primitive registration: hooked `eqx.nn.Conv2d`, `eqx.nn.MultiheadAttention`, and `eqx.nn.RotaryPositionalEmbedding` into the plugin registry with focused expect-graph coverage.
+- IR optimizer: added `remove_identity_reshapes_ir` to strip redundant reshape corridors, simplifying the generated attention graphs.
+- Imaging utilities: implemented a `jax.image.resize` lowering (nearest, linear, cubic) so posemb grids can be resized when we add learned positional embeddings.
+- Examples & expect_graph updates:
+  - Simplified `AttentionCore` usage (no `@onnx_function` indirection) and refreshed tests to assert operator counts rather than fragile reshape chains.
+  - Adjusted EQX multihead attention expect-graphs to reflect the optimized operator layout after the reshape cleanup.
+
+## Notes & Attempts
+- Float64 runtime gaps still push the examples toward `run_only_f32_variant`; revisit once ONNX Runtime catches up.
+- Earlier attempt to reshape RoPE caches by changing `jax.numpy.pow` abstract evaluation was rolled back due to recursion failures—keep in mind if dynamic-dim support resurfaces.
 
 ## Structuring Plan (Attention + RoPE)
 1. **Module Layers**
@@ -45,3 +46,14 @@
 3. **Testing & Docs**
    - Extend coverage with a regression that toggles between rotary/no-rotary `process_heads` to ensure the plugin continues to dispatch correctly.
    - Document the supported pattern in the example docstring (and plugin README) so contributors know to reuse `RotaryProcessHeads` instead of hand-written head rewrites.
+- Stand up a learned positional embedding example mirroring Equimo’s `posemb.py`; confirm interpolation paths exercise the new `jax.image.resize` lowering (both antialias off/on).
+- Audit parameter parity against upstream Equimo/DINOv3 checkpoints—identify a reproducible source for pretrained weights or add guidance on importing Equimo’s parameters (priority: match Equimo repo first, fall back to Meta’s DINOv3 release).
+- **Weights ingestion**
+  1. Request Meta’s official DINOv3 weights via <https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/> (required for the `.pth` files referenced by Equimo).
+  2. Drop the downloaded checkpoints into `~/.cache/torch/hub/dinov3/weights/` with the exact filenames expected by Equimo’s `models/dinov3.py`.
+  3. Use the helper `scripts/convert_dinov3_from_equimo.py --variant <id>` (wraps Equimo’s `convert_torch_to_equinox`) to serialize Equinox checkpoints into `~/.cache/equimo/dinov3/{variant}.tar.lz4`.
+  4. Load checkpoints inside examples/tests via `load_pretrained_dinov3(...)`. A guarded integration test (`tests/examples/test_eqx_dino_pretrained.py`) compares the model’s features against a reference dump when the following env vars are set: `DINO_EQX_WEIGHTS`, `DINO_EQX_IMAGE`, `DINO_EQX_EXPECTED`, `DINO_EQX_VARIANT` (optional).
+  5. Use `scripts/generate_dinov3_reference.py` to generate the reference activation file from an input tensor once weights are available.
+- Pretrained flow:
+  - Reused the Equimo conversion script (mirroring `models/dinov3.py`) so Meta’s `.pth` checkpoints can be converted—or downloaded directly from the Equimo HF hub—and consumed via `load_pretrained_dinov3`.
+  - Added `scripts/generate_dinov3_reference.py` plus `tests/examples/test_eqx_dino_pretrained.py` so real weights can be smoke-tested against a reference activation when env vars point to cached inputs/outputs.

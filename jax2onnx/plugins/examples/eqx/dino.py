@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Optional
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -348,6 +351,79 @@ def _get_test_cases():
         )
 
     return test_cases
+
+
+_DEFAULT_DINOV3_VARIANT: str = "dinov3_vits16_pretrain_lvd1689m"
+
+
+def load_pretrained_dinov3(
+    variant: str = _DEFAULT_DINOV3_VARIANT,
+    *,
+    weights_path: Optional[str | Path] = None,
+    inference_mode: bool = True,
+):
+    """Load a converted DINOv3 Equinox checkpoint produced via Equimo.
+
+    Parameters
+    ----------
+    variant:
+        Identifier used by Equimo’s converter (e.g. ``dinov3_vits16_pretrain_lvd1689m``).
+    weights_path:
+        Optional override pointing to the ``.tar.lz4`` archive (or directory) generated
+        by :mod:`scripts.convert_dinov3_from_equimo`. Defaults to
+        ``~/.cache/equimo/dinov3/{variant}.tar.lz4``.
+    inference_mode:
+        Forwarded to :func:`equimo.io.load_model`; disable dropout when ``True``.
+
+    Returns
+    -------
+    eqx.Module
+        A :class:`VisionTransformer` instance initialised with pretrained weights.
+    """
+
+    try:
+        from equimo.io import load_model as _equimo_load_model
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "Loading pretrained DINOv3 weights requires `equimo`. "
+            "Install it with: pip install 'equimo[conversion]'"
+        ) from exc
+
+    candidates: list[Path] = []
+    if weights_path is not None:
+        candidates.append(Path(weights_path).expanduser())
+    else:
+        default_archive = Path(f"~/.cache/equimo/dinov3/{variant}.tar.lz4").expanduser()
+        default_dir = Path(f"~/.cache/equimo/dinov3/{variant}").expanduser()
+        candidates.extend([default_archive, default_dir])
+
+    chosen: Optional[Path] = None
+    for candidate in candidates:
+        if candidate.is_file():
+            chosen = candidate
+            break
+        if candidate.is_dir():
+            chosen = candidate
+            break
+        if candidate.suffix != ".tar.lz4":
+            archive = candidate.with_suffix(".tar.lz4")
+            if archive.exists():
+                chosen = archive
+                break
+
+    if chosen is None:
+        locations = "\n".join(f"  - {path}" for path in candidates)
+        raise FileNotFoundError(
+            f"Could not locate pretrained DINOv3 weights for '{variant}'. Checked:\n{locations}\n"
+            "Download the checkpoint using scripts/convert_dinov3_from_equimo.py "
+            "or provide --weights to the archive."
+        )
+
+    return _equimo_load_model(
+        cls="vit",
+        path=chosen,
+        inference_mode=inference_mode,
+    )
 
 
 register_example(

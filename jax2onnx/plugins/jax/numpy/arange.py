@@ -637,14 +637,67 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
             def _patched(*args, **kwargs):
                 dtype = kwargs.pop("dtype", None)
+
+                start_kw = kwargs.pop("start", None)
+                stop_kw = kwargs.pop("stop", None)
+                step_kw = kwargs.pop("step", None)
                 if kwargs:
                     raise TypeError(
                         f"Unsupported keyword arguments for jnp.arange: {tuple(kwargs.keys())}"
                     )
+
                 num_args = len(args)
-                if not (1 <= num_args <= 3):
-                    return orig(*args, dtype=dtype)
-                return cls._PRIM.bind(*args[:num_args], dtype=dtype)
+                if num_args > 3:
+                    return orig(
+                        *args, dtype=dtype, start=start_kw, stop=stop_kw, step=step_kw
+                    )
+
+                if num_args == 0:
+                    if stop_kw is None:
+                        raise TypeError(
+                            "jnp.arange requires 'stop' when using keyword arguments."
+                        )
+                    start = 0 if start_kw is None else start_kw
+                    stop = stop_kw
+                    step = 1 if step_kw is None else step_kw
+                elif num_args == 1:
+                    if start_kw is not None or stop_kw is not None:
+                        return orig(
+                            *args,
+                            dtype=dtype,
+                            start=start_kw,
+                            stop=stop_kw,
+                            step=step_kw,
+                        )
+                    start = 0
+                    stop = args[0]
+                    step = 1 if step_kw is None else step_kw
+                elif num_args == 2:
+                    if start_kw is not None or stop_kw is not None:
+                        return orig(
+                            *args,
+                            dtype=dtype,
+                            start=start_kw,
+                            stop=stop_kw,
+                            step=step_kw,
+                        )
+                    start, stop = args
+                    step = 1 if step_kw is None else step_kw
+                else:  # num_args == 3
+                    if any(v is not None for v in (start_kw, stop_kw, step_kw)):
+                        return orig(
+                            *args,
+                            dtype=dtype,
+                            start=start_kw,
+                            stop=stop_kw,
+                            step=step_kw,
+                        )
+                    start, stop, step = args
+
+                values = [start, stop]
+                if step_kw is not None or num_args == 3 or step != 1:
+                    values.append(step)
+                return cls._PRIM.bind(*values, dtype=dtype)
 
             return _patched
 
