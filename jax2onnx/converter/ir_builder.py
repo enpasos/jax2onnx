@@ -2,12 +2,15 @@
 
 
 from __future__ import annotations
-from typing import Any, MutableMapping, Optional, Sequence, Tuple
+from collections.abc import MutableSequence
+from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
+
+from .ir_clone import clone_graph
 
 
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
@@ -32,6 +35,113 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         raise TypeError(f"Unsupported dtype: {dtype}") from e
 
 
+class _InitializerList(MutableSequence[ir.Value]):
+    """List-like view over graph initializers that mirrors legacy builder semantics."""
+
+    def __init__(self, graph: ir.Graph):
+        self._graph = graph
+
+    def __len__(self) -> int:
+        return len(self._graph.initializers)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+    def __iter__(self) -> Iterator[ir.Value]:
+        return iter(self._values())
+
+    def __contains__(self, value: object) -> bool:
+        return any(existing is value for existing in self._graph.initializers.values())
+
+    @overload
+    def __getitem__(self, index: int) -> ir.Value: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[ir.Value]: ...
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[ir.Value, list[ir.Value]]:
+        values = self._values()
+        return values[index]
+
+    @overload
+    def __setitem__(self, index: int, value: ir.Value) -> None: ...
+
+    @overload
+    def __setitem__(self, index: slice, value: Iterable[ir.Value]) -> None: ...
+
+    def __setitem__(
+        self, index: Union[int, slice], value: Union[ir.Value, Iterable[ir.Value]]
+    ) -> None:
+        values = self._values()
+        if isinstance(index, slice):
+            if not isinstance(value, Iterable):
+                raise TypeError("Slice assignment expects an iterable of ir.Value")
+            values[index] = list(value)
+        else:
+            if not isinstance(value, ir.Value):
+                raise TypeError("Expected ir.Value for item assignment")
+            values[index] = value
+        self.replace(values)
+
+    @overload
+    def __delitem__(self, index: int) -> None: ...
+
+    @overload
+    def __delitem__(self, index: slice) -> None: ...
+
+    def __delitem__(self, index: Union[int, slice]) -> None:
+        values = self._values()
+        del values[index]
+        self.replace(values)
+
+    def insert(self, index: int, value: ir.Value) -> None:
+        values = self._values()
+        values.insert(index, value)
+        self.replace(values)
+
+    def extend(self, values: Iterable[ir.Value]) -> None:
+        for value in values:
+            self.append(value)
+
+    def append(self, value: ir.Value) -> None:
+        self._add(value)
+
+    def remove(self, value: ir.Value) -> None:
+        for name, existing in list(self._graph.initializers.items()):
+            if existing is value:
+                del self._graph.initializers[name]
+                return
+        raise ValueError("Initializer not found in builder")
+
+    def clear(self) -> None:
+        self._graph.initializers.clear()
+
+    def replace(self, values: Iterable[ir.Value]) -> None:
+        self.clear()
+        self.extend(values)
+
+    def copy(self) -> list[ir.Value]:
+        return self._values()
+
+    def pop(self, index: int = -1) -> ir.Value:
+        values = self._values()
+        value = values.pop(index)
+        self.replace(values)
+        return value
+
+    def _add(self, value: ir.Value) -> None:
+        name = value.name
+        if name is None:
+            raise ValueError("Initializer values must have a name")
+        self._graph.initializers[name] = value
+
+    def _values(self) -> list[ir.Value]:
+        return list(self._graph.initializers.values())
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"{list(self)!r}"
+
+
 class IRBuilder:
     """
     Minimal IR graph assembler for converter.
@@ -40,14 +150,19 @@ class IRBuilder:
 
     def __init__(self, *, opset: int, enable_double_precision: bool):
         self.opset = opset
+        self.enable_double_precision = enable_double_precision
         self.graph = ir.Graph(
-            inputs=self.inputs,
-            outputs=self.outputs,
-            nodes=self.nodes,
+            inputs=[],
+            outputs=[],
+            nodes=[],
+            initializers=[],
             name="main_graph",
             opset_imports={"": self.opset},
         )
-        self.enable_double_precision = enable_double_precision
+        self.inputs = self.graph.inputs
+        self.outputs = self.graph.outputs
+        self.nodes = self.graph
+        self._initializers = _InitializerList(self.graph)
         self._tape_builder = _TapeBuilder(self.graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
 
@@ -59,8 +174,12 @@ class IRBuilder:
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
 
     @property
-    def initializers(self) -> MutableMapping[str, ir.Value]:
-        return self.graph.initializers
+    def initializers(self) -> _InitializerList:
+        return self._initializers
+
+    @initializers.setter
+    def initializers(self, values: Iterable[ir.Value]) -> None:
+        self._initializers.replace(values)
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
@@ -230,6 +349,7 @@ class IRBuilder:
         return self._sym_origin.get(sym)
 
     def to_ir_model(self, *, name: str, ir_version: int = 11) -> ir.Model:
+        graph = clone_graph(self.graph)
         if name:
-            self.graph.name = name
-        return ir.Model(self.graph, ir_version=ir_version, producer_name="jax2onnx")
+            graph.name = name
+        return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")
