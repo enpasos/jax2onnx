@@ -11,6 +11,7 @@ from typing import (
     Iterable,
     Iterator,
     Union,
+    Callable,
     cast,
 )
 from typing import overload
@@ -19,8 +20,10 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
-
+from .ir_constants import ConstantFolder
+from .lower_dimexpr import LowerDimExpr
 from jax.extend import core as jcore_ext
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .conversion_api import FunctionRegistry
@@ -180,6 +183,7 @@ class IRContext:
             opset=opset, enable_double_precision=enable_double_precision
         )
         self.builder._function_mode = False
+        self.dim_expr_lowerer = LowerDimExpr(self)
         self._default_float_dtype = (
             np.float64 if enable_double_precision else np.float32
         )
@@ -207,6 +211,32 @@ class IRContext:
         self._call_input_param_names: set[str] = set()
         self._call_input_param_literals: dict[str, Any] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
+        self._const_folder = ConstantFolder()
+
+    def register_constant_evaluator(
+        self, primitive: Any, handler: Callable[..., Any] | None = None
+    ) -> None:
+        if isinstance(primitive, str):
+            prim_name: str = primitive
+        else:
+            prim_name_obj = getattr(primitive, "name", None)
+            if not isinstance(prim_name_obj, str):
+                raise TypeError(
+                    "register_constant_evaluator expects a primitive or primitive name"
+                )
+            prim_name = prim_name_obj
+        if handler is None:
+            bind = getattr(primitive, "bind", None)
+            if not callable(bind):
+                raise TypeError(
+                    "register_constant_evaluator requires a handler when primitive has no 'bind'"
+                )
+            handler = cast(Callable[..., Any], bind)
+        self._const_folder.register_handler(prim_name, handler)
+
+    def try_evaluate_const(self, var: Any) -> Optional[NDArray[np.generic]]:
+        result = self._const_folder.try_evaluate(var)
+        return cast(Optional[NDArray[np.generic]], result)
 
     @property
     def opset(self) -> int:
@@ -406,6 +436,7 @@ class IRContext:
         array = (
             np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
         )
+        self._const_folder.register_const(var, array)
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self._function_mode:

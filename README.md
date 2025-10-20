@@ -116,6 +116,7 @@ to_onnx(
   * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
   * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
   * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
+  * Gather support enhanced
 
 
 ### **Current Productive Version**
@@ -231,7 +232,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
-✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret) and [@Clouder0](https://github.com/Clouder0)
+✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0) and [@rakadam](https://github.com/rakadam)
 
 ✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 
