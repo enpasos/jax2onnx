@@ -8,6 +8,7 @@ import numpy as np
 import onnx_ir as ir
 
 from .ir_context import IRContext
+from .ir_clone import clone_graph
 
 
 @dataclass(frozen=True)
@@ -155,41 +156,28 @@ class FunctionScope:
         # Pick an opset for the body; prefer parent/child builder opset
         body_opset = int(self.ctx.builder.opset)
 
-        inputs = list(self.ctx.builder.inputs)
-        outputs = list(self._outputs)
-        nodes = list(self.ctx.builder.nodes)
-        initializers = list(self.ctx.builder.initializers)
+        # Ensure the builder graph carries the final outputs before cloning.
+        if self._outputs:
+            graph_outputs = self.ctx.builder.outputs
+            graph_outputs.clear()
+            graph_outputs.extend(self._outputs)
 
-        # Ensure the function body declares every domain used by its nodes
-        opset_imports: Dict[str, int] = {"": body_opset}
-        extra_domains = set()
+        body_graph = clone_graph(self.ctx.builder.graph)
+        body_graph.name = self.name
 
+        opset_imports = dict(body_graph.opset_imports)
         fn_domain = (self.domain or "").strip()
         if fn_domain:
-            extra_domains.add(fn_domain)
+            opset_imports.setdefault(fn_domain, body_opset)
+        opset_imports.setdefault("", body_opset)
+        body_graph.opset_imports.clear()
+        body_graph.opset_imports.update(opset_imports)
 
-        for node in nodes:
-            node_domain = (node.domain or "").strip()
-            if node_domain:
-                extra_domains.add(node_domain)
-
-        for dom in sorted(extra_domains):
-            opset_imports.setdefault(dom, 1)
-
-        # Build an IR graph for the function body
-        g = ir.Graph(
-            inputs=inputs,
-            outputs=outputs,
-            nodes=nodes,
-            initializers=initializers,
-            name=self.name,
-            opset_imports=opset_imports,
-        )
         # Create the Function (domain/name must match the call-site)
         fn = ir.Function(
             domain=self.domain,
             name=self.name,
-            graph=g,
+            graph=body_graph,
             attributes=[],
         )
         setattr(fn, "_attr_overrides", dict(self._attr_overrides or {}))

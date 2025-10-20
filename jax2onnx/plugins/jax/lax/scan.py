@@ -12,6 +12,7 @@ import onnx_ir as ir
 from jax import core as jax_core
 from jax import lax
 
+from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -991,14 +992,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_ctx.builder.outputs = body_outputs
 
-        body_graph = ir.Graph(
-            inputs=list(loop_ctx.builder.inputs),
-            outputs=list(loop_ctx.builder.outputs),
-            nodes=list(loop_ctx.builder.nodes),
-            initializers=list(loop_ctx.builder.initializers),
-            name=ctx.fresh_name("scan_loop_body"),
-            opset_imports={"": getattr(ctx.builder, "opset", 21)},
-        )
+        body_graph = clone_graph(loop_ctx.builder.graph)
+        body_graph.name = ctx.fresh_name("scan_loop_body")
+        opset_imports = dict(body_graph.opset_imports)
+        opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
+        body_graph.opset_imports.clear()
+        body_graph.opset_imports.update(opset_imports)
 
         if trip_count_val is None:
             trip_count = _scalar_i64(ctx, int(length), "scan_trip_count")
@@ -1515,14 +1514,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_ctx.builder.outputs = body_outputs
 
-        body_graph = ir.Graph(
-            inputs=list(loop_ctx.builder.inputs),
-            outputs=list(loop_ctx.builder.outputs),
-            nodes=list(loop_ctx.builder.nodes),
-            initializers=list(loop_ctx.builder.initializers),
-            name=ctx.fresh_name("scan_loop_body"),
-            opset_imports={"": getattr(ctx.builder, "opset", 21)},
-        )
+        body_graph = clone_graph(loop_ctx.builder.graph)
+        body_graph.name = ctx.fresh_name("scan_loop_body")
+        opset_imports = dict(body_graph.opset_imports)
+        opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
+        body_graph.opset_imports.clear()
+        body_graph.opset_imports.update(opset_imports)
 
         if trip_count_int is not None:
             trip_count_val = _scalar_i64(ctx, trip_count_int, "scan_trip_count")

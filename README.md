@@ -117,6 +117,7 @@ to_onnx(
   * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
   * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
   * Gather support enhanced
+  * IR builder refactor: live graph proxies plus a reusable `clone_graph` helper keep function/loop subgraphs detached and eliminate cross-graph ownership errors
 
 
 ### **Current Productive Version**

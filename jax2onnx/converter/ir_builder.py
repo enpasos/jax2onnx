@@ -151,7 +151,7 @@ class IRBuilder:
     def __init__(self, *, opset: int, enable_double_precision: bool):
         self.opset = opset
         self.enable_double_precision = enable_double_precision
-        self.graph = ir.Graph(
+        graph = ir.Graph(
             inputs=[],
             outputs=[],
             nodes=[],
@@ -159,11 +159,12 @@ class IRBuilder:
             name="main_graph",
             opset_imports={"": self.opset},
         )
-        self.inputs = self.graph.inputs
-        self.outputs = self.graph.outputs
-        self.nodes = self.graph
-        self._initializers = _InitializerList(self.graph)
-        self._tape_builder = _TapeBuilder(self.graph)
+        self.graph = graph
+        self._inputs = graph.inputs
+        self._outputs = graph.outputs
+        self._nodes = graph
+        self._initializers = _InitializerList(graph)
+        self._tape_builder = _TapeBuilder(graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
 
         # Intermediate ValueInfo entries (propagated to ir.Graph)
@@ -172,6 +173,35 @@ class IRBuilder:
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
+
+    @property
+    def inputs(self) -> MutableSequence[ir.Value]:
+        return self._inputs
+
+    @inputs.setter
+    def inputs(self, values: Iterable[ir.Value]) -> None:
+        self._inputs.clear()
+        self._inputs.extend(values)
+
+    @property
+    def outputs(self) -> MutableSequence[ir.Value]:
+        return self._outputs
+
+    @outputs.setter
+    def outputs(self, values: Iterable[ir.Value]) -> None:
+        self._outputs.clear()
+        self._outputs.extend(values)
+
+    @property
+    def nodes(self) -> ir.Graph:
+        return self._nodes
+
+    @nodes.setter
+    def nodes(self, values: Iterable[ir.Node]) -> None:
+        existing = list(self._nodes)
+        for node in existing:
+            self._nodes.remove(node)
+        self._nodes.extend(values)
 
     @property
     def initializers(self) -> _InitializerList:

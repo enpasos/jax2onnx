@@ -148,6 +148,10 @@ then_out, else_out = values
 - Tensor attributes should be created with `ir.tensor(...)` to guarantee dtype/shape correctness.
 - Graph-typed attributes must be wrapped with `ir.AttrGraph` or `ir.AttrGraphs`.
 
+## Graph Ownership & Cloning
+- `IRBuilder` now keeps its `inputs`, `outputs`, and nodes in sync with the underlying `onnx_ir.Graph` via proxy setters. Reassigning `builder.inputs = [...]` (or `.outputs`/`.nodes`) clears and repopulates the graph-side containers, while `builder.initializers` remains a list-like shim that delegates to `graph.initializers`. Prefer mutating these sequences in place, but reassignment is safe when you need to reset them.
+- When exporting a staged graph—either to an `ir.Model` or into ONNX graph-typed attributes—clone it first using `jax2onnx.converter.ir_clone.clone_graph`. The helper copies values, initializers, metadata, and nested graphs so the detached graph can be owned by another model/function without triggering “Value … is already owned by a different graph” errors. Function scopes and control-flow plugins (`cond`, `fori_loop`, `scan`, `while_loop`) already adopt this pattern; follow suit for any new subgraph emission.
+
 ## Integrating with Existing Graphs or Functions
 ```python
 graph = ir.Graph(inputs=[X], outputs=[Z], nodes=[])
