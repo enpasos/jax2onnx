@@ -33,6 +33,19 @@ def test_ir_builder_initializer_registration() -> None:
         name="weight", value=np.array([1.0], dtype=np.float32)
     )
 
-    assert builder.initializers_by_name["weight"] is weight
+    assert builder.graph.initializers["weight"] is weight
     assert weight in builder.initializers
     assert getattr(weight, "const_value", None) is not None
+
+
+def test_ir_builder_initializer_view_assignment_roundtrip() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    weight = builder.add_initializer_from_scalar(name="weight", value=1.0)
+
+    assert weight in builder.initializers
+
+    builder.initializers = []
+    assert not builder.initializers
+    builder.initializers.append(weight)
+
+    assert builder.graph.initializers["weight"] is weight

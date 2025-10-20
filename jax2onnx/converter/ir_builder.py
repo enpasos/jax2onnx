@@ -2,12 +2,15 @@
 
 
 from __future__ import annotations
-from typing import Any, Optional, Sequence, Tuple
+from collections.abc import MutableSequence
+from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
+
+from .ir_clone import clone_graph
 
 
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
@@ -32,6 +35,113 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         raise TypeError(f"Unsupported dtype: {dtype}") from e
 
 
+class _InitializerList(MutableSequence[ir.Value]):
+    """List-like view over graph initializers that mirrors legacy builder semantics."""
+
+    def __init__(self, graph: ir.Graph):
+        self._graph = graph
+
+    def __len__(self) -> int:
+        return len(self._graph.initializers)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+    def __iter__(self) -> Iterator[ir.Value]:
+        return iter(self._values())
+
+    def __contains__(self, value: object) -> bool:
+        return any(existing is value for existing in self._graph.initializers.values())
+
+    @overload
+    def __getitem__(self, index: int) -> ir.Value: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[ir.Value]: ...
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[ir.Value, list[ir.Value]]:
+        values = self._values()
+        return values[index]
+
+    @overload
+    def __setitem__(self, index: int, value: ir.Value) -> None: ...
+
+    @overload
+    def __setitem__(self, index: slice, value: Iterable[ir.Value]) -> None: ...
+
+    def __setitem__(
+        self, index: Union[int, slice], value: Union[ir.Value, Iterable[ir.Value]]
+    ) -> None:
+        values = self._values()
+        if isinstance(index, slice):
+            if not isinstance(value, Iterable):
+                raise TypeError("Slice assignment expects an iterable of ir.Value")
+            values[index] = list(value)
+        else:
+            if not isinstance(value, ir.Value):
+                raise TypeError("Expected ir.Value for item assignment")
+            values[index] = value
+        self.replace(values)
+
+    @overload
+    def __delitem__(self, index: int) -> None: ...
+
+    @overload
+    def __delitem__(self, index: slice) -> None: ...
+
+    def __delitem__(self, index: Union[int, slice]) -> None:
+        values = self._values()
+        del values[index]
+        self.replace(values)
+
+    def insert(self, index: int, value: ir.Value) -> None:
+        values = self._values()
+        values.insert(index, value)
+        self.replace(values)
+
+    def extend(self, values: Iterable[ir.Value]) -> None:
+        for value in values:
+            self.append(value)
+
+    def append(self, value: ir.Value) -> None:
+        self._add(value)
+
+    def remove(self, value: ir.Value) -> None:
+        for name, existing in list(self._graph.initializers.items()):
+            if existing is value:
+                del self._graph.initializers[name]
+                return
+        raise ValueError("Initializer not found in builder")
+
+    def clear(self) -> None:
+        self._graph.initializers.clear()
+
+    def replace(self, values: Iterable[ir.Value]) -> None:
+        self.clear()
+        self.extend(values)
+
+    def copy(self) -> list[ir.Value]:
+        return self._values()
+
+    def pop(self, index: int = -1) -> ir.Value:
+        values = self._values()
+        value = values.pop(index)
+        self.replace(values)
+        return value
+
+    def _add(self, value: ir.Value) -> None:
+        name = value.name
+        if name is None:
+            raise ValueError("Initializer values must have a name")
+        self._graph.initializers[name] = value
+
+    def _values(self) -> list[ir.Value]:
+        return list(self._graph.initializers.values())
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"{list(self)!r}"
+
+
 class IRBuilder:
     """
     Minimal IR graph assembler for converter.
@@ -41,53 +151,71 @@ class IRBuilder:
     def __init__(self, *, opset: int, enable_double_precision: bool):
         self.opset = opset
         self.enable_double_precision = enable_double_precision
-        self._tape_builder = _TapeBuilder()
-        self.inputs: list[ir.Value] = []
-        self.outputs: list[ir.Value] = []
-        self.nodes: list[ir.Node] = []
-        self.initializers: list[ir.Value] = []
+        graph = ir.Graph(
+            inputs=[],
+            outputs=[],
+            nodes=[],
+            initializers=[],
+            name="main_graph",
+            opset_imports={"": self.opset},
+        )
+        self.graph = graph
+        self._inputs = graph.inputs
+        self._outputs = graph.outputs
+        self._nodes = graph
+        self._initializers = _InitializerList(graph)
+        self._tape_builder = _TapeBuilder(graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
-        self.initializers_by_name: dict[str, ir.Value] = {}
+
         # Intermediate ValueInfo entries (propagated to ir.Graph)
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
-        self._tape_node_index = 0
-        self._tape_initializer_index = 0
+
+    @property
+    def inputs(self) -> MutableSequence[ir.Value]:
+        return self._inputs
+
+    @inputs.setter
+    def inputs(self, values: Iterable[ir.Value]) -> None:
+        self._inputs.clear()
+        self._inputs.extend(values)
+
+    @property
+    def outputs(self) -> MutableSequence[ir.Value]:
+        return self._outputs
+
+    @outputs.setter
+    def outputs(self, values: Iterable[ir.Value]) -> None:
+        self._outputs.clear()
+        self._outputs.extend(values)
+
+    @property
+    def nodes(self) -> ir.Graph:
+        return self._nodes
+
+    @nodes.setter
+    def nodes(self, values: Iterable[ir.Node]) -> None:
+        existing = list(self._nodes)
+        for node in existing:
+            self._nodes.remove(node)
+        self._nodes.extend(values)
+
+    @property
+    def initializers(self) -> _InitializerList:
+        return self._initializers
+
+    @initializers.setter
+    def initializers(self, values: Iterable[ir.Value]) -> None:
+        self._initializers.replace(values)
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
         return f"{base}_{i}"
-
-    def _sync_from_tape_builder(self) -> None:
-        tape_nodes = self._tape_builder.nodes
-        for node in tape_nodes[self._tape_node_index :]:
-            self.nodes.append(node)
-        self._tape_node_index = len(tape_nodes)
-
-        tape_initializers = self._tape_builder.initializers
-        for value in tape_initializers[self._tape_initializer_index :]:
-            init_name = value.name or None
-            existing = (
-                self.initializers_by_name.get(init_name)
-                if init_name is not None
-                else None
-            )
-            if existing is not None:
-                try:
-                    idx = self.initializers.index(existing)
-                    self.initializers[idx] = value
-                except ValueError:
-                    self.initializers.append(value)
-            else:
-                self.initializers.append(value)
-            if init_name is not None:
-                self.initializers_by_name[init_name] = value
-        self._tape_initializer_index = len(tape_initializers)
 
     # ---------- values ----------
     def _make_value(
@@ -100,6 +228,9 @@ class IRBuilder:
 
     # public helpers for initializers (used by FunctionPlugin)
     def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
+        if name in self.graph.initializers:
+            return self.graph.initializers[name]
+
         arr = np.asarray(value)
         if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
             arr = arr.astype(np.float32)
@@ -127,9 +258,6 @@ class IRBuilder:
             self.nodes.append(node)
             return v
         v = self._tape_builder.initializer(tensor, name=name)
-        self._sync_from_tape_builder()
-        # overwrite-safe: last wins
-        self.initializers_by_name[name] = v
         return v
 
     def add_initializer_from_array(self, name: str, array: np.ndarray) -> ir.Value:
@@ -238,7 +366,6 @@ class IRBuilder:
 
             def _wrapped(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
-                self._sync_from_tape_builder()
                 return result
 
             return _wrapped
@@ -252,13 +379,7 @@ class IRBuilder:
         return self._sym_origin.get(sym)
 
     def to_ir_model(self, *, name: str, ir_version: int = 11) -> ir.Model:
-        self._sync_from_tape_builder()
-        graph = ir.Graph(
-            inputs=self.inputs,
-            outputs=self.outputs,
-            nodes=self.nodes,
-            initializers=self.initializers,
-            name=name or "main_graph",
-            opset_imports={"": self.opset},
-        )
+        graph = clone_graph(self.graph)
+        if name:
+            graph.name = name
         return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")

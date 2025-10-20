@@ -9,6 +9,7 @@ import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
 
+from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -346,11 +347,11 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         branch_ctx.builder.outputs = branch_outputs
 
-        return ir.Graph(
-            inputs=[],
-            outputs=list(branch_outputs),
-            nodes=list(branch_ctx.builder.nodes),
-            initializers=list(branch_ctx.builder.initializers),
-            name=ctx.fresh_name(prefix),
-            opset_imports={"": getattr(ctx.builder, "opset", 21)},
-        )
+        branch_graph = clone_graph(branch_ctx.builder.graph)
+        branch_graph.name = ctx.fresh_name(prefix)
+        branch_graph.inputs.clear()
+        opset_imports = dict(branch_graph.opset_imports)
+        opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
+        branch_graph.opset_imports.clear()
+        branch_graph.opset_imports.update(opset_imports)
+        return branch_graph
