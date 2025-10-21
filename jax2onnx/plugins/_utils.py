@@ -99,7 +99,7 @@ def inline_reshape_initializer(
 
     np_arr = np.asarray(arr).reshape(new_shape)
     # Preserve dtype from the original value when available
-    target_dtype = getattr(getattr(val, "type", None), "dtype", None)
+    target_dtype = val.dtype
     if target_dtype is not None and target_dtype in _IR_TO_NP_DTYPE:
         np_arr = np_arr.astype(_IR_TO_NP_DTYPE[target_dtype], copy=False)
 
